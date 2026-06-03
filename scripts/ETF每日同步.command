@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ROOT="/Users/jackm4/Desktop/股票研究"
+ROOT="/Users/jackm4/Documents/ETF/股票研究"
 cd "$ROOT"
 
 echo "=============================================="

@@ -69,7 +69,7 @@ n8n Cloud **無法** Execute Command 執行本機/repo 腳本。
 ```bash
 # 桌面雙擊：~/Desktop/ETF每日同步.command
 # 或：
-/Users/jackm4/Desktop/股票研究/scripts/daily_sync.sh
+/Users/jackm4/Documents/ETF/股票研究/scripts/daily_sync.sh
 # 單步：--holdings-only / --market-only / --retry
 ```
 
@@ -83,7 +83,7 @@ n8n Cloud **無法** Execute Command 執行本機/repo 腳本。
 **單步除錯：**
 
 ```bash
-cd "/Users/jackm4/Desktop/股票研究"
+cd "/Users/jackm4/Documents/ETF/股票研究"
 .venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A --source ezmoney --dry-run
 .venv/bin/python sync_etf_holdings.py --etf-code 009816 --source kgifund --dry-run
 .venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A,009816,00407A --changes

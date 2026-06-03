@@ -51,7 +51,7 @@ ETF_CODES_KGIFUND="009816,00407A"                    # 持股
 **Now:** double-click desktop **`ETF每日同步.command`** or run `scripts/daily_sync.sh` → SQLite `data/stocks.db`. **No** crontab / cloud yet.
 
 ```bash
-cd "/Users/jackm4/Desktop/股票研究"
+cd "/Users/jackm4/Documents/ETF/股票研究"
 scripts/daily_sync.sh
 # or desktop: ~/Desktop/ETF每日同步.command
 ```
@@ -120,7 +120,7 @@ curl --compressed "https://api.tej.com.tw/api/apiKeyInfo/${TEJ_API_KEY}"
 
 ## Preconditions
 
-- Project root: `/Users/jackm4/Desktop/股票研究`
+- Project root: `/Users/jackm4/Documents/ETF/股票研究`
 - Python: `.venv/bin/python`
 - `.env`: `TEJ_API_KEY` (required), `FINMIND_TOKEN` (optional, ETF 法人)
 - Proxy: `daily_sync.sh` unsets `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`
