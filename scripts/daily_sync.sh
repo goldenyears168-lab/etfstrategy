@@ -179,6 +179,18 @@ print_db_summary() {
     ORDER BY session_date DESC
     LIMIT 1;
   " 2>/dev/null | pipe_out || true
+  sqlite3 -header -column "$DB" "
+    SELECT COUNT(DISTINCT stock_id) AS 成分股數,
+           COUNT(*) AS K線筆數,
+           MAX(trade_date) AS 最新交易日
+    FROM stock_daily_bars WHERE source = 'finmind';
+  " 2>/dev/null | pipe_out || true
+  sqlite3 -header -column "$DB" "
+    SELECT COUNT(DISTINCT stock_id) AS 成分股數,
+           COUNT(*) AS 法人筆數,
+           MAX(trade_date) AS 最新交易日
+    FROM stock_institutional_daily WHERE source = 'finmind';
+  " 2>/dev/null | pipe_out || true
 }
 
 print_repeat_help() {
@@ -245,6 +257,16 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     run_py "${SRC}/sync_etf_holdings.py" --no-auto-changes \
     "${PYTHON_QUIET[@]}" \
     --etf-codes "$ETF_CODES_NOMURA" --source nomura
+
+  if [[ "${RUN_STOCK_MARKET_SYNC:-0}" == "1" ]]; then
+    run_step_optional "constituent market+institutional (FinMind)" \
+      run_py "${SRC}/sync_stock_market_daily.py" \
+      "${PYTHON_QUIET[@]}" \
+      --sync-db --lookback-days "${STOCK_MARKET_LOOKBACK_DAYS:-60}"
+  else
+    log_line "--- constituent stock market (FinMind) ---"
+    log_line "  SKIP（RUN_STOCK_MARKET_SYNC=0；設 1 啟用成分股價+法人）"
+  fi
 
   log_line "--- holdings changes + 跨 ETF 共識 ---"
   run_py "${SRC}/sync_etf_holdings.py" --etf-codes "$ETF_CODES_HOLDINGS" --changes --intent 2>&1 | tee -a "$LOG_FILE" || true

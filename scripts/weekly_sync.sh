@@ -52,11 +52,12 @@ else
   log_line "SKIP: sync_fundamentals.py（尚未實作，見 PRD §22）"
 fi
 
-if [[ -f "${SRC}/sync_stock_market_daily.py" ]]; then
+if [[ "${RUN_STOCK_MARKET_SYNC:-0}" == "1" ]]; then
   run_step "constituent market+institutional batch" \
-    "$PYTHON" "${SRC}/sync_stock_market_daily.py" --sync-db
+    "$PYTHON" "${SRC}/sync_stock_market_daily.py" \
+    --sync-db --lookback-days "${STOCK_MARKET_LOOKBACK_DAYS:-90}" --quiet
 else
-  log_line "SKIP: sync_stock_market_daily.py（尚未實作，見 PRD §22）"
+  log_line "SKIP: constituent market（RUN_STOCK_MARKET_SYNC=0）"
 fi
 
 log_line "=== weekly-deep finished exit=${FAILED} ==="

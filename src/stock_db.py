@@ -8,6 +8,8 @@ Tables:
   tech_risk_daily_snapshot    — 科技風險三層（TSM ADR / SOX / 台指期 gap，sync_tech_risk_context.py）
   intraday_1m_bars            — 盤中 1 分 K 與特徵（intraday_monitor.py）
   intraday_signals            — 每分鐘 buy_signal 快照
+  stock_daily_bars            — 成分股日 OHLCV（FinMind，sync_stock_market_daily.py）
+  stock_institutional_daily   — 成分股三大法人日淨買賣（同上）
 """
 
 from __future__ import annotations
@@ -170,6 +172,38 @@ CREATE TABLE IF NOT EXISTS intraday_signals (
 
 CREATE INDEX IF NOT EXISTS idx_intraday_signals_ts
     ON intraday_signals (ts, buy_signal);
+
+CREATE TABLE IF NOT EXISTS stock_daily_bars (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL NOT NULL,
+    volume INTEGER,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_daily_bars_date
+    ON stock_daily_bars (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_institutional_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    close_price REAL,
+    foreign_net REAL,
+    investment_trust_net REAL,
+    dealer_self_net REAL,
+    three_institution_net REAL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_institutional_date
+    ON stock_institutional_daily (trade_date, stock_id);
 """
 
 
@@ -543,6 +577,64 @@ def upsert_intraday_1m_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
+
+
+def upsert_stock_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_daily_bars (
+            stock_id, trade_date, open, high, low, close, volume, source, synced_at
+        ) VALUES (
+            :stock_id, :trade_date, :open, :high, :low, :close, :volume, :source, :synced_at
+        )
+        ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
+            open=excluded.open, high=excluded.high, low=excluded.low,
+            close=excluded.close, volume=excluded.volume,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def upsert_stock_institutional_daily(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_institutional_daily (
+            stock_id, trade_date, close_price,
+            foreign_net, investment_trust_net, dealer_self_net, three_institution_net,
+            source, synced_at
+        ) VALUES (
+            :stock_id, :trade_date, :close_price,
+            :foreign_net, :investment_trust_net, :dealer_self_net, :three_institution_net,
+            :source, :synced_at
+        )
+        ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
+            close_price=excluded.close_price,
+            foreign_net=excluded.foreign_net,
+            investment_trust_net=excluded.investment_trust_net,
+            dealer_self_net=excluded.dealer_self_net,
+            three_institution_net=excluded.three_institution_net,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def count_stock_market_rows(conn: sqlite3.Connection) -> tuple[int, int, str | None, str | None]:
+    """(bars 筆數, institutional 筆數, 最新 bar 日, 最新法人日)"""
+    bar_n = conn.execute("SELECT COUNT(*) FROM stock_daily_bars").fetchone()[0]
+    inst_n = conn.execute("SELECT COUNT(*) FROM stock_institutional_daily").fetchone()[0]
+    bar_max = conn.execute("SELECT MAX(trade_date) FROM stock_daily_bars").fetchone()[0]
+    inst_max = conn.execute("SELECT MAX(trade_date) FROM stock_institutional_daily").fetchone()[0]
+    return int(bar_n), int(inst_n), bar_max, inst_max
 
 
 def upsert_intraday_signals(conn: sqlite3.Connection, rows: list[dict]) -> int:
