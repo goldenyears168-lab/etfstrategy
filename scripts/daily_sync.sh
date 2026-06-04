@@ -265,8 +265,14 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_STOCK_MARKET_SYNC=0；設 1 啟用成分股價+法人）"
   fi
 
-  log_line "--- holdings changes + 跨 ETF 共識 ---"
-  "$PYTHON" "${SRC}/sync_etf_holdings.py" --etf-codes "$ETF_CODES_HOLDINGS" --changes --intent 2>&1 | tee -a "$LOG_FILE" || true
+  log_line "--- holdings changes + 跨 ETF 共識 + Research Universe ---"
+  UNIVERSE_ARGS=()
+  if [[ "${RUN_UNIVERSE_REPORT:-1}" == "0" ]]; then
+    UNIVERSE_ARGS=(--no-universe)
+  fi
+  "$PYTHON" "${SRC}/sync_etf_holdings.py" \
+    --etf-codes "$ETF_CODES_HOLDINGS" --changes --intent "${UNIVERSE_ARGS[@]}" \
+    2>&1 | tee -a "$LOG_FILE" || true
 fi
 
 print_db_summary

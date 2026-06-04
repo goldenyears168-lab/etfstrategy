@@ -869,6 +869,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="部位意圖附 rank / conviction / Δwt 除錯列",
     )
+    parser.add_argument(
+        "--universe",
+        action="store_true",
+        default=True,
+        help="--changes 且含 --intent 時輸出 Research Universe（預設開）",
+    )
+    parser.add_argument(
+        "--no-universe",
+        action="store_false",
+        dest="universe",
+        help="關閉 Research Universe 區塊",
+    )
     return parser
 
 
@@ -893,6 +905,10 @@ def main(argv: list[str] | None = None) -> int:
                 print_position_intent_report(
                     conn, code_tuple, debug=args.intent_debug
                 )
+            if args.universe and (args.intent or args.intent_debug):
+                from research_universe import print_research_universe_report
+
+                print_research_universe_report(conn, code_tuple)
         return 0
 
     exit_code = 0

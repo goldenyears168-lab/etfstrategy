@@ -1,0 +1,23 @@
+{
+  "events": [
+    {
+      "stock_id": "2330",
+      "event_date": "2026-06-03",
+      "catalyst_type": "EARNINGS",
+      "headline": "法說：CoWoS 產能與 AI 需求展望",
+      "polarity": "BULL",
+      "explains_etf_add": "HIGH",
+      "confidence": 88,
+      "sources": [{"title": "手動摘要", "date": "2026-06-03", "url": ""}]
+    },
+    {
+      "stock_id": "6223",
+      "event_date": "2026-06-02",
+      "catalyst_type": "SUPPLY_CHAIN",
+      "headline": "HBM 驗證進度優於預期",
+      "polarity": "BULL",
+      "explains_etf_add": "MED",
+      "confidence": 72
+    }
+  ]
+}
