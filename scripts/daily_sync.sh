@@ -15,9 +15,6 @@ PYTHON="${ROOT}/.venv/bin/python"
 SRC="${ROOT}/src"
 export PYTHONPATH="${SRC}${PYTHONPATH:+:${PYTHONPATH}}"
 
-run_py() {
-  "$PYTHON" "$@"
-}
 DB="${ROOT}/data/stocks.db"
 LOG_DIR="${ROOT}/logs"
 mkdir -p "$LOG_DIR"
@@ -213,7 +210,7 @@ fi
 
 if [[ "$MARKET" -eq 1 ]]; then
   run_step_optional "core market (6 ETFs + benchmarks, TEJ)" \
-    run_py "${SRC}/query_stock_prices.py" \
+    "$PYTHON" "${SRC}/query_stock_prices.py" \
     "${PYTHON_QUIET[@]}" \
     --sync-db --sync-mode hybrid \
     --benchmark-codes IX0001,IR0002 \
@@ -222,7 +219,7 @@ if [[ "$MARKET" -eq 1 ]]; then
 
   if [[ "${ENABLE_FINMIND_SIGNAL:-0}" == "1" ]]; then
     run_step_optional "ETF signal snapshot (FinMind)" \
-      run_py "${SRC}/sync_etf_signal.py" \
+      "$PYTHON" "${SRC}/sync_etf_signal.py" \
       "${PYTHON_QUIET[@]}" \
       --etf-codes "$ETF_CODES" --lookback-days 14
   else
@@ -232,35 +229,35 @@ if [[ "$MARKET" -eq 1 ]]; then
   fi
 
   run_step_optional "tech risk context (TSM/SOX/TX gap)" \
-    run_py "${SRC}/sync_tech_risk_context.py" \
+    "$PYTHON" "${SRC}/sync_tech_risk_context.py" \
     "${PYTHON_QUIET[@]}" \
     --sync-db --history-days 90
 fi
 
 if [[ "$HOLDINGS" -eq 1 ]]; then
   run_step "ETF holdings EZMoney (2)" \
-    run_py "${SRC}/sync_etf_holdings.py" --no-auto-changes \
+    "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
     "${PYTHON_QUIET[@]}" \
     --etf-codes "$ETF_CODES_EZMONEY" --source ezmoney
 
   run_step "ETF holdings KGIFund (2)" \
-    run_py "${SRC}/sync_etf_holdings.py" --no-auto-changes \
+    "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
     "${PYTHON_QUIET[@]}" \
     --etf-codes "$ETF_CODES_KGIFUND" --source kgifund
 
   run_step "ETF holdings CapitalFund (2)" \
-    run_py "${SRC}/sync_etf_holdings.py" --no-auto-changes \
+    "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
     "${PYTHON_QUIET[@]}" \
     --etf-codes "$ETF_CODES_CAPITALFUND" --source capitalfund
 
   run_step "ETF holdings Nomura (1)" \
-    run_py "${SRC}/sync_etf_holdings.py" --no-auto-changes \
+    "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
     "${PYTHON_QUIET[@]}" \
     --etf-codes "$ETF_CODES_NOMURA" --source nomura
 
   if [[ "${RUN_STOCK_MARKET_SYNC:-0}" == "1" ]]; then
     run_step_optional "constituent market+institutional (FinMind)" \
-      run_py "${SRC}/sync_stock_market_daily.py" \
+      "$PYTHON" "${SRC}/sync_stock_market_daily.py" \
       "${PYTHON_QUIET[@]}" \
       --sync-db --lookback-days "${STOCK_MARKET_LOOKBACK_DAYS:-60}"
   else
@@ -269,7 +266,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   fi
 
   log_line "--- holdings changes + 跨 ETF 共識 ---"
-  run_py "${SRC}/sync_etf_holdings.py" --etf-codes "$ETF_CODES_HOLDINGS" --changes --intent 2>&1 | tee -a "$LOG_FILE" || true
+  "$PYTHON" "${SRC}/sync_etf_holdings.py" --etf-codes "$ETF_CODES_HOLDINGS" --changes --intent 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
 print_db_summary
