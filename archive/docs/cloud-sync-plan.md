@@ -10,7 +10,7 @@
 
 | 項目 | 說明 |
 |------|------|
-| 研究標的 | 5 ETF：`00981A` `00403A` `009816` `00988A` `00407A`（00407A 掛牌前 skip） |
+| 研究標的 | 4 ETF：`00981A` `00403A` `009816` `00407A`（00407A 掛牌前 skip） |
 | 雲端正庫 | **Supabase Postgres**（authoritative） |
 | 本機副本 | `data/stocks.db`（分析、回測用，pull 下來） |
 | 排程 | **n8n Cloud** 觸發（已有訂閱） |
@@ -29,7 +29,7 @@ n8n Cloud (Schedule 20:30 / 22:00 TST)
     ▼
 GitHub Actions (ubuntu runner)
     │  scripts/daily_sync.sh  (or equivalent steps)
-    │  query_stock_prices.py  (TEJ 5 ETF + IX0001/IR0002, --skip-watchlist)
+    │  query_stock_prices.py  (TEJ 4 ETF + IX0001/IR0002, --skip-watchlist)
     │  sync_etf_signal.py     (FinMind 法人)
     │  sync_etf_holdings.py   (EZMoney 3 + KGIFund 2)
     │  env: DATABASE_URL → Supabase
@@ -62,7 +62,7 @@ n8n Cloud **無法** Execute Command 執行本機/repo 腳本。
 
 ### Phase 0：本機手動（**現在**）
 
-**目標：** SQLite 流程跑順，5 ETF 資料可驗證。
+**目標：** SQLite 流程跑順，4 ETF 資料可驗證。
 
 **推薦入口（一次跑 4 項）：**
 
@@ -75,7 +75,7 @@ n8n Cloud **無法** Execute Command 執行本機/repo 腳本。
 
 **daily_sync 內容：**
 
-1. `query_stock_prices.py --skip-watchlist --etf-codes 00981A,00403A,009816,00988A,00407A` → `daily_bars`
+1. `query_stock_prices.py --skip-watchlist --etf-codes 00981A,00403A,009816,00407A` → `daily_bars`
 2. `sync_etf_signal.py --etf-codes …` → `etf_daily_signal_snapshot`
 3. `sync_etf_holdings.py` EZMoney（3 檔）+ KGIFund（009816；00407A 掛牌前 skip）→ `etf_holdings`
 4. `--changes` 輸出（≥2 snapshot 日才有表）
@@ -84,9 +84,9 @@ n8n Cloud **無法** Execute Command 執行本機/repo 腳本。
 
 ```bash
 cd "/Users/jackm4/Documents/ETF/股票研究"
-.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A --source ezmoney --dry-run
+.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A --source ezmoney --dry-run
 .venv/bin/python sync_etf_holdings.py --etf-code 009816 --source kgifund --dry-run
-.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A,009816,00407A --changes
+.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,009816,00407A --changes
 ```
 
 **環境：** 專案根目錄 `.env`（不 commit）
@@ -99,7 +99,7 @@ FINMIND_TOKEN=...   # 選填
 **完成標準（Phase 0 exit）：**
 
 - [ ] `.env` 設定正確，hybrid sync 無 TEJ `PARAMERR` / `LMT02`
-- [ ] `daily_bars`：5 ETF + IX0001 + IR0002（00407A 掛牌前可無列）
+- [ ] `daily_bars`：4 ETF + IX0001 + IR0002（00407A 掛牌前可無列）
 - [ ] `etf_holdings_meta`：EZMoney 3 檔 + KGIFund 009816 有 NAV / holding_count
 - [ ] 連續手動跑 **≥2 個交易日**，各 ETF `--changes` 可輸出 share_delta
 - [ ] 官網持股股數與 SQLite 可對照
@@ -366,7 +366,7 @@ jobs:
           python query_stock_prices.py \
             --sync-db --sync-mode hybrid --skip-watchlist \
             --benchmark-codes IX0001,IR0002 \
-            --etf-codes 00981A,00403A,009816,00988A,00407A \
+            --etf-codes 00981A,00403A,009816,00407A \
             --history-days 90
 
       - name: ETF signal sync
@@ -375,13 +375,13 @@ jobs:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
         run: |
           python sync_etf_signal.py \
-            --etf-codes 00981A,00403A,009816,00988A,00407A --lookback-days 14
+            --etf-codes 00981A,00403A,009816,00407A --lookback-days 14
 
       - name: ETF holdings sync
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
-          python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A --source ezmoney
+          python sync_etf_holdings.py --etf-codes 00981A,00403A --source ezmoney
           python sync_etf_holdings.py --etf-codes 009816,00407A --source kgifund
 ```
 
@@ -401,7 +401,7 @@ sqlite3 data/stocks.db "SELECT code, MAX(date), COUNT(*) FROM daily_bars GROUP B
 sqlite3 data/stocks.db "SELECT etf_code, source, MAX(snapshot_date), MAX(holding_count) FROM etf_holdings_meta GROUP BY etf_code;"
 
 # 4) 持股 changes（需 ≥2 snapshot 日）
-.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,00988A,009816,00407A --changes
+.venv/bin/python sync_etf_holdings.py --etf-codes 00981A,00403A,009816,00407A --changes
 ```
 
 ---

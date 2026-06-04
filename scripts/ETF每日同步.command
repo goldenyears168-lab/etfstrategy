@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# 雙擊執行：ETF 每日同步（5 檔，4 項）
-# 可將此檔案複製或建立替身到桌面，方便每天手動執行。
+# 相容入口：一次跑完 market + holdings（全量）。
+# 日常營運請改用方案 C：ETF早盤風險哨.command + ETF收盤持股雷達.command（見 docs/PRD.md §5.2）。
 
 set -euo pipefail
 
-ROOT="/Users/jackm4/Documents/ETF/股票研究"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$ROOT"
 
 echo "=============================================="
-echo "  ETF 每日同步（5 檔）"
+echo "  ETF 每日同步（全量 · 相容模式）"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================="
 echo ""
@@ -26,14 +27,9 @@ if [[ ! -x "${ROOT}/.venv/bin/python" ]]; then
   exit 1
 fi
 
-"${ROOT}/scripts/daily_sync.sh"
+"${ROOT}/scripts/daily_sync.sh" --quiet
 EXIT=$?
 
-echo ""
-echo "----------------------------------------------"
-echo "  重複按：安全。日線/法人會覆寫同日；持股未更新會 Skip"
-echo "  要新的持股 changes：需不同交易日各跑一次"
-echo "----------------------------------------------"
 echo ""
 if [[ "$EXIT" -eq 0 ]]; then
   echo "全部完成。"

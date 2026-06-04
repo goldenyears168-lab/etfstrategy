@@ -119,6 +119,8 @@ def sync_etf_signal(
     db_path: Path,
     lookback_days: int,
     dry_run: bool = False,
+    *,
+    quiet: bool = False,
 ) -> int:
     end = date.today()
     start = end - timedelta(days=lookback_days)
@@ -148,7 +150,15 @@ def sync_etf_signal(
 
     latest = snapshots[-1]
     date_range = f"{snapshots[0]['snapshot_date']} ～ {latest['snapshot_date']}"
-    if before == latest["snapshot_date"]:
+    if quiet:
+        if before == latest["snapshot_date"]:
+            print(f"  {code}: {count} rows @ {latest['snapshot_date']} (unchanged)")
+        else:
+            print(
+                f"  {code}: {count} rows @ {latest['snapshot_date']} "
+                f"close={latest['close_price']}"
+            )
+    elif before == latest["snapshot_date"]:
         print(
             f"  {code} signal snapshot：upsert {count} 筆（{date_range}），"
             f"最新日 {latest['snapshot_date']} 未變，僅刷新 synced_at"
@@ -178,6 +188,11 @@ def main() -> int:
         help="回溯天數，視窗內有資料的交易日皆 upsert（預設 14）",
     )
     parser.add_argument("--dry-run", action="store_true", help="只抓取不寫入")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="每檔 ETF 一行摘要",
+    )
     args = parser.parse_args()
 
     codes = parse_etf_codes(args.etf_code, args.etf_codes)
@@ -189,12 +204,14 @@ def main() -> int:
                 args.db,
                 args.lookback_days,
                 dry_run=args.dry_run,
+                quiet=args.quiet,
             )
         except RuntimeError as exc:
             print(f"  WARN {code}: {exc}", file=sys.stderr)
+        except requests.HTTPError as exc:
+            print(f"  WARN {code}: FinMind 不可用（{exc}）", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
-            print(f"ERROR {code}: {exc}", file=sys.stderr)
-            exit_code = 1
+            print(f"  WARN {code}: {exc}", file=sys.stderr)
     return exit_code
 
 
