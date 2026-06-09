@@ -184,5 +184,5 @@ scripts/daily_sync.sh --quiet
 
 - `scripts/daily_sync.sh`、`scripts/weekly_sync.sh`
 - `src/sync_etf_holdings.py`、`src/sync_etf_signal.py`、`src/sync_tech_risk_context.py`、`src/stock_db.py`
-- `docs/PRD.md`、`docs/architecture.md`
+- `docs/PRD.md`（§5.7 架構）、`docs/daily-operations.md`
 - Skills: `scheme-c-local-ops`、`etf-holdings-intent`

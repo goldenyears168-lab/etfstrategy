@@ -59,14 +59,19 @@ def _row_price(row: dict) -> float | None:
     return None
 
 
-def pick_snapshot_row(rows: list[dict], snapshot_id: str) -> dict | None:
+def _matches_snapshot_id(row: dict, snapshot_id: str) -> bool:
     sid = snapshot_id.upper()
-    candidates = [
-        r
-        for r in rows
-        if str(r.get("futures_id", "")).upper() == sid
-        or str(r.get("data_id", "")).upper() == sid
-    ]
+    for key in ("futures_id", "data_id"):
+        val = str(row.get(key, "")).upper()
+        if not val:
+            continue
+        if val == sid or val.startswith(sid):
+            return True
+    return False
+
+
+def pick_snapshot_row(rows: list[dict], snapshot_id: str) -> dict | None:
+    candidates = [r for r in rows if _matches_snapshot_id(r, snapshot_id)]
     if not candidates:
         return None
     with_price = [r for r in candidates if _row_price(r) is not None]
@@ -149,7 +154,7 @@ def build_morning_risk_row(
         note_parts.append(f"{te_id} 無 snapshot 價")
     if notes:
         note_parts.append(notes)
-    if tx_gap is None and te_gap is None:
+    if tx_gap is None:
         return None
 
     return {
@@ -217,8 +222,8 @@ def sync_morning_futures(
     rows, err = fetch_futures_snapshots([tx_id, te_id])
     if err:
         raise RuntimeError(err)
-    if not rows:
-        raise RuntimeError(f"FinMind 期貨 snapshot 無資料（{tx_id}/{te_id}）")
+    if not rows or pick_snapshot_row(rows, tx_id) is None:
+        raise RuntimeError(f"FinMind 期貨 snapshot 無資料（{tx_id}）")
 
     conn = connect(db_path)
     try:

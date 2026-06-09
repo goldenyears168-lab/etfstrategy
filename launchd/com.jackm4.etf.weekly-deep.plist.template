@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.weekly-deep</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{PROJECT_ROOT}}/scripts/weekly_sync.sh</string>
+		<string>--weekly-report</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{PROJECT_ROOT}}</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>weekly-deep</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>0</integer>
+		</dict>
+	</array>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_weekly-deep.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_weekly-deep.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

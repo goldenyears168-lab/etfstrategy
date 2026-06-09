@@ -117,21 +117,33 @@ def fetch_futures_snapshots(
     *,
     timeout: float = 30,
 ) -> tuple[list[dict], str | None]:
-    """期貨即時 snapshot；需有效 FINMIND_TOKEN（通常 Sponsor tier）。"""
+    """期貨即時 snapshot；需有效 FINMIND_TOKEN（通常 Sponsor tier）。
+
+    FinMind 批次 ``data_id=[A,B]`` 時，若任一代號無資料會整包回空；改為逐一代號查詢再合併。
+    """
     if not finmind_token():
         return [], "未設定 FINMIND_TOKEN"
     rows: list[dict] = []
-    try:
-        resp = requests.get(
-            FINMIND_FUTURES_SNAPSHOT_URL,
-            headers=finmind_headers(),
-            params={"data_id": data_ids},
-            timeout=timeout,
-        )
-        payload = resp.json()
-    except requests.RequestException as exc:
-        return [], str(exc)
-    if payload.get("status") != 200:
-        return [], payload.get("msg", f"HTTP {resp.status_code}")
-    rows.extend(payload.get("data") or [])
+    last_err: str | None = None
+    for data_id in data_ids:
+        sid = str(data_id).strip()
+        if not sid:
+            continue
+        try:
+            resp = requests.get(
+                FINMIND_FUTURES_SNAPSHOT_URL,
+                headers=finmind_headers(),
+                params={"data_id": sid},
+                timeout=timeout,
+            )
+            payload = resp.json()
+        except requests.RequestException as exc:
+            last_err = str(exc)
+            continue
+        if payload.get("status") != 200:
+            last_err = payload.get("msg", f"HTTP {resp.status_code}")
+            continue
+        rows.extend(payload.get("data") or [])
+    if not rows and last_err:
+        return [], last_err
     return rows, None

@@ -52,7 +52,7 @@ export PYTHONPATH=src
 |------|------|
 | `src/` | Python：同步、行為訊號、DB（`stock_db.py`） |
 | `scripts/` | `daily_sync.sh`、`weekly_sync.sh`、`.command` 入口 |
-| `docs/` | PRD、架構總表、營運速查 |
+| `docs/` | `PRD.md`（規格全集）、`daily-operations.md`（每日 SOP） |
 | `data/` | `stocks.db`（gitignore） |
 | `logs/` | 同步 log（gitignore） |
 | `tests/` | 單元測試 |

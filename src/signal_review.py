@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
+import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -37,7 +39,19 @@ from signal_engine import (
     _build_theme_flow_matrix,
     _collect_legs_aligned,
 )
-from stock_db import PROJECT_ROOT, connect, list_etf_snapshot_dates, load_stock_beta_map
+from stock_db import (
+    PROJECT_ROOT,
+    connect,
+    list_etf_snapshot_dates,
+    load_latest_signal_review_run_id,
+    load_signal_outcomes_for_run,
+    load_signal_paper_days_for_run,
+    load_signal_paper_horizons_for_run,
+    load_signal_review_run,
+    load_stock_beta_map,
+    parse_signal_review_json_fields,
+    persist_signal_review_bundle,
+)
 
 REPORTS_DIR = PROJECT_ROOT / "reports"
 LOG_DIR = PROJECT_ROOT / "logs"
@@ -128,6 +142,16 @@ class ReviewResult:
     skipped_outcomes: int = 0
     beta_as_of: str | None = None
     message: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewRunContext:
+    run_id: str
+    review_date: str
+    score_version: str
+    capital_ntd: float
+    lookback_trading_days: int
+    lookback_event_days: int
 
 
 def return_pct(close_t: float, close_t1: float) -> float:
@@ -704,6 +728,253 @@ def run_review(
     )
 
 
+def make_review_run_id(
+    *,
+    review_date: str,
+    score_version: str,
+    window_end: str | None,
+    lookback_trading_days: int,
+) -> str:
+    end = window_end or "none"
+    return f"{review_date}|{score_version}|{end}|{lookback_trading_days}"
+
+
+def _outcome_to_db_row(out: OutcomeRow) -> dict:
+    return {
+        "as_of_date": out.as_of_date,
+        "stock_id": out.stock_id,
+        "horizon": 1,
+        "stock_name": out.stock_name,
+        "outcome_date": out.outcome_date,
+        "pm_bucket": out.pm_bucket,
+        "entry_signal": out.entry_signal,
+        "chip_tag": out.chip_tag,
+        "investment_score": out.investment_score,
+        "ret_pct": out.ret_pct,
+        "bench_ret_pct": out.bench_ret_pct,
+        "alpha_pct": out.alpha_pct,
+        "capm_alpha_pct": out.capm_alpha_pct,
+        "beta": out.beta,
+        "status": out.status,
+    }
+
+
+def _paper_day_to_db_row(row: PaperDayRow) -> dict:
+    return {
+        "signal_day": row.signal_day,
+        "outcome_day": row.outcome_day,
+        "deployed_ntd": row.deployed_ntd,
+        "pnl_ntd": row.pnl_ntd,
+        "day_return_pct": row.day_return_pct,
+        "bench_return_pct": row.bench_return_pct,
+        "alpha_ntd": row.alpha_ntd,
+        "capm_alpha_ntd": row.capm_alpha_ntd,
+        "portfolio_beta": row.portfolio_beta,
+        "status": row.status,
+    }
+
+
+def _paper_horizons_to_db_rows(row: PaperHorizonRow) -> list[dict]:
+    rows: list[dict] = []
+    for cell in row.cells:
+        rows.append(
+            {
+                "signal_day": row.signal_day,
+                "horizon": cell.horizon,
+                "deployed_ntd": row.deployed_ntd,
+                "outcome_day": cell.outcome_day,
+                "pnl_ntd": cell.pnl_ntd,
+                "return_pct": cell.return_pct,
+                "bench_return_pct": cell.bench_return_pct,
+                "alpha_ntd": cell.alpha_ntd,
+                "capm_alpha_ntd": cell.capm_alpha_ntd,
+                "portfolio_beta": cell.portfolio_beta,
+                "status": cell.status,
+            }
+        )
+    return rows
+
+
+def persist_review_result(
+    conn: sqlite3.Connection,
+    result: ReviewResult,
+    *,
+    review_date: str,
+    score_version: str,
+    capital_ntd: float,
+    lookback_trading_days: int,
+    lookback_event_days: int,
+) -> str:
+    run_id = make_review_run_id(
+        review_date=review_date,
+        score_version=score_version,
+        window_end=result.window_end,
+        lookback_trading_days=lookback_trading_days,
+    )
+    ic_json = json.dumps(result.ic_by_date, ensure_ascii=False)
+    run_row = {
+        "review_date": review_date,
+        "window_start": result.window_start,
+        "window_end": result.window_end,
+        "score_version": score_version,
+        "capital_ntd": capital_ntd,
+        "lookback_trading_days": lookback_trading_days,
+        "lookback_event_days": lookback_event_days,
+        "benchmark_code": BENCHMARK_CODE,
+        "skipped_outcomes": result.skipped_outcomes,
+        "beta_as_of": result.beta_as_of,
+        "message": result.message,
+        "signal_dates_json": json.dumps(result.signal_dates, ensure_ascii=False),
+        "ic_by_date_json": ic_json,
+    }
+    horizon_rows: list[dict] = []
+    for ph in result.paper_horizons:
+        horizon_rows.extend(_paper_horizons_to_db_rows(ph))
+    persist_signal_review_bundle(
+        conn,
+        run_id=run_id,
+        run_row=run_row,
+        outcomes=[_outcome_to_db_row(o) for o in result.outcomes],
+        paper_days=[_paper_day_to_db_row(p) for p in result.paper_days],
+        paper_horizons=horizon_rows,
+    )
+    return run_id
+
+
+def load_review_result(conn: sqlite3.Connection, run_id: str) -> ReviewResult | None:
+    run = load_signal_review_run(conn, run_id)
+    if run is None:
+        return None
+    signal_dates, ic_by_date = parse_signal_review_json_fields(run)
+    outcomes = [
+        OutcomeRow(
+            stock_id=str(r["stock_id"]),
+            stock_name=str(r["stock_name"] or r["stock_id"]),
+            as_of_date=str(r["as_of_date"]),
+            outcome_date=str(r["outcome_date"] or ""),
+            pm_bucket=str(r["pm_bucket"] or ""),
+            entry_signal=str(r["entry_signal"] or ""),
+            chip_tag=str(r["chip_tag"] or ""),
+            investment_score=float(r["investment_score"] or 0),
+            ret_pct=float(r["ret_pct"] or 0),
+            bench_ret_pct=float(r["bench_ret_pct"] or 0),
+            alpha_pct=float(r["alpha_pct"] or 0),
+            capm_alpha_pct=float(r["capm_alpha_pct"] or 0),
+            beta=float(r["beta"] or DEFAULT_BETA),
+            status=str(r["status"] or "complete"),
+        )
+        for r in load_signal_outcomes_for_run(conn, run_id)
+    ]
+    paper_days = [
+        PaperDayRow(
+            signal_day=str(r["signal_day"]),
+            outcome_day=str(r["outcome_day"] or ""),
+            deployed_ntd=float(r["deployed_ntd"] or 0),
+            pnl_ntd=float(r["pnl_ntd"] or 0),
+            day_return_pct=float(r["day_return_pct"] or 0),
+            bench_return_pct=float(r["bench_return_pct"] or 0),
+            alpha_ntd=float(r["alpha_ntd"] or 0),
+            capm_alpha_ntd=float(r["capm_alpha_ntd"] or 0),
+            portfolio_beta=float(r["portfolio_beta"] or DEFAULT_BETA),
+            status=str(r["status"] or "complete"),
+        )
+        for r in load_signal_paper_days_for_run(conn, run_id)
+    ]
+    horizon_by_day: dict[str, list[HorizonCell]] = {}
+    deployed_by_day: dict[str, float] = {}
+    status_by_day: dict[str, str] = {}
+    for r in load_signal_paper_horizons_for_run(conn, run_id):
+        day = str(r["signal_day"])
+        deployed_by_day[day] = float(r["deployed_ntd"] or 0)
+        status_by_day[day] = str(r["status"] or "complete")
+        horizon_by_day.setdefault(day, []).append(
+            HorizonCell(
+                horizon=int(r["horizon"]),
+                outcome_day=str(r["outcome_day"]) if r["outcome_day"] else None,
+                pnl_ntd=float(r["pnl_ntd"]) if r["pnl_ntd"] is not None else None,
+                return_pct=float(r["return_pct"]) if r["return_pct"] is not None else None,
+                bench_return_pct=(
+                    float(r["bench_return_pct"]) if r["bench_return_pct"] is not None else None
+                ),
+                alpha_ntd=float(r["alpha_ntd"]) if r["alpha_ntd"] is not None else None,
+                capm_alpha_ntd=(
+                    float(r["capm_alpha_ntd"]) if r["capm_alpha_ntd"] is not None else None
+                ),
+                portfolio_beta=(
+                    float(r["portfolio_beta"]) if r["portfolio_beta"] is not None else None
+                ),
+                status=str(r["status"] or "complete"),
+            )
+        )
+    paper_horizons = [
+        PaperHorizonRow(
+            signal_day=day,
+            deployed_ntd=deployed_by_day.get(day, 0.0),
+            cells=tuple(horizon_by_day.get(day, ())),
+            status=status_by_day.get(day, "complete"),
+        )
+        for day in signal_dates
+        if day in horizon_by_day or day in deployed_by_day
+    ]
+    if not paper_horizons and horizon_by_day:
+        paper_horizons = [
+            PaperHorizonRow(
+                signal_day=day,
+                deployed_ntd=deployed_by_day.get(day, 0.0),
+                cells=tuple(cells),
+                status=status_by_day.get(day, "complete"),
+            )
+            for day, cells in sorted(horizon_by_day.items())
+        ]
+    return ReviewResult(
+        window_start=str(run["window_start"]) if run["window_start"] else None,
+        window_end=str(run["window_end"]) if run["window_end"] else None,
+        signal_dates=signal_dates,
+        outcomes=outcomes,
+        paper_days=paper_days,
+        paper_horizons=paper_horizons,
+        ic_by_date=ic_by_date,
+        bucket_stats=aggregate_bucket_stats(outcomes),
+        skipped_outcomes=int(run["skipped_outcomes"] or 0),
+        beta_as_of=str(run["beta_as_of"]) if run["beta_as_of"] else None,
+        message=str(run["message"]) if run["message"] else None,
+    )
+
+
+def load_review_run_context(conn: sqlite3.Connection, run_id: str) -> ReviewRunContext | None:
+    run = load_signal_review_run(conn, run_id)
+    if run is None:
+        return None
+    return ReviewRunContext(
+        run_id=run_id,
+        review_date=str(run["review_date"]),
+        score_version=str(run["score_version"]),
+        capital_ntd=float(run["capital_ntd"]),
+        lookback_trading_days=int(run["lookback_trading_days"]),
+        lookback_event_days=int(run["lookback_event_days"]),
+    )
+
+
+def render_report_for_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+    *,
+    etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
+) -> str:
+    ctx = load_review_run_context(conn, run_id)
+    result = load_review_result(conn, run_id)
+    if ctx is None or result is None:
+        raise ValueError(f"找不到 signal_review run: {run_id}")
+    return build_report_text(
+        result,
+        conn,
+        score_version=ctx.score_version,
+        capital_ntd=ctx.capital_ntd,
+        etf_codes=etf_codes,
+        lookback_event_days=ctx.lookback_event_days,
+    )
+
+
 def _fmt_pct(v: float | None) -> str:
     if v is None:
         return "—"
@@ -1056,7 +1327,7 @@ def format_report(
             "",
             "## §9 參考文獻",
             "",
-            "見 [signal-review-PRD.md](./signal-review-PRD.md) §3",
+            "見 PRD.md §24.D.3",
             "",
         ]
     )
@@ -1081,29 +1352,25 @@ def print_terminal_report(
 
 
 def write_report(
-    result: ReviewResult,
     conn: sqlite3.Connection,
+    run_id: str,
     *,
-    score_version: str = SCORE_VERSION,
-    capital_ntd: float = DEFAULT_CAPITAL_NTD,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
     reports_dir: Path | None = None,
     report_text: str | None = None,
 ) -> Path:
+    """從 DB 渲染 markdown 並寫入 reports/。"""
+    ctx = load_review_run_context(conn, run_id)
+    if ctx is None:
+        raise ValueError(f"找不到 signal_review run: {run_id}")
     out_dir = reports_dir or REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = date.today().strftime("%Y%m%d")
+    stamp = ctx.review_date.replace("-", "")
     path = out_dir / f"{stamp}_signal_review.md"
     path.write_text(
         report_text
         if report_text is not None
-        else build_report_text(
-            result,
-            conn,
-            score_version=score_version,
-            capital_ntd=capital_ntd,
-            etf_codes=etf_codes,
-        ),
+        else render_report_for_run(conn, run_id, etf_codes=etf_codes),
         encoding="utf-8",
     )
     return path
@@ -1143,6 +1410,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--capital-ntd", type=float, default=None)
     parser.add_argument("--etf-codes", default=",".join(RESEARCH_ETF_CODES))
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--render-only",
+        action="store_true",
+        help="略過重算，從 DB 最新（或 --run-id）渲染報告",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="指定 signal_review_runs.run_id（預設：同 score_version 最新一筆）",
+    )
     args = parser.parse_args(argv)
 
     capital = args.capital_ntd if args.capital_ntd is not None else DEFAULT_CAPITAL_NTD
@@ -1151,37 +1428,62 @@ def main(argv: list[str] | None = None) -> int:
     conn = connect(db_path) if db_path else connect()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"signal_review_{date.today().strftime('%Y%m%d')}.log"
+    review_date = date.today().isoformat()
 
     try:
-        result = run_review(
-            conn,
-            as_of=args.as_of,
-            lookback=args.lookback_trading_days,
-            score_version=args.score_version,
-            capital_ntd=capital,
-            etf_codes=etf_codes,
-        )
-        report_text = build_report_text(
-            result,
-            conn,
-            score_version=args.score_version,
-            capital_ntd=capital,
-            etf_codes=etf_codes,
-            lookback_event_days=args.lookback_event_days,
-        )
-        report_path = write_report(
-            result,
-            conn,
-            score_version=args.score_version,
-            capital_ntd=capital,
-            etf_codes=etf_codes,
-            report_text=report_text,
-        )
-        log_line = (
-            f"signal_review {date.today().isoformat()} "
-            f"window={result.window_start}..{result.window_end} "
-            f"outcomes={len(result.outcomes)} report={report_path.name}"
-        )
+        if args.render_only:
+            run_id = args.run_id or load_latest_signal_review_run_id(
+                conn, score_version=args.score_version
+            )
+            if not run_id:
+                print(
+                    "尚無 signal_review_runs 紀錄（請先執行完整策略回顧）",
+                    file=sys.stderr,
+                )
+                return 1
+            report_text = render_report_for_run(conn, run_id, etf_codes=etf_codes)
+            report_path = write_report(
+                conn,
+                run_id,
+                etf_codes=etf_codes,
+                report_text=report_text,
+            )
+            loaded = load_review_result(conn, run_id)
+            log_line = (
+                f"signal_review render-only {review_date} run_id={run_id} "
+                f"outcomes={len(loaded.outcomes) if loaded else 0} "
+                f"report={report_path.name}"
+            )
+        else:
+            result = run_review(
+                conn,
+                as_of=args.as_of,
+                lookback=args.lookback_trading_days,
+                score_version=args.score_version,
+                capital_ntd=capital,
+                etf_codes=etf_codes,
+            )
+            run_id = persist_review_result(
+                conn,
+                result,
+                review_date=review_date,
+                score_version=args.score_version,
+                capital_ntd=capital,
+                lookback_trading_days=args.lookback_trading_days,
+                lookback_event_days=args.lookback_event_days,
+            )
+            report_text = render_report_for_run(conn, run_id, etf_codes=etf_codes)
+            report_path = write_report(
+                conn,
+                run_id,
+                etf_codes=etf_codes,
+                report_text=report_text,
+            )
+            log_line = (
+                f"signal_review {review_date} run_id={run_id} "
+                f"window={result.window_start}..{result.window_end} "
+                f"outcomes={len(result.outcomes)} report={report_path.name}"
+            )
         log_path.write_text(log_line + "\n", encoding="utf-8")
         if not args.quiet:
             print_terminal_report(

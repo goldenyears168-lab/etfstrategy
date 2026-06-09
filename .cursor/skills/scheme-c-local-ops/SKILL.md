@@ -37,7 +37,9 @@ scripts/weekly_sync.sh                        # ③
 
 ## 自動化
 
-- **僅本機**：Mac `launchd` 指向 `.command` 或 `daily_sync.sh`。
+- **僅本機**：Mac `launchd` 指向 `daily_sync.sh` / `weekly_sync.sh`（勿排程 `.command`，結尾 `read` 會卡住）。
+- **安裝排程**：`scripts/install-launchd.sh`（範本在 `launchd/*.plist.template`）
+- **卸載**：`scripts/install-launchd.sh --uninstall`
 - **不做**：GitHub Actions、n8n、Supabase 雲端同步（已棄用；現行本地 SQLite + launchd）。
 
 ## 相關

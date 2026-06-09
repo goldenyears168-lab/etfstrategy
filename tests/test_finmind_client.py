@@ -53,18 +53,25 @@ class FinmindClientTests(unittest.TestCase):
     def test_fetch_futures_snapshots(self) -> None:
         from finmind_client import fetch_futures_snapshots
 
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
+        tx_resp = MagicMock()
+        tx_resp.json.return_value = {
             "status": 200,
-            "data": [{"futures_id": "TXF", "close": 22000}],
+            "data": [{"futures_id": "TXFF6", "close": 22000}],
         }
+        ex_resp = MagicMock()
+        ex_resp.json.return_value = {"status": 200, "data": []}
 
         with patch.dict(os.environ, {"FINMIND_TOKEN": "test-token"}):
-            with patch("finmind_client.requests.get", return_value=mock_resp) as get:
+            with patch(
+                "finmind_client.requests.get",
+                side_effect=[tx_resp, ex_resp],
+            ) as get:
                 rows, err = fetch_futures_snapshots(["TXF", "EXF"])
         self.assertIsNone(err)
         self.assertEqual(len(rows), 1)
-        get.assert_called_once()
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[0].kwargs["params"]["data_id"], "TXF")
+        self.assertEqual(get.call_args_list[1].kwargs["params"]["data_id"], "EXF")
 
 
 if __name__ == "__main__":

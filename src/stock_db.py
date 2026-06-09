@@ -23,10 +23,15 @@ Tables:
   order_intents               — E0 待核准訂單草稿（order_intent_engine.py）
   portfolio_books             — 多帳本（Lily / Jack / Annie 等）
   portfolio_positions         — 各帳本實際持倉（stock 或 etf）
+  signal_review_runs          — ④ 策略回顧執行紀錄（signal_review.py）
+  signal_outcomes             — ④ 每筆 T+1 outcome（signal_review.py）
+  signal_paper_days           — ④ Paper 每日全換（signal_review.py）
+  signal_paper_horizons       — ④ Paper H+1～H+5 曲線（signal_review.py）
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -485,6 +490,85 @@ CREATE TABLE IF NOT EXISTS portfolio_positions (
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_positions_book
     ON portfolio_positions (book_id);
+
+CREATE TABLE IF NOT EXISTS signal_review_runs (
+    run_id TEXT PRIMARY KEY,
+    review_date TEXT NOT NULL,
+    window_start TEXT,
+    window_end TEXT,
+    score_version TEXT NOT NULL,
+    capital_ntd REAL NOT NULL,
+    lookback_trading_days INTEGER NOT NULL,
+    lookback_event_days INTEGER NOT NULL,
+    benchmark_code TEXT NOT NULL DEFAULT 'IX0001',
+    review_version TEXT NOT NULL DEFAULT 'signal-review-v1',
+    skipped_outcomes INTEGER NOT NULL DEFAULT 0,
+    beta_as_of TEXT,
+    message TEXT,
+    signal_dates_json TEXT NOT NULL DEFAULT '[]',
+    ic_by_date_json TEXT NOT NULL DEFAULT '{}',
+    synced_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_review_runs_date
+    ON signal_review_runs (review_date DESC, synced_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_outcomes (
+    run_id TEXT NOT NULL,
+    as_of_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    horizon INTEGER NOT NULL DEFAULT 1,
+    stock_name TEXT,
+    outcome_date TEXT,
+    pm_bucket TEXT,
+    entry_signal TEXT,
+    chip_tag TEXT,
+    investment_score REAL,
+    ret_pct REAL,
+    bench_ret_pct REAL,
+    alpha_pct REAL,
+    capm_alpha_pct REAL,
+    beta REAL,
+    status TEXT NOT NULL DEFAULT 'complete',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, as_of_date, stock_id, horizon)
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_outcomes_run
+    ON signal_outcomes (run_id, as_of_date);
+
+CREATE TABLE IF NOT EXISTS signal_paper_days (
+    run_id TEXT NOT NULL,
+    signal_day TEXT NOT NULL,
+    outcome_day TEXT,
+    deployed_ntd REAL NOT NULL DEFAULT 0,
+    pnl_ntd REAL,
+    day_return_pct REAL,
+    bench_return_pct REAL,
+    alpha_ntd REAL,
+    capm_alpha_ntd REAL,
+    portfolio_beta REAL,
+    status TEXT NOT NULL DEFAULT 'complete',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, signal_day)
+);
+
+CREATE TABLE IF NOT EXISTS signal_paper_horizons (
+    run_id TEXT NOT NULL,
+    signal_day TEXT NOT NULL,
+    horizon INTEGER NOT NULL,
+    deployed_ntd REAL NOT NULL DEFAULT 0,
+    outcome_day TEXT,
+    pnl_ntd REAL,
+    return_pct REAL,
+    bench_return_pct REAL,
+    alpha_ntd REAL,
+    capm_alpha_ntd REAL,
+    portfolio_beta REAL,
+    status TEXT NOT NULL DEFAULT 'complete',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, signal_day, horizon)
+);
 """
 
 
@@ -2101,3 +2185,189 @@ def load_portfolio_positions(
         ).fetchall()
     except sqlite3.OperationalError:
         return []
+
+
+SIGNAL_REVIEW_VERSION = "signal-review-v1"
+
+
+def persist_signal_review_bundle(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    run_row: dict,
+    outcomes: list[dict],
+    paper_days: list[dict],
+    paper_horizons: list[dict],
+) -> str:
+    """寫入一筆策略回顧 run 與子表（同 run_id 先刪後插）。"""
+    synced_at = utc_now_iso()
+    conn.execute("DELETE FROM signal_outcomes WHERE run_id = ?", (run_id,))
+    conn.execute("DELETE FROM signal_paper_days WHERE run_id = ?", (run_id,))
+    conn.execute("DELETE FROM signal_paper_horizons WHERE run_id = ?", (run_id,))
+    conn.execute("DELETE FROM signal_review_runs WHERE run_id = ?", (run_id,))
+
+    defaults = {
+        "benchmark_code": "IX0001",
+        "review_version": SIGNAL_REVIEW_VERSION,
+        "skipped_outcomes": 0,
+        "beta_as_of": None,
+        "message": None,
+        "signal_dates_json": "[]",
+        "ic_by_date_json": "{}",
+    }
+    run_payload = {**defaults, **run_row, "run_id": run_id, "synced_at": synced_at}
+    conn.execute(
+        """
+        INSERT INTO signal_review_runs (
+            run_id, review_date, window_start, window_end, score_version,
+            capital_ntd, lookback_trading_days, lookback_event_days,
+            benchmark_code, review_version, skipped_outcomes, beta_as_of,
+            message, signal_dates_json, ic_by_date_json, synced_at
+        ) VALUES (
+            :run_id, :review_date, :window_start, :window_end, :score_version,
+            :capital_ntd, :lookback_trading_days, :lookback_event_days,
+            :benchmark_code, :review_version, :skipped_outcomes, :beta_as_of,
+            :message, :signal_dates_json, :ic_by_date_json, :synced_at
+        )
+        """,
+        run_payload,
+    )
+
+    if outcomes:
+        conn.executemany(
+            """
+            INSERT INTO signal_outcomes (
+                run_id, as_of_date, stock_id, horizon, stock_name, outcome_date,
+                pm_bucket, entry_signal, chip_tag, investment_score,
+                ret_pct, bench_ret_pct, alpha_pct, capm_alpha_pct, beta,
+                status, synced_at
+            ) VALUES (
+                :run_id, :as_of_date, :stock_id, :horizon, :stock_name, :outcome_date,
+                :pm_bucket, :entry_signal, :chip_tag, :investment_score,
+                :ret_pct, :bench_ret_pct, :alpha_pct, :capm_alpha_pct, :beta,
+                :status, :synced_at
+            )
+            """,
+            [{**r, "run_id": run_id, "synced_at": synced_at} for r in outcomes],
+        )
+    if paper_days:
+        conn.executemany(
+            """
+            INSERT INTO signal_paper_days (
+                run_id, signal_day, outcome_day, deployed_ntd, pnl_ntd,
+                day_return_pct, bench_return_pct, alpha_ntd, capm_alpha_ntd,
+                portfolio_beta, status, synced_at
+            ) VALUES (
+                :run_id, :signal_day, :outcome_day, :deployed_ntd, :pnl_ntd,
+                :day_return_pct, :bench_return_pct, :alpha_ntd, :capm_alpha_ntd,
+                :portfolio_beta, :status, :synced_at
+            )
+            """,
+            [{**r, "run_id": run_id, "synced_at": synced_at} for r in paper_days],
+        )
+    if paper_horizons:
+        conn.executemany(
+            """
+            INSERT INTO signal_paper_horizons (
+                run_id, signal_day, horizon, deployed_ntd, outcome_day,
+                pnl_ntd, return_pct, bench_return_pct, alpha_ntd,
+                capm_alpha_ntd, portfolio_beta, status, synced_at
+            ) VALUES (
+                :run_id, :signal_day, :horizon, :deployed_ntd, :outcome_day,
+                :pnl_ntd, :return_pct, :bench_return_pct, :alpha_ntd,
+                :capm_alpha_ntd, :portfolio_beta, :status, :synced_at
+            )
+            """,
+            [{**r, "run_id": run_id, "synced_at": synced_at} for r in paper_horizons],
+        )
+    conn.commit()
+    return run_id
+
+
+def load_signal_review_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM signal_review_runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+
+
+def load_latest_signal_review_run_id(
+    conn: sqlite3.Connection,
+    *,
+    score_version: str | None = None,
+) -> str | None:
+    if score_version:
+        row = conn.execute(
+            """
+            SELECT run_id FROM signal_review_runs
+            WHERE score_version = ?
+            ORDER BY review_date DESC, synced_at DESC
+            LIMIT 1
+            """,
+            (score_version,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT run_id FROM signal_review_runs
+            ORDER BY review_date DESC, synced_at DESC
+            LIMIT 1
+            """,
+        ).fetchone()
+    return str(row["run_id"]) if row else None
+
+
+def load_signal_outcomes_for_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT * FROM signal_outcomes
+        WHERE run_id = ?
+        ORDER BY as_of_date ASC, stock_id ASC
+        """,
+        (run_id,),
+    ).fetchall()
+
+
+def load_signal_paper_days_for_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT * FROM signal_paper_days
+        WHERE run_id = ?
+        ORDER BY signal_day ASC
+        """,
+        (run_id,),
+    ).fetchall()
+
+
+def load_signal_paper_horizons_for_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT * FROM signal_paper_horizons
+        WHERE run_id = ?
+        ORDER BY signal_day ASC, horizon ASC
+        """,
+        (run_id,),
+    ).fetchall()
+
+
+def parse_signal_review_json_fields(
+    run_row: sqlite3.Row,
+) -> tuple[list[str], dict[str, float | None]]:
+    dates = json.loads(run_row["signal_dates_json"] or "[]")
+    ic_raw = json.loads(run_row["ic_by_date_json"] or "{}")
+    ic_by_date: dict[str, float | None] = {
+        k: (float(v) if v is not None else None) for k, v in ic_raw.items()
+    }
+    return list(dates), ic_by_date

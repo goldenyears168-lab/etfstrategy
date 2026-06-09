@@ -1,6 +1,6 @@
 # 每日營運速查
 
-> **正文以 [PRD.md](./PRD.md) 為準**（v0.3 · **方案 C**）。本檔僅供快速連結。
+> **正文以 [PRD.md](./PRD.md) 為準**（v0.6 · **方案 C**）。本檔僅供每日 SOP 速查；架構見 PRD §5.7，④ 見 §24，① E0.2 見 §25。
 
 ## 方案 C：四個排程（預設）
 
@@ -14,13 +14,13 @@
 | ③ | **週日深度補庫** | `weekly-deep` | 週日 20:00 | `scripts/2000週日補庫.command` |
 | ④ | **策略回顧** | `signal-review` | 隨時 | `scripts/策略回顧.command` |
 
-> ④ 規格：[signal-review-PRD.md](./signal-review-PRD.md)（Paper 10 萬每日全換 · 只讀 DB）
+> ④ 規格：[PRD.md](./PRD.md) §24（Paper 10 萬每日全換 · DB 持久化 + report 渲染）
 
 ---
 
 ## 兩段營運節奏（固定 SOP）
 
-### ① 執行評估（08:30 · 規格 [execution-eval-PRD.md](./execution-eval-PRD.md)）
+### ① 執行評估（08:30 · 規格 [PRD.md](./PRD.md) §25）
 
 1. 雙擊 `0830執行評估.command`（或 launchd 定時）
 2. 終端依序閱讀：
@@ -53,8 +53,8 @@
 
 ### ④ 策略回顧（隨時）
 
-1. 雙擊 `策略回顧.command`（預設 `--lookback-trading-days 7 --lookback-event-days 20`）
-2. 讀 `reports/YYYYMMDD_signal_review.md`：
+1. 雙擊 `策略回顧.command`（預設 `--lookback-trading-days 7 --lookback-event-days 20`；結果寫入 `signal_review_*` 表）
+2. 讀 `reports/YYYYMMDD_signal_review.md`（由 DB 渲染；`--render-only` 可僅重產報告）：
    - **§0 ETF Flow Attribution**（只讀 `flow_events`；Boss Gate H+3/H+5、Coverage）
    - 分桶 IC、Paper 10 萬每日全換損益
 3. 樣本不足或 §0 Coverage Available=0 時報告會標「不建議改 rule」
@@ -112,5 +112,7 @@ ENTRY_OVEREXTENDED_REL_PCT=78
 | 想查什麼 | PRD 章節 |
 |----------|----------|
 | 架構圖、Phase 對照 | **§5.2** |
+| 五層 Job、表分層 | **§5.7** |
+| ④ 策略回顧 | **§24** |
+| ① 執行評估 E0.2 | **§25** |
 | 改造 checklist | **§22** |
-| 五層架構 | [architecture.md](./architecture.md) |

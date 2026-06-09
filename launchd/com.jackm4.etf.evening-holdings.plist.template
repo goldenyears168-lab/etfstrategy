@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.evening-holdings</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{PROJECT_ROOT}}/scripts/daily_sync.sh</string>
+		<string>--holdings-only</string>
+		<string>--holdings-report</string>
+		<string>--quiet</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{PROJECT_ROOT}}</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>evening-holdings</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>1</integer>
+			<key>Hour</key><integer>16</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>2</integer>
+			<key>Hour</key><integer>16</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>3</integer>
+			<key>Hour</key><integer>16</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>4</integer>
+			<key>Hour</key><integer>16</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>5</integer>
+			<key>Hour</key><integer>16</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+	</array>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_evening-holdings.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_evening-holdings.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

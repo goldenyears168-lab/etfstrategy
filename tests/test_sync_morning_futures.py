@@ -31,6 +31,16 @@ class TestSyncMorningFutures(unittest.TestCase):
         assert tx is not None
         self.assertEqual(float(tx["close"]), 22500.0)
 
+    def test_pick_snapshot_row_contract_prefix(self) -> None:
+        rows = [
+            {"futures_id": "TXFF6", "close": 44100, "volume": 428},
+            {"futures_id": "TXFI6", "close": 44850, "volume": 10},
+        ]
+        tx = pick_snapshot_row(rows, "TXF")
+        self.assertIsNotNone(tx)
+        assert tx is not None
+        self.assertEqual(float(tx["close"]), 44100.0)
+
     def test_build_morning_risk_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             conn = connect(Path(tmp) / "t.db")
@@ -69,6 +79,32 @@ class TestSyncMorningFutures(unittest.TestCase):
         self.assertAlmostEqual(row["tx_gap_live_pct"], 0.4545, places=3)
         self.assertAlmostEqual(row["te_gap_live_pct"], 0.8696, places=3)
         self.assertAlmostEqual(row["te_minus_tx_pct"], 0.4151, places=3)
+
+    def test_build_morning_risk_row_tx_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect(Path(tmp) / "t.db")
+            conn.execute(
+                """
+                INSERT INTO daily_bars
+                (code, date, close, source, synced_at)
+                VALUES ('IX0001', '2026-06-05', 22000, 'tej', 'x')
+                """
+            )
+            conn.commit()
+            row = build_morning_risk_row(
+                conn,
+                trade_date="2026-06-08",
+                captured_at="2026-06-08T08:30:00+08:00",
+                snapshot_rows=[{"futures_id": "TXFF6", "close": 22100, "volume": 428}],
+                tx_id="TXF",
+                te_id="EXF",
+            )
+            conn.close()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertAlmostEqual(row["tx_gap_live_pct"], 0.4545, places=3)
+        self.assertIsNone(row["te_gap_live_pct"])
+        self.assertIn("EXF 無 snapshot 價", row["notes"] or "")
 
     def test_morning_radar_warnings(self) -> None:
         row = {

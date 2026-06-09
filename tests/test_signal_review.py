@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from market_labels import PM_AVOID, PM_BREAKOUT, PM_OBSERVE
+from project_config import DEFAULT_FLOW_EVENT_LOOKBACK
 from signal_review import (
     OutcomeRow,
     aggregate_bucket_stats,
@@ -15,6 +16,9 @@ from signal_review import (
     compute_horizon_cell,
     compute_paper_day,
     compute_paper_horizon_row,
+    load_review_result,
+    persist_review_result,
+    render_report_for_run,
     return_pct,
     run_review,
     spearman_correlation,
@@ -481,6 +485,89 @@ class TestFormatReport(unittest.TestCase):
         self.assertIn(f"| {t0} | 40,000 | — | — | — | — | — | skip |", text)
         self.assertIn("Mean CAPM α", text)
         self.assertIn("CAPM α", text)
+
+    def test_persist_and_render_from_db(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect(Path(tmp) / "t.db")
+            t, t1 = "2026-06-03", "2026-06-04"
+            _seed_benchmark(conn, {t: 1000.0, t1: 1010.0})
+            _seed_prices(conn, "2330", {t: 100.0, t1: 105.0})
+            upsert_pm_watchlist(
+                conn,
+                [
+                    {
+                        "stock_id": "2330",
+                        "as_of_date": t,
+                        "score_version": "p4-v2",
+                        "stock_name": "台積電",
+                        "investment_score": 75.0,
+                        "watchlist": "首要觀察",
+                        "entry_signal": "突破",
+                        "entry_tags_json": "[]",
+                        "chip_tag": "法人中性",
+                        "pm_bucket": PM_BREAKOUT,
+                        "flow_score": 70.0,
+                        "chip_score": 70.0,
+                        "tech_score": 70.0,
+                        "catalyst_score": 50.0,
+                        "fundamental_score": 50.0,
+                        "note": "",
+                    }
+                ],
+            )
+            upsert_portfolio_weights(
+                conn,
+                [
+                    {
+                        "stock_id": "2330",
+                        "as_of_date": t,
+                        "score_version": "p4-v2",
+                        "stock_name": "台積電",
+                        "watchlist": "首要觀察",
+                        "position_score": 75.0,
+                        "risk_score": 30.0,
+                        "portfolio_weight_pct": 40.0,
+                        "suggested_ntd": 40_000.0,
+                        "capital_ntd": 100_000.0,
+                        "entry_signal": "突破",
+                        "entry_tags_json": "[]",
+                        "pm_bucket": PM_OBSERVE,
+                        "note": "",
+                    }
+                ],
+            )
+            result = run_review(
+                conn,
+                as_of=t1,
+                lookback=7,
+                score_version="p4-v2",
+                capital_ntd=100_000.0,
+            )
+            direct_text = build_report_text(
+                result,
+                conn,
+                score_version="p4-v2",
+                capital_ntd=100_000.0,
+                lookback_event_days=DEFAULT_FLOW_EVENT_LOOKBACK,
+            )
+            run_id = persist_review_result(
+                conn,
+                result,
+                review_date="2026-06-05",
+                score_version="p4-v2",
+                capital_ntd=100_000.0,
+                lookback_trading_days=7,
+                lookback_event_days=DEFAULT_FLOW_EVENT_LOOKBACK,
+            )
+            loaded = load_review_result(conn, run_id)
+            db_text = render_report_for_run(conn, run_id)
+            conn.close()
+
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(len(loaded.outcomes), len(result.outcomes))
+        self.assertAlmostEqual(loaded.outcomes[0].capm_alpha_pct, result.outcomes[0].capm_alpha_pct)
+        self.assertEqual(direct_text, db_text)
 
 
 if __name__ == "__main__":
