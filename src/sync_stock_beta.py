@@ -22,12 +22,12 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
-import requests
 import yfinance as yf
 
+from finmind_client import fetch_finmind_dataset
+from project_config import DEFAULT_CAPITAL_NTD
 from stock_db import DEFAULT_DB_PATH, connect, upsert_stock_beta
 
-FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 BENCHMARK_SYMBOL = "^TWII"
 BETA_WINDOW = ""
 BETA_SOURCE = "yahoo_computed"
@@ -47,22 +47,14 @@ class StockRow:
 
 def fetch_stock_universe(include_emerging: bool = False) -> list[StockRow]:
     """從 FinMind 取得上市櫃普通股清單（4 碼、依最新 date 去重）。"""
-    resp = requests.get(
-        FINMIND_URL,
-        params={"dataset": "TaiwanStockInfo"},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if payload.get("status") != 200:
-        raise RuntimeError(payload.get("msg", "FinMind TaiwanStockInfo error"))
+    payload_rows = fetch_finmind_dataset("TaiwanStockInfo")
 
     allowed_types = {"twse", "tpex"}
     if include_emerging:
         allowed_types.add("emerging")
 
     latest: dict[str, dict] = {}
-    for row in payload.get("data") or []:
+    for row in payload_rows:
         stock_type = str(row.get("type", "")).lower()
         if stock_type not in allowed_types:
             continue

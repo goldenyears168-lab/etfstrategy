@@ -81,7 +81,7 @@ def _percentile(sorted_vals: list[float], p: float) -> float:
     return sorted_vals[lo] * (1 - w) + sorted_vals[hi] * w
 
 
-def _zscore_series(values: list[float | None]) -> list[float]:
+def zscore_series(values: list[float | None]) -> list[float]:
     valid = [v for v in values if v is not None]
     if len(valid) < 2:
         return [0.0 if v is not None else 0.0 for v in values]
@@ -308,14 +308,14 @@ def _apply_conviction_scores(signals: list[StockSignal]) -> None:
     if not movers:
         return
 
-    z_wt = _zscore_series([s.weight_delta_pp_max for s in movers])
-    z_sh = _zscore_series(
+    z_wt = zscore_series([s.weight_delta_pp_max for s in movers])
+    z_sh = zscore_series(
         [
             s.share_growth_pct_max if s.share_growth_pct_max is not None else 0.0
             for s in movers
         ]
     )
-    z_fl = _zscore_series(
+    z_fl = zscore_series(
         [
             abs(s.flow_ntd_total) if s.flow_ntd_total is not None else 0.0
             for s in movers
@@ -391,3 +391,70 @@ def build_aligned_signals_or_raise(
     if out is None:
         raise ValueError("無足夠 ETF 對齊同一 snapshot 窗口，無法計算 L3–L5")
     return out
+
+
+def change_leg_to_dict(leg: ChangeLeg) -> dict:
+    return {
+        "etf_code": leg.etf_code,
+        "action": leg.action,
+        "share_delta": leg.share_delta,
+        "weight_delta_pp": leg.weight_delta_pp,
+        "flow_ntd": leg.flow_ntd,
+        "theme": leg.theme,
+    }
+
+
+def stock_signal_to_dict(sig: StockSignal) -> dict:
+    """L2–L5 跨 ETF 訊號 → JSON（對齊窗口內）。"""
+    return {
+        "stock_id": sig.stock_id,
+        "stock_name": sig.stock_name,
+        "theme": sig.theme,
+        "net_side": sig.net_side,
+        "l2_consensus_level": sig.consensus_level,
+        "l2_consensus_score": sig.consensus_score,
+        "l2_consensus_etf_effective": sig.consensus_etf_effective,
+        "l4_conviction_level": sig.conviction_level,
+        "l4_conviction_score": sig.conviction_score,
+        "l5_portfolio_role": sig.portfolio_role,
+        "l5_position_intent": sig.position_intent,
+        "l3_rotation_in": sig.rotation_in,
+        "l3_rotation_out": sig.rotation_out,
+        "weight_rank_best": sig.weight_rank_best,
+        "in_top5_any": sig.in_top5_any,
+        "legs": [change_leg_to_dict(leg) for leg in sig.legs],
+    }
+
+
+def _theme_flow_pairs_from_signals(signals: list[StockSignal]) -> list[str]:
+    pairs: set[str] = set()
+    for sig in signals:
+        if sig.rotation_in:
+            pairs.add(sig.rotation_in)
+        if sig.rotation_out:
+            pairs.add(sig.rotation_out)
+    return sorted(pairs)
+
+
+def build_signal_layers_block(
+    conn: sqlite3.Connection,
+    etf_codes: tuple[str, ...],
+) -> dict | None:
+    """對齊窗口內 L2–L5 訊號層（供 research_context / LLM）。"""
+    result = build_aligned_signals(conn, etf_codes)
+    if result is None:
+        return None
+    active = [
+        stock_signal_to_dict(s)
+        for s in result.signals
+        if s.net_side in ("add", "reduce", "mixed")
+    ]
+    return {
+        "aligned_window": {
+            "prev_date": result.prev_date,
+            "curr_date": result.curr_date,
+            "etf_codes": list(result.etf_codes),
+        },
+        "l3_theme_flow_pairs": _theme_flow_pairs_from_signals(result.signals),
+        "stocks": active,
+    }

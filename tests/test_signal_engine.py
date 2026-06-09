@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import unittest
 
-from comment_engine import compose_comment
+from comment_engine import compose_intent_compact, compose_intent_tags
 from position_intent import apply_l2_consensus
 from signal_engine import (
     ChangeLeg,
     StockSignal,
     _build_theme_flow_matrix,
     _infer_portfolio_role,
-    _zscore_series,
+    zscore_series,
 )
 
 
 class TestZScore(unittest.TestCase):
     def test_zscore_centered(self) -> None:
-        zs = _zscore_series([1.0, 2.0, 3.0])
+        zs = zscore_series([1.0, 2.0, 3.0])
         self.assertAlmostEqual(sum(zs), 0.0, places=6)
 
 
@@ -127,7 +127,7 @@ class TestL2Consensus(unittest.TestCase):
 
 
 class TestComment(unittest.TestCase):
-    def test_compose_has_brackets(self) -> None:
+    def test_compose_intent_compact_single_line(self) -> None:
         sig = StockSignal(
             stock_id="2330",
             stock_name="台積電",
@@ -136,14 +136,33 @@ class TestComment(unittest.TestCase):
             conviction_level="MEDIUM",
             net_side="add",
             weight_rank_best=1,
+            weight_delta_pp_max=0.35,
             in_top5_any=True,
             position_intent="MAINTAIN_CORE",
             consensus_level="SINGLE",
         )
-        text = compose_comment(sig)
-        self.assertIn("[CORE]", text)
-        self.assertIn("[MAINTAIN_CORE]", text)
+        text = compose_intent_compact(sig)
+        self.assertNotIn("\n", text)
         self.assertIn("台積電", text)
+        self.assertIn("MEDIUM", text)
+        self.assertIn("CORE", text)
+        self.assertIn("維持核心配置", text)
+        self.assertNotIn("[CORE]", text)
+
+    def test_compose_intent_tags_debug(self) -> None:
+        sig = StockSignal(
+            stock_id="2330",
+            stock_name="台積電",
+            theme="AI_SEMIS",
+            portfolio_role="CORE",
+            conviction_level="MEDIUM",
+            position_intent="MAINTAIN_CORE",
+            consensus_level="SINGLE",
+        )
+        tags = compose_intent_tags(sig)
+        self.assertIn("[CORE]", tags)
+        self.assertIn("[MAINTAIN_CORE]", tags)
+        self.assertIn("[LONE_MANAGER]", tags)
 
 
 if __name__ == "__main__":

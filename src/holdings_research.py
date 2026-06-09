@@ -395,6 +395,63 @@ def format_research_suffix(
     return " " + " ".join(parts)
 
 
+def holdings_change_row_to_dict(
+    row: sqlite3.Row,
+    close: float | None,
+) -> dict:
+    """單檔持股變化 → JSON 列（股數變化 / 權重變化 / 資金流）。"""
+    return {
+        "stock_id": row["stock_id"],
+        "stock_name": row["stock_name"],
+        "action": row["action"],
+        "share_delta": row["share_delta"],
+        "weight_delta_pp": row["weight_delta"],
+        "flow_ntd": implied_flow_ntd(float(row["share_delta"] or 0), close),
+    }
+
+
+def build_etf_holdings_changes_block(
+    conn: sqlite3.Connection,
+    etf_codes: tuple[str, ...],
+    *,
+    changed_only: bool = True,
+) -> list[dict]:
+    """各 ETF 逐檔 L1 持股變化（evening_digest 等人類摘要）。"""
+    blocks: list[dict] = []
+    for etf_code in etf_codes:
+        pair = resolve_change_dates(conn, etf_code)
+        if not pair:
+            blocks.append(
+                {
+                    "etf_code": etf_code,
+                    "prev_date": None,
+                    "curr_date": None,
+                    "changes": [],
+                    "note": "insufficient snapshots",
+                }
+            )
+            continue
+        curr, prev = pair
+        rows = compute_etf_holdings_changes(conn, etf_code, curr, prev)
+        if changed_only:
+            rows = [r for r in rows if r["action"] != "不变"]
+        stock_ids = [r["stock_id"] for r in rows]
+        close_map = load_implied_closes(conn, stock_ids, prev, curr)
+        changes = [
+            holdings_change_row_to_dict(r, close_map.get(r["stock_id"]))
+            for r in rows
+        ]
+        blocks.append(
+            {
+                "etf_code": etf_code,
+                "prev_date": prev,
+                "curr_date": curr,
+                "changes": changes,
+            }
+        )
+    return blocks
+
+
 def print_cross_etf_consensus(
     conn: sqlite3.Connection,
     etf_codes: tuple[str, ...],
@@ -484,35 +541,139 @@ def print_cross_etf_consensus(
             )
 
 
-def print_position_intent_report(
+def _flow_cell(flow: float | None) -> str:
+    s = fmt_ntd_short(flow)
+    return f"{s:>8}" if s else f"{'':>8}"
+
+
+def _consensus_by_id(
+    rows: list[ConsensusStock],
+) -> dict[str, ConsensusStock]:
+    return {r.stock_id: r for r in rows}
+
+
+def _print_flow_intent_row(
+    row: ConsensusStock,
+    sig,
+    *,
+    debug: bool,
+) -> None:
+    from comment_engine import compose_intent_tags, compose_intent_tail, format_signal_debug
+
+    if sig and sig.weight_delta_pp_max:
+        wt_cell = f"{sig.weight_delta_pp_max:+.2f}pp"
+    else:
+        wt_cell = ""
+    etf_n = row.etf_add if row.etf_add else row.etf_reduce
+    if sig and sig.weight_rank_best is not None:
+        rank_cell = str(sig.weight_rank_best)
+    else:
+        rank_cell = "—"
+    intent_col = compose_intent_tail(sig, table_mode=True) if sig else "—"
+    print(
+        f"  {row.stock_id:>6} {row.stock_name:<6} {etf_n:>2} "
+        f"{_flow_cell(row.flow_ntd)} {wt_cell:>7} {rank_cell:>4}  {intent_col}"
+    )
+    if debug and sig:
+        print(f"         {compose_intent_tags(sig)}")
+        print(f"         {format_signal_debug(sig)}")
+
+
+def _print_flow_intent_block(
+    title: str,
+    signals: list,
+    consensus: dict[str, ConsensusStock],
+    *,
+    side: str,
+    debug: bool,
+    collapse_low: bool,
+) -> None:
+    if not signals:
+        return
+    primary: list = []
+    low: list = []
+    if collapse_low:
+        for sig in signals:
+            if sig.conviction_level in ("HIGH", "MEDIUM"):
+                primary.append(sig)
+            else:
+                low.append(sig)
+    else:
+        primary = list(signals)
+
+    print("")
+    if collapse_low:
+        print(f"{title}（HIGH/MEDIUM；依 conviction 排序）")
+    else:
+        print(title)
+    header = (
+        f"  {'代號':>6} {'名稱':<6} {'檔數':>2} {'流入':>8} {'Δwt':>7} {'rank':>4}  意圖"
+    )
+    print(header)
+    for sig in primary:
+        row = consensus.get(sig.stock_id)
+        if row is None:
+            row = ConsensusStock(
+                stock_id=sig.stock_id,
+                stock_name=sig.stock_name or "",
+                etf_add=1 if side == "add" else 0,
+                etf_reduce=1 if side == "reduce" else 0,
+            )
+        _print_flow_intent_row(row, sig, debug=debug)
+    if collapse_low and low:
+        print(f"  （另有 {len(low)} 檔低力度衛星{'加碼' if side == 'add' else '減碼'}，略）")
+
+
+def _print_theme_flow_summary(signals: list) -> None:
+    pairs_seen: set[str] = set()
+    for sig in signals:
+        for attr in ("rotation_in", "rotation_out"):
+            val = getattr(sig, attr)
+            if val:
+                pairs_seen.add(val)
+    if not pairs_seen:
+        return
+    from investment_themes import theme_label
+
+    print("")
+    print("--- 主題資金流（L3 矩陣摘要）---")
+    for p in sorted(pairs_seen):
+        a, b = p.split("→", 1)
+        print(f"  {theme_label(a)} → {theme_label(b)}")
+
+
+def print_cross_etf_flow_intent_report(
     conn: sqlite3.Connection,
     etf_codes: tuple[str, ...],
     *,
     debug: bool = False,
 ) -> None:
-    """跨 ETF 對齊日：L2 共識 + L3 輪動 + L4 conviction + L5 角色 + 意圖註解。"""
-    from comment_engine import compose_comment, format_signal_debug
+    """跨 ETF 共識寬表 + 部位意圖（單表、HIGH/MEDIUM 詳列、LOW 摘要）。"""
     from signal_engine import build_aligned_signals
 
     result = build_aligned_signals(conn, etf_codes)
     print("")
     if result is None:
-        print("=== 部位意圖（L2–L6）===")
-        print("  略過：少於 2 檔 ETF 共用同一 prev→curr（無法做跨檔橫截面）")
+        print("=== 跨 ETF 資金流 + 部位意圖 ===")
+        print("  略過意圖：少於 2 檔 ETF 共用同一 prev→curr")
+        print_cross_etf_consensus(conn, etf_codes)
         return
 
-    prev_date = result.prev_date
-    curr_date = result.curr_date
-    signals = result.signals
     active = result.etf_codes
     skipped = [c for c in etf_codes if c not in active]
-    movers = [s for s in signals if s.net_side in ("add", "reduce", "mixed")]
     cohort_note = f"{len(active)}/{len(etf_codes)} 檔對齊"
     if skipped:
         cohort_note += f"（未納入：{','.join(skipped)}）"
+    prev_date = result.prev_date
+    curr_date = result.curr_date
+    signals = result.signals
+    movers = [s for s in signals if s.net_side in ("add", "reduce", "mixed")]
+    consensus_rows = build_cross_etf_consensus(conn, active)
+    consensus = _consensus_by_id(consensus_rows)
+
     print(
-        f"=== 部位意圖 L2–L6（{cohort_note}；{prev_date} → {curr_date}；"
-        f"{len(movers)} 檔變動）==="
+        f"=== 跨 ETF 資金流 + 部位意圖（{cohort_note}；{prev_date} → {curr_date}；"
+        f"{len(movers)} 檔變動；流入=Δ股×持股推算單價）==="
     )
     if not movers:
         print("  （區間內無加減碼）")
@@ -522,31 +683,44 @@ def print_position_intent_report(
     reduces = [s for s in movers if s.net_side == "reduce"]
     mixed = [s for s in movers if s.net_side == "mixed"]
 
-    def _print_block(title: str, block: list) -> None:
-        if not block:
-            return
-        print("")
-        print(title)
-        for sig in block:
-            print(f"  {sig.stock_id:>6} {compose_comment(sig)}")
-            if debug:
-                print(f"         {format_signal_debug(sig)}")
+    _print_flow_intent_block(
+        "--- 加碼／新進",
+        adds,
+        consensus,
+        side="add",
+        debug=debug,
+        collapse_low=True,
+    )
+    _print_flow_intent_block(
+        "--- 減碼／出清",
+        reduces,
+        consensus,
+        side="reduce",
+        debug=debug,
+        collapse_low=True,
+    )
+    _print_flow_intent_block(
+        "--- 分歧調倉",
+        mixed,
+        consensus,
+        side="mixed",
+        debug=debug,
+        collapse_low=False,
+    )
+    _print_theme_flow_summary(signals)
 
-    _print_block("--- 加碼／新進（依 conviction 排序）---", adds)
-    _print_block("--- 減碼／出清 ---", reduces)
-    _print_block("--- 分歧調倉 ---", mixed)
+    from sync_flow_events import persist_flow_events
 
-    pairs_seen: set[str] = set()
-    for sig in signals:
-        for attr in ("rotation_in", "rotation_out"):
-            val = getattr(sig, attr)
-            if val:
-                pairs_seen.add(val)
-    if pairs_seen:
-        from investment_themes import theme_label
+    n = persist_flow_events(conn, etf_codes)
+    if n:
+        print(f"  flow_events 已落地 {n} 列（{curr_date}）")
 
-        print("")
-        print("--- 主題資金流（L3 矩陣摘要）---")
-        for p in sorted(pairs_seen):
-            a, b = p.split("→", 1)
-            print(f"  {theme_label(a)} → {theme_label(b)}")
+
+def print_position_intent_report(
+    conn: sqlite3.Connection,
+    etf_codes: tuple[str, ...],
+    *,
+    debug: bool = False,
+) -> None:
+    """相容入口：合併寬表輸出。"""
+    print_cross_etf_flow_intent_report(conn, etf_codes, debug=debug)

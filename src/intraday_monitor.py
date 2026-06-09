@@ -26,9 +26,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import requests
 import yfinance as yf
 
+from price_adapter import fetch_finmind_tick_rows
 from stock_db import (
     DEFAULT_DB_PATH,
     connect,
@@ -38,7 +38,6 @@ from stock_db import (
 )
 
 TZ = ZoneInfo("Asia/Taipei")
-FINMIND_TICK_URL = "https://api.finmindtrade.com/api/v4/taiwan_stock_tick_snapshot"
 INDEX_FINMIND_ID = "001"
 YAHOO_INDEX = "^TWII"
 SESSION_MINUTES = 265  # 09:00–13:25 約 265 分鐘
@@ -70,12 +69,6 @@ class SymbolState:
     aggressive_buy_vol: float = 0.0
     aggressive_total_vol: float = 0.0
 
-
-def finmind_headers() -> dict[str, str]:
-    token = os.environ.get("FINMIND_TOKEN", "").strip()
-    if not token:
-        return {}
-    return {"Authorization": f"Bearer {token}"}
 
 
 def is_trading_window(now: datetime | None = None) -> bool:
@@ -141,26 +134,7 @@ def fetch_index_day_return_yahoo() -> float:
 
 
 def fetch_finmind_snapshots(symbols: list[str]) -> tuple[list[dict], str | None]:
-    headers = finmind_headers()
-    if not headers:
-        return [], "未設定 FINMIND_TOKEN"
-    rows: list[dict] = []
-    for i in range(0, len(symbols), BATCH_SIZE):
-        chunk = symbols[i : i + BATCH_SIZE]
-        try:
-            resp = requests.get(
-                FINMIND_TICK_URL,
-                headers=headers,
-                params={"data_id": chunk},
-                timeout=30,
-            )
-            payload = resp.json()
-        except requests.RequestException as exc:
-            return [], str(exc)
-        if payload.get("status") != 200:
-            return [], payload.get("msg", f"HTTP {resp.status_code}")
-        rows.extend(payload.get("data") or [])
-    return rows, None
+    return fetch_finmind_tick_rows(symbols, batch_size=BATCH_SIZE)
 
 
 def fetch_yahoo_1m_bars(symbols: list[str]) -> dict[str, pd.Series]:

@@ -8,16 +8,17 @@ lookback 視窗內有資料的交易日皆 upsert（可補漏日）。
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import requests
-
+from finmind_client import fetch_finmind
+from project_config import (
+    DEFAULT_ETF_SIGNAL_LOOKBACK_DAYS,
+    parse_etf_codes_arg,
+)
 from stock_db import DEFAULT_DB_PATH, connect, upsert_etf_daily_signal_snapshots
 
-FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 SOURCE = "finmind"
 
 INSTITUTIONAL_FIELDS: dict[str, str] = {
@@ -27,38 +28,8 @@ INSTITUTIONAL_FIELDS: dict[str, str] = {
 }
 
 
-def finmind_headers() -> dict[str, str]:
-    token = os.environ.get("FINMIND_TOKEN", "").strip()
-    if token.startswith("eyJ") and len(token) > 100:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
-
-
 def parse_etf_codes(etf_code: str | None, etf_codes: str | None) -> tuple[str, ...]:
-    if etf_codes:
-        return tuple(code.strip().upper() for code in etf_codes.split(",") if code.strip())
-    if etf_code:
-        return (etf_code.upper(),)
-    return ("00981A",)
-
-
-def fetch_finmind(dataset: str, code: str, start: date, end: date) -> list[dict]:
-    resp = requests.get(
-        FINMIND_URL,
-        params={
-            "dataset": dataset,
-            "data_id": code,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-        },
-        headers=finmind_headers(),
-        timeout=60,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if payload.get("status") != 200:
-        raise RuntimeError(payload.get("msg", "FinMind error"))
-    return payload.get("data") or []
+    return parse_etf_codes_arg(etf_code, etf_codes)
 
 
 def aggregate_institutional(rows: list[dict]) -> dict[str, dict[str, float]]:
@@ -184,8 +155,8 @@ def main() -> int:
     parser.add_argument(
         "--lookback-days",
         type=int,
-        default=14,
-        help="回溯天數，視窗內有資料的交易日皆 upsert（預設 14）",
+        default=DEFAULT_ETF_SIGNAL_LOOKBACK_DAYS,
+        help="回溯天數，視窗內有資料的交易日皆 upsert",
     )
     parser.add_argument("--dry-run", action="store_true", help="只抓取不寫入")
     parser.add_argument(
@@ -208,8 +179,6 @@ def main() -> int:
             )
         except RuntimeError as exc:
             print(f"  WARN {code}: {exc}", file=sys.stderr)
-        except requests.HTTPError as exc:
-            print(f"  WARN {code}: FinMind 不可用（{exc}）", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
             print(f"  WARN {code}: {exc}", file=sys.stderr)
     return exit_code
@@ -217,3 +186,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

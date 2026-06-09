@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from holdings_research import ADD_ACTIONS
-from signal_engine import ChangeLeg, StockSignal, _zscore_series
+from signal_engine import ChangeLeg, StockSignal, zscore_series
 
 # L2：單檔 ETF 貢獻須達此 z 門檻才算「有效同步」
 CONSENSUS_LEG_Z_MIN = 0.35
@@ -57,8 +57,8 @@ def apply_l2_consensus(signals: list[StockSignal]) -> None:
         for _, leg in pool
     ]
     wt_raw = [abs(leg.weight_delta_pp) for _, leg in pool]
-    z_flows = _zscore_series(flow_raw)
-    z_wts = _zscore_series(wt_raw)
+    z_flows = zscore_series(flow_raw)
+    z_wts = zscore_series(wt_raw)
 
     per_stock: dict[str, dict] = {}
     for i, (sig, leg) in enumerate(pool):

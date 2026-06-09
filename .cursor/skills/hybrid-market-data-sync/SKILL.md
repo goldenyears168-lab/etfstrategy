@@ -12,7 +12,7 @@ Run a **TEJ-first** daily sync for multi-ETF research into `data/stocks.db`:
 
 | Layer | Source | Target table | Notes |
 |-------|--------|--------------|-------|
-| ETF 日線 | **TEJ** `TWN/EWPRCD` | `daily_bars` | 6 codes via `--etf-codes`; FinMind fallback if TEJ empty |
+| ETF 日線 | **TEJ** `TWN/EWPRCD` → FinMind `TaiwanStockPrice` | `daily_bars` | 6 codes via `--etf-codes`; TEJ 失敗/空資料自動 fallback |
 | 指數基準 | **TEJ** `TWN/EWIPRCD` | `daily_bars` | `idx_id=IX0001,IR0002` (**not** `coid`) |
 | 三大法人 + close | **FinMind** | `etf_daily_signal_snapshot` | 14-day lookback upsert |
 | 科技風險三層 | **Yahoo + FinMind** | `tech_risk_daily_snapshot` + `daily_bars` | TSM ADR / ^SOX / TX·TE gap（`sync_tech_risk_context.py`） |
@@ -67,10 +67,10 @@ ETF_CODES_HOLDINGS="${ETF_CODES_EZMONEY},${ETF_CODES_KGIFUND},${ETF_CODES_CAPITA
 ```bash
 cd "<project-root>"
 scripts/daily_sync.sh --quiet
-# 或 scripts/ETF早盤風險哨.command / ETF收盤持股雷達.command
+# 或 scripts/0830執行評估.command / 1630收盤雷達.command
 ```
 
-詳見 skill **`scheme-c-local-ops`**。舊雲端方案已封存：`archive/docs/cloud-sync-plan.md`。
+詳見 skill **`scheme-c-local-ops`**（本地 SQLite；不做雲端 Supabase 同步）。
 
 ## daily_sync.sh — steps（`src/` 腳本）
 

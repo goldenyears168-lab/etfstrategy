@@ -19,12 +19,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-import requests
 import yfinance as yf
 
+from finmind_client import fetch_finmind
 from stock_db import DEFAULT_DB_PATH, connect, upsert_daily_bars, upsert_tech_risk_daily_snapshots
 
-FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 SOURCE_US = "yahoo"
 SOURCE_TW = "finmind"
 TW_SPOT_CODE = "IX0001"
@@ -36,15 +35,6 @@ US_BAR_CODES: dict[str, str] = {
 }
 
 FUTURES_IDS = ("TX", "TE")
-
-
-def finmind_headers() -> dict[str, str]:
-    import os
-
-    token = os.environ.get("FINMIND_TOKEN", "").strip()
-    if token.startswith("eyJ") and len(token) > 100:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
 
 
 def fetch_yahoo_closes(symbols: dict[str, str], start: date, end: date) -> dict[str, pd.Series]:
@@ -132,22 +122,7 @@ def ma_and_position(series: pd.Series, on_date: str, window: int) -> tuple[float
 
 
 def fetch_finmind_futures(futures_id: str, start: date, end: date) -> list[dict]:
-    resp = requests.get(
-        FINMIND_URL,
-        params={
-            "dataset": "TaiwanFuturesDaily",
-            "data_id": futures_id,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-        },
-        headers=finmind_headers(),
-        timeout=60,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if payload.get("status") != 200:
-        raise RuntimeError(payload.get("msg", "FinMind TaiwanFuturesDaily error"))
-    return payload.get("data") or []
+    return fetch_finmind("TaiwanFuturesDaily", futures_id, start, end)
 
 
 def _is_near_contract(contract_date: str) -> bool:
@@ -231,12 +206,55 @@ def list_tw_session_dates(conn, limit: int) -> list[str]:
     return [r[0] for r in reversed(rows)]
 
 
+def load_us_series_from_db(
+    conn,
+    codes: tuple[str, ...],
+    start: date,
+) -> dict[str, pd.Series]:
+    """自 daily_bars 補齊 Yahoo 即時拉取可能落後的美股收盤。"""
+    out: dict[str, pd.Series] = {}
+    for code in codes:
+        rows = conn.execute(
+            """
+            SELECT date, close
+            FROM daily_bars
+            WHERE code = ? AND source = ? AND date >= ? AND close IS NOT NULL
+            ORDER BY date
+            """,
+            (code, SOURCE_US, start.isoformat()),
+        ).fetchall()
+        if not rows:
+            continue
+        idx = pd.to_datetime([r[0] for r in rows])
+        out[code] = pd.Series([float(r[1]) for r in rows], index=idx)
+    return out
+
+
+def merge_us_series(
+    live: dict[str, pd.Series],
+    stored: dict[str, pd.Series],
+) -> dict[str, pd.Series]:
+    merged: dict[str, pd.Series] = {}
+    for code in set(live) | set(stored):
+        parts: list[pd.Series] = []
+        if code in live and not live[code].empty:
+            parts.append(live[code])
+        if code in stored and not stored[code].empty:
+            parts.append(stored[code])
+        if not parts:
+            continue
+        series = pd.concat(parts).sort_index()
+        series = series[~series.index.duplicated(keep="last")]
+        merged[code] = series
+    return merged
+
+
 def latest_us_trade_date(tsm: pd.Series, session_date: str) -> str | None:
-    """取不晚於台股 session 的最新美股交易日。"""
+    """取台股 session 開盤前一夜美股收盤日（嚴格早於 session_date）。"""
     if tsm.empty:
         return None
     session = pd.Timestamp(session_date)
-    eligible = tsm.index[tsm.index <= session]
+    eligible = tsm.index[tsm.index < session]
     if eligible.empty:
         return tsm.index[-1].strftime("%Y-%m-%d")
     return eligible[-1].strftime("%Y-%m-%d")
@@ -378,25 +396,31 @@ def sync_tech_risk(
     end = date.today()
     start = end - timedelta(days=history_days + 15)
 
-    us_series = fetch_yahoo_closes(US_BAR_CODES, start, end)
-    if "TSM_ADR" not in us_series:
-        raise RuntimeError("Yahoo 無 TSM ADR 資料")
-
-    bar_rows: list[dict] = []
-    for code, series in us_series.items():
-        bar_rows.extend(closes_to_daily_bars(code, series))
-
-    futures_by_id: dict[str, list[dict]] = {}
-    for fid in FUTURES_IDS:
-        futures_by_id[fid] = fetch_finmind_futures(fid, start, end)
-
+    live_us = fetch_yahoo_closes(US_BAR_CODES, start, end)
     conn = connect(db_path)
     try:
+        stored_us = load_us_series_from_db(conn, tuple(US_BAR_CODES.keys()), start)
+        us_series = merge_us_series(live_us, stored_us)
+        if "TSM_ADR" not in us_series:
+            raise RuntimeError("Yahoo 無 TSM ADR 資料")
+
+        bar_rows: list[dict] = []
+        for code, series in us_series.items():
+            bar_rows.extend(closes_to_daily_bars(code, series))
+
+        futures_by_id: dict[str, list[dict]] = {}
+        for fid in FUTURES_IDS:
+            futures_by_id[fid] = fetch_finmind_futures(fid, start, end)
+
         if not dry_run:
             upsert_daily_bars(conn, bar_rows)
         session_dates = list_tw_session_dates(conn, session_limit)
         if not session_dates:
             session_dates = [end.isoformat()]
+        today_iso = end.isoformat()
+        if today_iso not in session_dates:
+            # 開盤前 IX0001 尚無當日收盤，仍須組裝「今日」snapshot（對應昨夜美股收盤）
+            session_dates.append(today_iso)
 
         snapshots: list[dict] = []
         for session_date in session_dates:

@@ -10,27 +10,21 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from project_config import (
+    DEFAULT_ETF_CODES,
+    DEFAULT_MAX_POOL,
+    DEFAULT_TOP_N,
+    parse_etf_codes,
+)
 from event_ranking import (
     DEFAULT_EVENTS_PATH,
     RankedEvent,
     events_path_hint,
-    load_manual_events,
+    load_all_catalyst_events,
     rank_events,
 )
 from signal_engine import StockSignal, build_aligned_signals
 from stock_db import DEFAULT_DB_PATH, connect, load_etf_constituent_watchlist
-
-DEFAULT_ETF_CODES = (
-    "00981A",
-    "00403A",
-    "009816",
-    "00980A",
-    "00982A",
-    "00992A",
-)
-DEFAULT_TOP_N = 10
-DEFAULT_MAX_POOL = 20
-
 
 @dataclass(frozen=True)
 class UniverseEntry:
@@ -101,7 +95,9 @@ def build_research_universe(
     money_top = rank_money_flow(aligned.signals, top_n=top_n)
     watchlist = load_etf_constituent_watchlist(conn, etf_codes)
     pool_ids = {w["stock_id"] for w in watchlist} if watchlist else None
-    events = load_manual_events(events_path)
+    events = load_all_catalyst_events(
+        conn, events_path, pool_stock_ids=pool_ids
+    )
     event_top = rank_events(
         events,
         top_n=top_n,
@@ -237,12 +233,6 @@ def print_research_universe_report(
             f"{mf:>4} {ev:>4} {sm:>6} {evs:>6} {hint}"
         )
     return result
-
-
-def parse_etf_codes(arg: str | None) -> tuple[str, ...]:
-    if not arg:
-        return DEFAULT_ETF_CODES
-    return tuple(c.strip().upper() for c in arg.split(",") if c.strip())
 
 
 def main() -> int:

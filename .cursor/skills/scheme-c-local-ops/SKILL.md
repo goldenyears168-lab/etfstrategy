@@ -13,11 +13,9 @@ disable-model-invocation: true
 
 | # | 名稱 | slug | 時間 | 入口 |
 |---|------|------|------|------|
-| ① | 早盤風險哨 | `morning-risk` | 週一至五 08:30 | `scripts/ETF早盤風險哨.command` |
-| ② | 收盤持股雷達 | `evening-holdings` | 週一至五 16:30 | `scripts/ETF收盤持股雷達.command` |
-| ③ | 週日深度補庫 | `weekly-deep` | 週日 20:00 | `scripts/ETF週日深度補庫.command` |
-
-全量除錯：`scripts/ETF每日同步.command` → `daily_sync.sh --quiet`（無 profile）。
+| ① | 執行評估 | `execution-eval` | 週一至五 08:30 | `scripts/0830執行評估.command` |
+| ② | 收盤持股雷達 | `evening-holdings` | 週一至五 16:30 | `scripts/1630收盤雷達.command` |
+| ③ | 週日深度補庫 | `weekly-deep` | 週日 20:00 | `scripts/2000週日補庫.command` |
 
 ## 底層指令
 
@@ -40,7 +38,7 @@ scripts/weekly_sync.sh                        # ③
 ## 自動化
 
 - **僅本機**：Mac `launchd` 指向 `.command` 或 `daily_sync.sh`。
-- **不做**：GitHub Actions、n8n、Supabase（已封存於 `archive/docs/cloud-sync-plan.md`）。
+- **不做**：GitHub Actions、n8n、Supabase 雲端同步（已棄用；現行本地 SQLite + launchd）。
 
 ## 相關
 

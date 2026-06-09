@@ -20,12 +20,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-import requests
 import yfinance as yf
 
+from finmind_client import fetch_finmind
+from project_config import parse_etf_codes
 from stock_db import DEFAULT_DB_PATH, connect, upsert_daily_bars
-
-FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 TEJ_BASE_URL = "https://api.tej.com.tw/api/datatables"
 
 TEJ_BENCHMARKS: tuple[tuple[str, str], ...] = (
@@ -51,14 +50,6 @@ def parse_benchmark_codes(arg: str | None) -> tuple[str, ...]:
     if not codes:
         return tuple(code for code, _ in TEJ_BENCHMARKS)
     return codes
-
-
-def finmind_headers() -> dict[str, str]:
-    token = os.environ.get("FINMIND_TOKEN", "").strip()
-    if token.startswith("eyJ") and len(token) > 100:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
-
 
 def tej_api_key() -> str:
     return os.environ.get("TEJ_API_KEY", "").strip()
@@ -193,6 +184,45 @@ def fetch_tej_etf_bars(
     return parsed
 
 
+def _sync_one_etf_daily_bars(
+    conn,
+    code: str,
+    start: date,
+    end: date,
+    *,
+    quiet: bool,
+) -> int:
+    """TEJ EWPRCD 優先；失敗或空資料時 fallback FinMind TaiwanStockPrice。"""
+    source = "tej"
+    try:
+        bars = fetch_tej_etf_bars(code, start, end)
+        if not bars:
+            raise RuntimeError("TEJ 無可用資料")
+    except Exception as tej_exc:  # noqa: BLE001
+        try:
+            bars = fetch_finmind_daily(code, start, end)
+        except Exception as fm_exc:  # noqa: BLE001
+            raise RuntimeError(f"TEJ: {tej_exc}; FinMind: {fm_exc}") from tej_exc
+        if not bars:
+            raise RuntimeError(f"TEJ: {tej_exc}; FinMind 無可用資料") from tej_exc
+        source = "finmind"
+        if not quiet:
+            print(
+                f"  TEJ ETF 日線 {code} 失敗，改用 FinMind：{tej_exc}",
+                file=sys.stderr,
+            )
+
+    latest = max(b["date"] for b in bars)
+    count = upsert_daily_bars(conn, bars)
+    if not quiet:
+        label = "TEJ" if source == "tej" else "FinMind"
+        print(
+            f"  {label} ETF 日線 {code}：upsert {count} 筆，"
+            f"API 最新交易日 {latest}（重複按會覆寫同日資料）"
+        )
+    return count
+
+
 def sync_etf_daily_bars(
     etf_codes: tuple[str, ...],
     db_path: Path,
@@ -200,7 +230,7 @@ def sync_etf_daily_bars(
     *,
     quiet: bool = False,
 ) -> int:
-    """同步 ETF 日線至 daily_bars（僅 TEJ EWPRCD；失敗略過該檔）。"""
+    """同步 ETF 日線至 daily_bars（TEJ EWPRCD；失敗 fallback FinMind）。"""
     if not etf_codes:
         return 0
     end = date.today()
@@ -212,32 +242,18 @@ def sync_etf_daily_bars(
     try:
         for code in etf_codes:
             try:
-                bars = fetch_tej_etf_bars(code, start, end)
-                if not bars:
-                    raise RuntimeError("TEJ 無可用資料")
-                latest = max(b["date"] for b in bars)
-                count = upsert_daily_bars(conn, bars)
-                if not quiet:
-                    print(
-                        f"  TEJ ETF 日線 {code}：upsert {count} 筆，"
-                        f"API 最新交易日 {latest}（重複按會覆寫同日資料）"
-                    )
-                total += count
+                total += _sync_one_etf_daily_bars(
+                    conn, code, start, end, quiet=quiet
+                )
             except Exception as exc:  # noqa: BLE001
                 print(
-                    f"  WARN TEJ ETF 日線略過 {code}：{exc}",
+                    f"  WARN ETF 日線略過 {code}：{exc}",
                     file=sys.stderr,
                 )
                 continue
     finally:
         conn.close()
     return total
-
-
-def parse_etf_codes(arg: str | None) -> tuple[str, ...]:
-    if not arg:
-        return ()
-    return tuple(code.strip().upper() for code in arg.split(",") if code.strip())
 
 
 def fetch_yahoo_index_bars(
@@ -348,24 +364,9 @@ def fetch_finmind_daily(
     start: date,
     end: date,
 ) -> list[dict]:
-    resp = requests.get(
-        FINMIND_URL,
-        params={
-            "dataset": "TaiwanStockPrice",
-            "data_id": code,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-        },
-        headers=finmind_headers(),
-        timeout=30,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if payload.get("status") != 200:
-        raise RuntimeError(payload.get("msg", "FinMind error"))
-
+    raw = fetch_finmind("TaiwanStockPrice", code, start, end, timeout=30)
     rows: list[dict] = []
-    for item in payload.get("data") or []:
+    for item in raw:
         close = float(item["close"])
         spread = item.get("spread")
         spread_f = float(spread) if spread is not None and spread != "" else None

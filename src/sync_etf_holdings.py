@@ -13,6 +13,7 @@ import csv
 import html
 import re
 import sys
+import time
 import warnings
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -25,7 +26,7 @@ from holdings_research import (
     format_research_suffix,
     load_implied_closes,
     print_cross_etf_consensus,
-    print_position_intent_report,
+    print_cross_etf_flow_intent_report,
     print_sync_baseline_header,
 )
 from stock_db import (
@@ -42,6 +43,10 @@ from stock_db import (
 )
 
 _BETA_ACTIONS = frozenset({"新进", "加码"})
+_TRANSIENT_HTTP_STATUS = frozenset({429, 502, 503, 504})
+_FETCH_RETRY_ATTEMPTS = 3
+_FETCH_RETRY_BACKOFF_S = 2.0
+_CACHE_FALLBACK_MAX_AGE_DAYS = 7
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -168,6 +173,45 @@ def capitalfund_id_for(etf_code: str) -> str:
         known = ", ".join(sorted(CAPITALFUND_FUND_MAP))
         raise ValueError(f"Unknown CapitalFund ETF code {etf_code!r}. Known: {known}")
     return fund_id
+
+
+def _post_with_retry(
+    session: requests.Session,
+    url: str,
+    *,
+    max_attempts: int = _FETCH_RETRY_ATTEMPTS,
+    backoff_s: float = _FETCH_RETRY_BACKOFF_S,
+    **kwargs,
+) -> requests.Response:
+    last_response: requests.Response | None = None
+    for attempt in range(max_attempts):
+        response = session.post(url, **kwargs)
+        last_response = response
+        if response.status_code in _TRANSIENT_HTTP_STATUS and attempt + 1 < max_attempts:
+            time.sleep(backoff_s * (2**attempt))
+            continue
+        response.raise_for_status()
+        return response
+    if last_response is not None:
+        last_response.raise_for_status()
+    raise RuntimeError(f"POST {url} failed after {max_attempts} attempts")
+
+
+def _cached_snapshot_fallback(conn, etf_code: str) -> tuple[str, dict] | None:
+    dates = list_etf_snapshot_dates(conn, etf_code)
+    if not dates:
+        return None
+    latest = dates[0]
+    try:
+        snap_date = date.fromisoformat(latest)
+    except ValueError:
+        return None
+    if (date.today() - snap_date).days > _CACHE_FALLBACK_MAX_AGE_DAYS:
+        return None
+    meta = load_etf_holdings_meta(conn, etf_code, latest)
+    if meta is None:
+        return None
+    return latest, dict(meta)
 
 
 def nomura_fund_id_for(etf_code: str) -> str:
@@ -417,14 +461,14 @@ def fetch_nomura_snapshot(
     headers = {**NOMURA_HEADERS, "Referer": _nomura_referer(fund_id)}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
-        response = sess.post(
+        response = _post_with_retry(
+            sess,
             NOMURA_ASSETS_URL,
             json={"FundID": fund_id, "SearchDate": None},
             headers=headers,
             timeout=30,
             verify=False,
         )
-    response.raise_for_status()
     payload = response.json()
     if payload.get("StatusCode") not in (None, 0, 200) and payload.get("Message"):
         raise RuntimeError(f"Nomura API error for {etf_code}: {payload.get('Message')}")
@@ -734,6 +778,18 @@ def sync_one_etf(
     except NotListedError as exc:
         print(f"  SKIP {etf_code}: {exc}")
         return 0
+    except requests.RequestException as exc:
+        conn = connect(args.db_path)
+        cached = _cached_snapshot_fallback(conn, etf_code)
+        if cached is None:
+            raise
+        latest, meta = cached
+        nav = meta.get("nav")
+        print(
+            f"  SKIP {etf_code}: 官網暫時不可用 ({exc})，"
+            f"沿用 DB @ {latest} (NAV={nav})"
+        )
+        return 0
 
     if not args.quiet:
         print(
@@ -867,7 +923,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--intent-debug",
         action="store_true",
-        help="部位意圖附 rank / conviction / Δwt 除錯列",
+        help="部位意圖附 [TAG] 列與 rank / conviction / Δwt 除錯列",
     )
     parser.add_argument(
         "--universe",
@@ -881,6 +937,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="universe",
         help="關閉 Research Universe 區塊",
     )
+    parser.add_argument(
+        "--human",
+        action="store_true",
+        help="收盤 digest 模式：--changes 不印終端詳表（仍可比對 DB）",
+    )
     return parser
 
 
@@ -892,6 +953,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.list or args.changes:
         conn = connect(args.db_path)
         code_tuple = tuple(codes)
+        if args.human and args.changes:
+            return 0
         if args.changes:
             print_sync_baseline_header(conn, code_tuple)
         for etf_code in codes:
@@ -900,15 +963,22 @@ def main(argv: list[str] | None = None) -> int:
             if args.changes:
                 print_changes(conn, etf_code, args.date, args.prev_date)
         if args.changes and len(codes) > 1:
-            print_cross_etf_consensus(conn, code_tuple)
             if args.intent or args.intent_debug:
-                print_position_intent_report(
+                print_cross_etf_flow_intent_report(
                     conn, code_tuple, debug=args.intent_debug
                 )
+            else:
+                print_cross_etf_consensus(conn, code_tuple)
             if args.universe and (args.intent or args.intent_debug):
                 from research_universe import print_research_universe_report
 
-                print_research_universe_report(conn, code_tuple)
+                uni = print_research_universe_report(conn, code_tuple)
+                if uni is not None:
+                    from execution_context_report import print_execution_context_report
+
+                    print_execution_context_report(
+                        conn, code_tuple, universe=uni
+                    )
         return 0
 
     exit_code = 0

@@ -9,3 +9,4 @@ data/
 *.db
 .env
 logs/
+reports/

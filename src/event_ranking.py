@@ -1,11 +1,14 @@
-"""L7 事件排名（P1 stub：手動 JSON + 7 日窗口，無新聞 API）。"""
+"""L7 事件排名（手動 JSON + DB + 7 日窗口；指數調整類不進 Event Top）。"""
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+
+import sqlite3
 
 from stock_db import DATA_DIR, PROJECT_ROOT
 
@@ -19,8 +22,11 @@ CATALYST_TYPES = frozenset(
         "EARNINGS",
         "SELL_SIDE",
         "VALUATION",
+        "INDEX_REBALANCE",
     }
 )
+INDUSTRY_CATALYST_TYPES = CATALYST_TYPES - {"INDEX_REBALANCE"}
+
 EXPLAINS_WEIGHT = {
     "HIGH": 1.25,
     "MED": 1.0,
@@ -32,6 +38,13 @@ POLARITY_WEIGHT = {
     "BEAR": 1.0,
     "NEUTRAL": 0.9,
 }
+
+# headline / type 命中則視為指數調整（不進 Event Top、不進催化子分）
+_INDEX_RE = re.compile(
+    r"MSCI|指數調整|成分股調整|被動資金|權重調整|台灣50|台灣領袖|"
+    r"FTSE|富時|調整生效|納入指數|剔除指數|INDEX\s*REBALANCE",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +71,28 @@ class RankedEvent:
     event_score: float
 
 
+def is_index_rebalance_headline(headline: str, *, catalyst_type: str = "") -> bool:
+    text = f"{headline} {catalyst_type}"
+    return bool(_INDEX_RE.search(text))
+
+
+def is_index_rebalance_event(event: CatalystEvent) -> bool:
+    """MSCI / 指數成分調整等總經標的 — 不當個股產業催化。"""
+    if event.catalyst_type == "INDEX_REBALANCE":
+        return True
+    return is_index_rebalance_headline(event.headline, catalyst_type=event.catalyst_type)
+
+
+def normalize_catalyst_type(raw: str, headline: str = "") -> str:
+    """正規化類型；MSCI 類關鍵字 → INDEX_REBALANCE。"""
+    ctype = str(raw or "EARNINGS").upper()
+    if ctype == "INDEX_REBALANCE" or _INDEX_RE.search(headline):
+        return "INDEX_REBALANCE"
+    if ctype not in CATALYST_TYPES:
+        return "EARNINGS"
+    return ctype
+
+
 def _parse_date(value: str) -> date:
     return date.fromisoformat(str(value)[:10])
 
@@ -76,9 +111,11 @@ def load_manual_events(path: Path | None = None) -> list[CatalystEvent]:
     for item in items:
         if not isinstance(item, dict) or not item.get("stock_id"):
             continue
-        ctype = str(item.get("catalyst_type", "EARNINGS")).upper()
-        if ctype not in CATALYST_TYPES:
-            ctype = "EARNINGS"
+        headline = str(item.get("headline", ""))[:80]
+        ctype = normalize_catalyst_type(
+            str(item.get("catalyst_type", "EARNINGS")),
+            headline,
+        )
         polarity = str(item.get("polarity", "NEUTRAL")).upper()
         if polarity not in POLARITY_WEIGHT:
             polarity = "NEUTRAL"
@@ -95,7 +132,7 @@ def load_manual_events(path: Path | None = None) -> list[CatalystEvent]:
                 stock_id=str(item["stock_id"]).strip(),
                 event_date=_parse_date(str(item["event_date"])),
                 catalyst_type=ctype,
-                headline=str(item.get("headline", ""))[:80],
+                headline=headline,
                 polarity=polarity,
                 explains_etf_add=explains,
                 confidence=conf,
@@ -111,7 +148,9 @@ def score_event(
     as_of: date | None = None,
     window_days: int = 7,
 ) -> float:
-    """7 日內事件分；越新、信心越高、explains_etf_add 越高 → 分數越高。"""
+    """7 日內產業/基本面事件分；指數調整類固定 0。"""
+    if is_index_rebalance_event(event):
+        return 0.0
     today = as_of or date.today()
     age = (today - event.event_date).days
     if age < 0 or age > window_days:
@@ -132,11 +171,14 @@ def filter_events_in_window(
     as_of: date | None = None,
     window_days: int = 7,
     pool_stock_ids: set[str] | None = None,
+    industry_only: bool = True,
 ) -> list[CatalystEvent]:
     today = as_of or date.today()
     start = today - timedelta(days=window_days)
     kept: list[CatalystEvent] = []
     for ev in events:
+        if industry_only and is_index_rebalance_event(ev):
+            continue
         if ev.event_date < start or ev.event_date > today:
             continue
         if pool_stock_ids is not None and ev.stock_id not in pool_stock_ids:
@@ -155,12 +197,13 @@ def rank_events(
     window_days: int = 7,
     pool_stock_ids: set[str] | None = None,
 ) -> list[RankedEvent]:
-    """依 stock_id 取最高分事件後排名（每檔至多一筆代表事件）。"""
+    """依 stock_id 取最高分產業事件後排名（排除 MSCI/指數調整）。"""
     filtered = filter_events_in_window(
         events,
         as_of=as_of,
         window_days=window_days,
         pool_stock_ids=pool_stock_ids,
+        industry_only=True,
     )
     best_by_stock: dict[str, CatalystEvent] = {}
     best_score: dict[str, float] = {}
@@ -179,8 +222,113 @@ def rank_events(
     ]
 
 
+def catalyst_event_id(ev: CatalystEvent) -> str:
+    import hashlib
+
+    raw = f"{ev.stock_id}|{ev.event_date}|{ev.catalyst_type}|{ev.headline}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+
+def row_to_catalyst_event(row: sqlite3.Row) -> CatalystEvent:
+    sources = None
+    if row["sources_json"]:
+        try:
+            sources = json.loads(row["sources_json"])
+        except json.JSONDecodeError:
+            sources = None
+    headline = row["headline"]
+    ctype = normalize_catalyst_type(row["catalyst_type"], headline)
+    return CatalystEvent(
+        stock_id=row["stock_id"],
+        event_date=_parse_date(row["event_date"]),
+        catalyst_type=ctype,
+        headline=headline,
+        polarity=row["polarity"],
+        explains_etf_add=row["explains_etf_add"],
+        confidence=int(row["confidence"]),
+        sources=sources if isinstance(sources, list) else None,
+    )
+
+
+def load_catalyst_events_from_db(
+    conn: sqlite3.Connection,
+    *,
+    stock_ids: set[str] | None = None,
+    window_days: int = 7,
+    as_of: date | None = None,
+) -> list[CatalystEvent]:
+    from stock_db import load_catalyst_events
+
+    ids = list(stock_ids) if stock_ids else None
+    ref = (as_of or date.today()).isoformat()
+    rows = load_catalyst_events(
+        conn, stock_ids=ids, window_days=window_days, as_of=ref
+    )
+    return [row_to_catalyst_event(r) for r in rows]
+
+
+def manual_events_enabled() -> bool:
+    import os
+
+    return os.environ.get("USE_MANUAL_EVENTS", "0").strip() == "1"
+
+
+def load_all_catalyst_events(
+    conn: sqlite3.Connection | None,
+    path: Path | None = None,
+    *,
+    pool_stock_ids: set[str] | None = None,
+    window_days: int = 7,
+    as_of: date | None = None,
+) -> list[CatalystEvent]:
+    """合併 DB catalyst_events；manual JSON 在 USE_MANUAL_EVENTS=1 或 path 非預設檔時併入。"""
+    by_id: dict[str, CatalystEvent] = {}
+    if conn is not None:
+        for ev in load_catalyst_events_from_db(
+            conn,
+            stock_ids=pool_stock_ids,
+            window_days=window_days,
+            as_of=as_of,
+        ):
+            by_id[catalyst_event_id(ev)] = ev
+    merge_manual = manual_events_enabled()
+    if path is not None:
+        try:
+            merge_manual = merge_manual or path.resolve() != DEFAULT_EVENTS_PATH.resolve()
+        except OSError:
+            merge_manual = True
+    if merge_manual:
+        manual_path = path if path is not None else DEFAULT_EVENTS_PATH
+        for ev in load_manual_events(manual_path):
+            if pool_stock_ids is not None and ev.stock_id not in pool_stock_ids:
+                continue
+            by_id.setdefault(catalyst_event_id(ev), ev)
+    return list(by_id.values())
+
+
 def events_path_hint() -> str:
     try:
         return str(DEFAULT_EVENTS_PATH.relative_to(PROJECT_ROOT))
     except ValueError:
         return str(DEFAULT_EVENTS_PATH)
+
+
+def purge_index_rebalance_from_db(conn: sqlite3.Connection) -> int:
+    """刪除 catalyst_events 中 MSCI/指數調整類（含 headline 命中）。"""
+    try:
+        rows = conn.execute("SELECT * FROM catalyst_events").fetchall()
+    except sqlite3.OperationalError:
+        return 0
+    ids: list[str] = []
+    for row in rows:
+        ev = row_to_catalyst_event(row)
+        if is_index_rebalance_event(ev):
+            ids.append(row["event_id"])
+    if not ids:
+        return 0
+    conn.executemany(
+        "DELETE FROM catalyst_events WHERE event_id = ?",
+        [(eid,) for eid in ids],
+    )
+    conn.commit()
+    return len(ids)
