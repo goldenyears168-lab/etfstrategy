@@ -192,8 +192,20 @@ def load_daily_bars(
     stock_id: str,
     *,
     limit: int = 280,
+    as_of_date: str | None = None,
 ) -> list[sqlite3.Row]:
     try:
+        if as_of_date:
+            return conn.execute(
+                """
+                SELECT trade_date, open, high, low, close, volume
+                FROM stock_daily_bars
+                WHERE stock_id = ? AND source = 'finmind' AND trade_date <= ?
+                ORDER BY trade_date DESC
+                LIMIT ?
+                """,
+                (stock_id, as_of_date, limit),
+            ).fetchall()
         return conn.execute(
             """
             SELECT trade_date, open, high, low, close, volume
@@ -213,8 +225,20 @@ def load_tej_daily_bars(
     code: str,
     *,
     limit: int = 280,
+    as_of_date: str | None = None,
 ) -> list[sqlite3.Row]:
     try:
+        if as_of_date:
+            return conn.execute(
+                """
+                SELECT date AS trade_date, open, high, low, close, volume
+                FROM daily_bars
+                WHERE code = ? AND source = 'tej' AND date <= ?
+                ORDER BY date DESC
+                LIMIT ?
+                """,
+                (code, as_of_date, limit),
+            ).fetchall()
         return conn.execute(
             """
             SELECT date AS trade_date, open, high, low, close, volume

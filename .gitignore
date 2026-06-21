@@ -1,12 +1,44 @@
 .venv/
 __pycache__/
-src/__pycache__/
-tests/__pycache__/
 *.pyc
 .DS_Store
 *.csv
 data/
 *.db
 .env
+vendor/tw_stocker/
+vendor/finpilot/
 logs/
-reports/
+reports/*
+!reports/README.md
+!reports/publish/
+!reports/publish/README.md
+!reports/samples/
+!reports/samples/**
+
+# Test / lint
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Cursor scratch
+.cursor_tmp_*
+.cursor/settings.json
+
+# Fubon API 憑證與 SDK（勿提交）
+CAFubon/**/*.pfx
+CAFubon/**/*.p12
+CAFubon/**/*.whl
+log/
+
+# Fubon Neo API 專用 venv（Python 3.13；主 .venv 為 3.14 不可跑 fubon_neo）
+.venv-fubon/
+
+# External clones（同 vendor/tw_stocker/ 意圖）
+external/
+
+# Website layer (Vite)
+web/node_modules/
+web/dist/

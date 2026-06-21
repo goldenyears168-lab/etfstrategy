@@ -1,0 +1,21 @@
+description: VCP-TM 台股校准（tradermonty lineage · IX0001 · 2026-06 relaxed）
+model_id: vcp-tm
+benchmark: IX0001
+min_composite: 50.0
+literature_pad_days: 21
+calibration_overlap: 3/20
+params:
+  trend_min_score: 60.0
+  lookback_days: 90
+  min_contractions: 1
+  t1_depth_min: 8.0
+  t1_depth_max: 80.0
+  contraction_ratio: 0.90
+  atr_multiplier: 1.5
+  min_contraction_days: 4
+  wide_and_loose_threshold: 18.0
+  breakout_volume_ratio: 1.4
+  max_above_pivot: 8.0
+  max_risk: 18.0
+  max_sma200_extension: 60.0
+  ext_threshold: 10.0

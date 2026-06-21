@@ -1,0 +1,93 @@
+# Daily close workflow — Facts (etf-daily) + Regime four-axis diagnostic
+# Executable: scripts/daily_sync.sh + src/etf_daily_report.py + src/regime_daily_brief.py
+
+version: pipeline-v2
+id: daily_close
+title: 收盤 ETF 日報
+
+trigger:
+  schedule: "16:30 Asia/Taipei Mon-Fri"
+  entry: scripts/1630收盤雷達.command
+  wrapper: scripts/daily_sync.sh
+
+outputs:
+  - reports/daily/etf-daily/daily_brief.md
+  - reports/daily/regime/daily_brief.md
+  - reports/daily/{date}_etf_daily.md
+  - data/stocks.db
+
+phases:
+  - id: ingest_market
+    gate: MARKET
+    title: L1 Ingest · market (optional)
+    implemented_in: scripts/daily_sync.sh
+    nodes:
+      - id: core_market
+        label: core market (6 ETFs + benchmarks, TEJ)
+        module: src/query_stock_prices.py
+        fail_kind: aux
+
+      - id: etf_signal
+        label: ETF signal snapshot (FinMind)
+        module: src/sync_etf_signal.py
+        env_flag: ENABLE_FINMIND_SIGNAL
+        env_default: "0"
+        fail_kind: aux
+
+      - id: tech_risk
+        label: tech risk context (TSM/SOX/TX gap)
+        module: src/sync_tech_risk_context.py
+        fail_kind: aux
+
+      - id: morning_futures
+        label: morning futures snapshot (TX/TE live gap)
+        module: src/sync_morning_futures.py
+        fail_kind: aux
+
+  - id: ingest_holdings
+    gate: HOLDINGS
+    title: L1 Ingest · holdings + ETF 日報
+    implemented_in: scripts/daily_sync.sh
+    nodes:
+      - id: holdings_ezmoney
+        label: ETF holdings EZMoney (2)
+        module: src/sync_etf_holdings.py
+        fail_kind: holdings
+
+      - id: holdings_kgifund
+        label: ETF holdings KGIFund (2)
+        module: src/sync_etf_holdings.py
+        fail_kind: holdings
+
+      - id: holdings_capitalfund
+        label: ETF holdings CapitalFund (2)
+        module: src/sync_etf_holdings.py
+        fail_kind: holdings
+
+      - id: holdings_nomura
+        label: ETF holdings Nomura (1)
+        module: src/sync_etf_holdings.py
+        fail_kind: holdings
+
+      - id: holdings_changes
+        label: holdings changes (L1 diff, quiet when --human)
+        module: src/sync_etf_holdings.py
+        runner: timed_pipe
+        fail_kind: aux
+
+      - id: etf_daily_report
+        label: ETF 日報 write + terminal summary
+        module: src/etf_daily_report.py
+        runner: timed_pipe
+        fail_kind: aux
+
+      - id: regime_daily_brief
+        label: Regime four-axis diagnostic daily brief
+        module: src/regime_daily_brief.py
+        runner: timed_pipe
+        fail_kind: aux
+
+  - id: human_digest
+    gate: SHOW_REPORT
+    title: Terminal summary (etf_daily_report --human)
+    implemented_in: scripts/daily_sync.sh

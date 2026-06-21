@@ -1,0 +1,23 @@
+//@version=5
+// Classic Dual Momentum – 12-Month Absolute Momentum (Gary Antonacci)
+// Reference: https://www.tradingview.com/script/rS6fZkn7-Classic-Dual-Momentum-12-Month-Absolute-Momentum-Antonacci/
+// Book: Antonacci, G. (2014). Dual Momentum Investing. McGraw Hill.
+// Recreated from open-source TradingView description (House Rules apply to republication).
+
+indicator("Classic Dual Momentum 12M Absolute - Antonacci (TW ref)", overlay=false)
+
+lookbackBars = input.int(252, "12M lookback (daily bars)", minval=60)
+rfAnnualPct  = input.float(1.5, "Risk-free annual % (T-bill proxy)", step=0.1)
+maLen        = input.int(12, "MA of 12M return (months on daily ≈ bars)", minval=1)
+
+mom12 = close / close[lookbackBars] - 1.0
+rf12  = math.pow(1.0 + rfAnnualPct / 100.0, 1.0) - 1.0
+absOk = mom12 > rf12
+
+plot(mom12 * 100, style=plot.style_columns, color=absOk ? color.new(color.green, 20) : color.new(color.red, 20), title="12M Return %")
+plot(ta.sma(mom12, maLen) * 100, color=color.white, linewidth=2, title="MA(12M return) %")
+hline(rf12 * 100, "Risk-free 12M %", color=color.gray, linestyle=hline.style_dashed)
+hline(0, "Zero", color=color.gray)
+
+bgcolor(absOk ? color.new(color.green, 92) : color.new(color.red, 92))
+barcolor(absOk ? color.green : color.red)

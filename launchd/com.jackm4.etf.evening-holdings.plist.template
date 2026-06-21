@@ -6,14 +6,12 @@
 	<string>com.jackm4.etf.evening-holdings</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/bash</string>
-		<string>{{PROJECT_ROOT}}/scripts/daily_sync.sh</string>
-		<string>--holdings-only</string>
-		<string>--holdings-report</string>
-		<string>--quiet</string>
+		<string>/usr/bin/open</string>
+		<string>-gj</string>
+		<string>{{PROJECT_ROOT}}/scripts/launchd/evening-holdings.command</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>{{PROJECT_ROOT}}</string>
+	<string>/tmp</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>SYNC_PROFILE</key>

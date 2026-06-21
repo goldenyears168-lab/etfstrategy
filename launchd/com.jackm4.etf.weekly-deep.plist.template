@@ -6,12 +6,12 @@
 	<string>com.jackm4.etf.weekly-deep</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/bash</string>
-		<string>{{PROJECT_ROOT}}/scripts/weekly_sync.sh</string>
-		<string>--weekly-report</string>
+		<string>/usr/bin/open</string>
+		<string>-gj</string>
+		<string>{{PROJECT_ROOT}}/scripts/launchd/weekly-deep.command</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>{{PROJECT_ROOT}}</string>
+	<string>/tmp</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>SYNC_PROFILE</key>

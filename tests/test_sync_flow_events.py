@@ -46,6 +46,7 @@ class TestFlowRowsFromSignals(unittest.TestCase):
             conviction_score=72.0,
             consensus_level="STRONG",
             position_intent="BUILD_THEMATIC",
+            consensus_score=1.25,
         )
         rows = flow_rows_from_signals(
             prev_date="2026-06-01",
@@ -56,6 +57,7 @@ class TestFlowRowsFromSignals(unittest.TestCase):
         self.assertEqual(rows[0]["source_etfs"], "00929|00940")
         self.assertEqual(rows[0]["etf_count"], 2)
         self.assertEqual(rows[0]["intent"], "BUILD_THEMATIC")
+        self.assertEqual(rows[0]["consensus_score"], 1.25)
 
     def test_upsert_and_load_roundtrip(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -73,6 +75,7 @@ class TestFlowRowsFromSignals(unittest.TestCase):
                 "implied_flow_ntd": 1_000_000.0,
                 "etf_count": 2,
                 "source_etfs": "00929|00940",
+                "consensus_score": 1.25,
                 "flow_version": "flow-v1",
             }
             n = upsert_flow_events(conn, [row])

@@ -811,6 +811,19 @@ def sync_one_etf(
     conn = connect(args.db_path)
     dates_before = set(list_etf_snapshot_dates(conn, etf_code))
     result = sync_snapshot(conn, snapshot, source=resolved, force=args.force)
+    from holdings_provenance import record_holdings_fetch
+
+    fetch_status = "skipped_unchanged" if result.get("skipped") else "synced"
+    record_holdings_fetch(
+        conn,
+        etf_code=snapshot.etf_code,
+        snapshot_date=snapshot.snapshot_date,
+        source=resolved,
+        source_edit_at=snapshot.source_edit_at,
+        nav=snapshot.nav,
+        holdings=snapshot.holdings,
+        sync_status=fetch_status,
+    )
     if args.quiet:
         print(_sync_status_line(etf_code, result))
     elif result.get("skipped"):

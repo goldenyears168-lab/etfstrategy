@@ -7,7 +7,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 
-from entry_signal import EntryContext, is_overextended_without_strong_trend
+from score_engine import EntryContext, is_overextended_without_strong_trend
 from market_labels import (
     CHIP_NEUTRAL,
     CHIP_SYNC_BUY,
@@ -29,7 +29,7 @@ from score_engine import SCORE_VERSION, ScoredEntry
 from stock_context import build_chip_resonance
 from stock_db import load_latest_pm_watchlist, upsert_pm_watchlist
 
-HIGH_CHIP_SCORE_MIN = 70.0
+HIGH_CHIP_SCORE_MIN = 60.0
 EXCLUDE_ENTRY = frozenset({ENTRY_SKIP})
 
 
@@ -104,11 +104,11 @@ def qualifies_pm_list(
         return False
     if scored.watchlist in WATCHLIST_ON_PM:
         return True
-    if d.chip >= 70.0 and d.flow >= 60.0:
+    if d.chip >= 60.0 and d.flow >= 50.0:
         return True
-    if chip_tag == CHIP_SYNC_BUY and d.flow >= 55.0:
+    if chip_tag == CHIP_SYNC_BUY and d.flow >= 45.0:
         return True
-    if ENTRY_TAG_VOLUME in entry_ctx.tags and d.flow >= 60.0:
+    if ENTRY_TAG_VOLUME in entry_ctx.tags and d.flow >= 50.0:
         return True
     return False
 

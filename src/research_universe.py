@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-雙引擎 Research Universe：Money Flow Top10 ∪ Event Top10（目標 15–20 檔）。
+Research Universe：ETF 持股變化 Money Flow Top N（成分股聯集）。
 """
 
 from __future__ import annotations
@@ -16,21 +16,15 @@ from project_config import (
     DEFAULT_TOP_N,
     parse_etf_codes,
 )
-from event_ranking import (
-    DEFAULT_EVENTS_PATH,
-    RankedEvent,
-    events_path_hint,
-    load_all_catalyst_events,
-    rank_events,
-)
 from signal_engine import StockSignal, build_aligned_signals
 from stock_db import DEFAULT_DB_PATH, connect, load_etf_constituent_watchlist
+
 
 @dataclass(frozen=True)
 class UniverseEntry:
     stock_id: str
     stock_name: str
-    pool_reason: str  # money | event | both
+    pool_reason: str  # money
     money_rank: int | None
     event_rank: int | None
     smart_money_score: float | None
@@ -44,7 +38,6 @@ class ResearchUniverseResult:
     curr_date: str | None
     etf_codes: tuple[str, ...]
     money_top: list[tuple[int, StockSignal, float]]
-    event_top: list[RankedEvent]
     entries: list[UniverseEntry]
 
     @property
@@ -88,102 +81,39 @@ def build_research_universe(
     event_window_days: int = 7,
     events_path: Path | None = None,
 ) -> ResearchUniverseResult | None:
+    del event_window_days, events_path
     aligned = build_aligned_signals(conn, etf_codes)
     if aligned is None:
         return None
 
     money_top = rank_money_flow(aligned.signals, top_n=top_n)
     watchlist = load_etf_constituent_watchlist(conn, etf_codes)
-    pool_ids = {w["stock_id"] for w in watchlist} if watchlist else None
-    events = load_all_catalyst_events(
-        conn, events_path, pool_stock_ids=pool_ids
-    )
-    event_top = rank_events(
-        events,
-        top_n=top_n,
-        window_days=event_window_days,
-        pool_stock_ids=pool_ids,
-    )
-
     name_by_id = {w["stock_id"]: w.get("stock_name", "") for w in watchlist}
     for _rank, sig, _sc in money_top:
         name_by_id.setdefault(sig.stock_id, sig.stock_name)
 
-    entries_map: dict[str, UniverseEntry] = {}
-
-    def _merge(
-        stock_id: str,
-        stock_name: str,
-        *,
-        reason_part: str,
-        money_rank: int | None = None,
-        event_rank: int | None = None,
-        sm_score: float | None = None,
-        ev_score: float | None = None,
-        headline: str | None = None,
-    ) -> None:
-        cur = entries_map.get(stock_id)
-        if cur is None:
-            entries_map[stock_id] = UniverseEntry(
-                stock_id=stock_id,
-                stock_name=stock_name,
-                pool_reason=reason_part,
-                money_rank=money_rank,
-                event_rank=event_rank,
-                smart_money_score=sm_score,
-                event_score=ev_score,
-                headline=headline,
-            )
-            return
-        if cur.pool_reason == reason_part:
-            pool_reason = cur.pool_reason
-        else:
-            pool_reason = "both"
-        entries_map[stock_id] = UniverseEntry(
-            stock_id=stock_id,
-            stock_name=stock_name or cur.stock_name,
-            pool_reason=pool_reason,
-            money_rank=money_rank or cur.money_rank,
-            event_rank=event_rank or cur.event_rank,
-            smart_money_score=sm_score if sm_score is not None else cur.smart_money_score,
-            event_score=ev_score if ev_score is not None else cur.event_score,
-            headline=headline or cur.headline,
-        )
-
+    entries: list[UniverseEntry] = []
     for rank, sig, sc in money_top:
-        _merge(
-            sig.stock_id,
-            sig.stock_name,
-            reason_part="money",
-            money_rank=rank,
-            sm_score=round(sc, 3),
+        entries.append(
+            UniverseEntry(
+                stock_id=sig.stock_id,
+                stock_name=sig.stock_name,
+                pool_reason="money",
+                money_rank=rank,
+                event_rank=None,
+                smart_money_score=round(sc, 3),
+                event_score=None,
+                headline=None,
+            )
         )
 
-    for row in event_top:
-        _merge(
-            row.stock_id,
-            name_by_id.get(row.stock_id, ""),
-            reason_part="event",
-            event_rank=row.rank,
-            ev_score=round(row.event_score, 3),
-            headline=row.event.headline or None,
-        )
-
-    def _sort_key(e: UniverseEntry) -> tuple:
-        in_both = 0 if e.pool_reason == "both" else 1
-        best_rank = min(
-            r for r in (e.money_rank, e.event_rank) if r is not None
-        ) if (e.money_rank or e.event_rank) else 999
-        return (in_both, best_rank, -(e.smart_money_score or 0), -(e.event_score or 0))
-
-    entries = sorted(entries_map.values(), key=_sort_key)[:max_pool]
+    entries = entries[:max_pool]
 
     return ResearchUniverseResult(
         prev_date=aligned.prev_date,
         curr_date=aligned.curr_date,
         etf_codes=aligned.etf_codes,
         money_top=money_top,
-        event_top=event_top,
         entries=entries,
     )
 
@@ -197,15 +127,15 @@ def print_research_universe_report(
     events_path=None,
     quiet: bool = False,
 ) -> ResearchUniverseResult | None:
+    del events_path, quiet
     result = build_research_universe(
         conn,
         etf_codes,
         top_n=top_n,
         max_pool=max_pool,
-        events_path=events_path,
     )
     print("")
-    print("=== Research Universe（Money Top10 ∪ Event Top10）===")
+    print("=== Research Universe（Money Flow Top N）===")
     if result is None:
         print("  略過：無法建立對齊 cohort（需 ≥2 檔 ETF 同 prev→curr）")
         return None
@@ -215,33 +145,22 @@ def print_research_universe_report(
         f"對齊 {','.join(result.etf_codes)}；"
         f"聯集 {len(result.entries)} 檔（上限 {max_pool}）"
     )
-    if not result.event_top:
-        print(f"  Event 通道：無事件（可編輯 {events_path_hint()}）")
-    elif quiet:
-        print(f"  Event Top{top_n}：{len(result.event_top)} 檔")
 
     print("")
-    print(f"{'代號':>6} {'名稱':<8} {'來源':<6} {'MF#':>4} {'Ev#':>4} {'SM分':>6} {'Ev分':>6} 摘要")
+    print(f"{'代號':>6} {'名稱':<8} {'來源':<6} {'MF#':>4} {'SM分':>6}")
     for e in result.entries:
         mf = str(e.money_rank) if e.money_rank else "—"
-        ev = str(e.event_rank) if e.event_rank else "—"
         sm = f"{e.smart_money_score:.2f}" if e.smart_money_score is not None else "—"
-        evs = f"{e.event_score:.2f}" if e.event_score is not None else "—"
-        hint = (e.headline or "")[:28]
-        print(
-            f"  {e.stock_id:>6} {e.stock_name:<8} {e.pool_reason:<6} "
-            f"{mf:>4} {ev:>4} {sm:>6} {evs:>6} {hint}"
-        )
+        print(f"  {e.stock_id:>6} {e.stock_name:<8} {e.pool_reason:<6} {mf:>4} {sm:>6}")
     return result
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="雙引擎 Research Universe 報告")
+    parser = argparse.ArgumentParser(description="Research Universe 報告（Money Flow）")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--etf-codes", default=",".join(DEFAULT_ETF_CODES))
     parser.add_argument("--top-n", type=int, default=DEFAULT_TOP_N)
     parser.add_argument("--max-pool", type=int, default=DEFAULT_MAX_POOL)
-    parser.add_argument("--events-file", type=Path, default=DEFAULT_EVENTS_PATH)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -253,7 +172,6 @@ def main() -> int:
             codes,
             top_n=args.top_n,
             max_pool=args.max_pool,
-            events_path=args.events_file,
             quiet=args.quiet,
         )
     finally:

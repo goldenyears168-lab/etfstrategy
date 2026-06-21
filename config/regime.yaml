@@ -1,0 +1,53 @@
+# Regime 層 · Regime four-axis diagnostic（診斷 · 非 live gate）
+# 術語：docs/terminology.md §2–§3.1
+# 驗證：scripts/run_breadth_impulse_validation.py · reports/research/*_breadth_impulse_validation.md
+
+version: regime-v3
+layer: regime
+benchmark_code: IX0001
+
+thresholds:
+  tsm_adr_risk_pct: -2.0
+  tx_gap_risk_pct: -1.5
+  sox_risk_pct: -2.0
+
+# Breadth axis · Level / Rhythm / Impulse（非 Strategy overlay · 無 exposure 仓位）
+breadth:
+  universe: stock_daily_bars
+  level:
+    ma_short: 50
+    ma_long: 200
+  rhythm:
+    zweig_ema_span: 10
+    tiers:
+      off_max: 0.45
+      low_max: 0.50
+      mid_max: 0.58
+  impulse:
+    zweig_thrust_low: 0.35
+    zweig_thrust_high: 0.58
+    deemer_10d_ratio: 2.1
+    thrust_hold_days: 42
+  validation_ref: reports/research/20260621_breadth_impulse_validation.md
+  tv_script: "Market Breadth Toolkit [LuxAlgo]"
+
+axes:
+  breadth_zone_200:
+    module: market_breadth_ma
+    label: Breadth zone
+    label_zh: 廣度區間
+    sub_blocks:
+      - rhythm
+      - impulse
+  trend_posture:
+    module: stage_analysis
+    label: Trend posture
+    label_zh: 趨勢姿態
+  rrg_rotation:
+    module: rrg_rotation
+    label: RRG rotation
+    label_zh: 相對輪動
+  stage2_participation:
+    module: stage_analysis
+    label: Stage-2 participation
+    label_zh: Stage 2 參與度

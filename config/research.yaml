@@ -1,0 +1,93 @@
+# Research 層 · 探索性研究主題（SSOT）
+# 術語：docs/terminology.md §4
+# sweep / 矩陣 / 假說 · 採納後凍結規格寫入 config/strategy.yaml
+
+version: research-v2
+layer: research
+
+principles:
+  - exploratory · sweep · matrix · hypothesis testing
+  - adoption graduates frozen spec to config/strategy.yaml
+  - no daily close · no production screen until graduated
+  - ex-post validation · PIT-safe baselines
+
+topics:
+  copytrade-hypothesis-matrix:
+    title: 00981A copytrade L×H · filter 假說矩陣
+    status: active
+    run_scripts:
+      - scripts/run_00981a_copytrade_backtest.py
+    methodology: docs/00981a-copytrade-research-methodology.md
+    report_dir: reports/research/00981a-copytrade
+    graduated_strategy: 00981a-l1h9
+
+  copytrade-rrg-audit:
+    title: 00981A 持股變動 × RRG 互動稽核
+    status: active
+    run_scripts:
+      - scripts/run_00981a_holdings_rrg_audit.py
+    report_dir: reports/research/00981a-copytrade
+
+  chunge-funnel-sweep:
+    title: VCP funnel L4 · Minervini composite sweep
+    status: active
+    run_scripts:
+      - scripts/run_chunge_funnel_sweep.py
+      - scripts/run_chunge_funnel_backtest.py
+    report_dir: reports/research/vcp
+    graduated_strategies:
+      - vcp-pivot-gate
+      - vcp-coil-close
+
+  vcp-calibration-archive:
+    title: VCP 文獻校準 · benchmark（封存）
+    status: archived
+    archive_path: scripts/research/archive
+    report_dir: reports/research/vcp
+
+  rrg-mono-breadth-study:
+    title: RRG mono hold7 × Breadth zone 分層
+    status: active
+    run_scripts:
+      - scripts/run_rrg_mono_breadth_backtest.py
+    report_dir: reports/research/rrg
+    graduated_strategy: rrg-mono-hold7
+
+  broad-momentum-sepa:
+    title: Minervini SEPA basket ad-hoc 回測
+    status: active
+    run_scripts:
+      - scripts/run_broad_momentum_tv_backtest.py
+    config_ref: config/broad_momentum_tv.yaml
+    graduated_strategy: minervini-sepa-basket
+
+  breadth-impulse-validation:
+    title: Zweig / Deemer breadth impulse · Regime diagnostic validation
+    status: active
+    run_scripts:
+      - scripts/run_breadth_impulse_validation.py
+    report_dir: reports/research
+    notes: Regime breadth_impulse only · not Strategy overlay
+
+  tanish-momentum-breadth:
+    title: tanish35 NewMom × Breadth zone Strong / Overbought
+    status: active
+    run_scripts:
+      - scripts/run_tanish_momentum_backtest.py
+    report_dir: reports/research/breadth
+    source_repo: https://github.com/tanish35/Momentum-Investing
+
+  factor-validation-s04:
+    title: S04 因子 · layer / mom sweep
+    status: active
+    run_scripts:
+      - scripts/run_s04_mom_sweep.py
+      - scripts/run_s04_layer_analysis.py
+      - scripts/run_factor_validation.py
+
+  external-strategy-compare:
+    title: FinPilot · tw_stocker vs L1 對照
+    status: active
+    run_scripts:
+      - scripts/run_finpilot_vs_l1_compare.py
+      - scripts/run_tw_stocker_vs_l1_compare.py

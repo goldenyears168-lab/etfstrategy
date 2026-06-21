@@ -1,0 +1,23 @@
+chunge-funnel:
+  params:
+    lookback_days: 90
+    min_contractions: 2
+    t1_depth_min: 10.0
+    t1_depth_max: 80.0
+    contraction_ratio: 0.95
+    min_rs_score: 35.0
+    require_market_trend: true
+    min_roe_ttm: 8.0
+    min_revenue_yoy_pct: 10.0
+    min_l7_candidates: 1
+    config_path: config/chunge_funnel.yaml
+  min_score: 65.0
+  literature_overlap: 17/20
+  lit_20d_hit: 71%
+vcp-v1:
+  params:
+    contraction_mult: 0.78
+    vol_dry_mult: 0.85
+    min_score: 50.0
+  literature_overlap: 13/20
+  lit_20d_hit: 75%

@@ -9,6 +9,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from statistics import mean, median
 
+from chip_narrative import compose_chip_narrative
 from holdings_research import TW_SPOT_CODE
 from project_config import (
     BASELINE_RANDOM_SEED,
@@ -415,7 +416,10 @@ def _fmt_pct(v: float | None) -> str:
     return f"{v:+.2f}%"
 
 
-def format_flow_section(result: FlowAttributionResult) -> list[str]:
+def format_flow_section(
+    result: FlowAttributionResult,
+    conn: sqlite3.Connection | None = None,
+) -> list[str]:
     if result.message:
         return [
             "## §0 ETF Flow Attribution（v0.3）",
@@ -461,4 +465,58 @@ def format_flow_section(result: FlowAttributionResult) -> list[str]:
     _table("意圖（intent · TRIM 合併為 TRIM_ALL）", result.groups_intent)
     _table("Random Baseline（固定 Seed 對照）", result.random_baseline)
 
+    if conn is not None:
+        lines.extend(_chip_attribution_section(conn, result))
     return lines
+
+
+def _chip_attribution_section(
+    conn: sqlite3.Connection,
+    result: FlowAttributionResult,
+) -> list[str]:
+    """最近加碼事件 × 融資／借券／當沖敘事（Sprint 2）。"""
+    if not result.outcomes:
+        return []
+    adds = [
+        o
+        for o in result.outcomes
+        if o.net_side == "add" and o.horizon == 1 and o.status == "complete"
+    ]
+    if not adds:
+        return []
+    seen: set[str] = set()
+    rows: list[FlowOutcome] = []
+    for o in reversed(adds):
+        if o.stock_id in seen:
+            continue
+        seen.add(o.stock_id)
+        rows.append(o)
+        if len(rows) >= 10:
+            break
+    if not rows:
+        return []
+
+    section: list[str] = []
+    table_rows: list[str] = []
+    for o in rows:
+        narrative = compose_chip_narrative(
+            conn, o.stock_id, etf_net_side="add", trade_date=o.event_date
+        )
+        if not narrative:
+            continue
+        table_rows.append(
+            f"| {o.event_date} | {o.stock_id} | {o.intent} | {narrative} |"
+        )
+    if not table_rows:
+        return []
+    section.extend(
+        [
+            "",
+            "### 籌碼警示（最近加碼 · Gate 相關）",
+            "",
+            "| 事件日 | 代號 | 意圖 | 說明 |",
+            "|--------|------|------|------|",
+        ]
+    )
+    section.extend(table_rows)
+    return section

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import requests
 
+from market_sync_window import min_rows_required, resolve_sync_window
 from stock_db import (
     DEFAULT_DB_PATH,
     StockMarketCoverage,
@@ -45,7 +46,7 @@ def _int_or_none(value: object) -> int | None:
 
 
 def _min_bars_required(lookback_days: int) -> int:
-    return max(5, lookback_days // 5)
+    return min_rows_required(lookback_days)
 
 
 def resolve_fetch_window(
@@ -56,48 +57,22 @@ def resolve_fetch_window(
     *,
     force_refresh: bool,
 ) -> tuple[str, date | None, date | None]:
-    """
-    回傳 (action, fetch_start, fetch_end)。
-    action: skip | incremental | full
-    """
-    if force_refresh:
-        return "full", start, end
+    window_days = max(1, (end - start).days + 1)
+    min_bars = _min_bars_required(lookback_days if lookback_days else window_days)
     if coverage is None:
-        return "full", start, end
-
-    end_s = end.isoformat()
-    start_s = start.isoformat()
-    min_bars = _min_bars_required(lookback_days)
-    bar_max_s = coverage.bar_max
-    inst_max_s = coverage.inst_max
-
-    bars_ok = (
-        bar_max_s is not None
-        and bar_max_s >= end_s
-        and coverage.bar_count_window >= min_bars
+        series: list[tuple[str | None, str | None, int]] = [(None, None, 0), (None, None, 0)]
+    else:
+        series = [
+            (coverage.bar_min, coverage.bar_max, coverage.bar_count_window),
+            (coverage.inst_min, coverage.inst_max, coverage.inst_count_window),
+        ]
+    return resolve_sync_window(
+        start=start,
+        end=end,
+        min_rows=min_bars,
+        series=series,
+        force_refresh=force_refresh,
     )
-    inst_ok = (
-        inst_max_s is not None
-        and inst_max_s >= end_s
-        and coverage.inst_count_window >= min_bars
-    )
-    if bars_ok and inst_ok:
-        return "skip", None, None
-
-    if bars_ok and not inst_ok:
-        if inst_max_s:
-            inc = max(start, date.fromisoformat(inst_max_s) - timedelta(days=INCREMENTAL_OVERLAP_DAYS))
-        else:
-            inc = start
-        return "incremental", inc, end
-
-    if bar_max_s and bar_max_s >= start_s:
-        inc = max(start, date.fromisoformat(bar_max_s) - timedelta(days=INCREMENTAL_OVERLAP_DAYS))
-        if inc > end:
-            return "skip", None, None
-        return "incremental", inc, end
-
-    return "full", start, end
 
 
 def build_stock_rows(
@@ -147,24 +122,65 @@ def build_stock_rows(
 
 def sync_stock_market_daily(
     db_path: Path,
-    lookback_days: int,
+    lookback_days: int | None = None,
     *,
+    window_start: date | None = None,
+    window_end: date | None = None,
+    stock_ids: list[str] | None = None,
     dry_run: bool = False,
     quiet: bool = False,
     max_stocks: int = 0,
     request_delay: float = REQUEST_DELAY_SEC,
     force_refresh: bool = False,
 ) -> dict[str, int]:
-    end = date.today()
-    start = end - timedelta(days=lookback_days)
+    end = window_end or date.today()
+    if window_start is not None:
+        start = window_start
+        effective_lookback = max(1, (end - start).days + 1)
+    elif lookback_days is not None:
+        start = end - timedelta(days=lookback_days)
+        effective_lookback = lookback_days
+    else:
+        effective_lookback = DEFAULT_LOOKBACK_DAYS
+        start = end - timedelta(days=effective_lookback)
 
     conn = connect(db_path)
     try:
-        watchlist = load_etf_constituent_watchlist(conn)
-        stock_ids = [w["stock_id"] for w in watchlist]
+        if stock_ids:
+            placeholders = ",".join("?" * len(stock_ids))
+            name_rows = conn.execute(
+                f"""
+                SELECT stock_id, MAX(stock_name) AS stock_name
+                FROM (
+                    SELECT stock_id, stock_name
+                    FROM etf_holdings
+                    WHERE stock_id IN ({placeholders})
+                    UNION ALL
+                    SELECT stock_id, stock_name
+                    FROM benchmark_constituents
+                    WHERE stock_id IN ({placeholders})
+                )
+                GROUP BY stock_id
+                """,
+                stock_ids + stock_ids,
+            ).fetchall()
+            name_by_id = {str(r["stock_id"]): r["stock_name"] or "" for r in name_rows}
+            watchlist = [
+                {
+                    "stock_id": sid,
+                    "stock_name": name_by_id.get(sid, ""),
+                    "etf_hold_count": 0,
+                    "fund_hold_count": 0,
+                    "benchmark_hold_count": 0,
+                }
+                for sid in stock_ids
+            ]
+        else:
+            watchlist = load_etf_constituent_watchlist(conn)
+        coverage_stock_ids = [w["stock_id"] for w in watchlist]
         coverage_map = load_stock_market_coverage_map(
             conn,
-            stock_ids,
+            coverage_stock_ids,
             window_start=start.isoformat(),
             window_end=end.isoformat(),
         )
@@ -194,7 +210,7 @@ def sync_stock_market_daily(
             coverage_map.get(stock_id),
             start,
             end,
-            lookback_days,
+            effective_lookback,
             force_refresh=force_refresh,
         )
         if action == "skip":
@@ -214,6 +230,8 @@ def sync_stock_market_daily(
         assert fetch_start is not None and fetch_end is not None
         if action == "incremental":
             stats["incremental"] += 1
+        elif action == "backfill":
+            stats["full"] += 1
         else:
             stats["full"] += 1
 
@@ -274,10 +292,20 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="抓取不寫入")
     parser.add_argument("--quiet", action="store_true", help="每檔一行")
     parser.add_argument(
+        "--start-date",
+        default=None,
+        help="明確起始日 YYYY-MM-DD（與 --end-date 搭配；backfill 用）",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        help="明確結束日 YYYY-MM-DD（預設今天）",
+    )
+    parser.add_argument(
         "--lookback-days",
         type=int,
-        default=DEFAULT_LOOKBACK_DAYS,
-        help=f"回溯天數（預設 {DEFAULT_LOOKBACK_DAYS}，建議 30～90）",
+        default=None,
+        help=f"回溯天數（預設 {DEFAULT_LOOKBACK_DAYS}；與 --start-date 互斥）",
     )
     parser.add_argument("--max-stocks", type=int, default=0, help="0=聯集全部；測試可設 3")
     parser.add_argument(
@@ -293,14 +321,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.lookback_days < 7 or args.lookback_days > 120:
-        print("lookback-days 建議 30～90（允許 7～120）", file=sys.stderr)
+    if args.start_date and args.lookback_days is not None:
+        print("ERROR: --start-date 與 --lookback-days 請擇一", file=sys.stderr)
+        return 1
+
+    lookback = args.lookback_days if args.lookback_days is not None else DEFAULT_LOOKBACK_DAYS
+    if args.start_date is None and (lookback < 7 or lookback > 730):
+        print("lookback-days 建議 30～90（允許 7～730）", file=sys.stderr)
+
+    window_start = date.fromisoformat(args.start_date) if args.start_date else None
+    window_end = date.fromisoformat(args.end_date) if args.end_date else None
 
     dry_run = args.dry_run or not args.sync_db
     try:
         sync_stock_market_daily(
             args.db,
-            args.lookback_days,
+            lookback if window_start is None else None,
+            window_start=window_start,
+            window_end=window_end,
             dry_run=dry_run,
             quiet=args.quiet,
             max_stocks=args.max_stocks,

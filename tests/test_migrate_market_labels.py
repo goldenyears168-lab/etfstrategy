@@ -15,7 +15,7 @@ from market_labels import (
     WL_GENERAL,
     WL_PRIMARY,
 )
-from migrate_market_labels import (
+from research.archive.migrate_market_labels import (
     migrate_entry_tags_json,
     migrate_market_labels,
     migrate_metadata_json,

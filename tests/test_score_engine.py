@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from entry_signal import EntryContext
+from score_engine import EntryContext
 from market_labels import (
     CHIP_SYNC_BUY,
     ENTRY_OVEREXTENDED,
@@ -23,7 +23,6 @@ from score_engine import (
     SCORE_VERSION,
     DimensionScores,
     catalyst_subscore,
-    catalyst_subscore_capped,
     risk_subscore,
     watchlist_tier,
 )
@@ -34,7 +33,12 @@ class TestWatchlistTier(unittest.TestCase):
     def test_a_requires_smart_money(self) -> None:
         sm = round(0.55 * 74 + 0.45 * 69, 1)
         self.assertEqual(
-            watchlist_tier(76.0, sm, entry_ctx=EntryContext(ENTRY_WAIT, ())),
+            watchlist_tier(
+                76.0,
+                sm,
+                entry_ctx=EntryContext(ENTRY_WAIT, ()),
+                flow_score=50.0,
+            ),
             WL_GENERAL,
         )
         self.assertEqual(
@@ -75,7 +79,12 @@ class TestWatchlistTier(unittest.TestCase):
 
 class TestDimensionScores(unittest.TestCase):
     def test_p4v2_weighted_total(self) -> None:
-        d = DimensionScores(
+        from unittest.mock import patch
+
+        from project_config import SCORE_VERSION_P4
+        import score_engine as se
+
+        d = se.DimensionScores(
             flow=90,
             chip=80,
             catalyst=50,
@@ -89,42 +98,136 @@ class TestDimensionScores(unittest.TestCase):
             0.50 * sm + 0.15 * 60 + 0.15 * 55 + 0.10 * 70,
             1,
         )
-        self.assertEqual(d.investment_score, expected)
+        with patch("project_config.active_score_version", return_value=SCORE_VERSION_P4):
+            self.assertEqual(d.investment_score, expected)
         self.assertNotEqual(d.timing, d.risk)
 
 
-class TestCatalystSubscore(unittest.TestCase):
-    def test_event_maps_to_0_100(self) -> None:
-        e = UniverseEntry("2330", "台積電", "event", None, 1, None, 0.85, None)
-        self.assertEqual(catalyst_subscore(e), 85.0)
+class TestP5DimensionScores(unittest.TestCase):
+    def test_p5v1_weighted_total(self) -> None:
+        from unittest.mock import patch
 
+        from project_config import SCORE_VERSION_P5
+        import score_engine as se
+
+        d = se.DimensionScores(
+            flow=85,
+            chip=75,
+            catalyst=60,
+            expectation=55,
+            fundamental=50,
+            risk=65,
+            timing=70,
+            crowd=78,
+            short_favor=72,
+        )
+        expected = round(
+            0.30 * 85
+            + 0.20 * 75
+            + 0.10 * 72
+            + 0.10 * 78
+            + 0.10 * 60
+            + 0.10 * 55
+            + 0.05 * 50
+            + 0.05 * 65,
+            1,
+        )
+        with patch("project_config.active_score_version", return_value=SCORE_VERSION_P5):
+            self.assertEqual(d.investment_score, expected)
+
+
+class TestP6DimensionScores(unittest.TestCase):
+    def test_p6_tier_weighted_total(self) -> None:
+        from unittest.mock import patch
+
+        from project_config import SCORE_VERSION_P6
+        import score_engine as se
+
+        d = se.DimensionScores(
+            flow=80,
+            chip=95,
+            catalyst=45,
+            expectation=60,
+            fundamental=70,
+            risk=70,
+            timing=78,
+            crowd=28,
+            short_favor=65,
+        )
+        expected = round(0.70 * 80 + 0.30 * 60, 1)
+        with patch("project_config.active_score_version", return_value=SCORE_VERSION_P6):
+            self.assertEqual(d.investment_score, expected)
+
+
+class TestP6ChipGate(unittest.TestCase):
+    def test_retail_follow_fails_gate(self) -> None:
+        from score_engine import chip_gate_eval
+
+        ok, flags = chip_gate_eval(
+            crowd=28.0,
+            short_favor=65.0,
+            chip_ext={"crowd_label": "散戶跟風"},
+        )
+        self.assertFalse(ok)
+        self.assertIn("Crowd偏低", flags)
+
+    def test_clean_chip_passes(self) -> None:
+        from score_engine import chip_gate_eval
+
+        ok, flags = chip_gate_eval(crowd=78.0, short_favor=57.0, chip_ext={})
+        self.assertTrue(ok)
+        self.assertEqual(flags, [])
+
+
+class TestP6WatchlistTier(unittest.TestCase):
+    def test_chip_gate_blocks_primary(self) -> None:
+        from unittest.mock import patch
+
+        from project_config import SCORE_VERSION_P6
+        from score_engine import watchlist_tier
+
+        with patch("project_config.active_score_version", return_value=SCORE_VERSION_P6):
+            tier = watchlist_tier(
+                78.0,
+                80.0,
+                entry_ctx=EntryContext(ENTRY_WAIT, ()),
+                flow_score=80.0,
+                risk_score=70.0,
+                crowd=28.0,
+                short_favor=65.0,
+                timing_score=78.0,
+                chip_ext={"crowd_label": "散戶跟風"},
+            )
+        self.assertEqual(tier, WL_GENERAL)
+
+    def test_weak_flow_caps_primary(self) -> None:
+        from unittest.mock import patch
+
+        from project_config import SCORE_VERSION_P6
+        from score_engine import watchlist_tier
+
+        with patch("project_config.active_score_version", return_value=SCORE_VERSION_P6):
+            tier = watchlist_tier(
+                76.0,
+                70.0,
+                entry_ctx=EntryContext(ENTRY_WAIT, ()),
+                flow_score=20.0,
+                risk_score=70.0,
+                crowd=78.0,
+                short_favor=57.0,
+                timing_score=78.0,
+            )
+        self.assertEqual(tier, WL_CANDIDATE)
+
+
+class TestCatalystSubscore(unittest.TestCase):
     def test_money_baseline(self) -> None:
         e = UniverseEntry("2330", "台積電", "money", 1, None, 1.2, None, None)
         self.assertEqual(catalyst_subscore(e), 45.0)
 
-    def test_capped_on_low_confidence(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        conn = connect(Path(tmp.name) / "t.db")
-        try:
-            conn.execute(
-                """
-                INSERT INTO catalyst_events (
-                    event_id, stock_id, event_date, catalyst_type, headline,
-                    polarity, explains_etf_add, confidence, sources_json,
-                    source, ingested_at
-                ) VALUES (
-                    'e1', '6223', '2026-06-01', 'CAPX', 'CoWoS擴產', 'POSITIVE',
-                    'MED', 40, '[]', 'manual', '2026-06-01T00:00:00Z'
-                )
-                """
-            )
-            conn.commit()
-            e = UniverseEntry("6223", "旺矽", "event", None, 1, None, 0.85, None)
-            capped = catalyst_subscore_capped(e, conn)
-            self.assertLessEqual(capped, 55.0)
-        finally:
-            conn.close()
-            tmp.cleanup()
+    def test_non_money_baseline(self) -> None:
+        e = UniverseEntry("2330", "台積電", "event", None, 1, None, 0.85, None)
+        self.assertEqual(catalyst_subscore(e), 40.0)
 
 
 class TestRiskSubscore(unittest.TestCase):
@@ -166,7 +269,7 @@ class TestRiskSubscore(unittest.TestCase):
 
 class TestScoreVersion(unittest.TestCase):
     def test_version_string(self) -> None:
-        self.assertEqual(SCORE_VERSION, "p4-v2")
+        self.assertEqual(SCORE_VERSION, "p6-tier")
 
 
 class TestInvestmentScoresDb(unittest.TestCase):

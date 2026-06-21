@@ -557,6 +557,7 @@ def _print_flow_intent_row(
     sig,
     *,
     debug: bool,
+    conn=None,
 ) -> None:
     from comment_engine import compose_intent_tags, compose_intent_tail, format_signal_debug
 
@@ -569,7 +570,9 @@ def _print_flow_intent_row(
         rank_cell = str(sig.weight_rank_best)
     else:
         rank_cell = "—"
-    intent_col = compose_intent_tail(sig, table_mode=True) if sig else "—"
+    intent_col = (
+        compose_intent_tail(sig, table_mode=True, conn=conn) if sig else "—"
+    )
     print(
         f"  {row.stock_id:>6} {row.stock_name:<6} {etf_n:>2} "
         f"{_flow_cell(row.flow_ntd)} {wt_cell:>7} {rank_cell:>4}  {intent_col}"
@@ -587,6 +590,7 @@ def _print_flow_intent_block(
     side: str,
     debug: bool,
     collapse_low: bool,
+    conn=None,
 ) -> None:
     if not signals:
         return
@@ -619,7 +623,7 @@ def _print_flow_intent_block(
                 etf_add=1 if side == "add" else 0,
                 etf_reduce=1 if side == "reduce" else 0,
             )
-        _print_flow_intent_row(row, sig, debug=debug)
+        _print_flow_intent_row(row, sig, debug=debug, conn=conn)
     if collapse_low and low:
         print(f"  （另有 {len(low)} 檔低力度衛星{'加碼' if side == 'add' else '減碼'}，略）")
 
@@ -690,6 +694,7 @@ def print_cross_etf_flow_intent_report(
         side="add",
         debug=debug,
         collapse_low=True,
+        conn=conn,
     )
     _print_flow_intent_block(
         "--- 減碼／出清",
@@ -698,6 +703,7 @@ def print_cross_etf_flow_intent_report(
         side="reduce",
         debug=debug,
         collapse_low=True,
+        conn=conn,
     )
     _print_flow_intent_block(
         "--- 分歧調倉",
@@ -706,14 +712,19 @@ def print_cross_etf_flow_intent_report(
         side="mixed",
         debug=debug,
         collapse_low=False,
+        conn=conn,
     )
     _print_theme_flow_summary(signals)
 
     from sync_flow_events import persist_flow_events
+    from sync_flow_event_legs import persist_flow_event_legs
 
     n = persist_flow_events(conn, etf_codes)
     if n:
         print(f"  flow_events 已落地 {n} 列（{curr_date}）")
+    n_legs = persist_flow_event_legs(conn, etf_codes)
+    if n_legs:
+        print(f"  flow_event_legs 已落地 {n_legs} 列（{curr_date}）")
 
 
 def print_position_intent_report(

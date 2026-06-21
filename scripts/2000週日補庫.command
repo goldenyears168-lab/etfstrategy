@@ -18,6 +18,8 @@ export SYNC_PROFILE="weekly-deep"
 "${ROOT}/scripts/weekly_sync.sh" --weekly-report
 EXIT=$?
 
+"${ROOT}/scripts/weekly_deep_notify.sh" "${EXIT}" || true
+
 echo ""
 if [[ "$EXIT" -eq 0 ]]; then
   echo "週日深度補庫完成。"

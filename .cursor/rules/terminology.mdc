@@ -1,0 +1,47 @@
+---
+description: Project terminology — canonical English, layer boundaries, deprecated terms
+alwaysApply: true
+---
+
+# Terminology (SSOT: docs/terminology.md)
+
+## Rules
+
+1. **Bilingual academic terms** in reports and docs: each concept has paired **English** and **Chinese** labels with formal definitions in [`docs/terminology.md`](docs/terminology.md). Code/config identifiers stay English. First use in prose: `English term（中文術語）`.
+2. **Product layers** (distinct): `facts` → `regime` → `research` → `strategy`. Not the same as `src/` L0–L5, VCP funnel screen stages, or infra SOP (`daily-operations.md`).
+3. **Regime layer** = four-axis **diagnostic** (Breadth zone, Trend posture, RRG rotation, Stage-2 participation). Not alpha, not a live gate.
+4. **Research layer** = exploratory topics · sweep · matrix · hypothesis (`config/research.yaml`). Not frozen specs.
+5. **Strategy layer** = **adopted** frozen specs · backtest JSON · optional production screen (`config/strategy.yaml`). No ensemble weighting.
+6. **VFP** per layer: deliver **results** (files, DB state, decisions)—not processes. See `docs/terminology.md` §1.1. **Ingest/Facts VFP denominator** = `ETF_CODES_LISTED` (6 listed ETFs); `00407A` is optional pre-listing.
+7. **PIT / ex-post**: signal-day T uses only `date ≤ T` data; distinguish from production screen and live P&L.
+
+## Use → Don't use
+
+| Use | Don't use |
+|-----|-----------|
+| **Facts layer** · `layer: facts` | **Operations layer**（product；infra SOP 見 `daily-operations.md`） |
+| `trend_posture` / **Trend posture** | `regime_name`, Trend regime |
+| **Regime four-axis diagnostic** | 四格雷達 alone (no English) |
+| **Optimal hold (H\*)** | 甜蜜点 alone in reports |
+| **Flow tape regime** / `flow_tape_regime()` | `market_regime` for index posture |
+| **Copytrade** (after first 跟單 define) | vague「跟单策略」|
+| `etf-daily` + `regime-daily` daily close | daily `research_digest` |
+| `config/strategy.yaml` for adopted specs | `research.yaml` tracks · `research_os.yaml` |
+| `config/research.yaml` for exploratory topics | sweep 結果當 strategy SSOT |
+| **VFP**（§1.1） | 「跑過腳本」「研究有進展」當交付物 |
+| — | **Exposure overlay** product layer · `exposure_coach_tw` |
+| — | **Evaluation layer** · `track_evaluation` · `evaluation_contract` · `signal_review` |
+| — | **Primary track**（六軌並行） |
+
+## Lineage (cite when introducing methods)
+
+Weinstein Stage Analysis · Minervini Trend Template/VCP · Kempenaer RRG · Grinold & Kahn IC/ICIR · Zweig/Deemer breadth.
+
+## Before submitting
+
+- Grep new strings against docs/terminology.md §8 Deprecated.
+- New adopted strategy → `config/strategy.yaml` + matching `strategies.yaml` entry (`layer: strategy`).
+- New research topic → `config/research.yaml` only until graduated.
+- Regime diagnostics → `config/regime.yaml` four axes (not a strategy).
+
+Full glossary: `docs/terminology.md` · audit checklist: `docs/terminology-audit.md`.

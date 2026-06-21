@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from investment_themes import theme_label
 from position_intent import CONSENSUS_PHRASE, INTENT_PHRASE
 from signal_engine import StockSignal
@@ -104,7 +106,12 @@ def compose_intent_compact(sig: StockSignal) -> str:
     return f"{head} | {cn}" if cn else head
 
 
-def compose_intent_tail(sig: StockSignal, *, table_mode: bool = False) -> str:
+def compose_intent_tail(
+    sig: StockSignal,
+    *,
+    table_mode: bool = False,
+    conn: sqlite3.Connection | None = None,
+) -> str:
     """合併寬表「意圖」欄（不含代號／名稱）。"""
     tokens: list[str] = []
     if sig.conviction_level not in ("NONE",):
@@ -123,9 +130,17 @@ def compose_intent_tail(sig: StockSignal, *, table_mode: bool = False) -> str:
     return f"{head} | {cn}" if cn else head
 
 
-def compose_comment(sig: StockSignal) -> str:
+def compose_comment(sig: StockSignal, *, conn: sqlite3.Connection | None = None) -> str:
     """相容舊 API：單行緊湊 + 除錯 tags 另列時請用 compose_intent_compact。"""
-    return compose_intent_compact(sig)
+    compact = compose_intent_compact(sig)
+    if conn is None:
+        return compact
+    cn = _chinese_intent_line(sig)
+    if not cn:
+        return compact
+    name = sig.stock_name or sig.stock_id
+    head = compact.split(" | ", 1)[0] if " | " in compact else name
+    return f"{head} | {cn}"
 
 
 def format_signal_debug(sig: StockSignal) -> str:

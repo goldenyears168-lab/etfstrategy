@@ -17,8 +17,10 @@ class TestResolveFetchWindow(unittest.TestCase):
     def test_skip_when_fully_synced(self) -> None:
         cov = StockMarketCoverage(
             stock_id="2330",
+            bar_min="2026-04-05",
             bar_max="2026-06-04",
             bar_count_window=40,
+            inst_min="2026-04-05",
             inst_max="2026-06-04",
             inst_count_window=40,
         )
@@ -31,8 +33,10 @@ class TestResolveFetchWindow(unittest.TestCase):
     def test_incremental_when_bar_behind(self) -> None:
         cov = StockMarketCoverage(
             stock_id="2454",
+            bar_min="2026-04-05",
             bar_max="2026-06-01",
             bar_count_window=40,
+            inst_min="2026-04-05",
             inst_max="2026-06-01",
             inst_count_window=40,
         )
@@ -44,11 +48,31 @@ class TestResolveFetchWindow(unittest.TestCase):
         self.assertGreater(fs, self.start)
         self.assertEqual(fe, self.end)
 
+    def test_backfill_when_missing_old_bars(self) -> None:
+        cov = StockMarketCoverage(
+            stock_id="2330",
+            bar_min="2026-05-01",
+            bar_max="2026-06-04",
+            bar_count_window=25,
+            inst_min="2026-05-01",
+            inst_max="2026-06-04",
+            inst_count_window=25,
+        )
+        action, fs, fe = resolve_fetch_window(
+            cov, self.start, self.end, 60, force_refresh=False
+        )
+        self.assertEqual(action, "backfill")
+        assert fs is not None and fe is not None
+        self.assertEqual(fs, self.start)
+        self.assertLess(fe, self.end)
+
     def test_force_refresh_full(self) -> None:
         cov = StockMarketCoverage(
             stock_id="2330",
+            bar_min="2026-04-05",
             bar_max="2026-06-04",
             bar_count_window=40,
+            inst_min="2026-04-05",
             inst_max="2026-06-04",
             inst_count_window=40,
         )

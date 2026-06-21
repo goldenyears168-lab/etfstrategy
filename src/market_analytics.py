@@ -5,10 +5,9 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import asdict, dataclass
 
-from entry_signal import PULLBACK_MA20_BAND_PCT
+PULLBACK_MA20_BAND_PCT = 5.0
 from investment_policy import InvestmentPolicy, load_investment_policy
 from market_labels import ENTRY_TAG_RETEST, PM_OBSERVE
-from rule_limit_price import compute_ref_price
 from stock_context import TechnicalSnapshot, compute_technical, load_daily_bars, load_tej_daily_bars
 from stock_db import load_latest_fundamental_map, load_latest_tech_risk
 
@@ -238,28 +237,14 @@ def compute_risk_reward(
 ) -> tuple[float | None, float | None]:
     if tech is None:
         tech = compute_technical(conn, stock_id)
-    policy = ips or load_investment_policy()
-    tech_risk = load_latest_tech_risk(conn)
-    tsm_pct = (
-        float(tech_risk["tsm_daily_return_pct"])
-        if tech_risk and tech_risk["tsm_daily_return_pct"] is not None
-        else None
-    )
-    tx_gap = (
-        float(tech_risk["tx_gap_pct"])
-        if tech_risk and tech_risk["tx_gap_pct"] is not None
-        else None
-    )
-    ref = compute_ref_price(
-        entry_signal=entry_signal,
-        pm_bucket=PM_OBSERVE,
-        tech=tech,
-        ips=policy,
-        investment_score=investment_score,
-        tx_gap_pct=tx_gap,
-        tsm_adr_pct=tsm_pct,
-    )
-    return ref.ref_price, ref.risk_reward
+    if tech is None or tech.close is None:
+        return None, None
+    ref = float(tech.close)
+    stop = tech.ma20 or tech.ma60
+    if stop is None or ref <= stop:
+        return ref, None
+    rr = round((ref - stop) / max(ref - stop, 1e-6), 2)
+    return ref, rr
 
 
 def build_stock_analytics(

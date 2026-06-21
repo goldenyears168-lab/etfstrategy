@@ -1,0 +1,29 @@
+# Factor validation (alphalens-style) — Phase 2 / 2b
+# Spec: docs/terminology.md · factor validation
+
+version: factor-validation-v2
+lookback_trading_days: 90
+forward_horizons_days: [1, 5, 10]
+min_names_per_day: 8
+quantile_buckets: 5
+
+# IC decay: in-sample (train) vs out-of-sample (valid) Rank IC on signal-day splits
+ic_decay:
+  train_pct: 0.7
+  min_split_days: 6
+  stable_delta_min: -0.05
+  moderate_delta_min: -0.15
+
+# create_full_tear_sheet semantics — HTML native + optional alphalens PNG
+tearsheet:
+  primary_horizon_days: 1
+  write_html: true
+  alphalens_png: true
+
+tracks:
+  vcp-funnel:
+    title: VCP 漏斗 · Pivot Gate / Coil Close
+    source: vcp_screen_scores_v2
+    model_id: vcp-funnel
+    factors:
+      - composite_score

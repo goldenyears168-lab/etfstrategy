@@ -14,7 +14,7 @@ from market_labels import (
 )
 from stock_context import classify_chip_resonance, classify_volume, compute_technical
 from stock_db import connect
-from trade_levels import TradeLevel
+from research.archive.trade_levels import TradeLevel
 
 
 class TestClassify(unittest.TestCase):

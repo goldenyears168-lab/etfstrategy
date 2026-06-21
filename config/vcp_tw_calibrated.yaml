@@ -1,0 +1,13 @@
+description: 台股 VCP 文献反向工程校准参数（勿直接替换 vcp_screen.py 默认；须先在 IX0001 上验证 P@K / 20d 胜率后再考虑移植）
+model_id: vcp-nse-port-tw-calibrated
+benchmark: IX0001
+min_composite: 65.0
+literature_pad_days: 21
+calibration_overlap: 16/20
+params:
+  trend_min_score: 71.0
+  lookback_days: 90
+  min_contractions: 2
+  t1_depth_min: 10.0
+  t1_depth_max: 60.0
+  contraction_ratio: 0.75

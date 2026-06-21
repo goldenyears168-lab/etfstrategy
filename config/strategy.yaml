@@ -1,0 +1,189 @@
+# Strategy 層 · 採納後凍結規格（SSOT）
+# 術語：docs/terminology.md §5
+# 回測規格：strategies.*.backtest（各軌 run_*_backtest.py 參數 · JSON 路徑）
+# 產物發布：strategies.yaml（layer: strategy）對齊相同 strategy_id · enabled 須一致
+
+version: strategy-v1
+layer: strategy
+benchmark_default: IX0001
+
+principles:
+  - adopted specs only · graduated from research topics
+  - parallel strategies · no ensemble weighting
+  - frozen params · backtest JSON as evidence
+
+strategies:
+  00981a-l1h9:
+    title: 00981A copytrade L1H9
+    kind: competition
+    schedule: manual
+    enabled: false  # manual · 非 daily close；須與 strategies.yaml 一致
+    etf_code: "00981A"
+    strategy_id: L1H9
+    entry_row: L1
+    n_slots: 9
+    hold_days: 9
+    module: copytrade/signals
+    backtest_module: copytrade_backtest
+    run_script: scripts/run_00981a_copytrade_backtest.py
+    methodology: docs/00981a-copytrade-research-methodology.md
+    description: >
+      00981A 新进/加码 跟單 · T+1 開 · 9 槽 · hold9 · 手動 screen / 回測。
+    backtest:
+      spec_type: slot_strategy_backtest
+      etf_code: "00981A"
+      source_module: copytrade_backtest
+      metrics:
+        - n_periods
+        - win_rate_vs_bench_pct
+        - mean_excess_pct
+        - mean_return_pct
+      date_start: "2026-01-01"
+      date_end: "2026-12-31"
+      n_slots: 9
+      hold_days: 9
+      capital_ntd: 10000
+      entry_price_mode: open
+      strategy_id: L1H9
+      source_summary: reports/research/00981a-copytrade/l1h9_slot_backtest_2026.json
+      notes: "L1H9 · L1 open / hold9 · see copytrade_research_conclusions"
+
+  rrg-mono-hold7:
+    title: RRG mono · seg_last · 3-slot hold7
+    kind: competition
+    schedule: launchd
+    launchd_label: com.jackm4.etf.rrg-mono-scan
+    schedule_time: "16:40 Asia/Taipei Mon-Fri"
+    enabled: false
+    n_slots: 3
+    hold_days: 7
+    module: rrg_mono_daily_brief
+    backtest_module: rrg_mono_backtest
+    run_script: scripts/run_rrg_mono_daily_brief.py
+    description: >
+      RRG mono fresh · seg_last · 3 槽 hold7 · 獨立 launchd 16:40。
+    backtest:
+      spec_type: slot_strategy_backtest
+      source_module: rrg_mono_backtest
+      metrics:
+        - n_periods
+        - win_rate_vs_bench_pct
+        - mean_excess_pct
+        - mean_return_pct
+        - total_excess_pct
+      date_start: "2026-01-01"
+      date_end: "2026-12-31"
+      n_slots: 3
+      hold_days: 7
+      capital_ntd: 10000
+      entry_price_mode: close
+      source_summary: reports/research/rrg/rrg_mono_hold7_slot_backtest_2026.json
+      notes: "mono fresh · seg_last · D close / hold7"
+
+  vcp-pivot-gate:
+    title: VCP Pivot Gate
+    kind: competition
+    schedule: launchd
+    launchd_label: com.jackm4.etf.vcp-funnel-specs
+    schedule_time: "13:00 Asia/Taipei Mon-Fri"
+    env_flag: RUN_VCP_FUNNEL_SPECS
+    enabled: false
+    model_version: vcp-pivot-gate-h20
+    n_slots: 5
+    hold_days: 20
+    module: vcp_funnel_screen
+    backtest_module: chunge_funnel_backtest
+    run_script: scripts/run_vcp_funnel_specs_daily_brief.py
+    description: >
+      VCP funnel · near pivot · breakout close · 5 槽 hold20 · launchd 13:00。
+    backtest:
+      spec_type: slot_strategy_backtest
+      model_id: vcp-funnel
+      source_module: chunge_funnel_backtest
+      metrics:
+        - n_periods
+        - win_rate_vs_bench_pct
+        - mean_excess_pct
+        - mean_return_pct
+        - screen_coverage_pct
+      date_start: "2026-01-01"
+      date_end: "2026-12-31"
+      n_slots: 5
+      hold_days: 20
+      capital_ntd: 10000
+      entry_price_mode: breakout_close
+      min_composite: 45
+      entry_ready_only: false
+      require_pivot: true
+      min_dist_pivot_pct: -8.0
+      max_dist_pivot_pct: 5.0
+      variant: vcp-pivot-gate-h20
+      max_entry_wait_days: 10
+      stop_lookback_days: 20
+      execution_states:
+        - Pre-breakout
+        - Breakout
+        - Early-post-breakout
+      top_n: 15
+      source_summary: reports/research/vcp/vcp_pivot_gate_slot_backtest_2026.json
+      notes: "VCP Pivot Gate · near_pivot breakout_close hold20"
+
+  vcp-coil-close:
+    title: VCP Coil Close
+    kind: competition
+    schedule: launchd
+    launchd_label: com.jackm4.etf.vcp-funnel-specs
+    schedule_time: "13:00 Asia/Taipei Mon-Fri"
+    env_flag: RUN_VCP_FUNNEL_SPECS
+    enabled: false
+    model_version: vcp-coil-close-h20
+    n_slots: 5
+    hold_days: 20
+    module: vcp_funnel_screen
+    parent_strategy: vcp-pivot-gate
+    description: >
+      VCP funnel 變體 · 訊號日 close 進場 · 5 槽 hold20 · 與 Pivot Gate 共用 launchd。
+    backtest:
+      spec_type: slot_strategy_backtest
+      model_id: vcp-funnel
+      source_module: chunge_funnel_backtest
+      metrics:
+        - n_periods
+        - win_rate_vs_bench_pct
+        - mean_excess_pct
+        - mean_return_pct
+      date_start: "2026-01-01"
+      date_end: "2026-12-31"
+      n_slots: 5
+      hold_days: 20
+      capital_ntd: 10000
+      entry_price_mode: close
+      variant: vcp-coil-close-h20
+      source_summary: reports/research/vcp/vcp_coil_close_slot_backtest_2026.json
+      notes: "Coil Close variant · signal-day close entry"
+
+  minervini-sepa-basket:
+    title: Minervini SEPA Trend Template basket
+    kind: competition
+    schedule: ad_hoc
+    role: stock_basket
+    enabled: false
+    model_version: minervini-sepa-basket-v1
+    module: broad_momentum_tv_backtest
+    run_script: scripts/run_broad_momentum_tv_backtest.py
+    config_ref: config/broad_momentum_tv.yaml
+    description: >
+      月末等權 Stage 2 basket · Minervini 7/7 bulk · ad-hoc 回測。
+    backtest:
+      spec_type: stock_basket_backtest
+      benchmark: IX0001
+      breadth_zone_200: strong
+      source_module: broad_momentum_tv_backtest
+      source_report: reports/minervini-sepa-basket/backtest_summary.json
+      config: config/broad_momentum_tv.yaml
+      metrics:
+        - total_return_pct
+        - excess_return_pct
+        - sharpe
+        - max_drawdown_pct
+        - avg_picks

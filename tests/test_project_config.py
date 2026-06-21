@@ -13,6 +13,7 @@ from project_config import (
     ETF_CODES_BY_SOURCE,
     ETF_CODES_HOLDINGS,
     ETF_CODES_LISTED,
+    MUTUAL_FUND_WATCHLIST_CODES,
     SCORE_VERSION,
     csv_codes,
     parse_etf_codes,
@@ -35,6 +36,9 @@ class ProjectConfigTests(unittest.TestCase):
 
     def test_default_etf_codes_alias(self) -> None:
         self.assertEqual(DEFAULT_ETF_CODES, ETF_CODES_LISTED)
+
+    def test_mutual_fund_watchlist_codes(self) -> None:
+        self.assertEqual(MUTUAL_FUND_WATCHLIST_CODES, ("ACDD04",))
 
     def test_parse_etf_codes_empty_uses_default(self) -> None:
         self.assertEqual(parse_etf_codes(None), ETF_CODES_LISTED)
@@ -63,7 +67,7 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertEqual(proc.stdout.strip(), csv_codes(ETF_CODES_LISTED))
 
     def test_score_version(self) -> None:
-        self.assertEqual(SCORE_VERSION, "p4-v2")
+        self.assertEqual(SCORE_VERSION, "p6-tier")
 
     def test_benchmark_codes(self) -> None:
         self.assertEqual(BENCHMARK_CODES, ("IX0001", "IR0002"))

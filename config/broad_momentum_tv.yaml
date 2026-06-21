@@ -1,0 +1,39 @@
+# Broad-momentum TV strategies · Minervini SEPA basket (research)
+# Engine: src/research/backtest/broad_momentum_tv_backtest.py
+# Zweig/Deemer index overlay retired · Regime diagnostic: config/regime.yaml breadth_impulse
+
+version: broad-momentum-tv-v2
+benchmark_code: IX0001
+universe: stock_daily_bars  # ~133 ETF constituent stocks
+
+strategies:
+  minervini-sepa-basket:
+    title: Minervini SEPA (Trend Template basket)
+    internal_id: minervini_basket
+    layer: strategy
+    kind: stock_basket
+    adopted: "2026-06-19"
+    breadth_zone_200: strong
+    breadth_filter: "pct_above_50>=55 and pct_above_200>=45"
+    tv_author: mdelia100
+    tv_script: "Minervini SEPA System"
+    original_author: "Mark Minervini"
+    rebalance: monthly
+    asset: equal_weight_stocks
+    description: >
+      月末等權持有 Minervini Trend Template 7/7（MA+52W 價位；bulk 掃描不含 RS）的 Stage 2 個股；
+      無合格標的空倉。與 vcp-minervini（VCP 突破）互補。
+    params:
+      trend_template_min_criteria: 7
+      trend_template_total: 8
+      ma_windows: [50, 150, 200]
+      ma200_trend_days: 22
+      return_clip_pct: 35
+    backtest:
+      start: "2024-01-01"
+      end: "2026-06-18"
+      total_return_pct: 477.27
+      excess_return_pct: 318.13
+      sharpe: 2.51
+      max_drawdown_pct: -28.61
+      broad_momentum_excess_pct: 485.37

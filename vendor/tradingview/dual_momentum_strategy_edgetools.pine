@@ -1,0 +1,32 @@
+//@version=5
+// Dual Momentum Strategy (Gary Antonacci GEM logic)
+// Reference: https://www.tradingview.com/script/wFRnnlQr-Dual-Momentum-Strategy/
+// Original author: EdgeTools · Recreated for local audit / TW asset mapping.
+//
+// US reference: SPY (risky) vs TLT (safe). TW mapping in Python backtest: 0050 / 00646 / 00720B.
+
+strategy("Dual Momentum GEM (Antonacci ref)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+lookbackBars = input.int(252, "Momentum lookback (daily ≈ 12M)", minval=60)
+rfAnnualPct  = input.float(1.5, "Risk-free annual %", step=0.1)
+useMaFilter  = input.bool(false, "Require price > MA(lookback) on risky leg")
+
+momRisky = close / close[lookbackBars] - 1.0
+momSafe  = request.security(syminfo.tickerid, timeframe.period, close / close[lookbackBars] - 1.0)  // placeholder: set safe symbol in chart
+rf12     = math.pow(1.0 + rfAnnualPct / 100.0, 1.0) - 1.0
+
+absRiskyOk = momRisky > rf12
+relRiskyWins = momRisky > momSafe
+maOk = not useMaFilter or close > ta.sma(close, lookbackBars)
+
+goRisky = absRiskyOk and relRiskyWins and maOk
+goSafe  = not goRisky
+
+if goRisky
+    strategy.entry("Risky", strategy.long)
+if goSafe
+    strategy.close("Risky")
+
+plot(momRisky * 100, color=color.new(color.teal, 0), title="Risky 12M %")
+plot(momSafe * 100, color=color.new(color.orange, 0), title="Safe 12M %")
+plot(rf12 * 100, color=color.gray, title="RF 12M %")

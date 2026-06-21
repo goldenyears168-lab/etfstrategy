@@ -1,0 +1,21 @@
+// Reference: TradingView open-source RRG clone (WMA double-smooth)
+// Source: marketcalls.in RRG Clone v1.0 · Julius de Kempenaer methodology
+// MPL 2.0
+
+//@version=6
+// RS = Close(asset) / Close(benchmark)
+// RS-Ratio = WMA(RS / WMA(RS, length), length) * 100
+// RS-Momentum = RS-Ratio / WMA(RS-Ratio, length) * 100
+//
+// Quadrants (baseline 100):
+//   Leading    : RS-Ratio > 100 && RS-Momentum > 100
+//   Weakening  : RS-Ratio > 100 && RS-Momentum <= 100
+//   Lagging    : RS-Ratio <= 100 && RS-Momentum <= 100
+//   Improving  : RS-Ratio <= 100 && RS-Momentum > 100
+
+rs_ratio_mom(src, bench, length) =>
+    rs = src / bench
+    wma_rs = ta.wma(rs, length)
+    rs_ratio = ta.wma(rs / wma_rs, length) * 100
+    rs_mom = rs_ratio / ta.wma(rs_ratio, length) * 100
+    [rs_ratio, rs_mom]

@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 import tempfile
+import types
 import unittest
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+_HAS_YFINANCE = importlib.util.find_spec("yfinance") is not None
+if not _HAS_YFINANCE:
+    sys.modules.setdefault("yfinance", types.ModuleType("yfinance"))
+
 from query_stock_prices import _sync_one_etf_daily_bars, sync_etf_daily_bars
 from stock_db import connect
 
 
+@unittest.skipUnless(_HAS_YFINANCE, "yfinance not installed")
 class TestEtfDailyFallback(unittest.TestCase):
     def test_tej_success_no_finmind(self) -> None:
         tmp = tempfile.TemporaryDirectory()

@@ -1,104 +1,88 @@
-# ETF 持股研究 · 投資決策引擎
+# ETF Holdings Research · Parallel Alpha Tracks
 
-本地 **SQLite**（`data/stocks.db`）+ 方案 C 四排程（①②③ ingest + ④ 策略回顧）。文件見 [docs/README.md](docs/README.md)、[docs/PRD.md](docs/PRD.md)。
+台股 ETF 持股研究 · 本地 **SQLite**（`data/stocks.db`）+ market data ingest + **Facts / Regime daily** + 並行 strategy 研究。
 
-> **免責**：本專案產出僅供個人研究與內部決策輔助，**不構成投資建議或要約**。規則評分、觀察名單與報告內容不保證未來結果；實際下單請自行判斷並自負風險。
+架構：[docs/architecture.md](docs/architecture.md) · 術語：[docs/terminology.md](docs/terminology.md) · 營運：[docs/daily-operations.md](docs/daily-operations.md)
 
-## 5 分鐘上手
+> **免責**：產出僅供個人研究，不構成投資建議。
 
-1. **環境**（專案根目錄）
+## Glossary
+
+| Canonical term | 說明 |
+|----------------|------|
+| **Parallel alpha tracks** | 多軌並行 · no ensemble · 各層 VFP 見 [terminology.md](docs/terminology.md) §1.1 |
+| **Facts layer** | 持股 diff 事實 · `etf-daily` · 不選股不評分 |
+| **Regime layer** | 四軸 market diagnostic · 非 alpha |
+| **Research layer** | 探索主題 · sweep · `config/research.yaml` |
+| **Strategy layer** | 採納規格 · screen / backtest · `config/strategy.yaml` |
+
+清障清單：[docs/terminology-audit.md](docs/terminology-audit.md)
+
+## Architecture
+
+```mermaid
+flowchart TB
+  subgraph dataLayer [Ingest]
+    DB["stocks.db"]
+  end
+  subgraph dailyClose [FactsAndRegime]
+    ETF["etf-daily"]
+    REG["regime-daily"]
+  end
+  subgraph strategy [StrategyLayer]
+    L1H9["00981a-l1h9"]
+    RRG["rrg-mono-hold7"]
+  end
+  DB --> ETF & REG
+  DB --> L1H9 & RRG
+```
+
+| Layer | 設定 · 模組 |
+|-------|-------------|
+| Data | `sync_*` → `stocks.db` |
+| Facts / Regime | `config/strategies.yaml` · `etf_daily_report` · `regime_daily_brief` |
+| Strategy | [`config/strategy.yaml`](config/strategy.yaml) · copytrade / VCP / RRG launchd |
+| Research | [`config/research.yaml`](config/research.yaml) · sweep / 矩陣 |
+| Ex-post | 手動回測 JSON · [evaluation-contract.md](docs/evaluation-contract.md) |
+| Execution | Out of scope |
+
+模組分層：[docs/src-map.md](docs/src-map.md)
+
+## Backtest（手動 · `strategy.yaml`）
+
+| 入口 | 內容 |
+|------|------|
+| [`config/strategy.yaml`](config/strategy.yaml) → `strategies.*.backtest` | 採納規格 · JSON 路徑 |
+| [`config/research.yaml`](config/research.yaml) → `topics.*` | 探索 sweep · 矩陣 |
+| `scripts/run_factor_validation.py` | VCP 因子 IC 檢定（可選） |
+| `scripts/write_copytrade_slot_summary.py` | L1H9 slot JSON 匯出 |
+
+## Quick start
 
 ```bash
 cd "/path/to/股票研究"
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 編輯 .env：至少填入 TEJ_API_KEY（早盤日線）；收盤 Score 建議 RUN_SCORE_ENGINE=1
-```
-
-2. **第一次跑收盤流程**（會打 API 寫入 `data/stocks.db`，並在終端印研究報告）
-
-```bash
-# 或 Finder 雙擊
+# 編輯 TEJ_API_KEY、FINMIND_TOKEN
 scripts/1630收盤雷達.command
 ```
 
-3. **對照範例產出**（不需先懂全部 code）
+```bash
+make install      # 首次：venv + requirements.txt
+make install-dev  # + ruff / coverage（CI 同款）
+make test         # 全量 unittest
+make ci           # ruff + test + coverage
+```
+
+## Daily reading
 
 | 檔案 | 內容 |
 |------|------|
-| `logs/daily_sync_YYYYMMDD.log` | 同步步驟、耗時、`OK`/`WARN` |
-| `reports/YYYYMMDD_research_context.json` | 規則引擎結構化結果（`as_of_date`、`score_version`） |
-| `reports/YYYYMMDD_evening_brief.md` | 收盤人類主檔（摘要、研究表、查證、Checklist） |
-| `reports/YYYYMMDD_research_context.json` | 給外部 LLM 的結構化資料（規則欄位為權威） |
-| `reports/YYYYMMDD_prompt_evening_full.txt` | 給外部 LLM 的合併提示詞（含 §3 待查新聞聯網查證 · `RUN_EXPORT_AI_BUNDLE=1`） |
-| `reports/YYYYMMDD_evening_brief.md` | 營運摘要（若已產生） |
+| [`reports/daily/etf-daily/daily_brief.md`](reports/daily/etf-daily/daily_brief.md) | **Facts** · 各檔 ETF 持股變化 |
+| [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場診斷 |
+| `reports/daily/vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（13:00 launchd） |
+| `reports/daily/rrg_mono_daily.md` | RRG mono 收盤確認（16:40 launchd） |
+| [`reports/research/00981a-copytrade/`](reports/research/00981a-copytrade/) | L1H9 跟單回測（手動） |
 
-收盤跑完後，`reports/YYYYMMDD_*` 會在本機產生（已 gitignore）。
-
-4. **確認 DB 健康**（可選）
-
-```bash
-export PYTHONPATH=src
-.venv/bin/python src/report_summary.py --mode evening-health
-```
-
-詳細 SOP：[docs/daily-operations.md](docs/daily-operations.md)。
-
-## 目錄
-
-| 路徑 | 內容 |
-|------|------|
-| `src/` | Python：同步、行為訊號、DB（`stock_db.py`） |
-| `scripts/` | `daily_sync.sh`、`weekly_sync.sh`、`.command` 入口 |
-| `docs/` | `PRD.md`（規格全集）、`daily-operations.md`（每日 SOP） |
-| `data/` | `stocks.db`（gitignore） |
-| `logs/` | 同步 log（gitignore） |
-| `tests/` | 單元測試 |
-| `.cursor/skills/` | Agent 工作流（同步、排程、Intent） |
-| `reports/` | 每日營運產物（gitignore；brief、checklist、signal_review 等） |
-
-## 日常操作
-
-```bash
-cd "/path/to/股票研究"
-# 或雙擊 scripts/ 內 .command
-scripts/0830執行評估.command  # ① 08:30
-scripts/0845試撮重算.command  # ①b 08:45（測試）
-scripts/0850開盤確認.command  # ①c 08:50
-scripts/0905盤中預覽.command  # ①d 09:05 Yahoo 自動查價
-scripts/1630收盤雷達.command  # ② 16:30
-scripts/2000週日補庫.command  # ③ 週日 20:00
-scripts/策略回顧.command    # ④ 隨時（§0 Flow + Paper 10 萬）
-```
-
-手動單支腳本（需在專案根目錄）：
-
-```bash
-export PYTHONPATH=src
-.venv/bin/python src/sync_etf_holdings.py --etf-codes 00981A --changes --intent
-```
-
-## 測試
-
-```bash
-export PYTHONPATH=src
-.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
-```
-
-## Sanity check（資料健康）
-
-排程跑完或懷疑 DB 異常時，只讀 `stocks.db`、不打 API：
-
-```bash
-export PYTHONPATH=src
-# 早盤：tech_risk、pm_watchlist、成分股 K 線最新日
-.venv/bin/python src/report_summary.py --mode morning
-# 收盤：持股 snapshot、評分、法人、催化事件筆數
-.venv/bin/python src/report_summary.py --mode evening-health
-# 週日補庫後：Beta / 基本面覆蓋
-.venv/bin/python src/report_summary.py --mode weekly
-```
-
-預期：各表「最新交易日」應接近最近營業日；`investment_scores` 在收盤且 `RUN_SCORE_ENGINE=1` 後應有列。
+SOP：[docs/daily-operations.md](docs/daily-operations.md) · 產品範圍：[docs/PRD.md](docs/PRD.md)

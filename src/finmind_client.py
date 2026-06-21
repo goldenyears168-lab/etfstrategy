@@ -17,7 +17,9 @@ FINMIND_FUTURES_SNAPSHOT_URL = (
 
 
 def finmind_token() -> str:
-    return os.environ.get("FINMIND_TOKEN", "").strip()
+    from project_dotenv import finmind_token_from_env
+
+    return finmind_token_from_env()
 
 
 def finmind_headers() -> dict[str, str]:
@@ -92,23 +94,35 @@ def fetch_tick_snapshots(
     *,
     timeout: float = 30,
 ) -> tuple[list[dict], str | None]:
-    """盤中 tick snapshot；需有效 FINMIND_TOKEN。"""
+    """盤中 tick snapshot；需有效 FINMIND_TOKEN。
+
+    FinMind 批次 data_id 若任一代號異常可能整包失敗；改逐檔查詢。
+    """
     if not finmind_token():
         return [], "未設定 FINMIND_TOKEN"
     rows: list[dict] = []
-    try:
-        resp = requests.get(
-            FINMIND_TICK_SNAPSHOT_URL,
-            headers=finmind_headers(),
-            params={"data_id": data_ids},
-            timeout=timeout,
-        )
-        payload = resp.json()
-    except requests.RequestException as exc:
-        return [], str(exc)
-    if payload.get("status") != 200:
-        return [], payload.get("msg", f"HTTP {resp.status_code}")
-    rows.extend(payload.get("data") or [])
+    last_err: str | None = None
+    for data_id in data_ids:
+        sid = str(data_id).strip()
+        if not sid:
+            continue
+        try:
+            resp = requests.get(
+                FINMIND_TICK_SNAPSHOT_URL,
+                headers=finmind_headers(),
+                params={"data_id": sid},
+                timeout=timeout,
+            )
+            payload = resp.json()
+        except requests.RequestException as exc:
+            last_err = str(exc)
+            continue
+        if payload.get("status") != 200:
+            last_err = payload.get("msg", f"HTTP {resp.status_code}")
+            continue
+        rows.extend(payload.get("data") or [])
+    if not rows and last_err:
+        return [], last_err
     return rows, None
 
 

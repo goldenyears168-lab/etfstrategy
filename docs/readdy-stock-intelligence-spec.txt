@@ -1,0 +1,350 @@
+# Readdy 股市策略情報網站 · 產品規格書 v2
+
+> **版本** 2026-06-21 v2 · **資料** Supabase `stock_research.daily_briefs`  
+> **專案** `lzaomqzsiqudkojokevr` · 術語 SSOT：[terminology.md](terminology.md)
+
+---
+
+## 0. 設計簽收標準（Design acceptance）
+
+### v1.0 必須項（未達不可上線）
+
+| # | 項目 | 驗收 |
+|---|------|------|
+| A1 | **App Shell 統一** | 全站共用 top nav · 日期 picker · brief tab · 免責 banner（非 iframe 整頁） |
+| A2 | **Regime 嵌入模式** | 使用 `content_html` 內 `<article class="regime-embed">` · 無重複 h1 / Cursor banner |
+| A3 | **Hub 四 KPI** | 首屏顯示 200MA 廣度 · Stage · RRG% · Pass rate（不需載入 50KB HTML） |
+| A4 | **中文對外品名** | 頁面標題用「市場結構日報」等（見 §4）· 英文作 subtitle |
+| A5 | **ETF / VCP 共用元件** | 同一 `DataTable` · `Chip` · `LayerBadge` · 非裸 Markdown |
+| A6 | **PIT 標示** | 每頁可見 `trade_date` + `synced_at` + schedule slot |
+| A7 | **手機可用** | KPI 2×2 grid · 表格橫向捲動 · chart `overflow-x: auto` |
+
+### v1.0 可延後
+
+- 帳號登入 · 推播 · 即時報價連結  
+- `snapshot_json` 互動圖  
+- Strategy layer adopted spec  
+- `rrg_mono_intraday`（資料尚未 sync）
+
+---
+
+## 1. 產品定位
+
+**每日排程產出的股市結構情報閱讀站** — Facts → Regime → Research 三層唯讀 brief；**非**即時下單、**非** live gate、**非**績效保證。
+
+**建議閱讀順序：**
+
+1. Regime four-axis diagnostic（四軸體制診斷）  
+2. ETF daily（ETF 日報 · Facts layer）  
+3. VCP funnel specs（研究篩選 · Research layer）
+
+---
+
+## 2. Supabase 資料契約
+
+### 2.1 讀取表
+
+`stock_research.daily_briefs` — Readdy **唯一**資料表。
+
+| 欄位 | 網站用途 |
+|------|----------|
+| `trade_date` | URL `/briefs/{date}` · 主導覽 |
+| `schedule_slot` | `1300` 午盤研究 / `1630` 收盤情報 |
+| `brief_type` | 路由 + 模板 |
+| `title` | SEO · 麵包屑 |
+| `content_md` | ETF · VCP 渲染源 |
+| `content_html` | **Regime embed 片段**（含 KPI + section + SVG） |
+| `source_path` | 頁尾 provenance |
+| `synced_at` | 「同步時間」 |
+| `snapshot_json` | v1 **不使用** |
+
+### 2.2 Regime HTML 兩種產物
+
+| 檔案 | 用途 |
+|------|------|
+| `daily_brief.html` | 本機瀏覽器完整頁（含 h1 · 方法說明） |
+| `daily_brief.embed.html` | **Supabase `content_html`** · Readdy 嵌入 |
+
+Sync 優先讀取 `daily_brief.embed.html`（見 `supabase_research_sync.load_brief`）。
+
+Embed 結構：
+
+```html
+<style>/* scoped .regime-embed … */</style>
+<article class="regime-embed" data-trade-date="2026-06-18" data-layer="regime">
+  <div class="kpi-strip">…4 tiles…</div>
+  <section id="synopsis">…</section>
+  <section id="breadth">…</section>
+  …
+</article>
+```
+
+**KPI `data-metric`：** `breadth_200ma` · `weinstein_stage` · `rrg_health` · `stage2_pass`
+
+### 2.3 連線
+
+```typescript
+createClient(URL, ANON_KEY, { db: { schema: 'stock_research' } })
+```
+
+---
+
+## 3. App Shell（全站共用殼層）
+
+**禁止：** 整頁 iframe 載入含 `<html>` 的 standalone 報告。
+
+### 3.1 布局
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [Logo] 股市策略情報    [日期 ▼ 2026-06-18]    [方法論]       │
+├─────────────────────────────────────────────────────────────┤
+│ ⚠ 研究情報 · PIT 快照 · 非投資建議          [收合]          │
+├─────────────────────────────────────────────────────────────┤
+│  Tab: [ 市場結構 ] [ ETF 日報 ] [ VCP 研究 ]                  │
+├─────────────────────────────────────────────────────────────┤
+│  {brief 內容區 · max-width 920px · 置中}                     │
+├─────────────────────────────────────────────────────────────┤
+│  資料日 trade_date · 排程 slot · synced_at · source_path    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 設計 Token（全站）
+
+| Token | 值 |
+|-------|-----|
+| `--bg` | `#0d1117` |
+| `--panel` | `#161b22` |
+| `--text` | `#e6edf3` |
+| `--muted` | `#8b949e` |
+| `--border` | `#30363d` |
+| `--accent` | `#58a6ff` |
+
+字體：`-apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif`
+
+### 3.3 共用元件
+
+| 元件 | 用途 |
+|------|------|
+| `LayerBadge` | Facts / Regime / Research 色標 |
+| `PitBanner` | 免責 + PIT 說明 |
+| `KpiTile` | Hub + Regime 四格（可從 embed DOM 或 MD parse） |
+| `DataTable` | ETF flow · VCP 候選 · RRG 表 |
+| `ActionChip` | 加碼綠 / 減碼紅 · VCP state |
+| `SectionCard` | 對應 Regime `section` 外框 |
+
+---
+
+## 4. 對外中文命名
+
+| `brief_type` | 中文品名 | 英文 subtitle |
+|--------------|----------|---------------|
+| `regime_daily` | 市場結構日報 | Market structure memo |
+| `etf_daily` | ETF 持股日報 | ETF daily · Facts |
+| `vcp_funnel_specs` | VCP 漏斗研究 | VCP funnel specs · Research |
+| `rrg_mono_intraday` | RRG 盤中監控 | RRG intraday watch |
+
+`<title>` 格式：`{中文品名} · {trade_date} · 股市策略情報`
+
+---
+
+## 5. 路由
+
+| 路徑 | 內容 |
+|------|------|
+| `/` | Hub · 最新日 KPI + 三 brief 入口 |
+| `/briefs` | 交易日列表 |
+| `/briefs/:date` | 當日總覽（預設 Regime tab） |
+| `/briefs/:date/regime` | Regime embed |
+| `/briefs/:date/etf` | ETF MD → 結構化 UI |
+| `/briefs/:date/vcp` | VCP MD → variant tabs |
+| `/about` | 方法論 · 免責 · 排程說明 |
+
+---
+
+## 6. 分 brief 呈現規格
+
+### 6.1 Hub `/`
+
+**資料查詢（輕量 · 不載 content_html）：**
+
+```typescript
+const { data } = await supabase
+  .from('daily_briefs')
+  .select('trade_date, brief_type, title, content_md, synced_at')
+  .eq('trade_date', latestDate)
+```
+
+**Hero · 四 KPI（Regime）：**
+
+優先從 Regime `content_md` 解析（Hub 不 fetch HTML）：
+
+| KPI | 解析 |
+|-----|------|
+| 200MA 廣度 | `% above 200-day MA ([\d.]+)%` |
+| 趨勢階段 | `Weinstein Stage (\d)` |
+| RRG | `Leading \+ Improving: ([\d.]+)%` |
+| Stage-2 | `Pass rate ([\d.]+)%` 或 `template pass rate ([\d.]+)%` |
+
+Synopsis 一句：Regime MD 的 `Daily synopsis` section 首段。
+
+**三張入口卡：**
+
+| 卡 | Teaser 來源 |
+|----|-------------|
+| 市場結構日報 | 四 KPI + synopsis 前 120 字 |
+| ETF 持股日報 | `持股同步 **6/6**` · 有變化 ETF chips |
+| VCP 漏斗研究 | variant 數量 · Top composite 最高檔 |
+
+---
+
+### 6.2 Regime `/briefs/:date/regime`
+
+**渲染（v1 推薦）：**
+
+```tsx
+function RegimeBody({ html }: { html: string }) {
+  return (
+    <div
+      className="regime-host"
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, { ADD_TAGS: ['svg'], ADD_ATTR: ['viewBox', 'xmlns'] }) }}
+    />
+  )
+}
+```
+
+- 外層 App Shell 提供 **h1「市場結構日報 · {date}」** — embed 內不再重複標題  
+- Regime 內 `.kpi-strip` 可保留（詳頁 double KPI 可接受）或 CSS hide duplicate  
+- Section anchor：`#synopsis` `#breadth` `#trend` `#rrg` `#stage2` — 可做 sticky 目錄
+
+**勿顯示：** Cursor banner · 「請用瀏覽器開啟」類開發者文案
+
+---
+
+### 6.3 ETF `/briefs/:date/etf`
+
+**渲染：** parse `content_md` → 結構化，**非** prose Markdown。
+
+| MD 區塊 | UI |
+|---------|-----|
+| `## 摘要` | Sync strip：`6/6` ring · 變化 badge |
+| `### {code}（date → date）` | Tab 或 accordion |
+| 表格 | `DataTable`：動作 chip · flow 右對齊 · tabular nums |
+
+`LayerBadge`: **Facts layer（事實層）**
+
+---
+
+### 6.4 VCP `/briefs/:date/vcp`
+
+**渲染：** 以 `---` 分割 variant · 每段一 tab。
+
+| 欄位 | UI |
+|------|-----|
+| `composite` | 進度條 45–100 |
+| `state` | Pre-breakout / Breakout / Early chip |
+| `dist%` | 距 pivot · 色溫 |
+| meta blockquote | **Research · 非交易主檔** 標籤 |
+
+`LayerBadge`: **Research layer（研究層）**
+
+---
+
+## 7. 手機與無障礙
+
+| 項目 | 規格 |
+|------|------|
+| KPI grid | ≥720px 四欄 · <720px 二欄 |
+| 寬表格 | 父層 `overflow-x: auto` |
+| SVG chart | `max-width: 100%` · 可橫滑 |
+| 對比 | 正文 `#e6edf3` on `#0d1117` ≥ WCAG AA |
+| 語言 | `<html lang="zh-Hant">` |
+
+---
+
+## 8. 查詢範例
+
+```typescript
+/** Hub · 最新 Regime KPI teaser */
+export async function fetchRegimeTeaser(date: string) {
+  const { data } = await supabase
+    .from('daily_briefs')
+    .select('trade_date, title, content_md, synced_at')
+    .eq('brief_type', 'regime_daily')
+    .eq('trade_date', date)
+    .single()
+  return data
+}
+
+/** Regime 詳頁 · 僅 embed HTML */
+export async function fetchRegimeEmbed(date: string) {
+  const { data } = await supabase
+    .from('daily_briefs')
+    .select('content_html, title, synced_at, source_path')
+    .eq('brief_type', 'regime_daily')
+    .eq('trade_date', date)
+    .single()
+  return data
+}
+```
+
+---
+
+## 9. 實作檢查清單
+
+### 必做
+
+- [ ] App Shell + Tab nav  
+- [ ] Regime：`content_html` embed · DOMPurify  
+- [ ] Hub：四 KPI from MD · 不 preload HTML  
+- [ ] ETF/VCP：結構化 table · 共用 token  
+- [ ] 中文品名 + PIT footer  
+- [ ] `db.schema = stock_research`  
+
+### 安全
+
+- [ ] 僅 anon key  
+- [ ] sanitize HTML · forbid `<script>`  
+- [ ] 不 fetch `source_path` 為 URL  
+
+---
+
+## 10. 資料更新與 re-sync
+
+| 時間 (TPE) | brief |
+|------------|-------|
+| 13:00 | `vcp_funnel_specs` |
+| 16:30 | `etf_daily` · `regime_daily` |
+
+**v2 HTML 改版後**需重新產出 regime 報告並 sync：
+
+```bash
+# 產出 daily_brief.embed.html 後
+python scripts/backfill_supabase_research.py --days 14
+# 或單日
+python scripts/sync_research_to_supabase.py --slot 1630 --date 2026-06-18
+```
+
+---
+
+## 11. 版本路線圖
+
+| 版本 | 內容 |
+|------|------|
+| **v1.0** | App Shell · embed Regime · Hub KPI · 結構化 ETF/VCP |
+| **v1.1** | `rrg_mono_intraday` · Hub 結構化 JSON teaser 欄位（optional migration） |
+| **v2.0** | Strategy adopted spec sync |
+| **v2.x** | `snapshot_json` 互動 React charts |
+
+---
+
+## 12. 參考
+
+- [terminology.md](terminology.md)  
+- [config/regime.yaml](../config/regime.yaml)  
+- [src/regime_daily_html.py](../src/regime_daily_html.py) · `render_regime_embed_html`  
+- [src/supabase_research_sync.py](../src/supabase_research_sync.py)
+
+---
+
+*Consume report artifact only · 不連 SQLite · 不即時行情。*

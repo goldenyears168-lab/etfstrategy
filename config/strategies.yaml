@@ -1,0 +1,88 @@
+# Strategy registry — daily close: facts + regime; adopted specs SSOT: config/strategy.yaml
+# enabled: 同一 strategy_id 須與 config/strategy.yaml 一致（registry / launchd gate）
+
+version: strategies-v8
+primary_strategy: etf-daily
+
+strategies:
+  etf-daily:
+    title: ETF 持股變化（Facts）
+    layer: facts
+    kind: diagnostic
+    enabled: true
+    description: >
+      追蹤列表內各 ETF 成分股持股變化（L1 shares 差分）。只報事實、不評分、不選股。
+    sources:
+      - "{date}_etf_daily.md"
+      - "etf-daily/daily_brief.md"
+    aliases:
+      daily_brief.md: "etf-daily/daily_brief.md"
+
+  regime-daily:
+    title: Regime four-axis diagnostic
+    layer: regime
+    kind: diagnostic
+    enabled: true
+    description: >
+      四軸市場診斷 Regime four-axis diagnostic（Breadth zone · Trend posture · RRG · Stage-2 participation）。
+      非 live gate · 不產 alpha。
+    sources:
+      - "regime/daily_brief.md"
+      - "regime/daily_brief.html"
+      - "regime/snapshots/{date}/daily_brief.md"
+    aliases:
+      daily_brief.md: "regime/daily_brief.md"
+
+  00981a-l1h9:
+    title: 00981A copytrade L1H9
+    layer: strategy
+    kind: competition
+    enabled: false
+    description: >
+      00981A 新进/加码 · T+1 開 · 9 槽 hold9 · 手動 screen / 回測。
+    sources:
+      - "backtest_summary.json"
+
+  rrg-mono-hold7:
+    title: RRG mono · seg_last · 3-slot hold7
+    layer: strategy
+    kind: competition
+    enabled: false
+    description: Separate launchd rrg-mono-scan · 16:40。
+    sources:
+      - "{date}_rrg_mono_daily.md"
+      - "rrg_mono_daily.md"
+
+  vcp-pivot-gate:
+    title: VCP Pivot Gate
+    layer: strategy
+    kind: competition
+    enabled: false
+    env_flag: RUN_VCP_FUNNEL_SPECS
+    model_version: vcp-pivot-gate-h20
+    description: Separate launchd vcp-funnel-specs · 13:00 · hold20。
+    sources:
+      - "{date}_vcp_pivot_gate_daily_brief.md"
+      - "vcp_pivot_gate_daily_brief.md"
+
+  vcp-coil-close:
+    title: VCP Coil Close
+    layer: strategy
+    kind: competition
+    enabled: false
+    env_flag: RUN_VCP_FUNNEL_SPECS
+    model_version: vcp-coil-close-h20
+    description: VCP funnel 變體 · 訊號日 close · 共用 vcp-funnel-specs launchd。
+    sources:
+      - "{date}_vcp_coil_close_daily_brief.md"
+      - "vcp_coil_close_daily_brief.md"
+
+  minervini-sepa-basket:
+    title: Minervini SEPA Trend Template basket
+    layer: strategy
+    kind: competition
+    enabled: false
+    model_version: minervini-sepa-basket-v1
+    description: Ad-hoc Stage 2 basket backtest · 非 daily close。
+    sources:
+      - "backtest_summary.json"

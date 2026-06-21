@@ -1,0 +1,194 @@
+# 台股 VCP 金标准 eyeball 集合（公开网站 / 教程标注的典型案例）
+# 供 vcp_tw_benchmark（待建）对照 vcp-nse-port composite 命中 vs 文献时期
+#
+# 来源说明：
+# - 优先选用明确写出「VCP / 波动收敛 / T1-T3 收缩」的文章
+# - COH 柄部嵌套 VCP、Z-VCP 量化扫描视同 VCP 变体（标注于 period_label）
+# - 文献窗口 literature_start/end 覆盖「整理末段 → 突破后 1–2 个月」，供 dense scan 对照
+
+benchmark: IX0001
+model_id: vcp-tm
+score_thresholds: [65, 80]
+forward_days: [20, 60]
+sample_every: 5
+
+cases:
+  - id: meity-1795
+    ticker: "1795"
+    company: 美時
+    period_label: "CMoney/蔣明誠 教學圖例（成長型飆股 VCP 長相）"
+    literature_start: "2020-06-01"
+    literature_end: "2022-12-31"
+    source: "CMoney · ScanTrader · Readmo（美時飆股共通點）"
+    source_url: "https://cmnews.com.tw/article/daniel-65362ab0-3312-11ed-a89c-793542d4df16"
+
+  - id: qcomlike-3017-2024
+    ticker: "3017"
+    company: 奇鋐
+    period_label: "2024/01 五波收斂 31→23→17→11→7%，突破後 +70%/51d"
+    literature_start: "2023-08-01"
+    literature_end: "2024-03-31"
+    source: "vocus 交易書生 · Mark Minervini VCP 型態"
+    source_url: "https://vocus.cc/article/67eb3b9afd89780001d0998f"
+
+  - id: tsmc-2330-2024
+    ticker: "2330"
+    company: 台積電
+    period_label: "2024/01 COH 柄部 4.5% 量缩突破（VCP 变体）"
+    literature_start: "2023-09-01"
+    literature_end: "2024-02-29"
+    source: "vocus 交易書生 · Cup of Handle"
+    source_url: "https://vocus.cc/article/67ec9029fd8978000112ce63"
+
+  - id: wiwin-6669-2023
+    ticker: "6669"
+    company: 緯穎
+    period_label: "2023/06 COH 柄部三次 VCP 20→12→6%，6/29 漲停突破"
+    literature_start: "2023-03-01"
+    literature_end: "2023-08-31"
+    source: "vocus 交易書生 · Cup of Handle"
+    source_url: "https://vocus.cc/article/67ec9029fd8978000112ce63"
+
+  - id: aicome-6117-2023-base
+    ticker: "6117"
+    company: 迎廣
+    period_label: "2023/08/18 十七年箱型 $24 跳空突破（整理末 VCP 前奏）"
+    literature_start: "2023-07-01"
+    literature_end: "2023-09-30"
+    source: "vocus 交易書生 · 2023 飆股系列"
+    source_url: "https://vocus.cc/article/69c1df4cfd89780001c18e2d"
+
+  - id: aicome-6117-2023-vcp-d
+    ticker: "6117"
+    company: 迎廣
+    period_label: "2023 Q4 標準 VCP（+60% 後一個半月三波收斂）"
+    literature_start: "2023-10-01"
+    literature_end: "2024-01-31"
+    source: "vocus 交易書生 · 2023 飆股系列"
+    source_url: "https://vocus.cc/article/69c1df4cfd89780001c18e2d"
+
+  - id: aicome-6117-2024-base
+    ticker: "6117"
+    company: 迎廣
+    period_label: "2023/12–2024/04 最長整理 76 日量缩（VCP/E 段）"
+    literature_start: "2023-12-01"
+    literature_end: "2024-04-30"
+    source: "vocus 交易書生 · 2023 飆股系列"
+    source_url: "https://vocus.cc/article/69c1df4cfd89780001c18e2d"
+
+  - id: huafu-6235-2023
+    ticker: "6235"
+    company: 華孚
+    period_label: "2023 車用鎂鋁合金飆股（超級飆股 VCP 特徵全備）"
+    literature_start: "2023-01-01"
+    literature_end: "2023-12-31"
+    source: "vocus 歷史飆股研究室 · 2025/03/13"
+    source_url: "https://vocus.cc/salon/67d26914fd89780001137ce0/room/67dbbcaffd897800012850b0"
+
+  - id: action-6625-2023-c
+    ticker: "6625"
+    company: 必應
+    period_label: "2023/01 C 點 52 日盤整量缩帶量突破（low-risk 進場）"
+    literature_start: "2022-12-01"
+    literature_end: "2023-03-31"
+    source: "vocus 交易書生 · 2023 飆股系列 必應"
+    source_url: "https://vocus.cc/article/67e3607afd897800013719af"
+
+  - id: action-6625-2023-f
+    ticker: "6625"
+    company: 必應
+    period_label: "2023/04/17 F 點二次整理 13 日後突破"
+    literature_start: "2023-03-01"
+    literature_end: "2023-06-30"
+    source: "vocus 交易書生 · 2023 飆股系列 必應"
+    source_url: "https://vocus.cc/article/67e3607afd897800013719af"
+
+  - id: tfc-8499-2024
+    ticker: "8499"
+    company: 鼎炫-KY
+    period_label: "2024/12/05 三波 VCP -29.75→-23.54→-6.21% 突破 +24%"
+    literature_start: "2024-09-01"
+    literature_end: "2024-12-31"
+    source: "vocus 交易書生 · 實戰 VCP 案例"
+    source_url: "https://vocus.cc/article/6954772cfd897800017e6f95"
+
+  - id: team-4967-2024
+    ticker: "4967"
+    company: 十銓
+    period_label: "2024/12/17 HTF+VCP 三波收斂突破（+128% 後回檔）"
+    literature_start: "2024-09-01"
+    literature_end: "2024-12-31"
+    source: "vocus 交易書生 · 實戰 VCP 案例"
+    source_url: "https://vocus.cc/article/6954772cfd897800017e6f95"
+
+  - id: wiwin-6669-2025-06
+    ticker: "6669"
+    company: 緯穎
+    period_label: "2025/06 初量缩+VCP 盤整，6/25 頸線 2585 放量突破"
+    literature_start: "2025-05-15"
+    literature_end: "2025-07-15"
+    source: "vocus · 緯穎實例分析 VCP"
+    source_url: "https://vocus.cc/article/685e19d0fd8978000119b787"
+
+  - id: wiwin-6669-2025-0617
+    ticker: "6669"
+    company: 緯穎
+    period_label: "2025/06/17 VCP 突破進場 2595（超級績效2 實戰）"
+    literature_start: "2025-05-15"
+    literature_end: "2025-07-15"
+    source: "vocus · 緯穎突破進場後如何退場"
+    source_url: "https://vocus.cc/article/68660369fd897800011b04f8"
+
+  - id: wiwin-6669-2025-07
+    ticker: "6669"
+    company: 緯穎
+    period_label: "2025/07/09 橫盤量缩 VCP 突破試單（超級績效2 法則）"
+    literature_start: "2025-06-15"
+    literature_end: "2025-08-15"
+    source: "vocus · 我如何用超級績效2 實戰台股緯穎"
+    source_url: "https://vocus.cc/article/689c708afd89780001888480"
+
+  - id: wiwin-6669-2025-09
+    ticker: "6669"
+    company: 緯穎
+    period_label: "2025/09 典型 VCP 收斂後突破創新高"
+    literature_start: "2025-08-01"
+    literature_end: "2025-10-31"
+    source: "vocus · 緯穎股價創新高該獲利還是續抱"
+    source_url: "https://vocus.cc/article/68e53d8cfd89780001553fe8"
+
+  - id: quanta-2382-2025
+    ticker: "2382"
+    company: 廣達
+    period_label: "2025/09 伺服器輪動 VCP 突破同步布局"
+    literature_start: "2025-08-01"
+    literature_end: "2025-10-31"
+    source: "vocus · 緯穎/廣達 VCP 突破（同文）"
+    source_url: "https://vocus.cc/article/68e53d8cfd89780001553fe8"
+
+  - id: world-5347-2026
+    ticker: "5347"
+    company: 世界
+    period_label: "2026 Z-VCP CP 3.31 極致 T3 收斂（VDU 乾枯）"
+    literature_start: "2025-12-01"
+    literature_end: "2026-03-31"
+    source: "vocus · Z-VCP 量化掃描"
+    source_url: "https://vocus.cc/article/69f1d8b3fd89780001351029"
+
+  - id: tsmc-2330-2026
+    ticker: "2330"
+    company: 台積電
+    period_label: "2026 T3 收斂 10→5→2% 突破 2000 元（Z-VCP）"
+    literature_start: "2025-12-01"
+    literature_end: "2026-03-31"
+    source: "vocus · ZVCP 本周 CPO 強勢股速篩"
+    source_url: "https://vocus.cc/article/69da3188fd89780001dd68d4"
+
+  - id: yao-2367-2026
+    ticker: "2367"
+    company: 燿華
+    period_label: "2026 VCP 末端 CP 2.82 籌碼乾枯（Z-VCP 潛力）"
+    literature_start: "2025-12-01"
+    literature_end: "2026-03-31"
+    source: "vocus · ZVCP 本周 CPO 強勢股速篩"
+    source_url: "https://vocus.cc/article/69da3188fd89780001dd68d4"

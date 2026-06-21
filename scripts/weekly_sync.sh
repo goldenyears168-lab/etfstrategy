@@ -32,8 +32,7 @@ log_line() {
 
 if [[ -f "${ROOT}/.env" ]]; then
   set -a
-  # shellcheck disable=SC1091
-  source "${ROOT}/.env"
+  eval "$("$PYTHON" -c "from project_dotenv import shell_export_dotenv; print(shell_export_dotenv())")"
   set +a
 fi
 
@@ -66,6 +65,9 @@ run_step() {
 run_step "stock_beta (FinMind/Yahoo)" \
   "$PYTHON" "${SRC}/sync_stock_beta.py" --sync-db
 
+run_step "benchmark constituents (0050)" \
+  "$PYTHON" "${SRC}/sync_benchmark_constituents.py" --quiet
+
 if [[ -f "${SRC}/sync_fundamentals.py" ]]; then
   run_step "fundamentals (L8/L8.5)" \
     "$PYTHON" "${SRC}/sync_fundamentals.py" --sync-db
@@ -79,6 +81,29 @@ if [[ "${RUN_STOCK_MARKET_SYNC:-0}" == "1" ]]; then
     --sync-db --lookback-days "${STOCK_MARKET_LOOKBACK_DAYS:-90}" --quiet
 else
   log_line "SKIP: constituent market（RUN_STOCK_MARKET_SYNC=0）"
+fi
+
+if [[ "${RUN_CHIP_SYNC:-0}" == "1" ]]; then
+  run_step "chip margin/lending/daytrade batch" \
+    "$PYTHON" "${SRC}/sync_stock_chip_daily.py" \
+    --sync-db --lookback-days "${CHIP_LOOKBACK_DAYS:-21}" --quiet
+else
+  log_line "SKIP: chip extended（RUN_CHIP_SYNC=0）"
+fi
+
+if [[ "${RUN_SPONSOR_CHIP_SYNC:-0}" == "1" ]]; then
+  run_step "Sponsor branch+block (Top N)" \
+    "$PYTHON" "${SRC}/sync_stock_sponsor_daily.py" \
+    --sync-db --top-n "${SPONSOR_CHIP_TOP_N:-20}" --quiet
+else
+  log_line "SKIP: Sponsor 分點/鉅額（RUN_SPONSOR_CHIP_SYNC=0）"
+fi
+
+if [[ "${RUN_FACTOR_VALIDATION:-0}" == "1" ]]; then
+  run_step "factor validation (alphalens-style)" \
+    "$PYTHON" "${ROOT}/scripts/run_factor_validation.py" --write-reports --quiet
+else
+  log_line "SKIP: factor validation（RUN_FACTOR_VALIDATION=0）"
 fi
 
 if [[ "$WEEKLY_REPORT" -eq 1 ]]; then

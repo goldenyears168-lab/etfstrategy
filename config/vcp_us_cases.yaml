@@ -1,0 +1,169 @@
+# 美股 VCP 金标准 eyeball 集合（文献 / 教程标注的典型案例）
+# 供 vcp_us_benchmark.py walk-forward 对照 vcp-nse-port composite 命中 vs 文献时期
+
+benchmark: SPY
+model_id: vcp-nse-port
+score_thresholds: [65, 80]
+forward_days: [20, 60]
+sample_every: 5
+
+cases:
+  - id: nvda-2023
+    ticker: NVDA
+    company: Nvidia Corp
+    period_label: "2023 AI 主升 VCP"
+    literature_start: "2023-01-01"
+    literature_end: "2023-12-31"
+    source: "Deepvue · Growin"
+
+  - id: tsla-2020
+    ticker: TSLA
+    company: Tesla Inc
+    period_label: "2020 三個月 VCP（25→20→10%）"
+    literature_start: "2020-06-01"
+    literature_end: "2020-12-31"
+    source: "Deepvue"
+
+  - id: tsla-2019
+    ticker: TSLA
+    company: Tesla Inc
+    period_label: "2019 repeat tight areas"
+    literature_start: "2019-05-01"
+    literature_end: "2019-12-31"
+    source: "Deepvue video"
+
+  - id: shop-2016
+    ticker: SHOP
+    company: Shopify Inc
+    period_label: "2016 教科书 VCP"
+    literature_start: "2016-03-01"
+    literature_end: "2016-12-31"
+    source: "Deepvue"
+
+  - id: googl-2004
+    ticker: GOOGL
+    company: Alphabet (Google)
+    period_label: "2004 IPO 后基底"
+    literature_start: "2004-08-01"
+    literature_end: "2005-08-31"
+    source: "Deepvue video"
+
+  - id: fslr-2007
+    ticker: FSLR
+    company: First Solar
+    period_label: "2007 IPO 后 ~100%/70d"
+    literature_start: "2007-01-01"
+    literature_end: "2007-12-31"
+    source: "Deepvue video"
+
+  - id: panw-institutional
+    ticker: PANW
+    company: Palo Alto Networks
+    period_label: "2010s 机构突破基底"
+    literature_start: "2013-01-01"
+    literature_end: "2020-12-31"
+    source: "Deepvue video"
+
+  - id: pltr-multi
+    ticker: PLTR
+    company: Palantir
+    period_label: "2020–2023 多次 VCP"
+    literature_start: "2020-10-01"
+    literature_end: "2023-12-31"
+    source: "Deepvue · Growin"
+
+  - id: xle-2022
+    ticker: XLE
+    company: Energy Select Sector SPDR
+    period_label: "2022.01 Minervini 公开周线 VCP"
+    literature_start: "2021-10-01"
+    literature_end: "2022-06-30"
+    source: "Finer Market Points"
+
+  - id: wfrd-dual
+    ticker: WFRD
+    company: Weatherford International
+    period_label: "2021–2022 两段 VCP"
+    literature_start: "2021-01-01"
+    literature_end: "2022-12-31"
+    source: "ChartMill"
+
+  - id: smci-2023
+    ticker: SMCI
+    company: Super Micro Computer
+    period_label: "2023 Q1–Q2 整理后 AI 突破"
+    literature_start: "2023-03-01"
+    literature_end: "2023-06-30"
+    source: "The Coin Republic"
+
+  - id: chwy-fail
+    ticker: CHWY
+    company: Chewy Inc
+    period_label: "2021–2022 失败 VCP（教学）"
+    literature_start: "2021-06-01"
+    literature_end: "2022-06-30"
+    source: "Growin"
+
+  - id: rddt-2024
+    ticker: RDDT
+    company: Reddit Inc
+    period_label: "2024 财报 gapper tight"
+    literature_start: "2024-03-01"
+    literature_end: "2024-12-31"
+    source: "Deepvue video"
+
+  - id: app-2024
+    ticker: APP
+    company: AppLovin
+    period_label: "2024 RMV 归零后突破"
+    literature_start: "2024-01-01"
+    literature_end: "2024-12-31"
+    source: "Deepvue video"
+
+  - id: wish-2021
+    ticker: WISH
+    company: ContextLogic
+    period_label: "2021 日内 VCP"
+    literature_start: "2021-01-01"
+    literature_end: "2021-08-31"
+    source: "XS.com"
+
+  - id: vrt-2025
+    ticker: VRT
+    company: Vertiv Holdings
+    period_label: "2025 15→8→3% 收斂"
+    literature_start: "2025-06-01"
+    literature_end: "2025-12-31"
+    source: "LinkedIn/Rao"
+
+  - id: cohr-2025
+    ticker: COHR
+    company: Coherent Corp
+    period_label: "2025 AI 光学整理"
+    literature_start: "2025-01-01"
+    literature_end: "2025-12-31"
+    source: "LinkedIn/Rao"
+
+  - id: am-shakeout
+    ticker: AM
+    company: Antero Midstream
+    period_label: "2021 shakeout / squat 教学"
+    literature_start: "2021-05-01"
+    literature_end: "2021-09-30"
+    source: "ChartMill"
+
+  - id: tsla-2020-late
+    ticker: TSLA
+    company: Tesla Inc
+    period_label: "2020.09–11 pivot 11/19"
+    literature_start: "2020-09-01"
+    literature_end: "2020-11-30"
+    source: "HaiKhuu"
+
+  - id: fslr-2023
+    ticker: FSLR
+    company: First Solar
+    period_label: "2023–2024 太阳能再启动"
+    literature_start: "2023-01-01"
+    literature_end: "2024-06-30"
+    source: "Deepvue video"

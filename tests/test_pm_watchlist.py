@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from entry_signal import EntryContext
+from score_engine import EntryContext
 from market_labels import (
     CHIP_FOREIGN_BUY,
     CHIP_NEUTRAL,

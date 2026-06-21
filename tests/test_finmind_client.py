@@ -14,7 +14,7 @@ from finmind_client import (
 
 class FinmindClientTests(unittest.TestCase):
     def test_finmind_headers_empty_without_token(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch("finmind_client.finmind_token", return_value=""):
             self.assertEqual(finmind_headers(), {})
 
     def test_finmind_headers_bearer_with_token(self) -> None:

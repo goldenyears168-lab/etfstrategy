@@ -47,6 +47,7 @@ def flow_rows_from_signals(
                 "intent": sig.position_intent or "WATCH",
                 "conviction": float(sig.conviction_score),
                 "implied_flow_ntd": sig.flow_ntd_total,
+                "consensus_score": float(sig.consensus_score),
                 "etf_count": etf_count,
                 "source_etfs": source_etfs,
                 "flow_version": flow_version,

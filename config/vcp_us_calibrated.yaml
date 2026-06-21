@@ -1,0 +1,12 @@
+description: US VCP 文献反向工程校准参数（勿直接用于台股 vcp_screen；台股请维持 vcp-nse-port 默认或另行校准 IX0001）
+model_id: vcp-nse-port-us-calibrated
+min_composite: 65.0
+literature_pad_days: 0
+calibration_overlap: 18/20
+params:
+  trend_min_score: 71.0
+  lookback_days: 90
+  min_contractions: 2
+  t1_depth_min: 10.0
+  t1_depth_max: 50.0
+  contraction_ratio: 0.85

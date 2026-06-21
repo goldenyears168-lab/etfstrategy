@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 安裝方案 C launchd 排程（① 08:30 · ② 16:30 · ③ 週日 20:00）
+# 安裝方案 C launchd 排程（② 16:30 · ③ 週日 20:00）
 #
 # 用法：
 #   scripts/install-launchd.sh           # 安裝並載入
@@ -16,14 +16,18 @@ UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 
 LABELS=(
-  com.jackm4.etf.execution-eval
   com.jackm4.etf.evening-holdings
+  com.jackm4.etf.rrg-mono-intraday-watch
+  com.jackm4.etf.rrg-mono-scan
+  com.jackm4.etf.vcp-funnel-specs
   com.jackm4.etf.weekly-deep
 )
 
 TEMPLATES=(
-  com.jackm4.etf.execution-eval.plist.template
   com.jackm4.etf.evening-holdings.plist.template
+  com.jackm4.etf.rrg-mono-intraday-watch.plist.template
+  com.jackm4.etf.rrg-mono-scan.plist.template
+  com.jackm4.etf.vcp-funnel-specs.plist.template
   com.jackm4.etf.weekly-deep.plist.template
 )
 
@@ -35,15 +39,71 @@ usage() {
         ~/Library/LaunchAgents/ 並 launchctl load。
 
   排程（本地時間）：
-    ① execution-eval    週一至五 08:30
-    ② evening-holdings  週一至五 16:30
-    ③ weekly-deep       週日     20:00
+    ② evening-holdings      週一至五 16:30
+    ②a rrg-mono-intraday    週一至五 13:00（收盤前預警）
+    ②b rrg-mono-scan          週一至五 16:40（收盤確認）
+    VCP funnel specs          週一至五 13:00（Pivot Gate / Coil Close brief）
+    ③ weekly-deep           週日     20:00
 
   log：${PROJECT_ROOT}/logs/launchd_*.log
 
   注意：Mac 須已登入；睡眠中可能不觸發。
-        系統設定 → 隱私權 → 完整磁碟取用權限（Terminal 等）。
+        專案在 ~/Documents 時，launchd 無法直接執行腳本（TCC）；
+        安裝程式改以 open -gj 觸發 scripts/launchd/*.command。
 EOF
+}
+
+LAUNCHD_COMMANDS=(
+  evening-holdings
+  rrg-mono-intraday-watch
+  rrg-mono-scan
+  vcp-funnel-specs
+  weekly-deep
+)
+
+ensure_launchd_commands() {
+  local name path
+  for name in "${LAUNCHD_COMMANDS[@]}"; do
+    path="${PROJECT_ROOT}/scripts/launchd/${name}.command"
+    if [[ ! -f "${path}" ]]; then
+      echo "✗ 缺少 ${path}" >&2
+      exit 1
+    fi
+    chmod +x "${path}"
+  done
+}
+
+verify_documents_launch() {
+  local probe="${PROJECT_ROOT}/scripts/launchd/.tcc-probe.command"
+  local probe_log="/tmp/com.jackm4.etf.tcc-probe.log"
+  cat >"${probe}" <<'PROBE'
+#!/bin/bash
+echo OK > /tmp/com.jackm4.etf.tcc-probe.log
+PROBE
+  chmod +x "${probe}"
+  rm -f "${probe_log}"
+
+  if ! /usr/bin/open -gj "${probe}" 2>/dev/null; then
+    rm -f "${probe}"
+    echo "⚠ 無法以 open 觸發探測腳本；請確認 macOS 允許背景啟動 .command" >&2
+    return 0
+  fi
+
+  local i ok=0
+  for i in $(seq 1 15); do
+    if [[ -f "${probe_log}" ]]; then
+      ok=1
+      break
+    fi
+    sleep 1
+  done
+  rm -f "${probe}" "${probe_log}"
+
+  if [[ "${ok}" -eq 1 ]]; then
+    echo "✓ Documents TCC 探測（open → .command）"
+  else
+    echo "⚠ TCC 探測逾時；若排程仍失敗，請將 Terminal 加入「完整磁碟取用權限」後重試" >&2
+  fi
 }
 
 bootout_label() {
@@ -76,6 +136,7 @@ install_agents() {
   fi
 
   mkdir -p "${AGENT_DIR}" "${PROJECT_ROOT}/logs"
+  ensure_launchd_commands
 
   echo "專案：${PROJECT_ROOT}"
   echo "安裝至：${AGENT_DIR}"
@@ -100,9 +161,11 @@ install_agents() {
   done
 
   echo ""
+  verify_documents_launch
+  echo ""
   echo "完成。檢查："
   echo "  launchctl list | grep jackm4.etf"
-  echo "  tail -f ${PROJECT_ROOT}/logs/launchd_execution-eval.log"
+  echo "  tail -f ${PROJECT_ROOT}/logs/launchd_evening-holdings.log"
   echo "  tail -f ${PROJECT_ROOT}/logs/daily_sync_\$(date +%Y%m%d).log"
 }
 

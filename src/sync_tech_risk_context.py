@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from finmind_client import fetch_finmind

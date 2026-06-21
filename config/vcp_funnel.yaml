@@ -1,0 +1,24 @@
+# VCP 漏斗 · 台股 ETF universe 校準（2026-06-16 放寬各層通過率）
+#
+# 目標：L1→L7 每層約保留 50–75%（原 L4 VCP / L5 產業 / L6-L7 過嚴）
+
+description: VCP 漏斗 L4 校準（ETF 成分股聯集 · IX0001 · relaxed）
+model_id: vcp-funnel
+benchmark: IX0001
+min_l7_candidates: 5
+
+params:
+  lookback_days: 90
+  min_contractions: 1
+  t1_depth_min: 8.0
+  t1_depth_max: 90.0
+  contraction_ratio: 0.98
+  trend_min_score: 60.0
+  liquidity_percentile: 25
+
+gates:
+  min_rs_score: 40.0
+  require_market_trend: false
+  min_roe_ttm: 5.0
+  min_revenue_yoy_pct: 0.0
+  industry_top_pct: 0.75

@@ -17,7 +17,7 @@ export PYTHONPATH="${SRC}${PYTHONPATH:+:${PYTHONPATH}}"
 
 ensure_python_deps() {
   if ! "$PYTHON" -c "import yaml" 2>/dev/null; then
-    log_line "  安裝缺漏依賴 PyYAML（E0 IPS 需要）…"
+    log_line "  安裝缺漏依賴 PyYAML（研究 IPS 需要）…"
     "$PYTHON" -m pip install -q PyYAML
   fi
 }
@@ -32,17 +32,14 @@ eval "$("$PYTHON" "${SRC}/project_config.py" shell-export)"
 
 QUIET=0
 SHOW_REPORT=0
-MORNING_REPORT=0
-EXECUTION_EVAL=0
 MODE=""
 for arg in "$@"; do
   case "$arg" in
     --quiet) QUIET=1 ;;
     --holdings-report) QUIET=1; SHOW_REPORT=1 ;;
-    --execution-eval|--morning-report) QUIET=1; MORNING_REPORT=1; EXECUTION_EVAL=1 ;;
     --retry|--market-only|--holdings-only) MODE="$arg" ;;
     * )
-      echo "Usage: $0 [--quiet|--holdings-report|--execution-eval|--morning-report] [--retry|--market-only|--holdings-only]" >&2
+      echo "Usage: $0 [--quiet|--holdings-report] [--retry|--market-only|--holdings-only]" >&2
       exit 2
       ;;
   esac
@@ -52,7 +49,7 @@ PYTHON_QUIET=()
 [[ "$QUIET" -eq 1 ]] && PYTHON_QUIET=(--quiet)
 
 _report_to_terminal() {
-  [[ "$MORNING_REPORT" -eq 1 || "$SHOW_REPORT" -eq 1 ]]
+  [[ "$SHOW_REPORT" -eq 1 ]]
 }
 
 log_line() {
@@ -78,20 +75,9 @@ pipe_out() {
 
 if [[ -f "${ROOT}/.env" ]]; then
   set -a
-  # shellcheck disable=SC1091
-  source "${ROOT}/.env"
+  eval "$("$PYTHON" -c "from project_dotenv import shell_export_dotenv; print(shell_export_dotenv())")"
   set +a
-  # 有 Perplexity 金鑰且未明確關閉時，預設收盤拉新聞
-  if [[ -n "${PERPLEXITY_API_KEY:-}" && "${RUN_NEWS_SYNC:-}" != "0" ]]; then
-    RUN_NEWS_SYNC=1
-  fi
-  if [[ -n "${PERPLEXITY_API_KEY:-}" && "${RUN_PERPLEXITY_SUMMARY:-}" != "0" ]]; then
-    RUN_PERPLEXITY_SUMMARY=1
-  fi
-  if [[ -n "${PERPLEXITY_API_KEY:-}" && "${RUN_PERPLEXITY_VERIFY:-}" != "0" ]]; then
-    RUN_PERPLEXITY_VERIFY=1
-  fi
-  log_line "已載入 .env（TEJ=$([ -n "${TEJ_API_KEY:-}" ] && echo set || echo missing) FinMind=$([ -n "${FINMIND_TOKEN:-}" ] && echo set || echo missing) Perplexity=$([ -n "${PERPLEXITY_API_KEY:-}" ] && echo set || echo missing)）"
+  log_line "已載入 .env（TEJ=$([ -n "${TEJ_API_KEY:-}" ] && echo set || echo missing) FinMind=$([ -n "${FINMIND_TOKEN:-}" ] && echo set || echo missing)）"
 else
   log_line "警告：未找到 .env，TEJ 同步可能失敗"
 fi
@@ -110,10 +96,6 @@ if [[ "$SHOW_REPORT" -eq 1 ]]; then
   echo "收盤持股雷達執行中… 終端僅顯示摘要 · 詳細 log → ${LOG_FILE}"
   log_only "daily_sync 執行中（holdings-report / human digest）… ${LOG_FILE}"
   log_only ""
-elif [[ "$MORNING_REPORT" -eq 1 ]]; then
-  echo "daily_sync（執行評估 → 終端 + log）→ ${LOG_FILE}"
-  log_line "daily_sync 執行中（execution-eval）… 完整 log：${LOG_FILE}"
-  log_line ""
 elif [[ "$QUIET" -eq 1 ]]; then
   echo "daily_sync (quiet) → ${LOG_FILE}"
   log_only "daily_sync 執行中（quiet）… 完整 log：${LOG_FILE}"
@@ -143,9 +125,7 @@ _run_step_inner() {
   if [[ "$QUIET" -eq 1 ]]; then
     if env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       "$@" >>"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >&2); then
-      if [[ "$SHOW_REPORT" -ne 1 ]]; then
-        echo "OK: ${label} ($(_step_elapsed "$t_start")s)"
-      fi
+      echo "OK: ${label} ($(_step_elapsed "$t_start")s)"
       log_only "OK: ${label} ($(_step_elapsed "$t_start")s)"
       ok=1
     else
@@ -274,104 +254,18 @@ print_db_summary() {
            MAX(trade_date) AS 最新交易日
     FROM stock_institutional_daily WHERE source = 'finmind';
   " 2>/dev/null | pipe_out || true
+  sqlite3 -header -column "$DB" "
+    SELECT COUNT(DISTINCT stock_id) AS 成分股數,
+           COUNT(*) AS 融資筆數,
+           MAX(trade_date) AS 最新交易日
+    FROM stock_margin_daily WHERE source = 'finmind';
+  " 2>/dev/null | pipe_out || true
   print_flow_attribution_readiness
 }
 
 print_flow_attribution_readiness() {
-  log_line "--- Flow 歸因自檢（v0.3 · signal_review §0）---"
-  if [[ ! -f "$DB" ]]; then
-    log_line "  stocks.db 不存在"
-    return
-  fi
-  local has_flow
-  has_flow=$(sqlite3 "$DB" \
-    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='flow_events';" \
-    2>/dev/null || echo 0)
-  if [[ "$has_flow" != "1" ]]; then
-    log_line "  flow_events 表尚未建立（請先跑含 --intent 的收盤鏈）"
-    return
-  fi
-
-  if [[ "$HOLDINGS" -eq 0 ]]; then
-    log_line "  本輪為早盤鏈（--market-only）；今日 flow 快照待收盤 --intent 落地"
-    sqlite3 -header -column "$DB" "
-      SELECT COUNT(*) AS 事件列,
-             COUNT(DISTINCT event_date) AS event_days,
-             MAX(event_date) AS 最新_event_date
-      FROM flow_events;
-    " 2>/dev/null | pipe_out || log_line "  flow_events 查詢失敗"
-    return
-  fi
-
-  sqlite3 -header -column "$DB" "
-    SELECT COUNT(*) AS 事件列,
-           COUNT(DISTINCT event_date) AS event_days,
-           MIN(event_date) AS 最早,
-           MAX(event_date) AS 最新
-    FROM flow_events;
-  " 2>/dev/null | pipe_out || log_line "  flow_events 查詢失敗"
-
-  sqlite3 -header -column "$DB" "
-    SELECT net_side AS 方向, COUNT(*) AS 列數
-    FROM flow_events
-    WHERE event_date = (SELECT MAX(event_date) FROM flow_events)
-    GROUP BY net_side
-    ORDER BY net_side;
-  " 2>/dev/null | pipe_out || true
-
-  local last_event bar_max days_after h1_ready
-  last_event=$(sqlite3 "$DB" "SELECT MAX(event_date) FROM flow_events;" 2>/dev/null || echo "")
-  bar_max=$(sqlite3 "$DB" \
-    "SELECT MAX(trade_date) FROM stock_daily_bars WHERE source='finmind';" \
-    2>/dev/null || echo "")
-  if [[ -z "$last_event" ]]; then
-    log_line "  尚無 flow_events；請確認收盤鏈已跑 --changes --intent"
-    return
-  fi
-  if [[ -z "$bar_max" ]]; then
-    log_line "  成分股 K 線為空；請設 RUN_STOCK_MARKET_SYNC=1 或跑 weekly_sync"
-    return
-  fi
-
-  days_after=$(sqlite3 "$DB" "
-    SELECT COUNT(DISTINCT trade_date)
-    FROM stock_daily_bars
-    WHERE source = 'finmind' AND trade_date > '${last_event}';
-  " 2>/dev/null || echo 0)
-
-  h1_ready=$(sqlite3 "$DB" "
-    SELECT COUNT(*)
-    FROM flow_events fe
-    WHERE EXISTS (
-      SELECT 1 FROM stock_daily_bars b0
-      WHERE b0.stock_id = fe.stock_id AND b0.source = 'finmind'
-        AND b0.trade_date = fe.event_date
-    )
-    AND EXISTS (
-      SELECT 1 FROM stock_daily_bars b1
-      WHERE b1.stock_id = fe.stock_id AND b1.source = 'finmind'
-        AND b1.trade_date = (
-          SELECT MIN(d) FROM (
-            SELECT DISTINCT trade_date AS d
-            FROM stock_daily_bars
-            WHERE source = 'finmind' AND trade_date > fe.event_date
-            ORDER BY d ASC LIMIT 1
-          )
-        )
-    );
-  " 2>/dev/null || echo 0)
-
-  log_line "  最新 event_date=${last_event} · 成分股 K 線最新=${bar_max} · event 後交易日數=${days_after}"
-  log_line "  H+1 可追蹤（粗估）${h1_ready}/$(sqlite3 "$DB" "SELECT COUNT(*) FROM flow_events;" 2>/dev/null || echo 0) 列"
-
-  if [[ "${days_after:-0}" -lt 1 ]]; then
-    log_line "  §0 Coverage：H+1～H+10 Available 可能為 0（K 線尚未晚於 event_date）"
-    log_line "  → 下個交易日早盤/成分股 sync 後再跑 scripts/策略回顧.command"
-  elif [[ "${h1_ready:-0}" -eq 0 ]]; then
-    log_line "  §0：已有 event 後交易日，但個股/outcome 對齊失敗；查 stock_daily_bars 覆蓋"
-  else
-    log_line "  §0：可跑策略回顧（signal_review --lookback-event-days 20）"
-  fi
+  log_line "--- Flow 歸因 ---"
+  log_line "  daily close: ETF daily + Regime four-axis diagnostic"
 }
 
 print_repeat_help() {
@@ -380,8 +274,7 @@ print_repeat_help() {
   log_line "  [2] 持股（EZMoney/凱基/群益/野村）官網未更新 → Skip，DB 不變（正常）"
   log_line "  [3] 科技風險      TSM/SOX 日線 + 台指 gap → tech_risk_daily_snapshot（upsert）"
   log_line "  [3b] 早盤雷達    TX/TE 即時 gap → morning_risk_snapshot（需 FINMIND_TOKEN）"
-  log_line "  [4] changes       僅印報表，不寫 DB；≥2 個 snapshot 日才有表"
-  log_line "                  附 grow%、flow（EZMoney amount）、跨 ETF 共識、beta"
+  log_line "  [4] changes       L1 持股差分；ETF 日報 → reports/daily/etf-daily/"
   log_line "  同天連按：安全，不會重複累加 snapshot 日"
   log_line "  新 snapshot 日：需官網更新到下一個交易日（持股漏跑一天無法補）"
 }
@@ -459,51 +352,58 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_STOCK_MARKET_SYNC=0；設 1 啟用成分股價+法人）"
   fi
 
+  if [[ "${RUN_CHIP_SYNC:-0}" == "1" ]]; then
+    CHIP_ARGS=(
+      "${PYTHON_QUIET[@]}"
+      --sync-db
+      --lookback-days "${CHIP_LOOKBACK_DAYS:-14}"
+    )
+    run_step_optional "constituent margin/lending/daytrade (FinMind)" \
+      "$PYTHON" "${SRC}/sync_stock_chip_daily.py" "${CHIP_ARGS[@]}"
+  else
+    log_line "--- constituent chip extended (FinMind) ---"
+    log_line "  SKIP（RUN_CHIP_SYNC=0；設 1 啟用融資融券/借券/當沖）"
+  fi
+
   CHANGES_CMD=(
     "$PYTHON" "${SRC}/sync_etf_holdings.py"
     --etf-codes "$ETF_CODES_HOLDINGS"
     --changes
-    --intent
   )
   if [[ "$SHOW_REPORT" -eq 1 ]]; then
     CHANGES_CMD+=(--human)
   fi
-  if [[ "${RUN_UNIVERSE_REPORT:-1}" == "0" ]]; then
-    CHANGES_CMD+=(--no-universe)
-  fi
-  run_timed_pipe "holdings changes + 跨 ETF 共識 + Research Universe" \
+  run_timed_pipe "holdings changes (L1 diff)" \
     "${CHANGES_CMD[@]}" || true
 
-  PIPELINE_ARGS=("$PYTHON" "${SRC}/pipeline_evening.py")
-  [[ "$QUIET" -eq 1 ]] && PIPELINE_ARGS+=(--quiet)
-  [[ "$SHOW_REPORT" -eq 1 ]] && PIPELINE_ARGS+=(--show-report)
-  PIPELINE_ARGS+=(--etf-codes "$ETF_CODES_HOLDINGS")
-  run_timed_pipe "evening research pipeline" \
-    "${PIPELINE_ARGS[@]}" || true
+  ETF_DAILY_ARGS=(
+    "$PYTHON" "${SRC}/etf_daily_report.py"
+    --etf-codes "$ETF_CODES_HOLDINGS"
+    --write-reports
+  )
+  if [[ "$SHOW_REPORT" -eq 1 ]]; then
+    ETF_DAILY_ARGS+=(--human)
+  elif [[ "$QUIET" -eq 1 ]]; then
+    ETF_DAILY_ARGS+=(--quiet)
+  fi
+  run_timed_pipe "ETF 日報" \
+    "${ETF_DAILY_ARGS[@]}" || true
+
+  REGIME_ARGS=(
+    "$PYTHON" "${SRC}/regime_daily_brief.py"
+    --write-reports
+  )
+  if [[ "$SHOW_REPORT" -eq 1 ]]; then
+    REGIME_ARGS+=(--human)
+  elif [[ "$QUIET" -eq 1 ]]; then
+    REGIME_ARGS+=(--quiet)
+  fi
+  run_step_optional "Regime four-axis diagnostic" \
+    "${REGIME_ARGS[@]}" || true
 fi
 
 if [[ "$SHOW_REPORT" -eq 1 ]]; then
-  run_timed_pipe "evening human digest" \
-    "$PYTHON" "${SRC}/evening_digest.py" \
-    --etf-codes "$ETF_CODES_HOLDINGS" || true
-elif [[ "$MORNING_REPORT" -eq 1 ]]; then
-  ensure_python_deps
-  EE_ARGS=("$PYTHON" "${SRC}/execution_eval.py" --mode pre_open)
-  if [[ "${RUN_ORDER_INTENT:-1}" == "1" ]]; then
-    EE_ARGS+=(--persist)
-  else
-    EE_ARGS+=(--preview)
-  fi
-  run_timed_pipe "execution eval (pre_open)" \
-    "${EE_ARGS[@]}" || true
-  if [[ "${RUN_ORDER_INTENT:-1}" == "0" ]]; then
-    log_line "--- order intents (E0) ---"
-    log_line "  僅預覽（RUN_ORDER_INTENT=0；設 1 寫入 order_intents + execution_eval 報告）"
-  else
-    log_line "--- order intents (E0) ---"
-    log_line "  已寫入 order_intents + reports/*_execution_eval.md"
-  fi
-  print_flow_attribution_readiness
+  :
 elif [[ "$QUIET" -eq 0 ]]; then
   print_db_summary
   print_repeat_help
@@ -522,24 +422,16 @@ if [[ "$FAILED" -eq 0 ]]; then
   if [[ "$AUX_FAILED" -eq 1 ]]; then
     if [[ "$SHOW_REPORT" -eq 1 ]]; then
       echo "✓ 持股研究完成 (exit=0)；部分選用步驟 WARN，見上方與 log"
-    elif [[ "$MORNING_REPORT" -eq 1 ]]; then
-      echo "✓ 執行評估完成 (exit=0)；部分選用步驟 WARN，見上方與 log"
     else
-      echo "✓ 持股研究完成 (exit=0)；日線/法人未更新，見 log"
+      echo "✓ daily_sync 完成 (exit=0)；部分選用步驟 WARN，見 log"
     fi
   elif [[ "$SHOW_REPORT" -eq 1 ]]; then
-    echo "✓ 收盤持股雷達完成 (exit=0) · 摘要見上方"
-  elif [[ "$MORNING_REPORT" -eq 1 ]]; then
-    echo "✓ 執行評估完成 (exit=0)"
+    echo "✓ ETF 日報完成 (exit=0) · 摘要見上方"
   else
     echo "✓ daily_sync 完成 (exit=0)"
   fi
 else
-  if [[ "$MORNING_REPORT" -eq 1 ]]; then
-    echo "✗ 執行評估同步失敗 (exit=${FAILED})"
-  else
-    echo "✗ 持股同步失敗 (exit=${FAILED})"
-  fi
+  echo "✗ 持股同步失敗 (exit=${FAILED})"
 fi
 echo "完整 log：${LOG_FILE}"
 exit "$FAILED"

@@ -9,7 +9,7 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$ROOT"
 
 echo "=============================================="
-echo "  ② 收盤持股雷達（持股 7 檔 + 研究雷報）"
+echo "  ② ETF 日報（持股 7 檔 + 成分變化）"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=============================================="
 echo ""
@@ -17,6 +17,8 @@ echo ""
 export SYNC_PROFILE="evening-holdings"
 "${ROOT}/scripts/daily_sync.sh" --holdings-only --holdings-report
 EXIT=$?
+
+"${ROOT}/scripts/evening_holdings_notify.sh" "${EXIT}" || true
 
 echo ""
 if [[ "$EXIT" -eq 0 ]]; then
