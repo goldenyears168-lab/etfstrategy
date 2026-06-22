@@ -35,11 +35,12 @@ class TestEtfDailyReport(unittest.TestCase):
                 track_dir=track_dir,
                 as_of="2026-06-20",
             )
-            self.assertEqual(len(paths), 2)
+            self.assertEqual(len(paths), 1)
+            self.assertTrue(paths[0].name.endswith("_etf_daily.md"))
             for p in paths:
                 self.assertTrue(p.is_file())
-                self.assertIn(str(tmp_root), str(p.resolve()))
                 self.assertIn("ETF 日報", p.read_text(encoding="utf-8"))
+            self.assertTrue((track_dir / "daily_brief.md").is_file())
             conn.close()
 
 

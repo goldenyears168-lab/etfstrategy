@@ -23,24 +23,15 @@ _TPE = ZoneInfo("Asia/Taipei")
 BRIEF_CATALOG: dict[str, tuple[str, tuple[str, ...]]] = {
     "vcp_funnel_specs": (
         "1300",
-        (
-            "reports/daily/{date}_vcp_funnel_specs_daily_brief.md",
-            "reports/daily/vcp_funnel_specs_daily_brief.md",
-        ),
+        ("reports/daily/{date}_vcp_funnel_specs_daily_brief.md",),
     ),
     "vcp_pivot_gate": (
         "1300",
-        (
-            "reports/daily/{date}_vcp_pivot_gate_daily_brief.md",
-            "reports/daily/vcp_pivot_gate_daily_brief.md",
-        ),
+        ("reports/daily/{date}_vcp_pivot_gate_daily_brief.md",),
     ),
     "vcp_coil_close": (
         "1300",
-        (
-            "reports/daily/{date}_vcp_coil_close_daily_brief.md",
-            "reports/daily/vcp_coil_close_daily_brief.md",
-        ),
+        ("reports/daily/{date}_vcp_coil_close_daily_brief.md",),
     ),
     "rrg_mono_intraday": (
         "1300",
@@ -53,17 +44,11 @@ BRIEF_CATALOG: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "etf_daily": (
         "1630",
-        (
-            "reports/daily/{date}_etf_daily.md",
-            "reports/daily/etf-daily/daily_brief.md",
-        ),
+        ("reports/daily/{date}_etf_daily.md",),
     ),
     "regime_daily": (
         "1630",
-        (
-            "reports/daily/regime/snapshots/{date}/daily_brief.md",
-            "reports/daily/regime/daily_brief.md",
-        ),
+        ("reports/daily/regime/snapshots/{date}/daily_brief.md",),
     ),
     "rrg_mono_daily": (
         "1630",
@@ -345,35 +330,68 @@ def load_brief(
                 raw_day = _extract_trade_date(content, brief_type, lookup)
             day = resolve_brief_trade_date(conn, raw_day)
         title = _extract_title(content, brief_type)
-        html_path = path.parent / "daily_brief.embed.html"
-        if not html_path.is_file() and brief_type == "regime_daily":
-            html_path = path.parent.parent / "daily_brief.embed.html"
-        if not html_path.is_file():
-            html_path = path.with_suffix(".html")
-        html = html_path.read_text(encoding="utf-8") if html_path.is_file() else None
         snapshot_json: dict[str, object] | None = None
         if brief_type == "regime_daily":
             from regime_snapshot_json import build_regime_snapshot_json
 
             snapshot_json = build_regime_snapshot_json(conn, day.isoformat())
+        elif brief_type == "etf_daily":
+            from etf_snapshot_json import build_etf_snapshot_json
+            from project_config import ETF_CODES_HOLDINGS
+
+            snapshot_json = build_etf_snapshot_json(
+                conn, day.isoformat(), ETF_CODES_HOLDINGS
+            )
+        elif brief_type in ("vcp_funnel_specs", "vcp_pivot_gate", "vcp_coil_close"):
+            from vcp_snapshot_json import build_vcp_snapshot_json
+
+            snapshot_json = build_vcp_snapshot_json(
+                conn, day.isoformat(), brief_type, schedule_slot=slot
+            )
+            if brief_type in STRATEGY_SCREEN_META:
+                ref = build_backtest_reference(
+                    STRATEGY_SCREEN_META[brief_type]["strategy_id"], conn
+                )
+                if ref:
+                    snapshot_json["backtest_reference"] = ref
         elif brief_type in INTRADAY_WATCH_META:
             session_day = _intraday_session_date(content, lookup)
             meta = INTRADAY_WATCH_META[brief_type]
-            snapshot_json = {
-                "contract": "intraday-watch-v1",
-                "session_date": session_day.isoformat(),
-                "data_baseline_date": day.isoformat(),
-                **meta,
-            }
+            if brief_type == "rrg_mono_intraday":
+                from rrg_snapshot_json import build_rrg_mono_snapshot_json
+
+                snapshot_json = build_rrg_mono_snapshot_json(
+                    conn, day.isoformat(), intraday=True
+                )
+                snapshot_json["session_date"] = session_day.isoformat()
+                snapshot_json["data_baseline_date"] = day.isoformat()
+            else:
+                snapshot_json = {
+                    "contract": "intraday-watch-v1",
+                    "session_date": session_day.isoformat(),
+                    "data_baseline_date": day.isoformat(),
+                    **meta,
+                }
             ref = build_backtest_reference(meta["strategy_id"], conn)
             if ref:
                 snapshot_json["backtest_reference"] = ref
         elif brief_type in STRATEGY_SCREEN_META:
             meta = STRATEGY_SCREEN_META[brief_type]
-            snapshot_json = {
-                "contract": "strategy-screen-v1",
-                **meta,
-            }
+            if brief_type == "copytrade_l1h9":
+                from copytrade_snapshot_json import build_copytrade_snapshot_json
+
+                snapshot_json = build_copytrade_snapshot_json(conn, day.isoformat())
+            elif brief_type == "rrg_mono_daily":
+                from rrg_snapshot_json import build_rrg_mono_snapshot_json
+
+                snapshot_json = build_rrg_mono_snapshot_json(
+                    conn, day.isoformat(), intraday=False
+                )
+            else:
+                snapshot_json = {
+                    "contract": "strategy-screen-v1",
+                    **meta,
+                }
             ref = build_backtest_reference(meta["strategy_id"], conn)
             if ref:
                 snapshot_json["backtest_reference"] = ref
@@ -384,7 +402,7 @@ def load_brief(
             title=title,
             content_md=content,
             source_path=str(path.relative_to(PROJECT_ROOT)),
-            content_html=html,
+            content_html=None,
             snapshot_json=snapshot_json,
         )
     finally:
@@ -400,9 +418,8 @@ def _record_payload(record: BriefRecord) -> dict[str, object]:
         "content_md": record.content_md,
         "source_path": record.source_path,
         "synced_at": datetime.now(_TPE).isoformat(),
+        "content_html": record.content_html,
     }
-    if record.content_html:
-        payload["content_html"] = record.content_html
     if record.snapshot_json is not None:
         payload["snapshot_json"] = record.snapshot_json
     return payload
@@ -466,6 +483,7 @@ def sync_slot(schedule_slot: str, trade_date: date | None = None) -> SyncResult:
     uploaded: list[str] = []
     skipped: list[str] = []
     errors: list[str] = []
+    synced_dates: set[date] = set()
 
     for brief_type in SLOT_BRIEF_TYPES[schedule_slot]:
         try:
@@ -475,8 +493,18 @@ def sync_slot(schedule_slot: str, trade_date: date | None = None) -> SyncResult:
                 continue
             upsert_brief(record)
             uploaded.append(brief_type)
+            synced_dates.add(record.trade_date)
         except Exception as exc:
             errors.append(f"{brief_type}: {exc}")
+
+    if uploaded and not errors:
+        for day in synced_dates:
+            try:
+                from supabase_signal_sync import sync_signal_hits_for_date
+
+                sync_signal_hits_for_date(day)
+            except Exception as exc:
+                errors.append(f"stock_signal_hits/{day.isoformat()}: {exc}")
 
     return SyncResult(uploaded, skipped, errors)
 
@@ -532,6 +560,7 @@ def backfill(days: int = 14) -> SyncResult:
 
     for trade_date in discover_report_dates(days):
         label = trade_date.isoformat()
+        day_ok = True
         for brief_type in BRIEF_CATALOG:
             key = f"{label}/{brief_type}"
             try:
@@ -553,6 +582,15 @@ def backfill(days: int = 14) -> SyncResult:
                 uploaded.append(key)
             except Exception as exc:
                 errors.append(f"{key}: {exc}")
+                day_ok = False
+        if day_ok:
+            try:
+                from supabase_signal_sync import sync_signal_hits_for_date
+
+                sync_signal_hits_for_date(trade_date)
+                uploaded.append(f"{label}/stock_signal_hits")
+            except Exception as exc:
+                errors.append(f"{label}/stock_signal_hits: {exc}")
 
     return SyncResult(uploaded, skipped, errors)
 

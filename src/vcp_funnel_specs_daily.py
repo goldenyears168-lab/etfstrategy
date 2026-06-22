@@ -466,17 +466,13 @@ def write_spec_briefs(
         )
         slug = slug_map.get(spec_key, spec_key)
         dated = reports_dir / f"{stamp}_{slug}_daily_brief.md"
-        latest = reports_dir / f"{slug}_daily_brief.md"
         dated.write_text(md, encoding="utf-8")
-        latest.write_text(md, encoding="utf-8")
-        written.extend([dated, latest])
+        written.append(dated)
         sections.append(md)
     combined = "\n\n---\n\n".join(sections)
     combo_dated = reports_dir / f"{stamp}_vcp_funnel_specs_daily_brief.md"
-    combo_latest = reports_dir / "vcp_funnel_specs_daily_brief.md"
     combo_dated.write_text(combined, encoding="utf-8")
-    combo_latest.write_text(combined, encoding="utf-8")
-    written.extend([combo_dated, combo_latest])
+    written.append(combo_dated)
     return written
 
 

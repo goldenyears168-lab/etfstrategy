@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,10 @@ from stage_analysis import STAGE_NAMES
 from stock_db import DEFAULT_DB_PATH, connect
 
 STRATEGY_ID = "regime-daily"
+
+
+def _regime_html_enabled() -> bool:
+    return os.environ.get("RUN_REGIME_EMBED_HTML", "0").strip() == "1"
 
 
 def _guide_block(text: str) -> list[str]:
@@ -421,22 +426,25 @@ def write_regime_daily_reports(
         },
     )
     md = render_regime_daily_markdown(snap, ref=ref, bench=bench, charts=charts)
-    html_out = render_regime_daily_html(
-        snap, ref=ref, bench=bench, charts=charts, track_dir=out_track
-    )
-    embed_out = render_regime_embed_html(
-        snap, ref=ref, bench=bench, charts=charts, track_dir=out_track
-    )
     snap_brief = regime_snapshot_brief_path(out_track, ref)
     snap_brief.parent.mkdir(parents=True, exist_ok=True)
     snap_brief.write_text(md, encoding="utf-8")
-    (snap_brief.parent / "daily_brief.html").write_text(html_out, encoding="utf-8")
-    (snap_brief.parent / "daily_brief.embed.html").write_text(embed_out, encoding="utf-8")
     latest.write_text(md, encoding="utf-8")
-    (out_track / "daily_brief.html").write_text(html_out, encoding="utf-8")
-    (out_track / "daily_brief.embed.html").write_text(embed_out, encoding="utf-8")
+    if _regime_html_enabled():
+        html_out = render_regime_daily_html(
+            snap, ref=ref, bench=bench, charts=charts, track_dir=out_track
+        )
+        embed_out = render_regime_embed_html(
+            snap, ref=ref, bench=bench, charts=charts, track_dir=out_track
+        )
+        (snap_brief.parent / "daily_brief.html").write_text(html_out, encoding="utf-8")
+        (snap_brief.parent / "daily_brief.embed.html").write_text(
+            embed_out, encoding="utf-8"
+        )
+        (out_track / "daily_brief.html").write_text(html_out, encoding="utf-8")
+        (out_track / "daily_brief.embed.html").write_text(embed_out, encoding="utf-8")
     if not quiet:
-        print(f"Wrote {latest} + daily_brief.html")
+        print(f"Wrote {latest}" + (" + daily_brief.html" if _regime_html_enabled() else ""))
     return latest
 
 

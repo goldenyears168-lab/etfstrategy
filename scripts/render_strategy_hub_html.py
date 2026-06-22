@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -501,6 +502,13 @@ def render_strategy_hub_html(
 
 
 def main() -> int:
+    if os.environ.get("RUN_RESEARCH_HTML_GEN", "0").strip() != "1":
+        print(
+            "SKIP: research HTML generation disabled "
+            "(set RUN_RESEARCH_HTML_GEN=1 to enable)",
+            file=sys.stderr,
+        )
+        return 0
     parser = argparse.ArgumentParser(description="Render Phase 1 strategy hub HTML")
     parser.add_argument(
         "--output",

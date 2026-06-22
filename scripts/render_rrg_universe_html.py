@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -3657,6 +3658,13 @@ def render_l1h9_slots_timeline_html(
 
 
 def main() -> int:
+    if os.environ.get("RUN_RESEARCH_HTML_GEN", "0").strip() != "1":
+        print(
+            "SKIP: research HTML generation disabled "
+            "(set RUN_RESEARCH_HTML_GEN=1 to enable)",
+            file=sys.stderr,
+        )
+        return 0
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
     from project_config import DEFAULT_ETF_CODES, parse_etf_codes
 

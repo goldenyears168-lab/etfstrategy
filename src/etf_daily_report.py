@@ -199,17 +199,14 @@ def write_etf_daily_reports(
     stamp = ref.replace("-", "")
     text = build_etf_daily_markdown(conn, etf_codes, as_of=ref)
     ensure_daily_dir()
-    out_track = track_dir or daily_track_dir(STRATEGY_ID)
-    out_track.mkdir(parents=True, exist_ok=True)
-
-    paths = [
-        out_track / "daily_brief.md",
-        reports_dir / f"{stamp}_etf_daily.md",
-    ]
-    for path in paths:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-    return paths
+    # Canonical SSOT for sync + Readdy: dated file only
+    path = reports_dir / f"{stamp}_etf_daily.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    if track_dir is not None:
+        track_dir.mkdir(parents=True, exist_ok=True)
+        (track_dir / "daily_brief.md").write_text(text, encoding="utf-8")
+    return [path]
 
 
 def print_terminal_summary(
@@ -257,7 +254,8 @@ def print_terminal_summary(
         tail = f"  top flow {top_s}" if top_s else ""
         print(f"  {code}  加{adds}減{reds}{tail}")
 
-    rel = f"reports/daily/{STRATEGY_ID}/daily_brief.md"
+    stamp = ref.replace("-", "")
+    rel = f"reports/daily/{stamp}_etf_daily.md"
     print(f"  完整報告 → {rel}")
     print("")
 

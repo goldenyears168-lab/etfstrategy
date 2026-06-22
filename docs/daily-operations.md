@@ -19,10 +19,13 @@
 |----|------|------|------|
 | `daily_briefs` · slot `1300` | VCP funnel / Pivot Gate / Coil Close · RRG 盤中預警 | 13:00 launchd · 16:30 再推（VCP 收盤覆寫） | `RUN_SUPABASE_RESEARCH_SYNC` |
 | `daily_briefs` · slot `1630` | ETF 日報 · Regime · RRG mono 收盤 · Copytrade L1H9 | 16:30 `daily_sync` | `RUN_SUPABASE_RESEARCH_SYNC` |
+| `daily_briefs.snapshot_json` | `etf-daily-v1` · `regime-snapshot-v1` · **`vcp-daily-v1`** | sync 時預算 | — |
 | `rrg_universe_scores` | RRG 成分股象限（`intraday` / `close`） | 13:00 / 16:30（Python 內建） | `RUN_SUPABASE_RESEARCH_SYNC` |
 | `stock_daily_lens` · `lens_daily_alert` | 跨層 Lens · 當日 headline | 16:30 `daily_sync` | `RUN_SUPABASE_LENS_SYNC`（launchd 預設 1） |
-| `site_content` | 六層靜態頁 · 策略 catalog | **手動** `sync_site_content_to_supabase.py` | — |
-| `strategy_performance_yearly` | 已採納策略分年績效 | **手動** `sync_strategy_performance.py` | — |
+| `site_content` | 六層靜態頁 · 策略 catalog | **手動** 或 `RUN_SUPABASE_SITE_SYNC=1`（daily_close 尾段） | — |
+| `strategy_performance_yearly` | 已採納策略分年績效 | **手動** 或 `RUN_STRATEGY_PERF_SYNC=1`（daily_close 尾段） | — |
+
+> `daily_briefs.snapshot_json`：`regime_daily` → `regime-snapshot-v1` · `etf_daily` → **`etf-daily-v1`**（Readdy 直讀，勿 parse MD）。`content_html` 不再 sync。
 
 > 規劃中、尚未實作：`etf_flow_story`（見 `docs/修改計畫書.md`）。
 

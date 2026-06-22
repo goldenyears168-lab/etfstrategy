@@ -52,39 +52,76 @@ class TestBriefCatalog(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertTrue(found.name.endswith("_rrg_mono_daily.md"))
 
-    @patch("supabase_research_sync._regime_snapshot_json_for", return_value=None)
-    def test_load_brief_attaches_strategy_snapshot_json(self, _mock: object) -> None:
+    @patch("supabase_research_sync.build_backtest_reference")
+    @patch("supabase_research_sync._find_brief_file")
+    def test_load_brief_attaches_strategy_snapshot_json(
+        self, mock_find: object, _mock_ref: object
+    ) -> None:
         root = Path(__file__).resolve().parent.parent
-        rel = "reports/daily/copytrade_l1h9_daily.md"
-        if not (root / rel).is_file() and not any(
-            (root / "reports/daily").glob("*_copytrade_l1h9_daily.md")
-        ):
-            # synthesize minimal file for test
-            reports = root / "reports/daily"
-            reports.mkdir(parents=True, exist_ok=True)
-            sample = reports / "20260620_copytrade_l1h9_daily.md"
-            sample.write_text(
-                "# ETF00981A 跟單策略 · 2026-06-20\n\n## 摘要\n",
-                encoding="utf-8",
-            )
-            day = date(2026, 6, 20)
-        else:
-            day = date(2026, 6, 20)
-            if not _find_brief_file("copytrade_l1h9", day):
-                candidates = sorted((root / "reports/daily").glob("*_copytrade_l1h9_daily.md"))
-                if not candidates:
-                    self.skipTest("no copytrade_l1h9 daily fixture")
-                stamp = candidates[-1].name.split("_", 1)[0]
-                day = date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
+        sample = root / "reports/daily/20260620_copytrade_l1h9_daily.md"
+        sample.parent.mkdir(parents=True, exist_ok=True)
+        sample.write_text(
+            "# ETF00981A 跟單策略 · 2026-06-20\n\n## 摘要\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: sample.unlink(missing_ok=True))
+        mock_find.return_value = sample
 
-        record = load_brief("copytrade_l1h9", day)
+        record = load_brief("copytrade_l1h9", date(2026, 6, 20))
         self.assertIsNotNone(record)
         assert record is not None
         self.assertEqual(record.brief_type, "copytrade_l1h9")
+        self.assertIsNone(record.content_html)
         self.assertIsNotNone(record.snapshot_json)
         assert record.snapshot_json is not None
         self.assertEqual(record.snapshot_json.get("strategy_id"), "00981a-l1h9")
-        self.assertEqual(record.snapshot_json.get("contract"), "strategy-screen-v1")
+        self.assertEqual(record.snapshot_json.get("contract"), "copytrade-daily-v1")
+
+    def test_canonical_brief_catalog_single_path(self) -> None:
+        self.assertEqual(len(BRIEF_CATALOG["etf_daily"][1]), 1)
+        self.assertEqual(len(BRIEF_CATALOG["regime_daily"][1]), 1)
+
+    @patch("supabase_research_sync._find_brief_file")
+    def test_load_etf_daily_attaches_etf_snapshot_json(self, mock_find: object) -> None:
+        root = Path(__file__).resolve().parent.parent
+        sample = root / "reports/daily/20260620_etf_daily.md"
+        sample.parent.mkdir(parents=True, exist_ok=True)
+        sample.write_text(
+            "# ETF 日報 · 2026-06-20\n\n## 摘要\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: sample.unlink(missing_ok=True))
+        mock_find.return_value = sample
+
+        record = load_brief("etf_daily", date(2026, 6, 20))
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertIsNone(record.content_html)
+        self.assertIsNotNone(record.snapshot_json)
+        assert record.snapshot_json is not None
+        self.assertEqual(record.snapshot_json.get("contract"), "etf-daily-v1")
+        self.assertEqual(record.snapshot_json.get("layer"), "facts")
+
+    @patch("supabase_research_sync._find_brief_file")
+    def test_load_vcp_funnel_attaches_vcp_snapshot_json(self, mock_find: object) -> None:
+        root = Path(__file__).resolve().parent.parent
+        sample = root / "reports/daily/20260620_vcp_funnel_specs_daily_brief.md"
+        sample.parent.mkdir(parents=True, exist_ok=True)
+        sample.write_text(
+            "# VCP Pivot Gate · daily brief · 2026-06-20\n\n## 候選\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: sample.unlink(missing_ok=True))
+        mock_find.return_value = sample
+
+        record = load_brief("vcp_funnel_specs", date(2026, 6, 20))
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertIsNone(record.content_html)
+        self.assertIsNotNone(record.snapshot_json)
+        assert record.snapshot_json is not None
+        self.assertEqual(record.snapshot_json.get("contract"), "vcp-daily-v1")
+        self.assertEqual(record.snapshot_json.get("layer"), "research")
 
     def test_intraday_watch_meta_not_strategy_screen(self) -> None:
         meta = INTRADAY_WATCH_META["rrg_mono_intraday"]
@@ -115,7 +152,7 @@ class TestBriefCatalog(unittest.TestCase):
         self.assertEqual(record.trade_date, date(2026, 6, 18))
         self.assertIsNotNone(record.snapshot_json)
         assert record.snapshot_json is not None
-        self.assertEqual(record.snapshot_json.get("contract"), "intraday-watch-v1")
+        self.assertEqual(record.snapshot_json.get("contract"), "rrg-mono-daily-v1")
         self.assertEqual(record.snapshot_json.get("session_date"), "2026-06-22")
         self.assertEqual(record.snapshot_json.get("data_baseline_date"), "2026-06-18")
 
@@ -143,6 +180,7 @@ class TestBriefCatalog(unittest.TestCase):
         record = load_brief("copytrade_l1h9", date(2026, 6, 20))
         self.assertIsNotNone(record)
         assert record is not None
+        self.assertIsNone(record.content_html)
         ref = (record.snapshot_json or {}).get("backtest_reference")
         self.assertIsNotNone(ref)
         assert ref is not None
