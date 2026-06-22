@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -11,19 +12,34 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from market_benchmark import is_trading_date, latest_trading_date, resolve_brief_trade_date
 from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect
+from strategy_backtest_reference import build_backtest_reference
 
 _TPE = ZoneInfo("Asia/Taipei")
 
 # brief_type → (schedule_slot, candidate paths relative to project root)
-# Primary: reports/publish/ (website layer VFP). Legacy reports/daily/ as fallback.
+# strategy screen briefs · layer strategy · snapshot_json.strategy_id for Readdy routing
 BRIEF_CATALOG: dict[str, tuple[str, tuple[str, ...]]] = {
     "vcp_funnel_specs": (
         "1300",
         (
-            "reports/publish/research/vcp_funnel_specs/{date}.md",
             "reports/daily/{date}_vcp_funnel_specs_daily_brief.md",
             "reports/daily/vcp_funnel_specs_daily_brief.md",
+        ),
+    ),
+    "vcp_pivot_gate": (
+        "1300",
+        (
+            "reports/daily/{date}_vcp_pivot_gate_daily_brief.md",
+            "reports/daily/vcp_pivot_gate_daily_brief.md",
+        ),
+    ),
+    "vcp_coil_close": (
+        "1300",
+        (
+            "reports/daily/{date}_vcp_coil_close_daily_brief.md",
+            "reports/daily/vcp_coil_close_daily_brief.md",
         ),
     ),
     "rrg_mono_intraday": (
@@ -38,8 +54,6 @@ BRIEF_CATALOG: dict[str, tuple[str, tuple[str, ...]]] = {
     "etf_daily": (
         "1630",
         (
-            "reports/publish/facts/etf-daily/{date}.md",
-            "reports/publish/facts/etf-daily/daily_brief.md",
             "reports/daily/{date}_etf_daily.md",
             "reports/daily/etf-daily/daily_brief.md",
         ),
@@ -47,17 +61,77 @@ BRIEF_CATALOG: dict[str, tuple[str, tuple[str, ...]]] = {
     "regime_daily": (
         "1630",
         (
-            "reports/publish/regime/snapshots/{date}/daily_brief.md",
-            "reports/publish/regime/daily_brief.md",
             "reports/daily/regime/snapshots/{date}/daily_brief.md",
             "reports/daily/regime/daily_brief.md",
         ),
     ),
+    "rrg_mono_daily": (
+        "1630",
+        (
+            "reports/daily/{date}_rrg_mono_daily.md",
+            "reports/daily/rrg_mono_daily.md",
+        ),
+    ),
+    "copytrade_l1h9": (
+        "1630",
+        (
+            "reports/daily/{date}_copytrade_l1h9_daily.md",
+            "reports/daily/copytrade_l1h9_daily.md",
+        ),
+    ),
+}
+
+# Readdy · brief_type → adopted strategy_id (site_content strategy_* pages)
+STRATEGY_SCREEN_META: dict[str, dict[str, str]] = {
+    "copytrade_l1h9": {
+        "strategy_id": "00981a-l1h9",
+        "title_zh": "ETF00981A 跟單策略",
+        "layer": "strategy",
+    },
+    "rrg_mono_daily": {
+        "strategy_id": "rrg-mono-hold7",
+        "title_zh": "RRG 單軌（持7日）",
+        "layer": "strategy",
+    },
+    "vcp_pivot_gate": {
+        "strategy_id": "vcp-pivot-gate",
+        "title_zh": "VCP 突破確認",
+        "layer": "strategy",
+    },
+    "vcp_coil_close": {
+        "strategy_id": "vcp-coil-close",
+        "title_zh": "VCP 訊號收盤",
+        "layer": "strategy",
+    },
+    "vcp_funnel_specs": {
+        "strategy_id": "vcp-pivot-gate",
+        "title_zh": "VCP 漏斗研究",
+        "layer": "research",
+    },
+}
+
+# 盤中預警 · 非收盤策略掃描；snapshot_json.contract 供 Readdy 分區
+INTRADAY_WATCH_META: dict[str, dict[str, str]] = {
+    "rrg_mono_intraday": {
+        "strategy_id": "rrg-mono-hold7",
+        "title_zh": "RRG 盤中預警",
+        "layer": "strategy",
+    },
 }
 
 SLOT_BRIEF_TYPES: dict[str, tuple[str, ...]] = {
-    "1300": ("vcp_funnel_specs", "rrg_mono_intraday"),
-    "1630": ("etf_daily", "regime_daily"),
+    "1300": (
+        "vcp_funnel_specs",
+        "vcp_pivot_gate",
+        "vcp_coil_close",
+        "rrg_mono_intraday",
+    ),
+    "1630": (
+        "etf_daily",
+        "regime_daily",
+        "rrg_mono_daily",
+        "copytrade_l1h9",
+    ),
 }
 
 
@@ -125,6 +199,17 @@ def _rest_url() -> str:
 
 def _today_tpe() -> date:
     return datetime.now(_TPE).date()
+
+
+def allow_scheduled_supabase_push(
+    conn: sqlite3.Connection,
+    *,
+    scheduled: bool = True,
+) -> bool:
+    """排程推送僅在台股交易日執行；backfill 傳 scheduled=False。"""
+    if not scheduled:
+        return True
+    return is_trading_date(conn, _today_tpe())
 
 
 def _extract_title(content: str, fallback: str) -> str:
@@ -197,40 +282,113 @@ def _regime_snapshot_json_for(
         conn.close()
 
 
+def _default_lookup_date(conn: sqlite3.Connection) -> date:
+    """Sync 未指定 --date 時：用最近交易日，不用日曆今天（週末不產新日報）。"""
+    return resolve_brief_trade_date(conn, _today_tpe())
+
+
+def _intraday_data_baseline(conn: sqlite3.Connection, session_date: date) -> date:
+    """盤中 brief 的 trade_date = 收盤 panel 基準日（非產出日／session 日）。"""
+    if is_trading_date(conn, session_date):
+        prev = latest_trading_date(
+            conn, on_or_before=session_date - timedelta(days=1)
+        )
+        if prev:
+            return date.fromisoformat(prev)
+    resolved = latest_trading_date(conn, on_or_before=session_date)
+    if resolved:
+        return date.fromisoformat(resolved)
+    return session_date
+
+
+def _intraday_session_date(content: str, fallback: date) -> date:
+    """從 MD 標題取 session（產出日）；fallback 為檔案 lookup。"""
+    for line in content.splitlines()[:5]:
+        text = line.strip()
+        if not text.startswith("# "):
+            continue
+        match = re.search(r"(\d{4}-\d{2}-\d{2})", text)
+        if match:
+            return date.fromisoformat(match.group(1))
+    return fallback
+
+
 def load_brief(
     brief_type: str,
     trade_date: date | None = None,
     *,
     db_path: Path | None = None,
 ) -> BriefRecord | None:
-    path = _find_brief_file(brief_type, trade_date)
-    if path is None:
-        return None
-    slot, _ = BRIEF_CATALOG[brief_type]
-    content = path.read_text(encoding="utf-8")
-    day = trade_date if trade_date is not None else _extract_trade_date(
-        content, brief_type, _today_tpe()
-    )
-    title = _extract_title(content, brief_type)
-    html_path = path.parent / "daily_brief.embed.html"
-    if not html_path.is_file() and brief_type == "regime_daily":
-        html_path = path.parent.parent / "daily_brief.embed.html"
-    if not html_path.is_file():
-        html_path = path.with_suffix(".html")
-    html = html_path.read_text(encoding="utf-8") if html_path.is_file() else None
-    snapshot_json: dict[str, object] | None = None
-    if brief_type == "regime_daily":
-        snapshot_json = _regime_snapshot_json_for(day, db_path)
-    return BriefRecord(
-        trade_date=day,
-        schedule_slot=slot,
-        brief_type=brief_type,
-        title=title,
-        content_md=content,
-        source_path=str(path.relative_to(PROJECT_ROOT)),
-        content_html=html,
-        snapshot_json=snapshot_json,
-    )
+    conn = connect(db_path or DEFAULT_DB_PATH)
+    try:
+        lookup = (
+            resolve_brief_trade_date(conn, trade_date)
+            if trade_date is not None
+            else _default_lookup_date(conn)
+        )
+        file_lookup = trade_date if brief_type in INTRADAY_WATCH_META and trade_date else lookup
+        path = _find_brief_file(brief_type, file_lookup)
+        if path is None:
+            return None
+        slot, _ = BRIEF_CATALOG[brief_type]
+        content = path.read_text(encoding="utf-8")
+        if brief_type in INTRADAY_WATCH_META:
+            if trade_date is not None:
+                session_day = trade_date
+            else:
+                session_day = _intraday_session_date(content, lookup)
+            day = _intraday_data_baseline(conn, session_day)
+        else:
+            if trade_date is not None:
+                raw_day = trade_date
+            else:
+                raw_day = _extract_trade_date(content, brief_type, lookup)
+            day = resolve_brief_trade_date(conn, raw_day)
+        title = _extract_title(content, brief_type)
+        html_path = path.parent / "daily_brief.embed.html"
+        if not html_path.is_file() and brief_type == "regime_daily":
+            html_path = path.parent.parent / "daily_brief.embed.html"
+        if not html_path.is_file():
+            html_path = path.with_suffix(".html")
+        html = html_path.read_text(encoding="utf-8") if html_path.is_file() else None
+        snapshot_json: dict[str, object] | None = None
+        if brief_type == "regime_daily":
+            from regime_snapshot_json import build_regime_snapshot_json
+
+            snapshot_json = build_regime_snapshot_json(conn, day.isoformat())
+        elif brief_type in INTRADAY_WATCH_META:
+            session_day = _intraday_session_date(content, lookup)
+            meta = INTRADAY_WATCH_META[brief_type]
+            snapshot_json = {
+                "contract": "intraday-watch-v1",
+                "session_date": session_day.isoformat(),
+                "data_baseline_date": day.isoformat(),
+                **meta,
+            }
+            ref = build_backtest_reference(meta["strategy_id"], conn)
+            if ref:
+                snapshot_json["backtest_reference"] = ref
+        elif brief_type in STRATEGY_SCREEN_META:
+            meta = STRATEGY_SCREEN_META[brief_type]
+            snapshot_json = {
+                "contract": "strategy-screen-v1",
+                **meta,
+            }
+            ref = build_backtest_reference(meta["strategy_id"], conn)
+            if ref:
+                snapshot_json["backtest_reference"] = ref
+        return BriefRecord(
+            trade_date=day,
+            schedule_slot=slot,
+            brief_type=brief_type,
+            title=title,
+            content_md=content,
+            source_path=str(path.relative_to(PROJECT_ROOT)),
+            content_html=html,
+            snapshot_json=snapshot_json,
+        )
+    finally:
+        conn.close()
 
 
 def _record_payload(record: BriefRecord) -> dict[str, object]:
@@ -250,6 +408,31 @@ def _record_payload(record: BriefRecord) -> dict[str, object]:
     return payload
 
 
+def _delete_intraday_miskeyed(record: BriefRecord) -> None:
+    """Remove rows keyed by session/production date (pre-fix orphan keys)."""
+    if record.brief_type not in INTRADAY_WATCH_META:
+        return
+    sj = record.snapshot_json or {}
+    session = sj.get("session_date")
+    baseline = record.trade_date.isoformat()
+    if not session or session == baseline:
+        return
+    resp = requests.delete(
+        _rest_url(),
+        headers=_headers(),
+        params={
+            "brief_type": f"eq.{record.brief_type}",
+            "trade_date": f"eq.{session}",
+        },
+        timeout=60,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"Supabase delete stale intraday failed ({record.brief_type}): "
+            f"{resp.status_code} {resp.text[:500]}"
+        )
+
+
 def upsert_brief(record: BriefRecord) -> None:
     resp = requests.post(
         _rest_url(),
@@ -263,6 +446,7 @@ def upsert_brief(record: BriefRecord) -> None:
             f"Supabase upsert failed ({record.brief_type}): "
             f"{resp.status_code} {resp.text[:500]}"
         )
+    _delete_intraday_miskeyed(record)
 
 
 def sync_slot(schedule_slot: str, trade_date: date | None = None) -> SyncResult:
@@ -270,6 +454,14 @@ def sync_slot(schedule_slot: str, trade_date: date | None = None) -> SyncResult:
         return SyncResult([], [], [f"unknown slot: {schedule_slot}"])
     if not supabase_configured():
         return SyncResult([], list(SLOT_BRIEF_TYPES[schedule_slot]), [])
+
+    conn = connect()
+    try:
+        if trade_date is None and not allow_scheduled_supabase_push(conn):
+            label = f"non-trading-day ({_today_tpe().isoformat()})"
+            return SyncResult([], [label], [])
+    finally:
+        conn.close()
 
     uploaded: list[str] = []
     skipped: list[str] = []
@@ -307,37 +499,13 @@ def discover_report_dates(days: int = 14) -> list[date]:
     start = end - timedelta(days=days)
     found: set[date] = set()
 
-    snap_root = PROJECT_ROOT / "reports/publish/regime/snapshots"
-    if not snap_root.is_dir():
-        snap_root = PROJECT_ROOT / "reports/daily/regime/snapshots"
+    snap_root = PROJECT_ROOT / "reports/daily/regime/snapshots"
     if snap_root.is_dir():
         for child in snap_root.iterdir():
             if not child.is_dir() or len(child.name) != 8 or not child.name.isdigit():
                 continue
             day = date(int(child.name[:4]), int(child.name[4:6]), int(child.name[6:8]))
             if start <= day <= end and (child / "daily_brief.md").is_file():
-                found.add(day)
-
-    vcp_root = PROJECT_ROOT / "reports/publish/research/vcp_funnel_specs"
-    if vcp_root.is_dir():
-        for path in vcp_root.glob("*.md"):
-            stamp = path.stem
-            if len(stamp) != 8 or not stamp.isdigit():
-                continue
-            day = date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
-            if start <= day <= end:
-                found.add(day)
-
-    etf_pub = PROJECT_ROOT / "reports/publish/facts/etf-daily"
-    if etf_pub.is_dir():
-        for path in etf_pub.glob("*.md"):
-            if path.name == "daily_brief.md":
-                continue
-            stamp = path.stem
-            if len(stamp) != 8 or not stamp.isdigit():
-                continue
-            day = date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
-            if start <= day <= end:
                 found.add(day)
 
     daily_dir = PROJECT_ROOT / "reports/daily"
@@ -371,7 +539,14 @@ def backfill(days: int = 14) -> SyncResult:
                 if record is None:
                     skipped.append(key)
                     continue
-                if record.trade_date != trade_date:
+                if brief_type in INTRADAY_WATCH_META:
+                    sj = record.snapshot_json or {}
+                    if sj.get("session_date") != trade_date.isoformat():
+                        skipped.append(
+                            f"{key} (session mismatch {sj.get('session_date')})"
+                        )
+                        continue
+                elif record.trade_date != trade_date:
                     skipped.append(f"{key} (date mismatch {record.trade_date})")
                     continue
                 upsert_brief(record)

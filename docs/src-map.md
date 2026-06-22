@@ -60,8 +60,23 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 | `analytics/bench.py` | 基準報酬 · 超額檢定 |
 | `research_config.py` | Load `config/research.yaml`（探索主題） |
 | `strategy_config.py` | Load `config/strategy.yaml`（採納規格） |
+| `order/config.py` | Load `config/order.yaml`（下單層） |
 
 其餘 daily 模組仍在 `src/` 頂層。
+
+---
+
+## 下單層（`src/order/` · 非 L0–L5 daily 鏈）
+
+| 路徑 | 模組 |
+|------|------|
+| `order/` | `intent` · `config` · `fubon_session` · `fubon_account` · `fubon_orders` |
+| `scripts/order/` | `submit_intents.py` · `fubon_login_test.py` |
+| `scripts/order/chase_scheduled.py` | 開盤窗追價（每分鐘 · 限價=賣一 · 最多 5 輪） |
+| `scripts/launchd/order-chase-open.command` | 週一至五 09:00–09:04（`install-order-launchd.sh`） |
+| `reports/order/` | intent JSON · 帳戶 snapshot（執行時寫入） |
+
+策略 / research 腳本 **勿** import `order`；只寫 `reports/order/intents/*.json`（schema `order-intent-v1`）。
 
 ---
 

@@ -389,7 +389,7 @@ def render_strategy_hub_html(
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Strategy Hub · Parallel Alpha Tracks · {stamp}</title>
+  <title>策略入口 · 多軌並行 · {stamp}</title>
   <style>
     :root {{
       --bg:#0f0f0f; --panel:#181818; --border:#333; --text:#e4e4e4; --muted:#888; --accent:#6B8CAE;
@@ -447,7 +447,7 @@ def render_strategy_hub_html(
 </head>
 <body>
   <header class="hub-header">
-    <h1>Strategy Hub · 多策略研究入口</h1>
+    <h1>策略入口 · 多軌並行</h1>
     <p class="sub">
       沒有完美策略 · 並行 alpha tracks · Breadth zone 判斷適用情境 ·
       產生：<code>scripts/render_strategy_hub_html.py</code>

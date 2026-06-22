@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from holdings_research import (
+    build_cross_etf_consensus,
     build_etf_holdings_changes_block,
     holding_growth_pct,
     implied_close_from_holdings,
@@ -17,6 +18,8 @@ from holdings_research import (
 from stock_db import (
     compute_etf_holdings_changes,
     connect,
+    normalize_stock_name,
+    repair_mojibake_stock_names_in_etf_holdings,
     upsert_etf_holdings,
     upsert_etf_holdings_meta,
 )
@@ -164,6 +167,145 @@ class TestHoldingsDbFixtures(unittest.TestCase):
         self.assertNotIn("growth_pct", row_2330)
         self.assertNotIn("beta", row_2330)
         self.assertEqual(by_id["2454"]["action"], "新进")
+
+    def test_mojibake_stock_name_repaired_in_block(self) -> None:
+        bad = "å\x8f°ç\x81£è\xad\x89äº¤æ\x89\x80å\x8a\xa0æ¬\x8aè\x82¡å\x83¹æ\x8c\x87æ\x95¸"
+        for snap, rows in (
+            (
+                "2026-06-17",
+                [
+                    {
+                        "etf_code": "00980A",
+                        "snapshot_date": "2026-06-17",
+                        "stock_id": "TX",
+                        "stock_name": bad,
+                        "shares": 120.0,
+                        "weight_pct": 1.0,
+                        "amount": None,
+                        "source": "t",
+                        "source_edit_at": None,
+                        "synced_at": SYNCED,
+                    }
+                ],
+            ),
+            (
+                "2026-06-18",
+                [
+                    {
+                        "etf_code": "00980A",
+                        "snapshot_date": "2026-06-18",
+                        "stock_id": "2330",
+                        "stock_name": "台積電",
+                        "shares": 100.0,
+                        "weight_pct": 5.0,
+                        "amount": None,
+                        "source": "t",
+                        "source_edit_at": None,
+                        "synced_at": SYNCED,
+                    }
+                ],
+            ),
+        ):
+            upsert_etf_holdings_meta(
+                self.conn,
+                {
+                    "etf_code": "00980A",
+                    "snapshot_date": snap,
+                    "nav": 100.0,
+                    "holding_count": len(rows),
+                    "source": "t",
+                    "source_edit_at": None,
+                },
+            )
+            upsert_etf_holdings(self.conn, rows)
+        blocks = build_etf_holdings_changes_block(self.conn, ("00980A",))
+        by_id = {c["stock_id"]: c for c in blocks[0]["changes"]}
+        self.assertEqual(by_id["TX"]["stock_name"], "台灣證交所加權股價指數")
+
+    def test_mojibake_stock_name_repaired_in_consensus(self) -> None:
+        bad = "å\x8f°ç\x81£è\xad\x89äº¤æ\x89\x80å\x8a\xa0æ¬\x8aè\x82¡å\x83¹æ\x8c\x87æ\x95¸"
+        for snap, rows in (
+            (
+                "2026-06-17",
+                [
+                    {
+                        "etf_code": "00980A",
+                        "snapshot_date": "2026-06-17",
+                        "stock_id": "TX",
+                        "stock_name": bad,
+                        "shares": 120.0,
+                        "weight_pct": 1.0,
+                        "amount": None,
+                        "source": "t",
+                        "source_edit_at": None,
+                        "synced_at": SYNCED,
+                    }
+                ],
+            ),
+            (
+                "2026-06-18",
+                [
+                    {
+                        "etf_code": "00980A",
+                        "snapshot_date": "2026-06-18",
+                        "stock_id": "TX",
+                        "stock_name": bad,
+                        "shares": 80.0,
+                        "weight_pct": 0.8,
+                        "amount": None,
+                        "source": "t",
+                        "source_edit_at": None,
+                        "synced_at": SYNCED,
+                    }
+                ],
+            ),
+        ):
+            upsert_etf_holdings_meta(
+                self.conn,
+                {
+                    "etf_code": "00980A",
+                    "snapshot_date": snap,
+                    "nav": 100.0,
+                    "holding_count": len(rows),
+                    "source": "t",
+                    "source_edit_at": None,
+                },
+            )
+            upsert_etf_holdings(self.conn, rows)
+        consensus = build_cross_etf_consensus(self.conn, ("00980A",))
+        by_id = {row.stock_id: row for row in consensus}
+        self.assertEqual(by_id["TX"].stock_name, "台灣證交所加權股價指數")
+
+    def test_repair_mojibake_stock_names_in_etf_holdings(self) -> None:
+        bad = "å\x8f°ç\x81£è\xad\x89äº¤æ\x89\x80å\x8a\xa0æ¬\x8aè\x82¡å\x83¹æ\x8c\x87æ\x95¸"
+        upsert_etf_holdings_meta(
+            self.conn,
+            {
+                "etf_code": "00980A",
+                "snapshot_date": "2026-06-17",
+                "nav": 100.0,
+                "holding_count": 1,
+                "source": "t",
+                "source_edit_at": None,
+            },
+        )
+        conn = self.conn
+        conn.execute(
+            """
+            INSERT INTO etf_holdings (
+                etf_code, snapshot_date, stock_id, stock_name, shares, weight_pct,
+                source, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("00980A", "2026-06-17", "TX", bad, 100.0, 1.0, "t", SYNCED),
+        )
+        conn.commit()
+        n = repair_mojibake_stock_names_in_etf_holdings(conn)
+        self.assertEqual(n, 1)
+        row = conn.execute(
+            "SELECT stock_name FROM etf_holdings WHERE stock_id = 'TX'"
+        ).fetchone()
+        self.assertEqual(row[0], "台灣證交所加權股價指數")
 
 
 if __name__ == "__main__":

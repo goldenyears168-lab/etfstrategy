@@ -232,6 +232,28 @@ def run_intraday_watch(
         close, bench, session, stock_ticks, bench_px
     )
 
+    if os.environ.get("RUN_RRG_UNIVERSE_SNAPSHOT", "1").strip() not in (
+        "0",
+        "false",
+        "False",
+    ):
+        try:
+            from rrg_universe_snapshot import persist_intraday_universe_from_panels
+            from supabase_rrg_universe_sync import maybe_sync_rrg_universe_to_supabase
+
+            n_rows = persist_intraday_universe_from_panels(
+                conn,
+                session_date=session,
+                close_prov=close_prov,
+                bench_prov=bench_prov,
+                stock_ticks=stock_ticks,
+                etf_codes=codes,
+            )
+            print(f"RRG universe intraday: session={session} rows={n_rows} tick={tick_n}")
+            maybe_sync_rrg_universe_to_supabase(conn, session, "intraday")
+        except Exception as exc:
+            print(f"RRG universe intraday persist warn: {exc}")
+
     try:
         all_mono, fresh_mono = scan_rows_from_panels(
             conn, session, close_prov, bench_prov, etf_codes=codes

@@ -28,6 +28,8 @@ fi
 
 echo "=== launchd rrg-mono-intraday-watch 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
 
+"${ROOT}/scripts/launchd/supabase_slot_sync.sh" 1300
+
 "${ROOT}/scripts/rrg_mono_intraday_notify.sh" "${EXIT}" || true
 
 if [[ "${TERM_PROGRAM:-}" == "Apple_Terminal" ]]; then

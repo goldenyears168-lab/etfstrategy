@@ -476,6 +476,33 @@ CREATE TABLE IF NOT EXISTS vcp_screen_scores_v2 (
 CREATE INDEX IF NOT EXISTS idx_vcp_screen_v2_date
     ON vcp_screen_scores_v2 (as_of_date, composite_score DESC);
 
+CREATE TABLE IF NOT EXISTS rrg_universe_scores (
+    session_date TEXT NOT NULL,
+    screen_kind TEXT NOT NULL,
+    data_baseline_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    stock_name TEXT,
+    rs_ratio REAL,
+    rs_momentum REAL,
+    quadrant TEXT,
+    quadrants_json TEXT,
+    trend TEXT,
+    disp REAL,
+    seg_last REAL,
+    segs_json TEXT,
+    tier2 INTEGER NOT NULL DEFAULT 0,
+    mono_tier2 INTEGER NOT NULL DEFAULT 0,
+    mono_fresh INTEGER NOT NULL DEFAULT 0,
+    daily_pct REAL,
+    tick_ok INTEGER,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (session_date, screen_kind, stock_id)
+);
+CREATE INDEX IF NOT EXISTS idx_rrg_universe_session
+    ON rrg_universe_scores (session_date, screen_kind);
+CREATE INDEX IF NOT EXISTS idx_rrg_universe_stock
+    ON rrg_universe_scores (stock_id, session_date DESC);
+
 CREATE TABLE IF NOT EXISTS stock_opening_session_stats (
     stock_id TEXT NOT NULL,
     trade_date TEXT NOT NULL,
@@ -836,6 +863,57 @@ CREATE INDEX IF NOT EXISTS idx_rrg_narrow_regime_cal_date
 
 CREATE INDEX IF NOT EXISTS idx_rrg_narrow_year_stats_run
     ON rrg_narrow_regime_year_stats (run_id, year);
+
+CREATE TABLE IF NOT EXISTS stock_daily_lens (
+    trade_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    stock_name TEXT,
+    etf_add_count INTEGER NOT NULL DEFAULT 0,
+    etf_reduce_count INTEGER NOT NULL DEFAULT 0,
+    etf_add_codes_json TEXT NOT NULL DEFAULT '[]',
+    etf_flow_ntd REAL,
+    share_delta_total REAL,
+    growth_pct REAL,
+    consensus_add INTEGER NOT NULL DEFAULT 0,
+    consensus_streak_days INTEGER NOT NULL DEFAULT 0,
+    breadth_zone_200 TEXT,
+    trend_posture TEXT,
+    regime_aligned INTEGER NOT NULL DEFAULT 0,
+    rrg_quadrant TEXT,
+    rrg_quadrant_prev TEXT,
+    rrg_mono_fresh INTEGER NOT NULL DEFAULT 0,
+    rrg_tier2 INTEGER NOT NULL DEFAULT 0,
+    vcp_composite REAL,
+    vcp_execution_state TEXT,
+    vcp_distance_pivot_pct REAL,
+    copytrade_l1h9_signal INTEGER NOT NULL DEFAULT 0,
+    delta_new_to_watchlist INTEGER NOT NULL DEFAULT 0,
+    delta_rrg_quadrant_change TEXT,
+    delta_consensus_new_today INTEGER NOT NULL DEFAULT 0,
+    delta_score_change REAL,
+    delta_any_signal INTEGER NOT NULL DEFAULT 0,
+    signal_convergence INTEGER NOT NULL DEFAULT 0,
+    lens_score REAL NOT NULL DEFAULT 0,
+    narrative_zh TEXT NOT NULL DEFAULT '',
+    highlight_tier TEXT NOT NULL DEFAULT 'none',
+    holdings_aligned INTEGER NOT NULL DEFAULT 1,
+    data_baseline_date TEXT NOT NULL,
+    sources_json TEXT NOT NULL DEFAULT '{}',
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, stock_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_daily_lens_date
+    ON stock_daily_lens (trade_date, delta_any_signal DESC, signal_convergence DESC);
+
+CREATE TABLE IF NOT EXISTS lens_daily_alert (
+    trade_date TEXT PRIMARY KEY,
+    fire_count INTEGER NOT NULL DEFAULT 0,
+    delta_new_count INTEGER NOT NULL DEFAULT 0,
+    headline_zh TEXT NOT NULL,
+    items_json TEXT NOT NULL DEFAULT '[]',
+    computed_at TEXT NOT NULL
+);
 """
 
 
@@ -879,7 +957,22 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
     conn.commit()
     _migrate_flow_tape_regime_column(conn)
+    _migrate_delta_new_to_watchlist_column(conn)
     _drop_retired_execution_tables(conn)
+
+
+def _migrate_delta_new_to_watchlist_column(conn: sqlite3.Connection) -> None:
+    try:
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(stock_daily_lens)").fetchall()
+        }
+    except sqlite3.OperationalError:
+        return
+    if cols and "delta_new_to_lens" in cols and "delta_new_to_watchlist" not in cols:
+        conn.execute(
+            "ALTER TABLE stock_daily_lens RENAME COLUMN delta_new_to_lens TO delta_new_to_watchlist"
+        )
+        conn.commit()
 
 
 def _migrate_flow_tape_regime_column(conn: sqlite3.Connection) -> None:

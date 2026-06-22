@@ -11,8 +11,6 @@ vendor/finpilot/
 logs/
 reports/*
 !reports/README.md
-!reports/publish/
-!reports/publish/README.md
 !reports/samples/
 !reports/samples/**
 
@@ -36,9 +34,8 @@ log/
 # Fubon Neo API 專用 venv（Python 3.13；主 .venv 為 3.14 不可跑 fubon_neo）
 .venv-fubon/
 
+# Supabase CLI link cache（勿提交）
+supabase/.temp/
+
 # External clones（同 vendor/tw_stocker/ 意圖）
 external/
-
-# Website layer (Vite)
-web/node_modules/
-web/dist/

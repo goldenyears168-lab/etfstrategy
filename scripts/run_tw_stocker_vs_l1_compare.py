@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tw_stocker v8.5 動量 vs 00981A L1H9：勝台指率對照（IX0001）。"""
+"""tw_stocker v8.5 動量 vs 00981A L1H9：勝率對照（IX0001）。"""
 
 from __future__ import annotations
 
@@ -169,7 +169,7 @@ def _l1h9_stats(conn, *, window_start: str | None, window_end: str | None) -> di
 
 def format_report(l1: dict, tw_full: dict, tw_overlap: dict) -> str:
     lines = [
-        "# tw_stocker v8.5 動量 (H9) vs 00981A L1H9 · 勝台指率對照",
+        "# tw_stocker v8.5 動量 (H9) vs 00981A L1H9 · 勝率對照",
         "",
         "> 基準：IX0001（加權指數）· 同期間報酬比較",
         "> tw_stocker：最長持有 **9 交易日**（對齊 L1H9），ATR TP/SL 仍可能提前出場",
@@ -177,7 +177,7 @@ def format_report(l1: dict, tw_full: dict, tw_overlap: dict) -> str:
         "",
         "## 全樣本",
         "",
-        "| 策略 | n | 勝率（毛） | **勝台指%** | 樣本期間 |",
+        "| 策略 | n | 勝率（毛） | **勝率%** | 樣本期間 |",
         "|------|---|-----------|------------|----------|",
         f"| **L1H9** 跟單 | {l1['n_signal_days']} | "
         f"{l1['win_rate_gross_pct']}% | **{l1['win_rate_vs_bench_pct']}%** | "
@@ -190,7 +190,7 @@ def format_report(l1: dict, tw_full: dict, tw_overlap: dict) -> str:
         "",
         f"區間：{l1['window_start']} → {l1['window_end']}（00981A 有訊號的可回測期）",
         "",
-        "| 策略 | n | 勝台指% | 均報酬% | 均台指% |",
+        "| 策略 | n | 勝率% | 均報酬% | 均台指% |",
         "|------|---|---------|---------|---------|",
         f"| L1H9 | {l1['n_signal_days']} | **{l1['win_rate_vs_bench_pct']}%** | — | — |",
         f"| tw_stocker | {tw_overlap['n_trades']} | "
@@ -205,18 +205,18 @@ def format_report(l1: dict, tw_full: dict, tw_overlap: dict) -> str:
     tw_wr = float(tw_overlap["win_rate_vs_bench_pct"] or 0)
     delta = round(tw_wr - l1_wr, 2)
     if tw_wr > l1_wr:
-        winner = "tw_stocker v8.5 動量在重疊區間勝台指率較高"
+        winner = "tw_stocker v8.5 動量在重疊區間勝率較高"
     elif tw_wr < l1_wr:
-        winner = "L1H9 跟單在重疊區間勝台指率較高"
+        winner = "L1H9 跟單在重疊區間勝率較高"
     else:
-        winner = "兩策略勝台指率相同"
+        winner = "兩策略勝率相同"
     lines.append(f"- **結論（重疊區）**：{winner}（Δ {delta:+.2f} pp）。")
     lines.append(
         "- tw_stocker 為全市場動量選股（Top-60 流動性池、Top-7 持股）；"
         "L1 為 00981A 持股變化事件跟單，標的與頻率不同，僅供參考。"
     )
     lines.append(
-        "- tw_stocker 內建 gross 勝率（交易賺錢%）≠ 勝台指%；本報告統一用 IX0001 同期比較。"
+        "- tw_stocker 內建 gross 勝率（交易賺錢%）≠ 勝率%；本報告統一用 IX0001 同期比較。"
     )
     lines.append("")
     lines.append("```bash")
@@ -226,7 +226,7 @@ def format_report(l1: dict, tw_full: dict, tw_overlap: dict) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="tw_stocker vs L1H9 勝台指率對照")
+    parser = argparse.ArgumentParser(description="tw_stocker vs L1H9 勝率對照")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--days", type=int, default=1200)
     parser.add_argument("--hold-days", type=int, default=9, help="tw_stocker 最長持有天數（預設 9 對齊 L1H9）")

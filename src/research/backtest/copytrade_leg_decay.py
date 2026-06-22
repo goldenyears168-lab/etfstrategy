@@ -200,7 +200,7 @@ def summarize_leg_decay_knees(
     bucket_field: str = "all",
     marginal_window: tuple[int, int] = (5, 30),
 ) -> list[dict]:
-    """实务膝点：边际 sum_α 相对 H5–H30 峰值跌破 25%；另给 α/日效率峰。"""
+    """实务膝点：邊際 sum_α 相对 H5–H30 峰值跌破 25%；另给 α/日效率峰。"""
     by_bucket: dict[str, list[dict]] = {}
     for r in curve_rows:
         if r["bucket_field"] != bucket_field:
@@ -289,7 +289,7 @@ def format_leg_decay_markdown(
         "- **单位**：每个新进/加码 **leg**（不是讯号日组合）。",
         "- **进场**：T+1 开盘（L1）；**出场**：进场后第 H 日收盘。",
         f"- **α**：leg 报酬 − 台指同规则报酬，× {leg_capital_ntd:,.0f} NTD。",
-        "- **膝点 knee_h**：H5–H30 内边际 **Δsum α** 相对峰值跌破 25% 的首个 H−1（牛市下 mean_excess 可单调升，不可单靠均值峰）。",
+        "- **膝点 knee_h**：H5–H30 内邊際 **Δsum α** 相对峰值跌破 25% 的首个 H−1（牛市下 mean_excess 可单调升，不可单靠均值峰）。",
         f"- **观测点**：{n_obs:,}（leg×H complete 格）",
         "",
         "## 膝点摘要",
@@ -333,7 +333,7 @@ def format_leg_decay_markdown(
                 lines.append(
                     f"峰值 mean_excess **H{knee['peak_mean_excess_h']}** "
                     f"({knee['peak_mean_excess_pct']:.3f}%) · "
-                    f"边际膝点 **H{knee['knee_h']}** · "
+                    f"邊際膝点 **H{knee['knee_h']}** · "
                     f"α/日效率峰 **H{knee.get('efficiency_h', knee['knee_h'])}**"
                 )
             lines.append("")

@@ -20,6 +20,7 @@
 |------|-------------|
 | `run_market_breadth_report.py` | Breadth zone HTML（研究 · 非 digest） |
 | `run_vcp_funnel_specs_daily_brief.py` | `vcp-pivot-gate` · `vcp-coil-close` |
+| `run_copytrade_l1h9_daily_brief.py` | `00981a-l1h9` · 收盤訊號篩選 |
 | `backfill_vcp_funnel_screen.py` | DB backfill |
 | `run_rrg_mono_daily_brief.py` | `rrg-mono-hold7` |
 | `run_factor_validation.py` | 週末可選 |

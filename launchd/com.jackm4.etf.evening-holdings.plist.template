@@ -16,6 +16,10 @@
 	<dict>
 		<key>SYNC_PROFILE</key>
 		<string>evening-holdings</string>
+		<key>RUN_STOCK_DAILY_LENS</key>
+		<string>1</string>
+		<key>RUN_SUPABASE_LENS_SYNC</key>
+		<string>1</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>

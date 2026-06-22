@@ -24,7 +24,7 @@ strategies:
     kind: diagnostic
     enabled: true
     description: >
-      四軸市場診斷 Regime four-axis diagnostic（Breadth zone · Trend posture · RRG · Stage-2 participation）。
+      四軸市場環境 Regime four-axis diagnostic（Breadth zone · Trend posture · RRG · Stage-2 participation）。
       非 live gate · 不產 alpha。
     sources:
       - "regime/daily_brief.md"
@@ -41,6 +41,8 @@ strategies:
     description: >
       00981A 新进/加码 · T+1 開 · 9 槽 hold9 · 手動 screen / 回測。
     sources:
+      - "{date}_copytrade_l1h9_daily.md"
+      - "copytrade_l1h9_daily.md"
       - "backtest_summary.json"
 
   rrg-mono-hold7:
@@ -48,7 +50,7 @@ strategies:
     layer: strategy
     kind: competition
     enabled: false
-    description: Separate launchd rrg-mono-scan · 16:40。
+    description: daily_sync 16:30 · RRG mono 槽位確認（原 16:40 launchd 已退役）。
     sources:
       - "{date}_rrg_mono_daily.md"
       - "rrg_mono_daily.md"

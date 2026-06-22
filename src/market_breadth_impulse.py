@@ -1,7 +1,7 @@
 """Breadth impulse · Zweig thrust + Deemer BAM (LuxAlgo Market Breadth Toolkit).
 
 Complements **Breadth zone** (MA participation level) with event-style thrust signals
-(adv/decl ratio EMA spike). Used by Regime breadth axis sub-block and validation backtests.
+(adv/decl ratio EMA spike). Used by Regime market breadth（市場廣度）sub-block and validation backtests.
 """
 
 from __future__ import annotations

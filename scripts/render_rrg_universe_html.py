@@ -2406,7 +2406,7 @@ def _l1h9_signals_table_html(
 <table id="l1h9-signals-table">
   <thead><tr>
     <th>#</th><th>訊號日</th><th>進場</th><th>出場</th><th>槽位</th>
-    <th>腿數</th><th>H9 報酬</th><th>α NTD</th><th>狀態</th>
+    <th>異動檔數</th><th>H9 報酬</th><th>α NTD</th><th>狀態</th>
   </tr></thead>
   <tbody>{''.join(rows)}</tbody>
 </table>"""
@@ -2482,7 +2482,7 @@ def _slots_timeline_annotations(
                 f"（1 檔 1 leg，每槽 {cap} NTD）。出場日收盤後釋放。"
             ),
             "hold_help": (
-                "leg=單一標的一腿持倉（本策略 1 訊號 = 1 檔 = 1 leg）；"
+                "leg=單一標的一檔持倉（本策略 1 訊號 = 1 檔 = 1 leg）；"
                 "槽=資金池。出場日仍算持倉中（收盤才賣）。"
             ),
             "skip_reason": "（槽滿／重複標的）",
@@ -2493,7 +2493,7 @@ def _slots_timeline_annotations(
         <li><b>vs IX0001 超額 α</b>：各 leg 同期部署資金若買加權指數之損益差；口徑=<b>D4 收盤進、D11 收盤出</b>（hold{hold_h}）。</li>
         <li><b>迷你曲線</b>：金=策略累計 · 灰=IX0001 同期基準 · 看是否跑贏大盤。</li>
         <li><b>槽位占用 N / {n_slots}</b>：目前有 N 則 mono 訊號占用資金槽（每槽 {cap} NTD、<b>1 檔標的</b>）。灰格=空閒 · 藍格=占用中。槽滿時新訊號會<b>略過</b>。</li>
-        <li><b>leg</b>：單一標的從進場到出場的一腿；本策略<b>1 訊號 = 1 檔 = 1 leg</b>（非 ETF 跟單籃子）。</li>
+        <li><b>leg</b>：單一標的從進場到出場的一檔持倉；本策略<b>1 訊號 = 1 檔 = 1 leg</b>（非 ETF 跟單籃子）。</li>
         <li><b>出場日</b>：當日仍顯示在持倉中（收盤賣出後才釋放槽位）；圖上仍畫 RRG 軌跡。</li>
         <li><b>槽位</b>：最多 <b>{n_slots}</b> 槽並行；exit 日收盤釋放。滑桿<b>藍點</b>=進場 · <b>金點</b>=出場。</li>
         <li><b>操作</b>：←→ 換日 · [ ] 跳進場 · {{}} 跳出場 · Esc 取消聚焦 · 點表格列跳進場日。</li>""",
@@ -2504,7 +2504,7 @@ def _slots_timeline_annotations(
             "出場日收盤後釋放。"
         ),
         "hold_help": (
-            "批=一個訊號日跟單籃子；leg=籃子內每檔股票一腿；"
+            "批=一個訊號日跟單籃子；leg=籃子內每檔股票一檔持倉；"
             "檔=不重複股票數。出場日仍算持倉中（收盤才賣）。"
         ),
         "skip_reason": "（槽滿/已持有）",
@@ -2516,7 +2516,7 @@ def _slots_timeline_annotations(
         <li><b>迷你曲線</b>：金=策略累計 · 灰=IX0001 同期基準 · 看是否跑贏大盤。</li>
         <li><b>槽位占用 N / {n_slots}</b>：目前有 N 批訊號正在占用資金槽（每槽 {cap} NTD）。灰格=空閒 · 藍格=占用中。槽滿時新訊號會<b>略過</b>。</li>
         <li><b>批</b>：一個訊號日執行的一次跟單（整籃 {cap} NTD 等權拆成多 leg）。</li>
-        <li><b>leg</b>：批內單一股票的一腿持倉（例：一批 5 檔 = 5 leg）。</li>
+        <li><b>leg</b>：批內單一股票的一檔持倉（例：一批 5 檔 = 5 leg）。</li>
         <li><b>檔</b>：不重複股票代號數（同批內每檔各算 1 leg，故 leg 數 ≥ 檔數）。</li>
         <li><b>出場日</b>：當日仍顯示在持倉中（收盤賣出後才釋放槽位）；圖上仍畫 RRG 軌跡。</li>
         <li><b>槽位</b>：exit 日收盤釋放。滑桿<b>藍點</b>=進場 · <b>金點</b>=出場。</li>
@@ -2559,7 +2559,7 @@ def render_l1h9_slots_timeline_html(
     flat = [(p["rs_ratio"], p["rs_momentum"]) for t in all_trajectories for p in t["points"]]
     proj = _timeline_projection(all_trajectories, highlight_ids)
     title = (
-        f"{strategy_title} · RRG 時間軸 · {len(legs)} 腿 · "
+        f"{strategy_title} · RRG 時間軸 · {len(legs)} 檔 · "
         f"{meta['n_executed']}/{meta['n_signals']} 訊號 · {date_short}"
     )
     svg = _svg_timeline_background(proj, title=title, subtitle=dates[0])
@@ -3335,7 +3335,7 @@ def render_l1h9_slots_timeline_html(
         `持倉 <b>${{active.length}}</b> leg · <b>${{seenStock.size}}</b> 檔 · ` +
         `<b>${{batches.length}}</b>/${{N_SLOTS}} 批（槽）<br/>` +
         `<span style="font-size:11px;color:#888">` +
-        `leg=每檔股票一腿 · 批=訊號日一籃 · 槽=資金池</span><br/>` +
+        `leg=每檔股票一檔持倉 · 批=訊號日一籃 · 槽=資金池</span><br/>` +
         `vs IX0001：<b style="color:${{pctColor(pf.excessPct)}}">${{fmtPct(pf.excessPct)}}</b> 超額 · 大盤 ${{fmtPct(pf.benchPct)}}`;
 
       const pills = document.getElementById('event-pills');
@@ -3359,7 +3359,7 @@ def render_l1h9_slots_timeline_html(
         chips.innerHTML = todayEntries.map(ev => {{
           const who = ev.stock_id
             ? `${{ev.stock_id}} · seg ${{(ev.seg_last ?? 0).toFixed(3)}}`
-            : `${{ev.n_legs}}腿`;
+            : `${{ev.n_legs}}檔`;
           return `<span class="chip" data-signal="${{ev.signal_date}}">` +
             `槽${{ev.slot_id + 1}} · ${{who}} · ${{holdDayLabel(ev, idx)}} ` +
             `<span style="color:${{pctColor(ev.return_pct)}}">${{fmtPct(ev.return_pct)}} 最終</span></span>`;

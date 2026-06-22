@@ -108,7 +108,7 @@ class TestRegimeDailyBriefRender(unittest.TestCase):
         md = render_regime_daily_markdown(
             copy.deepcopy(SAMPLE_SNAP), ref="2026-06-18", bench="IX0001", charts=charts
         )
-        self.assertIn("# Market structure memo · 2026-06-18", md)
+        self.assertIn("# Market environment memo · 2026-06-18", md)
         self.assertIn("Regime four-axis diagnostic", md)
         self.assertIn("## Daily synopsis", md)
         self.assertIn("**Notes**", md)
@@ -130,7 +130,7 @@ class TestRegimeDailyBrief(unittest.TestCase):
     @patch("regime_daily_brief.build_regime_snapshot", return_value=copy.deepcopy(SAMPLE_SNAP))
     @patch(
         "regime_daily_brief.render_regime_daily_markdown",
-        return_value="# Market structure memo · 2026-06-20\n",
+        return_value="# Market environment memo · 2026-06-20\n",
     )
     def test_write_reports_stays_in_temp_dir(self, _mock_render, _mock_snap, _mock_charts) -> None:
         with tempfile.TemporaryDirectory() as tmp:

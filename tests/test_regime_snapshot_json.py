@@ -6,6 +6,7 @@ import json
 import unittest
 from datetime import date
 
+from regime_charts import RRG_SCATTER_SNAPSHOT_MAX
 from regime_snapshot_json import SCHEMA_VERSION, build_regime_snapshot_json
 from stock_db import DEFAULT_DB_PATH, connect
 
@@ -33,7 +34,9 @@ class RegimeSnapshotJsonTests(unittest.TestCase):
         rrg = payload["chart_series"].get("rrg_scatter")
         if rrg:
             self.assertIn("points", rrg)
-            self.assertGreater(len(rrg["points"]), 0)
+            n_pts = len(rrg["points"])
+            self.assertGreater(n_pts, 100)
+            self.assertLessEqual(n_pts, RRG_SCATTER_SNAPSHOT_MAX)
             ranked = payload["axes"]["rrg_rotation"].get("ranked_symbols") or []
             self.assertGreater(len(ranked), 0)
         json.dumps(payload, ensure_ascii=False)

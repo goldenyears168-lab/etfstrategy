@@ -1,0 +1,45 @@
+# Order layer · 下單層（券商 API · 帳務 · 委託）
+# 密碼與 API Key 僅放 .env，勿寫入本檔
+# SDK 文件：https://www.fbs.com.tw/TradeAPI/docs/trading/quickstart
+
+version: order-v1
+layer: order
+
+broker:
+  id: fubon_neo
+  sdk_version: "2.2.8"
+  python_venv: .venv-fubon
+  python_max: "3.13"
+  wheel: CAFubon/fubon_neo-2.2.8-cp37-abi3-macosx_11_0_arm64.whl
+
+account:
+  user_id_env: FUBON_USER_ID
+  password_env: FUBON_PASSWORD
+  cert_path_env: FUBON_CERT_PATH
+  cert_password_env: FUBON_CERT_PASSWORD
+  api_key_env: FUBON_API_KEY
+  default_cert_path: CAFubon/N125801238/N125801238.pfx
+
+reports:
+  root: reports/order
+  snapshots: reports/order/snapshots
+  intents: reports/order/intents
+
+# 策略層 → 下單層契約（JSON SSOT · schema: order-intent-v1）
+# 策略腳本寫入 reports/order/intents/{strategy_id}_{as_of}.json
+# 執行：.venv-fubon/bin/python scripts/order/submit_intents.py <path> --dry-run|--submit
+intent:
+  schema_version: order-intent-v1
+  legacy_schema_versions:
+    - execution-intent-v1
+  default_dir: reports/order/intents
+
+# launchd 開盤追價（週一至五 09:00–09:04 每分鐘 · install-order-launchd.sh）
+# 需 .env：ORDER_LAUNCHD_ENABLED=1
+schedule:
+  label: com.jackm4.etf.order-chase-open
+  window: "09:00-09:04"
+  interval_minutes: 1
+  max_rounds: 5
+  chase_tag: chase_open
+  spec_file: reports/order/intents/scheduled/open_market_10000.json

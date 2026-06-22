@@ -374,7 +374,7 @@ def render_breadth_html(*, points: list[dict], monthly, events: list[dict], meta
     <h1>Market Breadth · % Above MA</h1>
     <p class="lead">
       <strong>Breadth zone</strong>（200MA 廣度區間 · 非 swing risk posture gate）·
-      對標 TradingView <code>INDEX:S5TH</code> / <code>S5FI</code> ·
+      對照 TradingView <code>INDEX:S5TH</code> / <code>S5FI</code> ·
       綠線 = % above 50 MA · 紅線 = % above 200 MA ·
       Universe {meta.get('universe_n')} 檔 · IX0001 ·
       {meta['date_start']}–{meta['date_end']} · {len(points)} 交易日

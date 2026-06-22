@@ -91,12 +91,12 @@ def main() -> int:
     parser.add_argument(
         "--compare-hypothesis",
         action="store_true",
-        help="H1 腿數假说验证（預設 L1H9）",
+        help="H1 異動檔數假說驗證（預設 L1H9）",
     )
     parser.add_argument(
         "--compare-leg-count",
         action="store_true",
-        help="僅 H1 訊號日腿數研究",
+        help="僅 H1 訊號日異動檔數研究",
     )
     parser.add_argument(
         "--strategy-id",
@@ -136,7 +136,7 @@ def main() -> int:
     parser.add_argument(
         "--analyze-l1-policy",
         action="store_true",
-        help="§11 L1-P1～P3：分桶持有政策 × 單池回收 α",
+        help="§11 L1-P1～P3：分桶持有政策 × 單池實現超額",
     )
     parser.add_argument(
         "--analyze-leg-decay",
@@ -296,7 +296,7 @@ def main() -> int:
             wr = out["win_rate_delta_pp"]
             print(
                 f"  重疊日 {out['n_overlap_days']}（{out['capture_pct']}%）· "
-                f"Δ勝台指 {wr.get('day_982a_overlap'):+} pp · "
+                f"Δ勝率 {wr.get('day_982a_overlap'):+} pp · "
                 f"Δ累計 α {out['primary_alpha_delta']:+,.0f} · "
                 f"Δ单池 α {out['secondary_alpha_delta']:+,.0f} · "
                 f"判決 {out['verdict']}"

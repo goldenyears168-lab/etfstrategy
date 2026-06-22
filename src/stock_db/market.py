@@ -176,11 +176,11 @@ def load_latest_morning_risk(
         return None
 
 
-def load_execution_tx_gap(
+def load_order_tx_gap(
     conn: sqlite3.Connection,
     trade_date: str | None = None,
 ) -> tuple[float | None, str]:
-    """執行層台指 gap：優先 morning 即時，fallback tech_risk 隔夜。"""
+    """下單層台指 gap：優先 morning 即時，fallback tech_risk 隔夜。"""
     morning = load_latest_morning_risk(conn, trade_date=trade_date)
     if morning is not None and morning["tx_gap_live_pct"] is not None:
         return float(morning["tx_gap_live_pct"]), "morning_live"

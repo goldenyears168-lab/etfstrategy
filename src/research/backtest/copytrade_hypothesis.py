@@ -1,4 +1,4 @@
-"""H1（訊號日腿數）假说验证 — Primary: skip_5_10。"""
+"""H1（訊號日異動檔數）假說驗證 — Primary: skip_5_10。"""
 
 from __future__ import annotations
 
@@ -28,12 +28,12 @@ from .copytrade_backtest import (
 
 H1_FILTER_SPECS: dict[str, tuple[str, Callable[[int], bool] | None]] = {
     "all": ("基準（無篩選）", None),
-    "only_1": ("僅 1 腿", lambda n: n == 1),
-    "only_2_4": ("2–4 腿", lambda n: 2 <= n <= 4),
-    "only_1_4": ("≤4 腿", lambda n: n <= 4),
-    "skip_5_10": ("跳過 5–10 腿", lambda n: not (5 <= n <= 10)),
-    "only_5_10": ("僅 5–10 腿（反向）", lambda n: 5 <= n <= 10),
-    "only_11plus": ("≥11 腿", lambda n: n >= 11),
+    "only_1": ("僅 1 檔異動", lambda n: n == 1),
+    "only_2_4": ("2–4 檔異動", lambda n: 2 <= n <= 4),
+    "only_1_4": ("≤4 檔異動", lambda n: n <= 4),
+    "skip_5_10": ("跳過單日 5–10 檔異動", lambda n: not (5 <= n <= 10)),
+    "only_5_10": ("僅 5–10 檔異動（反向）", lambda n: 5 <= n <= 10),
+    "only_11plus": ("≥11 檔異動", lambda n: n >= 11),
 }
 
 
@@ -245,15 +245,15 @@ def run_leg_count_filter_study(
         f"{date_cls.today().strftime('%Y%m%d')}"
     )
     conclusion = (
-        f"{strategy_id} H1 訊號日腿數研究：基準勝台指 {base['win_rate_vs_bench_pct']}%"
+        f"{strategy_id} H1 訊號日異動檔數研究：基準勝率 {base['win_rate_vs_bench_pct']}%"
         f"（{base['n_complete_days']} 日）。"
-        f"**skip_5_10**：勝台指 {primary_sum.get('win_rate_vs_bench_pct')}%"
+        f"**skip_5_10**：勝率 {primary_sum.get('win_rate_vs_bench_pct')}%"
         f"（Δ {wr_delta:+} pp · {primary_sum.get('n_complete_days')} 日），"
         f"累計 α {primary_sum.get('total_alpha_ntd'):+,.0f}"
         f"（基準 {base.get('total_alpha_ntd'):+,.0f}；"
         f"單池 {primary_sum.get('recycled_total_alpha_ntd'):+,.0f}）。"
         f"分桶對照 5-10 vs 2-4 p={contrasts['c1_5_10_vs_2_4']['p_value']}。"
-        f"**採納**（Δ勝台指>0 且累計α升）：{'是' if adopted else '否'}。"
+        f"**採納**（Δ勝率>0 且累計α升）：{'是' if adopted else '否'}。"
     )
 
     details = {
@@ -344,13 +344,13 @@ def format_leg_count_markdown(result: dict[str, object]) -> str:
     contrasts = result["contrasts"]
     wr_d = result["win_rate_delta_pp"]
     lines = [
-        f"# 00981A H1 訊號日腿數研究",
+        f"# 00981A H1 訊號日異動檔數研究",
         "",
         f"> batch `{result['batch_id']}` · 策略 {result['strategy_id']}",
         "",
         "## Phase 0：分桶描述（基準 L1H9）",
         "",
-        "| bucket | n 日 | 勝台指% | 均 α | 累計 α | 均超額% |",
+        "| bucket | n 日 | 勝率% | 均 α | 累計 α | 均超額% |",
         "|--------|------|---------|------|--------|---------|",
     ]
     for b in buckets:
@@ -368,7 +368,7 @@ def format_leg_count_markdown(result: dict[str, object]) -> str:
             "",
             "## 篩選器回測（訊號日層 · 整日保留/跳過）",
             "",
-            "| filter | 訊號日 | legs | 勝台指% | Δ vs 基準 | 累計α | 單池回收α |",
+            "| filter | 訊號日 | 異動檔數 | 勝率% | Δ vs 基準 | 累計α | 單池實現超額 |",
             "|--------|--------|------|---------|-----------|-------|-----------|",
         ]
     )

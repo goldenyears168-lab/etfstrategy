@@ -14,7 +14,14 @@ outputs:
   - reports/daily/etf-daily/daily_brief.md
   - reports/daily/regime/daily_brief.md
   - reports/daily/{date}_etf_daily.md
+  - reports/daily/{date}_rrg_mono_daily.md
+  - reports/daily/rrg_mono_daily.md
+  - reports/daily/{date}_vcp_funnel_specs_daily_brief.md
+  - reports/daily/vcp_funnel_specs_daily_brief.md
   - data/stocks.db
+  - data/stocks.db · rrg_universe_scores（screen_kind=close）
+  - data/stocks.db · stock_daily_lens · lens_daily_alert
+  - stock_research.stock_daily_lens · lens_daily_alert（Supabase · RUN_SUPABASE_LENS_SYNC=1）
 
 phases:
   - id: ingest_market
@@ -75,9 +82,31 @@ phases:
         runner: timed_pipe
         fail_kind: aux
 
+      - id: rrg_universe_close
+        label: RRG universe close snapshot (per-stock SQLite + Supabase)
+        module: src/rrg_universe_snapshot.py
+        run_script: scripts/run_rrg_universe_close.py
+        env_flag: RUN_RRG_UNIVERSE_CLOSE
+        env_default: "1"
+        requires:
+          - constituent stock_daily_bars for as_of（建議 RUN_STOCK_MARKET_SYNC=1）
+        fail_kind: aux
+
+      - id: rrg_mono_daily
+        label: RRG mono daily brief + slot confirm（併入 16:30 daily_sync）
+        module: src/rrg_mono_daily_brief.py
+        run_script: scripts/run_rrg_mono_daily_brief.py
+        env_flag: RUN_RRG_MONO_DAILY
+        env_default: "1"
+        fail_kind: aux
+
       - id: etf_daily_report
         label: ETF 日報 write + terminal summary
         module: src/etf_daily_report.py
+
+      - id: copytrade_l1h9_screen
+        label: 00981A L1H9 daily screen brief
+        module: src/copytrade_l1h9_daily.py
         runner: timed_pipe
         fail_kind: aux
 
@@ -85,6 +114,29 @@ phases:
         label: Regime four-axis diagnostic daily brief
         module: src/regime_daily_brief.py
         runner: timed_pipe
+        fail_kind: aux
+
+      - id: vcp_funnel_close
+        label: VCP funnel close screen + Pivot Gate / Coil Close brief
+        module: src/vcp_funnel_specs_daily.py
+        run_script: scripts/run_vcp_funnel_close.py
+        env_flag: RUN_VCP_FUNNEL_CLOSE
+        env_default: "1"
+        requires:
+          - constituent stock_daily_bars for as_of（建議 RUN_STOCK_MARKET_SYNC=1）
+        fail_kind: aux
+
+      - id: stock_daily_lens
+        label: cross-layer lens + delta + convergence → Supabase
+        module: src/stock_daily_lens.py
+        run_script: scripts/run_stock_daily_lens.py
+        env_flag: RUN_STOCK_DAILY_LENS
+        env_default: "1"
+        requires:
+          - etf_daily_report
+          - regime_daily_brief
+          - rrg_universe_close
+          - vcp_funnel_close
         fail_kind: aux
 
   - id: human_digest

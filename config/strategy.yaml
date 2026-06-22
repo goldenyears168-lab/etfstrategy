@@ -51,9 +51,8 @@ strategies:
   rrg-mono-hold7:
     title: RRG mono · seg_last · 3-slot hold7
     kind: competition
-    schedule: launchd
-    launchd_label: com.jackm4.etf.rrg-mono-scan
-    schedule_time: "16:40 Asia/Taipei Mon-Fri"
+    schedule: daily_sync
+    schedule_time: "16:30 Asia/Taipei Mon-Fri"
     enabled: false
     n_slots: 3
     hold_days: 7
@@ -61,7 +60,7 @@ strategies:
     backtest_module: rrg_mono_backtest
     run_script: scripts/run_rrg_mono_daily_brief.py
     description: >
-      RRG mono fresh · seg_last · 3 槽 hold7 · 獨立 launchd 16:40。
+      RRG mono fresh · seg_last · 3 槽 hold7 · 併入 daily_sync 16:30（原 16:40 launchd 已退役）。
     backtest:
       spec_type: slot_strategy_backtest
       source_module: rrg_mono_backtest

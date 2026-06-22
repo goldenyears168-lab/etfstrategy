@@ -4,6 +4,7 @@
 #   2. EZMoney / 凱基 / 群益 / 野村官網持股 → etf_holdings
 #   3. TSM ADR / SOX / 台指期 gap → tech_risk_daily_snapshot
 #   4. 持股 changes + 跨 ETF 共識（≥2 snapshot_date）
+#   5. 16:30 尾段：stock_daily_lens + lens_daily_alert → Supabase（RUN_STOCK_DAILY_LENS）
 # 選用：ENABLE_FINMIND_SIGNAL=1 才跑法人（需 FinMind 權限；403 時請勿開啟）
 
 set -euo pipefail
@@ -317,6 +318,17 @@ if [[ "$MARKET" -eq 1 ]]; then
     --sync-db
 fi
 
+# --holdings-only（16:30 收盤）仍須刷新 TEJ 日線，否則 trade_date 卡在上一個交易日
+if [[ "$HOLDINGS" -eq 1 && "$MARKET" -eq 0 ]]; then
+  run_step_optional "core market (TEJ close refresh)" \
+    "$PYTHON" "${SRC}/query_stock_prices.py" \
+    "${PYTHON_QUIET[@]}" \
+    --sync-db --sync-mode hybrid \
+    --benchmark-codes "$BENCHMARK_CODES" \
+    --etf-codes "$ETF_CODES" \
+    --history-days 90
+fi
+
 if [[ "$HOLDINGS" -eq 1 ]]; then
   run_step "ETF holdings EZMoney (2)" \
     "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
@@ -350,6 +362,22 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   else
     log_line "--- constituent stock market (FinMind) ---"
     log_line "  SKIP（RUN_STOCK_MARKET_SYNC=0；設 1 啟用成分股價+法人）"
+  fi
+
+  if [[ "${RUN_RRG_UNIVERSE_CLOSE:-1}" != "0" ]]; then
+    run_step_optional "RRG universe close snapshot" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_universe_close.py" || true
+  else
+    log_line "--- RRG universe close snapshot ---"
+    log_line "  SKIP（RUN_RRG_UNIVERSE_CLOSE=0）"
+  fi
+
+  if [[ "${RUN_RRG_MONO_DAILY:-1}" != "0" ]]; then
+    run_step_optional "RRG mono daily brief + slot confirm" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_mono_daily_brief.py" || true
+  else
+    log_line "--- RRG mono daily brief + slot confirm ---"
+    log_line "  SKIP（RUN_RRG_MONO_DAILY=0）"
   fi
 
   if [[ "${RUN_CHIP_SYNC:-0}" == "1" ]]; then
@@ -389,6 +417,16 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   run_timed_pipe "ETF 日報" \
     "${ETF_DAILY_ARGS[@]}" || true
 
+  COPYTRADE_ARGS=(
+    "$PYTHON" "${SRC}/copytrade_l1h9_daily.py"
+    --write-reports
+  )
+  if [[ "$QUIET" -eq 1 ]]; then
+    COPYTRADE_ARGS+=(--quiet)
+  fi
+  run_step_optional "00981A 跟單 L1H9 篩選" \
+    "${COPYTRADE_ARGS[@]}" || true
+
   REGIME_ARGS=(
     "$PYTHON" "${SRC}/regime_daily_brief.py"
     --write-reports
@@ -400,6 +438,32 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   fi
   run_step_optional "Regime four-axis diagnostic" \
     "${REGIME_ARGS[@]}" || true
+
+  if [[ "${RUN_VCP_FUNNEL_CLOSE:-1}" != "0" ]]; then
+    run_step_optional "VCP funnel close screen + brief" \
+      "$PYTHON" "${ROOT}/scripts/run_vcp_funnel_close.py" || true
+  else
+    log_line "--- VCP funnel close screen + brief ---"
+    log_line "  SKIP（RUN_VCP_FUNNEL_CLOSE=0）"
+  fi
+
+  if [[ "${RUN_STOCK_DAILY_LENS:-1}" != "0" ]]; then
+    run_step_optional "stock_daily_lens + lens_daily_alert" \
+      "$PYTHON" "${ROOT}/scripts/run_stock_daily_lens.py" || true
+  else
+    log_line "--- stock_daily_lens ---"
+    log_line "  SKIP（RUN_STOCK_DAILY_LENS=0）"
+  fi
+
+  if [[ "${RUN_SUPABASE_RESEARCH_SYNC:-0}" == "1" ]]; then
+    run_step_optional "Supabase research sync (1300 briefs · VCP close)" \
+      "${ROOT}/scripts/research_supabase_sync.sh" 1300 || true
+    run_step_optional "Supabase research sync (1630 briefs)" \
+      "${ROOT}/scripts/research_supabase_sync.sh" 1630 || true
+  else
+    log_line "--- Supabase research sync (1300 / 1630) ---"
+    log_line "  SKIP（RUN_SUPABASE_RESEARCH_SYNC=0）"
+  fi
 fi
 
 if [[ "$SHOW_REPORT" -eq 1 ]]; then

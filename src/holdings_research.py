@@ -5,7 +5,11 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
-from stock_db import compute_etf_holdings_changes, list_etf_snapshot_dates
+from stock_db import (
+    compute_etf_holdings_changes,
+    list_etf_snapshot_dates,
+    normalize_stock_name,
+)
 
 ADD_ACTIONS = frozenset({"新进", "加码"})
 REDUCE_ACTIONS = frozenset({"减码", "出清"})
@@ -327,12 +331,13 @@ def build_cross_etf_consensus(
         rows = compute_etf_holdings_changes(conn, etf_code, curr, prev)
         for row in rows:
             sid = row["stock_id"]
+            stock_name = normalize_stock_name(row["stock_name"])
             entry = by_stock.setdefault(
                 sid,
-                ConsensusStock(stock_id=sid, stock_name=row["stock_name"] or ""),
+                ConsensusStock(stock_id=sid, stock_name=stock_name),
             )
-            if row["stock_name"] and not entry.stock_name:
-                entry.stock_name = row["stock_name"]
+            if stock_name and not entry.stock_name:
+                entry.stock_name = stock_name
             anchor_by_stock.setdefault(sid, prev)
             action = row["action"]
             delta = float(row["share_delta"] or 0)
@@ -402,7 +407,7 @@ def holdings_change_row_to_dict(
     """單檔持股變化 → JSON 列（股數變化 / 權重變化 / 資金流）。"""
     return {
         "stock_id": row["stock_id"],
-        "stock_name": row["stock_name"],
+        "stock_name": normalize_stock_name(row["stock_name"]),
         "action": row["action"],
         "share_delta": row["share_delta"],
         "weight_delta_pp": row["weight_delta"],

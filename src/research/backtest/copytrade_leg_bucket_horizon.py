@@ -148,7 +148,7 @@ def evaluate_l1_f1(
     candidate_h: int = 20,
     target_bucket: str = "5-10",
 ) -> dict[str, object]:
-    """L1-F1：5–10 桶延長 H 是否優於 H9（配對同日 α / 勝台指）。"""
+    """L1-F1：5–10 桶延長 H 是否優於 H9（配對同日 α / 勝率）。"""
     base = _day_alpha_map(
         conn, baseline_h, matrix_batch=matrix_batch, extended_batch=extended_batch
     )
@@ -188,7 +188,7 @@ def evaluate_l1_f1(
     cand_win = sum(1 for a in cand_alphas if a > 0)
     n = len(subset)
 
-    # 成功門檻（§11）：候選 H 累計 α 升且勝台指率升
+    # 成功門檻（§11）：候選 H 累計 α 升且勝率升
     cum_improved = sum(cand_alphas) > sum(base_alphas)
     win_improved = cand_win > base_win
     adopted = cum_improved and win_improved and (paired.get("p_value_wilcoxon") or 1) < 0.05
@@ -536,7 +536,7 @@ def run_l1_h3_study(
     return {"batch_id": study_batch, "l1_h3": result}
 
 
-# --- L1-P1～P3：分桶持有政策 × 單池回收 α ---
+# --- L1-P1～P3：分桶持有政策 × 單池實現超額 ---
 
 DEFAULT_PER_SIGNAL_NTD = 10_000.0
 DEFAULT_POLICY_SLOTS = 9  # 9 萬 / 1 萬
@@ -770,9 +770,9 @@ def format_l1_policy_markdown(result: dict[str, object], *, slots_result: dict[s
         f"**判決**：`{result['verdict']}` · "
         f"單池最佳：**{result['best_recycled_policy_id']}**",
         "",
-        "## 結果（Primary 累計 α · Secondary 單池回收 α）",
+        "## 結果（Primary 累計 α · Secondary 單池實現超額）",
         "",
-        "| 政策 | n | 累計 α | 單池回收 α | 輪動次數 | 捕獲% | 勝台指% | Δ回收 vs P1 |",
+        "| 政策 | n | 累計 α | 單池實現超額 | 輪動次數 | 捕獲% | 勝率% | Δ實現超額 vs P1 |",
         "|------|---|--------|------------|----------|-------|---------|-------------|",
     ]
     for r in result["policies"]:
@@ -794,7 +794,7 @@ def format_l1_policy_markdown(result: dict[str, object], *, slots_result: dict[s
                 f"## 9 槽對照（{DEFAULT_POLICY_SLOTS} × {result['per_signal_ntd']:,.0f} = "
                 f"{DEFAULT_POLICY_SLOTS * float(result['per_signal_ntd']):,.0f} NTD）",
                 "",
-                "| 政策 | 單池回收 α | 9 槽回收 α | Δ vs P1 | 捕獲% |",
+                "| 政策 | 單池實現超額 | 9 槽實現超額 | Δ vs P1 | 捕獲% |",
                 "|------|------------|------------|---------|-------|",
             ]
         )
@@ -820,11 +820,11 @@ def format_l1_policy_markdown(result: dict[str, object], *, slots_result: dict[s
             "## 解讀",
             "",
             "- **Primary**（累計 α）：假設每訊號日各 1 萬、持倉可重疊（無資金約束）。",
-            "- **Secondary**（單池回收 α）：上一筆 exit 前不接新訊號；延長 H 會降捕獲率。",
-            "- P2 若單池回收 α > P1 → L1-F1 在實盤資金約束下仍值得做。",
-            "- **若 P2 單池回收 α < P1**：延長 H 的 Primary α 增益被 **捕獲率下降** 抵消；需額外槽位（見 9 槽表）。",
-            "- P3_sweet 用 H27 等長持，捕獲率通常更低；看回收 α 是否仍勝 P1。",
-            "- P4 僅提勝率時參考；單池回收 α 多數低於 P1/P2。",
+            "- **Secondary**（單池實現超額）：上一筆 exit 前不接新訊號；延長 H 會降捕獲率。",
+            "- P2 若單池實現超額 > P1 → L1-F1 在實盤資金約束下仍值得做。",
+            "- **若 P2 單池實現超額 < P1**：延長 H 的 Primary α 增益被 **捕獲率下降** 抵消；需額外槽位（見 9 槽表）。",
+            "- P3_sweet 用 H27 等長持，捕獲率通常更低；看實現超額 是否仍勝 P1。",
+            "- P4 僅提勝率時參考；單池實現超額 多數低於 P1/P2。",
             "",
             "```bash",
             "PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \\",
@@ -890,7 +890,7 @@ def run_l1_policy_study(
                     "metric_value": best["recycled_total_alpha_ntd"],
                     "conclusion_zh": (
                         f"L1 政策模擬（單池）：最佳 {single['best_recycled_policy_id']} "
-                        f"回收 α {best['recycled_total_alpha_ntd']:+,.0f} · "
+                        f"實現超額 {best['recycled_total_alpha_ntd']:+,.0f} · "
                         f"P2 vs P1 Δ {next(r for r in single['policies'] if r['policy_id']=='P2_extend_5_10')['delta_recycled_vs_p1']:+,.0f} · "
                         f"→ **{single['verdict']}**。"
                     ),
@@ -928,7 +928,7 @@ def format_leg_bucket_horizon_markdown(
         "",
         "## L1-F1 假說檢定",
         "",
-        "**H0**：5–10 leg 日延長持有（H20）不能同時提升累計 α 與勝台指率（相對 H9）。",
+        "**H0**：5–10 leg 日延長持有（H20）不能同時提升累計 α 與勝率（相對 H9）。",
         "**Ha**：延長 H 優於 skip 5–10 日（H9 基準）。",
         "",
         "| 指標 | H9（5–10 桶） | H20（5–10 桶） | Δ |",
@@ -937,7 +937,7 @@ def format_leg_bucket_horizon_markdown(
         f"| 累計 α | {l1_f1.get('cum_alpha_baseline'):+,.0f} | "
         f"{l1_f1.get('cum_alpha_candidate'):+,.0f} | "
         f"{l1_f1.get('cum_alpha_delta'):+,.0f} |",
-        f"| 勝台指% | {l1_f1.get('win_rate_baseline_pct')}% | "
+        f"| 勝率% | {l1_f1.get('win_rate_baseline_pct')}% | "
         f"{l1_f1.get('win_rate_candidate_pct')}% | "
         f"{l1_f1.get('win_rate_delta_pp'):+.2f} pp |",
         f"| mean excess% | {l1_f1.get('mean_excess_baseline_pct')} | "
@@ -964,7 +964,7 @@ def format_leg_bucket_horizon_markdown(
         if not rows:
             continue
         lines.extend(["", f"## 桶 `{bucket}` × H", ""])
-        lines.append("| H | n | 勝台指% | 累計 α | mean excess% | Δ累計 α | p(W) |")
+        lines.append("| H | n | 勝率% | 累計 α | mean excess% | Δ累計 α | p(W) |")
         lines.append("|---|-----|---------|--------|--------------|---------|------|")
         for r in sorted(rows, key=lambda x: int(x["horizon"])):
             p = r["p_value_wilcoxon"]
@@ -983,7 +983,7 @@ def format_leg_bucket_horizon_markdown(
             "## 解讀",
             "",
             "- **5–10 桶 @ H9** 為 α 黑洞（累計 ≈0）；**@ H20** 轉正 → 支持「延長 H」方向。",
-            "- 若 L1-F1 未達採納門檻，實盤仍可用 **H1 skip_5_10 提勝率**（§10.2），但單池回收 α 可能降。",
+            "- 若 L1-F1 未達採納門檻，實盤仍可用 **H1 skip_5_10 提勝率**（§10.2），但單池實現超額 可能降。",
             "- 桶內 n 小時（尤其 `1` 桶）Wilcoxon 檢定力不足，以趨勢為主。",
             "",
             "```bash",
@@ -1030,7 +1030,7 @@ def run_leg_bucket_horizon_study(
         persist_copytrade_regime_horizon(conn, study_batch, summary_rows)
         verdict_zh = (
             f"L1-F1（5–10 桶 × H）：H9 cum α {l1_f1['cum_alpha_baseline']:+,.0f} "
-            f"勝台指 {l1_f1['win_rate_baseline_pct']}% → H20 "
+            f"勝率 {l1_f1['win_rate_baseline_pct']}% → H20 "
             f"{l1_f1['cum_alpha_candidate']:+,.0f} / {l1_f1['win_rate_candidate_pct']}% "
             f"(Δα {l1_f1['cum_alpha_delta']:+,.0f} · Δ勝率 {l1_f1['win_rate_delta_pp']:+.2f}pp · "
             f"p={l1_f1['paired_p_wilcoxon']}) → **{l1_f1['verdict']}**。"

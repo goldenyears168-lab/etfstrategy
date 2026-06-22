@@ -22,7 +22,7 @@ Data / Ingest（infra · sync_* → stocks.db）
 
 | Canonical term | 中文 | 輸出 |
 |----------------|------|------|
-| **Trend posture** | 趨勢姿態 | `broadening` / `concentration` / … |
+| **Trend posture** | Weinstein 階段 | `broadening` / `concentration` / … |
 | **Breadth zone** | 廣度區間 | `oversold` … `overbought` |
 
 > 口語「強勢／過熱」若指 **200MA 廣度五格**，必寫 **Breadth zone**。
@@ -88,7 +88,7 @@ Copytrade 採納規格：**L1H9** · [00981a-copytrade-research-methodology.md](
 
 - **`00981a-copytrade-l1`** track 殼（改 **`00981a-l1h9` / L1H9**）
 - **`00981a-v9-hybrid`** · **`qlib-tw-factor`**
-- **Swing 軌** · **E0 執行層**
+- **Swing 軌** · **E0 執行軌**（現行下單層見 `src/order/` · `config/order.yaml`）
 - **Multi-track digest** · **`track_evaluation`** · **`evaluation_contract.yaml`**
 
 Copytrade 研究保留：`scripts/run_00981a_copytrade_backtest.py` · [00981a-copytrade-research-methodology.md](./00981a-copytrade-research-methodology.md)

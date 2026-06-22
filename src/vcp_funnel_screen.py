@@ -162,10 +162,103 @@ class VcpFunnelEval:
     extras: dict[str, float | str | bool | None] = field(default_factory=dict)
 
 
-def _load_benchmark_df(conn: sqlite3.Connection, *, as_of_date: str | None = None) -> object:
-    bench_rows = load_tej_daily_bars(
-        conn, BENCHMARK_CODE, limit=BAR_LOOKBACK, as_of_date=as_of_date
+def _tick_float(row: dict, *keys: str) -> float | None:
+    for key in keys:
+        val = row.get(key)
+        if val is not None:
+            try:
+                f = float(val)
+                if f > 0:
+                    return f
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _bar_dict(
+    trade_date: str,
+    *,
+    close: float,
+    open_: float | None = None,
+    high: float | None = None,
+    low: float | None = None,
+    volume: int = 0,
+) -> dict[str, object]:
+    o = open_ if open_ is not None else close
+    h = high if high is not None else max(o, close)
+    l = low if low is not None else min(o, close)
+    return {
+        "trade_date": trade_date,
+        "open": o,
+        "high": h,
+        "low": l,
+        "close": close,
+        "volume": volume,
+    }
+
+
+def _overlay_session_bar(
+    rows: list,
+    session_date: str,
+    tick: dict | None,
+    *,
+    fallback_close: float | None = None,
+) -> list | None:
+    """在 DESC 日 K 前插入 session_date provisional bar（盤中 tick）。"""
+    if not rows and fallback_close is None and (tick is None or _tick_float(tick, "close", "Close", "deal_price", "price") is None):
+        return None
+    price: float | None = None
+    open_: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume = 0
+    if tick is not None:
+        price = _tick_float(tick, "close", "Close", "deal_price", "price")
+        open_ = _tick_float(tick, "open", "Open")
+        high = _tick_float(tick, "high", "High", "max")
+        low = _tick_float(tick, "low", "Low", "min")
+        vol_raw = tick.get("volume") if tick.get("volume") is not None else tick.get("Volume")
+        if vol_raw is not None:
+            try:
+                volume = int(float(vol_raw))
+            except (TypeError, ValueError):
+                volume = 0
+    if price is None:
+        price = fallback_close
+    if price is None or price <= 0:
+        return None
+    filtered = [r for r in rows if str(r["trade_date"]) != session_date]
+    prev_close = float(filtered[0]["close"]) if filtered else price
+    new_bar = _bar_dict(
+        session_date,
+        close=price,
+        open_=open_ if open_ is not None else prev_close,
+        high=high,
+        low=low,
+        volume=volume,
     )
+    return [new_bar, *[dict(r) for r in filtered]]
+
+
+def _load_benchmark_df(
+    conn: sqlite3.Connection,
+    *,
+    as_of_date: str | None = None,
+    session_date: str | None = None,
+    bench_session_price: float | None = None,
+) -> object:
+    bench_rows = list(
+        load_tej_daily_bars(conn, BENCHMARK_CODE, limit=BAR_LOOKBACK, as_of_date=as_of_date)
+    )
+    if session_date and as_of_date == session_date:
+        overlaid = _overlay_session_bar(
+            bench_rows,
+            session_date,
+            None,
+            fallback_close=bench_session_price,
+        )
+        if overlaid is not None:
+            return rows_to_ohlcv_df(overlaid)
     return rows_to_ohlcv_df(bench_rows)
 
 
@@ -508,11 +601,19 @@ def run_vcp_funnel_screen(
     as_of_date: str | None = None,
     persist: bool = True,
     replace_day: bool = True,
+    session_ticks: dict[str, dict] | None = None,
+    bench_session_price: float | None = None,
 ) -> tuple[str, list[VcpFunnelEval], dict[str, int], VcpFunnelParams]:
     cfg = params or load_vcp_funnel_params()
     watchlist = load_etf_constituent_watchlist(conn, etf_codes)
     name_by_id = {w["stock_id"]: w.get("stock_name", "") for w in watchlist}
-    benchmark_df = _load_benchmark_df(conn, as_of_date=as_of_date)
+    intraday = session_ticks is not None and as_of_date is not None
+    benchmark_df = _load_benchmark_df(
+        conn,
+        as_of_date=as_of_date,
+        session_date=as_of_date if intraday else None,
+        bench_session_price=bench_session_price if intraday else None,
+    )
     market_ok = bool(calculate_simple_trend(benchmark_df)["passed"]) if not benchmark_df.empty else False
 
     stock_dfs: dict[str, object] = {}
@@ -521,10 +622,18 @@ def run_vcp_funnel_screen(
 
     for w in watchlist:
         sid = w["stock_id"]
-        rows = load_daily_bars(conn, sid, limit=BAR_LOOKBACK, as_of_date=as_of_date)
+        rows = list(load_daily_bars(conn, sid, limit=BAR_LOOKBACK, as_of_date=as_of_date))
         if len(rows) < MIN_BARS:
             continue
-        if as_of_date and str(rows[0]["trade_date"]) != as_of_date:
+        if intraday:
+            tick = session_ticks.get(sid)
+            if tick is None:
+                continue
+            overlaid = _overlay_session_bar(rows, as_of_date, tick)
+            if overlaid is None:
+                continue
+            rows = overlaid
+        elif as_of_date and str(rows[0]["trade_date"]) != as_of_date:
             continue
         stock_df = rows_to_ohlcv_df(rows)
         if stock_df.empty:
@@ -594,44 +703,47 @@ def run_vcp_funnel_screen(
     finalists = [c for c in final_results if c.layers_passed >= 7]
     finalists.sort(key=lambda x: x.funnel_score, reverse=True)
 
-    if as_of and finalists and persist:
+    if as_of and persist:
         if replace_day:
             delete_vcp_screen_scores_v2_for_date(conn, as_of, model_id=model_id)
-        upsert_vcp_screen_scores_v2(
-            conn,
-            [
-                {
-                    "stock_id": e.stock_id,
-                    "as_of_date": e.as_of_date,
-                    "model_id": model_id,
-                    "stock_name": e.stock_name,
-                    "composite_score": e.funnel_score,
-                    "rating": e.quality,
-                    "execution_state": str(e.extras.get("execution_state") or "Pre-breakout"),
-                    "entry_ready": 1 if e.extras.get("entry_ready") else 0,
-                    "pattern_type": str(e.extras.get("pattern_type") or "VCP-adjacent"),
-                    "pivot_price": e.pivot_price,
-                    "distance_from_pivot_pct": e.dist_pivot_pct,
-                    "stop_loss": e.stop_loss,
-                    "risk_pct": e.risk_pct,
-                    "valid_vcp": 1,
-                    "metadata_json": json.dumps(
-                        {
-                            "layers_passed": e.layers_passed,
-                            "final_layer": e.final_layer,
-                            "reject_layer": e.reject_layer,
-                            "reject_reason": e.reject_reason,
-                            "quality": e.quality,
-                            "theme": e.theme,
-                            "sector": e.sector,
-                            **e.extras,
-                        },
-                        ensure_ascii=False,
-                    ),
-                }
-                for e in finalists
-            ],
-        )
+        if finalists:
+            screen_kind = "intraday" if intraday else "close"
+            upsert_vcp_screen_scores_v2(
+                conn,
+                [
+                    {
+                        "stock_id": e.stock_id,
+                        "as_of_date": e.as_of_date,
+                        "model_id": model_id,
+                        "stock_name": e.stock_name,
+                        "composite_score": e.funnel_score,
+                        "rating": e.quality,
+                        "execution_state": str(e.extras.get("execution_state") or "Pre-breakout"),
+                        "entry_ready": 1 if e.extras.get("entry_ready") else 0,
+                        "pattern_type": str(e.extras.get("pattern_type") or "VCP-adjacent"),
+                        "pivot_price": e.pivot_price,
+                        "distance_from_pivot_pct": e.dist_pivot_pct,
+                        "stop_loss": e.stop_loss,
+                        "risk_pct": e.risk_pct,
+                        "valid_vcp": 1,
+                        "metadata_json": json.dumps(
+                            {
+                                "screen_kind": screen_kind,
+                                "layers_passed": e.layers_passed,
+                                "final_layer": e.final_layer,
+                                "reject_layer": e.reject_layer,
+                                "reject_reason": e.reject_reason,
+                                "quality": e.quality,
+                                "theme": e.theme,
+                                "sector": e.sector,
+                                **e.extras,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                    for e in finalists
+                ],
+            )
 
     return as_of or "", final_results, layer_counts, cfg
 

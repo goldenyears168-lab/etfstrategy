@@ -4,16 +4,16 @@ from __future__ import annotations
 
 # 專案產品名僅在報告開頭出現一次
 PRODUCT_LAYER_ONCE = (
-    "專案層：**Regime four-axis diagnostic（四軸體制診斷）** · "
+    "專案層：**Regime four-axis diagnostic（四軸市場環境）** · "
     "本 memo 整合下列作者方法之每日快照；非 live gate、非 alpha、非策略績效。"
 )
 
-BRIEF_TITLE_PREFIX = "Market structure memo"
-BRIEF_TITLE_ZH = "市場結構日報"
+BRIEF_TITLE_PREFIX = "Market environment memo"
+BRIEF_TITLE_ZH = "市場環境日報"
 BRIEF_LEAD = "Weinstein · Minervini · Kempenaer RRG · Zweig / Deemer breadth"
 
 SEC_SYNOPSIS = "Daily synopsis（每日摘要）"
-SEC_BREADTH = "1 · Breadth axis · Level / Rhythm / Impulse"
+SEC_BREADTH = "1 · Market breadth（市場廣度）· Level / Rhythm / Impulse"
 SEC_BREADTH_LEVEL = "1A · Breadth level · % Above MA"
 SEC_BREADTH_RHYTHM = "1B · Zweig EMA rhythm tier"
 SEC_BREADTH_IMPULSE = "1C · Breadth impulse · Zweig thrust / Deemer BAM"
@@ -74,7 +74,7 @@ GUIDE_SYNOPSIS = (
 )
 
 GUIDE_BREADTH = (
-    "**Breadth axis** 分三層（皆為 Regime 診斷 · 非 Strategy overlay）："
+    "**Market breadth（市場廣度）** 分三層（皆為 Regime 診斷 · 非 Strategy overlay）："
     "\n\n"
     "**1A Level · % above MA**（Deemer 系統計）：50-day / 200-day MA 上方占比。"
     "\n\n"

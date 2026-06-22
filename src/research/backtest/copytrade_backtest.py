@@ -1001,7 +1001,7 @@ def run_allocation_comparison(
         f"{strategy_id}：等權 vs 按 weight_pct 配置（總資金 {capital_ntd:,.0f} NTD/訊號）。"
         f"無約束累計 α：等權 {eq_sum['total_alpha_ntd']:+,.0f}、"
         f"按比例 {wt_sum['total_alpha_ntd']:+,.0f}（差 {alpha_diff:+,.0f}）。"
-        f"單池回收 α：等權 {eq_sum['recycled_total_alpha_ntd']:+,.0f}、"
+        f"單池實現超額：等權 {eq_sum['recycled_total_alpha_ntd']:+,.0f}、"
         f"按比例 {wt_sum['recycled_total_alpha_ntd']:+,.0f}（差 {recycled_diff:+,.0f}）。"
         f"配對檢定（weight−equal 日均超額%）：p(W)={p_w} → **{sig_label}**。"
         f"多檔訊號日 {eq_sum['n_multi_leg_days']}/{eq_sum['n_complete_days']}。"
@@ -1507,7 +1507,7 @@ def simulate_capital_recycling(
     capital_ntd: float = DEFAULT_SIGNAL_CAPITAL_NTD,
 ) -> dict[str, float | int | None]:
     """單池輪動：上一筆 exit 前不接新訊號。"""
-    _ = capital_ntd  # 每訊號部署固定；回收 α 直接加總
+    _ = capital_ntd  # 每訊號部署固定；實現超額 直接加總
     days = _complete_signal_days(signal_days)
     n_signals = len(days)
     if not days:
@@ -1767,7 +1767,7 @@ def format_rotation_capital_markdown(
         "",
         "## 模型",
         "",
-        f"总本金固定 **{total_capital_ntd:,.0f} NTD**，持有 **H** 个交易日卖出：",
+        f"總本金固定 **{total_capital_ntd:,.0f} NTD**，持有 **H** 个交易日卖出：",
         "",
         "- 槽位数 = **H**（H 日轮动）",
         f"- 每讯号部署 = **{total_capital_ntd:,.0f} / H**",
@@ -1780,17 +1780,17 @@ def format_rotation_capital_markdown(
     eff_row = next((r for r in sub if int(r["horizon"]) == eff_h), sub[0])
     lines.extend(
         [
-            f"- **总回收 α 最大**：**H{sweet_h}** · 回收 "
+            f"- **總實現超額 最大**：**H{sweet_h}** · 實現超額 "
             f"**{sweet_row['recycled_total_alpha_ntd']:+,.0f} NTD** · "
             f"每日 {sweet_row['per_signal_ntd']:,.0f} · "
-            f"捕获 {sweet_row['signal_capture_pct']:.1f}%",
-            f"- **α/锁仓日最高**：**H{eff_h}** · "
+            f"捕獲 {sweet_row['signal_capture_pct']:.1f}%",
+            f"- **α/鎖倉日最高**：**H{eff_h}** · "
             f"{eff_row['alpha_per_locked_day']:.2f} NTD/日",
             f"- **本金收益率最高**：**H{int(best_yield['horizon'])}** · "
             f"{best_yield['alpha_yield_on_capital_pct']:.2f}% "
-            f"（回收 α / {total_capital_ntd:,.0f}）",
+            f"（實現超額 / {total_capital_ntd:,.0f}）",
             "",
-            "| H | 每日部署 | 回收 α | 轮数 | 捕获% | α/锁仓日 | 本金收益率% |",
+            "| H | 每日部署 | 實現超額 | 成交筆數 | 捕獲% | α/鎖倉日 | 本金收益率% |",
             "|---|---------|--------|------|-------|---------|------------|",
         ]
     )
@@ -1814,18 +1814,18 @@ def format_rotation_capital_markdown(
         lines.append("")
         lines.append(
             f"- **H9（九日轮动 · 每日 {h9['per_signal_ntd']:,.0f}）**："
-            f"回收 {h9['recycled_total_alpha_ntd']:+,.0f}、"
-            f"捕获 {h9['signal_capture_pct']:.1f}%。"
+            f"實現超額 {h9['recycled_total_alpha_ntd']:+,.0f}、"
+            f"捕獲 {h9['signal_capture_pct']:.1f}%。"
         )
         if h10:
             lines.append(
                 f"- **H10（十日轮动 · 每日 {h10['per_signal_ntd']:,.0f}）**："
-                f"回收 {h10['recycled_total_alpha_ntd']:+,.0f}、"
-                f"捕获 {h10['signal_capture_pct']:.1f}%。"
+                f"實現超額 {h10['recycled_total_alpha_ntd']:+,.0f}、"
+                f"捕獲 {h10['signal_capture_pct']:.1f}%。"
             )
         lines.append(
-            f"- 本样本在 **H{sweet_h}** 达总回收峰值；"
-            "若优先每天跟满讯号，选捕获率 100% 的最短 H；"
+            f"- 本樣本在 **H{sweet_h}** 達總實現超額峰值；"
+            "若优先每天跟满讯号，选捕獲率 100% 的最短 H；"
             "若优先绝对 α 可接受漏单。"
         )
         lines.append("")
@@ -1859,11 +1859,11 @@ def format_fixed_capital_horizon_markdown(
         "",
         "| 模型 | 本金 | 行為 | 選 H 指標 |",
         "|------|------|------|-----------|",
-        "| **A 单池** | 1 万 | 一笔轮动，重叠跳过 | `recycled_total_alpha_ntd` |",
+        "| **A 单池** | 1 萬 | 一笔轮动，重叠跳过 | `recycled_total_alpha_ntd` |",
         f"| **B 固定槽** | {capital_ntd:,.0f}（{slot_n} 槽） | "
         f"最多 {slot_n} 笔同时持仓 | `recycled_total_alpha_ntd` |",
-        "| **C 槽=H** | H × 1 万 | 每个 H 用 H 槽（全捕获对照） | `recycled_total_alpha_ntd` |",
-        "| **D 无约束** | 隐含 H×1 万 | 每日讯号都买（不模拟跳过） | `total_alpha_ntd` |",
+        "| **C 槽=H** | H × 1 萬 | 每个 H 用 H 槽（全捕獲对照） | `recycled_total_alpha_ntd` |",
+        "| **D 無約束** | 隐含 H×1 萬 | 每日讯号都买（不模拟跳过） | `total_alpha_ntd` |",
         "",
         "进场固定 **L1**（T+1 开盘买），出场为持有 H 个交易日收盘卖。",
         "",
@@ -1884,10 +1884,10 @@ def format_fixed_capital_horizon_markdown(
         lines.append("")
         if ins:
             lines.append(
-                f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：回收 α "
+                f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：實現超額 "
                 f"{ins['sweet_spot_recycled_alpha_ntd']:+,.0f} NTD · "
                 f"{ins['sweet_spot_n_cycles']} 轮 · "
-                f"锁仓日均 {ins['sweet_spot_alpha_per_locked_day']:.1f} NTD"
+                f"鎖倉日均 {ins['sweet_spot_alpha_per_locked_day']:.1f} NTD"
             )
             eff_h = ins.get("best_efficiency_h")
             if eff_h and eff_h != ins["sweet_spot_h"]:
@@ -1897,14 +1897,14 @@ def format_fixed_capital_horizon_markdown(
                 )
                 if eff_row:
                     lines.append(
-                        f"- **效率峰值 H{eff_h}**：α/锁仓日 "
+                        f"- **效率峰值 H{eff_h}**：α/鎖倉日 "
                         f"{eff_row['alpha_per_locked_day']:.1f} NTD"
                     )
             lines.append(
-                f"- 建议持有至 **H{ins['hold_through_h']}**（边际回收 α 递减）"
+                f"- 建議持有至 **H{ins['hold_through_h']}**（邊際實現超額 遞減）"
             )
         lines.append("")
-        lines.append("| H | 无约束α | 回收α | 轮数 | 捕获% | α/锁仓日 | 峰值槽 | Δ回收α |")
+        lines.append("| H | 無約束α | 實現超額 | 成交筆數 | 捕獲% | α/鎖倉日 | 峰值槽 | Δ實現超額 |")
         lines.append("|---|--------|-------|------|-------|---------|--------|--------|")
         for r in sorted(pool, key=lambda x: int(x["horizon"])):
             sweet_h = int(ins["sweet_spot_h"]) if ins else -1
@@ -1925,7 +1925,7 @@ def format_fixed_capital_horizon_markdown(
 
     single_l1 = [r for r in single_pool_rows if r["entry_row"] == "L1"]
     _section(
-        "模型 A · 单池 1 万",
+        "模型 A · 单池 1 萬",
         single_l1,
         "> 同一笔钱轮流用；持仓期间新讯号全部跳过。",
     )
@@ -1937,9 +1937,9 @@ def format_fixed_capital_horizon_markdown(
     )
     if match_horizon_rows:
         _section(
-            "模型 C · 槽位数 = H（全捕获对照）",
+            "模型 C · 槽位数 = H（全捕獲对照）",
             match_horizon_rows,
-            "> 每个 H 允许 H 个同时持仓（本金 = H×1 万）；"
+            "> 每个 H 允许 H 个同时持仓（本金 = H×1 萬）；"
             "检验讯号品质曲线，不受漏单惩罚。",
         )
 
@@ -1949,11 +1949,11 @@ def format_fixed_capital_horizon_markdown(
     ins_single = (
         summarize_capital_cycle_insights(single_l1, "L1") if single_l1 else None
     )
-    lines.append("| 模型 | H* (optimal hold) | 回收 α | 轮数 | α/锁仓日 | 峰值槽 |")
+    lines.append("| 模型 | H* (optimal hold) | 實現超額 | 成交筆數 | α/鎖倉日 | 峰值槽 |")
     lines.append("|------|--------|--------|------|---------|--------|")
     for label, ins, rows in (
         (
-            "单池 1 万",
+            "单池 1 萬",
             summarize_capital_cycle_insights(single_l1, "L1") if single_l1 else None,
             single_l1,
         ),
@@ -2017,35 +2017,35 @@ def format_fixed_capital_horizon_markdown(
         h9_row = next((r for r in fixed_l1 if int(r["horizon"]) == 9), None)
         if h9_row and sweet_h != 9:
             lines.append(
-                f"- **9 万 × H9（全捕获）**：回收 α **+{h9_row['recycled_total_alpha_ntd']:,.0f}**、"
-                f"捕获 {h9_row['signal_capture_pct']:.1f}%、"
+                f"- **9 萬 × H9（全捕獲）**：實現超額 **+{h9_row['recycled_total_alpha_ntd']:,.0f}**、"
+                f"捕獲 {h9_row['signal_capture_pct']:.1f}%、"
                 f"峰值 {h9_row['peak_concurrent_slots']} 槽。"
-                f"延长到 H{sweet_h} 总回收升至 "
+                f"延長到 H{sweet_h} 總實現超額升至 "
                 f"**+{ins_eff['sweet_spot_recycled_alpha_ntd']:,.0f}**，"
-                f"但捕获降至 "
+                f"但捕獲降至 "
                 f"{next(r for r in fixed_l1 if int(r['horizon'])==sweet_h)['signal_capture_pct']:.1f}%。"
                 "这是 **绝对 α vs 讯号覆盖率** 的权衡，不是单池 H9 矛盾。"
             )
         elif peak_h9 is not None and peak_h9 < slot_n:
             lines.append(
-                f"- **9 万本金在 H9 未绑紧**：持 9 日时峰值并发仅 **{peak_h9}/{slot_n}** 槽。"
+                f"- **9 萬本金在 H9 未绑紧**：持 9 日时峰值并发仅 **{peak_h9}/{slot_n}** 槽。"
             )
         elif max_peak >= slot_n:
             lines.append(
                 f"- **本金在短 H 会绑紧**：峰值并发 **{max_peak}/{slot_n}** 槽；"
-                f"H≥9 时 9 槽可覆盖本样本大部分讯号。"
+                f"H≥9 时 9 槽可覆盖本樣本大部分讯号。"
             )
         if ins_eff and eff_h and eff_h != sweet_h and eff_row:
             lines.append(
-                f"- **效率峰值（α/锁仓日）**：H{eff_h} = "
+                f"- **效率峰值（α/鎖倉日）**：H{eff_h} = "
                 f"{eff_row['alpha_per_locked_day']:.1f} NTD/日，"
-                f"高于总回收 Optimal hold H{sweet_h}（{ins_eff['sweet_spot_alpha_per_locked_day']:.1f}）。"
-                f"但 H{eff_h} 总回收仅 {eff_row['recycled_total_alpha_ntd']:+,.0f} NTD，"
-                "短持高效益来自样本极少轮次，不宜单独作为持有期决策。"
+                f"高於總實現超額 Optimal hold H{sweet_h}（{ins_eff['sweet_spot_alpha_per_locked_day']:.1f}）。"
+                f"但 H{eff_h} 總實現超額仅 {eff_row['recycled_total_alpha_ntd']:+,.0f} NTD，"
+                "短持高效益来自樣本极少轮次，不宜单独作为持有期决策。"
             )
         lines.append(
-            f"- **单池 1 万**仍应以 H{ins_single['sweet_spot_h']} 为 Optimal hold (H*)"
-            f"（回收 {ins_single['sweet_spot_recycled_alpha_ntd']:+,.0f}），"
+            f"- **单池 1 萬**仍应以 H{ins_single['sweet_spot_h']} 为 Optimal hold (H*)"
+            f"（實現超額 {ins_single['sweet_spot_recycled_alpha_ntd']:+,.0f}），"
             "因同一笔钱无法叠仓。"
             if ins_single
             else ""
@@ -2196,7 +2196,7 @@ def build_copytrade_research_conclusions(
             elif fs:
                 decay_text = (
                     f"{entry_row}：H1–H{fs - 1 if fs > 1 else 0} 與台指無顯著差異；"
-                    f"首次顯著勝台指 H{fs}"
+                    f"首次顯著勝率 H{fs}"
                     + (f"，持續至 H{ls}" if ls else "")
                     + f"。"
                     f"無限資金累計 α 峰值 H{decay_ins['peak_h']}（"
@@ -2222,15 +2222,15 @@ def build_copytrade_research_conclusions(
             cycle_text = (
                 f"{entry_row} 有限資金（單池 {capital_ntd:,.0f} NTD）："
                 f"資金週期 Optimal hold (H*) **H{sh}**（持有 {sh} 交易日後賣出再輪入下一筆 T+1）。"
-                f"回收 α {cycle_ins['sweet_spot_recycled_alpha_ntd']:+,.0f} NTD / "
+                f"實現超額 {cycle_ins['sweet_spot_recycled_alpha_ntd']:+,.0f} NTD / "
                 f"{cycle_ins['sweet_spot_n_cycles']} 輪，"
                 f"鎖倉日均 α {cycle_ins['sweet_spot_alpha_per_locked_day']:.1f} NTD。"
-                f"延長至 H>{cycle_ins['hold_through_h']} 邊際回收 α 明顯遞減。"
+                f"延長至 H>{cycle_ins['hold_through_h']} 邊際實現超額 明顯遞減。"
             )
             if cycle_ins.get("first_significant_h"):
                 cycle_text += (
                     f" 統計上首次顯著超額為 H{cycle_ins['first_significant_h']}，"
-                    f"但有限資金下總回收以 H{sh} 最佳。"
+                    f"但有限資金下總實現超額以 H{sh} 最佳。"
                 )
             conclusions.append(
                 {
@@ -2261,7 +2261,7 @@ def build_copytrade_research_conclusions(
                 "conclusion_zh": (
                     f"【執行建議·L1】訊號日 T 收盤後偵測 → T+1 開盤買入 → "
                     f"持有 {sh} 個交易日收盤賣出 → 資金釋放後接下一可執行訊號。"
-                    f"短於 H{sh} 總回收 α 偏低；"
+                    f"短於 H{sh} 總實現超額 偏低；"
                     f"長於 H{l1_cycle['hold_through_h']} 邊際效益遞減。"
                     f"（回測 batch `{batch_id}`，每日標的 {capital_ntd:,.0f} NTD）"
                 ),
@@ -2331,7 +2331,7 @@ def format_capital_cycle_markdown(
         "",
         f"> 假設總資金僅 **{capital_ntd:,.0f} NTD** 一池；"
         "出場後才接下一筆可執行訊號（略過持倉期重疊訊號）。",
-        "Optimal hold (H*) = 最大化 **回收累計 α**（相對台指）的持有天數 H。",
+        "Optimal hold (H*) = 最大化 **實現超額累計 α**（相對台指）的持有天數 H。",
         "",
     ]
     for entry_row in ("L1", "L2", "L3"):
@@ -2341,18 +2341,18 @@ def format_capital_cycle_markdown(
             continue
         lines.append(f"### {entry_row}")
         lines.append(
-            f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：回收 α "
+            f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：實現超額 "
             f"{ins['sweet_spot_recycled_alpha_ntd']:+,.0f} NTD · "
             f"{ins['sweet_spot_n_cycles']} 輪 · "
             f"鎖倉日均 {ins['sweet_spot_alpha_per_locked_day']:.1f} NTD"
         )
         lines.append(
             f"- 建議持有至 **H{ins['hold_through_h']}**；"
-            f"再延長邊際回收 α 遞減"
+            f"再延長邊際實現超額 遞減"
         )
         lines.append("")
         lines.append(
-            "| H | 無約束α | 回收α | 輪數 | 捕獲% | α/鎖倉日 | Δ回收α |"
+            "| H | 無約束α | 實現超額 | 成交筆數 | 捕獲% | α/鎖倉日 | Δ實現超額 |"
         )
         lines.append("|---|--------|-------|------|-------|---------|--------|")
         for r in sorted(sub, key=lambda x: int(x["horizon"])):
@@ -2617,7 +2617,7 @@ def format_copytrade_matrix_markdown(
                 lines.append("- 全 H1–Hmax 與台指**皆無顯著差異**（p>0.05）")
             elif insight.get("first_significant_h"):
                 lines.append(
-                    f"- 首次顯著勝台指（Wilcoxon p<0.05）：**H{insight['first_significant_h']}**"
+                    f"- 首次顯著勝率（Wilcoxon p<0.05）：**H{insight['first_significant_h']}**"
                 )
                 if insight.get("last_significant_h"):
                     lines.append(

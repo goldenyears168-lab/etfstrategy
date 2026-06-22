@@ -72,7 +72,7 @@ class TestRegimeDailyHtml(unittest.TestCase):
             track_dir=Path("."),
         )
         self.assertIn("RRG symbol table", html_doc)
-        self.assertIn("市場結構日報", html_doc)
+        self.assertIn("市場環境日報", html_doc)
         self.assertIn("2330", html_doc)
         self.assertNotIn("**bold**", html_doc)
 

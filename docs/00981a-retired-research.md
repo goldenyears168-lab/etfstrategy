@@ -2,7 +2,7 @@
 
 > **日期**：2026-06-18  
 > **決策**：L1H9 跟單基準已確立 edge；下列研究方向在 OOS／§10 假設檢驗下 **效益不足或方向錯置**，程式已自 repo 移除，歷史報告與 DB 表保留供審計。  
-> **仍有效基準**：`L1H9`（T+1 開盤買 · 持有 9 日 · 等權 1 萬）+ **H1 `skip_5_10`**（跳過單日 5–10 腿 rebalance 日，Primary 採納 +3.32pp）。
+> **仍有效基準**：`L1H9`（T+1 開盤買 · 持有 9 日 · 等權 1 萬）+ **H1 `skip_5_10`**（跳過單日 5–10 檔異動的 rebalance 日，Primary 採納 +3.32pp）。
 
 ---
 
@@ -10,16 +10,16 @@
 
 ### 1.1 L1H9 全局 binary skip（§10 Filter Registry）
 
-**問題**：在「經理人已加碼」條件下，再用因子做 **整日／整腿 skip**，多數傷害累計 α 或勝台指。
+**問題**：在「經理人已加碼」條件下，再用因子做 **整日／整檔 skip**，多數傷害累計 α 或勝率。
 
 | 假設 | 判決 | Primary 證據 | 摘要 |
 |------|------|--------------|------|
-| #2 新进-only | 拒絕 | Δ勝台指 **−11.1pp** | [`_archive/00981a-filter-studies.md`](../reports/research/_archive/00981a-filter-studies.md) |
+| #2 新进-only | 拒絕 | Δ勝率 **−11.1pp** | [`_archive/00981a-filter-studies.md`](../reports/research/_archive/00981a-filter-studies.md) |
 | #3 跳空 band skip | 拒絕 | skip 極端 gap 更差 | 同上 |
 | #6 TA pattern gate | 拒絕 | skip 過熱 leg **p=0.012** 更差 | 同上 |
-| #7 籌碼確認 | 拒絕 | Δ勝台指 −8.6pp | 同上 |
+| #7 籌碼確認 | 拒絕 | Δ勝率 −8.6pp | 同上 |
 | #8 開盤量價（全局 skip） | 拒絕 | 日層不改善；L1+ 延遲 −8.3pp | 同上 |
-| #9 加碼力度 top30% | 拒絕 | Δ勝台指 −1.2pp | 同上 |
+| #9 加碼力度 top30% | 拒絕 | Δ勝率 −1.2pp | 同上 |
 | #4 宏觀 skip（除極端探索） | 拒絕 | 風險日勝率更高 | 同上 |
 | R-A / R-B 復檢 | 無採納 | 加權／反向 skip 未過三條件 | 同上 |
 | R-COMBO / R-WC | 無採納 | 同 §10.8 | combo / weight_change 報告 |
@@ -36,7 +36,7 @@
 
 | 證據 | 結果 |
 |------|------|
-| Copytrade #5 v8 eligible gate | Δ勝台指 **−8.2pp**；ineligible leg 勝率更高 |
+| Copytrade #5 v8 eligible gate | Δ勝率 **−8.2pp**；ineligible leg 勝率更高 |
 | OOS 審計 §5 | top_k 命中 H+5 未優於 miss；ineligible 加碼 H+5 更高 |
 | OOS v9 vs weight_only | rank +0.3pp，**不顯著** |
 
@@ -68,7 +68,7 @@
 
 | 證據 | 結果 |
 |------|------|
-| §10 #10 triple confluence | Δ勝台指 **−5.6pp**；triple leg 勝率低于其他 |
+| §10 #10 triple confluence | Δ勝率 **−5.6pp**；triple leg 勝率低于其他 |
 
 **移除程式**：`copytrade_confluence.py`。
 
@@ -95,7 +95,7 @@
 
 | 證據 | 結果 |
 |------|------|
-| 限價 −1/−2/−3% | 勝台指全面下降；成交 leg p<0.0001 更差 |
+| 限價 −1/−2/−3% | 勝率全面下降；成交 leg p<0.0001 更差 |
 | 開盤延遲至 09:15（L1+） | **−8.3pp** |
 
 **移除程式**：`copytrade_limit_entry.py`、`copytrade_opening_confirm.py`。

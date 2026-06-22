@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stock_db import connect, load_execution_tx_gap, upsert_morning_risk_snapshot
+from stock_db import connect, load_order_tx_gap, upsert_morning_risk_snapshot
 from sync_morning_futures import (
     build_morning_risk_row,
     format_morning_risk_line,
@@ -114,7 +114,7 @@ class TestSyncMorningFutures(unittest.TestCase):
         warns = morning_radar_warnings(row)
         self.assertEqual(len(warns), 2)
 
-    def test_load_execution_tx_gap_prefers_morning(self) -> None:
+    def test_load_order_tx_gap_prefers_morning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             conn = connect(Path(tmp) / "t.db")
             upsert_morning_risk_snapshot(
@@ -138,7 +138,7 @@ class TestSyncMorningFutures(unittest.TestCase):
                     "notes": None,
                 },
             )
-            gap, src = load_execution_tx_gap(conn, trade_date="2026-06-08")
+            gap, src = load_order_tx_gap(conn, trade_date="2026-06-08")
             conn.close()
         self.assertAlmostEqual(gap, 0.9)
         self.assertEqual(src, "morning_live")

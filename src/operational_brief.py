@@ -23,7 +23,7 @@ from report_paths import REPORTS_DIR
 from stock_db import (
     PROJECT_ROOT,
     connect,
-    load_execution_tx_gap,
+    load_order_tx_gap,
     load_latest_morning_risk,
     load_latest_pm_watchlist,
     load_latest_tech_risk,
@@ -121,7 +121,7 @@ def _tsm_gate_lines(
     else:
         lines.append("[即時] morning_risk 尚無資料（sync_morning_futures）")
 
-    gap_val, gap_src = load_execution_tx_gap(conn, trade_date=ref)
+    gap_val, gap_src = load_order_tx_gap(conn, trade_date=ref)
     if gap_val is not None and abs(float(gap_val)) >= 1.0:
         lines.append(f"⚠ 執行用 gap {float(gap_val):+.2f}%（{gap_src}）→ 開盤波動風險")
     return lines

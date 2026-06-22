@@ -405,7 +405,7 @@ def render_execution_timing_markdown(results: dict) -> str:
     lines = [
         f"# RRG mono hold7 · 進場時點比較 · {ds}～{de}",
         "",
-        "策略：**mono 濾網 + fresh 訊號 + seg_last 排序 + 3 槽 + hold7**",
+        "策略：**單軌濾網 + fresh 訊號 + 依軌跡排序 + 3 槽 + 持有 7 日**",
         "",
         "訊號一律以 **D4 收盤 RRG 軌跡** 判定（PIT：僅用 `date ≤ T` 資料）。",
         "比較兩種**可執行**進場假設：",
@@ -557,7 +557,7 @@ def render_comparison_markdown(results: dict) -> str:
     lines = [
         f"# RRG mono × 200MA 廣度區間回測 · {ds}～{de}",
         "",
-        "策略：**mono 濾網 + fresh 訊號 + seg_last 排序 + 3 槽 + hold7**（D4 收盤進場 / D11 收盤出場）",
+        "策略：**單軌濾網 + fresh 訊號 + 依軌跡排序 + 3 槽 + 持有 7 日**（第 4 日收盤進場 / 第 11 日收盤出場）",
         "",
         "方法：各區間**獨立**模擬 — 僅在該日 `zone_200` 符合時允許新進場；持倉照常持有至到期。",
         "",

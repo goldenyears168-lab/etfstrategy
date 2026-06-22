@@ -18,7 +18,6 @@ GUI_DOMAIN="gui/${UID_NUM}"
 LABELS=(
   com.jackm4.etf.evening-holdings
   com.jackm4.etf.rrg-mono-intraday-watch
-  com.jackm4.etf.rrg-mono-scan
   com.jackm4.etf.vcp-funnel-specs
   com.jackm4.etf.weekly-deep
 )
@@ -26,7 +25,6 @@ LABELS=(
 TEMPLATES=(
   com.jackm4.etf.evening-holdings.plist.template
   com.jackm4.etf.rrg-mono-intraday-watch.plist.template
-  com.jackm4.etf.rrg-mono-scan.plist.template
   com.jackm4.etf.vcp-funnel-specs.plist.template
   com.jackm4.etf.weekly-deep.plist.template
 )
@@ -39,9 +37,8 @@ usage() {
         ~/Library/LaunchAgents/ 並 launchctl load。
 
   排程（本地時間）：
-    ② evening-holdings      週一至五 16:30
-    ②a rrg-mono-intraday    週一至五 13:00（收盤前預警）
-    ②b rrg-mono-scan          週一至五 16:40（收盤確認）
+    ② evening-holdings      週一至五 16:30（持股 + RRG close + VCP close + stock_daily_lens → Supabase）
+    ②a rrg-mono-intraday    週一至五 13:00（收盤前預警 + universe snapshot）
     VCP funnel specs          週一至五 13:00（Pivot Gate / Coil Close brief）
     ③ weekly-deep           週日     20:00
 
@@ -56,7 +53,6 @@ EOF
 LAUNCHD_COMMANDS=(
   evening-holdings
   rrg-mono-intraday-watch
-  rrg-mono-scan
   vcp-funnel-specs
   weekly-deep
 )

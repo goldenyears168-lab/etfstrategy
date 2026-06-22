@@ -54,7 +54,6 @@ from report_paths import (
     ensure_daily_dir,
     regime_snapshot_brief_path,
 )
-from website_publish import publish_regime_daily
 from stage_analysis import STAGE_NAMES
 from stock_db import DEFAULT_DB_PATH, connect
 
@@ -436,9 +435,6 @@ def write_regime_daily_reports(
     latest.write_text(md, encoding="utf-8")
     (out_track / "daily_brief.html").write_text(html_out, encoding="utf-8")
     (out_track / "daily_brief.embed.html").write_text(embed_out, encoding="utf-8")
-    publish_regime_daily(
-        md, ref, content_html=html_out, embed_html=embed_out
-    )
     if not quiet:
         print(f"Wrote {latest} + daily_brief.html")
     return latest

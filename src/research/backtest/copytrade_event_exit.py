@@ -1,4 +1,4 @@
-"""轨 C：事件驱动提前出场（相对固定 H 基准）。"""
+"""軌 C：事件驅動提前出場（相對固定 H 基準）。"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ DEFAULT_BASELINE_H = 20
 RESTRICTIVE_EXPOSURE = frozenset({"restrictive", "cash-priority"})
 
 POLICY_SPECS: dict[str, str] = {
-    "baseline_h20": "固定 H20 收盘出场（基准）",
+    "baseline_h20": "固定 H20 收盘出场（基準）",
     "exit_reduce_clear": "经理减码/出清同股 → 讯号日 T+1 开盘卖",
     "exit_regime_restrictive": "持仓中 regime→restrictive/cash → T+1 开盘卖",
     "exit_reduce_or_regime": "减码/出清 或 regime 转弱（取先到）",
@@ -439,13 +439,13 @@ def format_event_exit_markdown(
     today = date.today().strftime("%Y%m%d")
     baseline = next((s for s in summaries if s["policy_id"] == "baseline_h20"), summaries[0])
     lines = [
-        f"# {etf_code} 事件驱动出场（轨 C · L1 · H{baseline_h} 基准）",
+        f"# {etf_code} 事件驱动出场（軌 C · L1 · H{baseline_h} 基準）",
         "",
         f"> batch `{batch_id}` · 报告日 {today}",
         "",
         "## 方法",
         "",
-        f"- **基准**：L1 进场，固定 **H{baseline_h}** 收盘出场。",
+        f"- **基準**：L1 进场，固定 **H{baseline_h}** 收盘出场。",
         "- **事件规则**：见下表；触发后 **T+1 开盘** 卖出（regime 为转弱日 T+1 开盘）。",
         "- **再次加码**：自加码进场日重新计 H20（延长持有）。",
         (
@@ -457,7 +457,7 @@ def format_event_exit_markdown(
         "",
         "## 政策对照",
         "",
-        "| 政策 | 触发数 | 提前出场 | mean α | Δvs基准 | 配对 p(W) | rotation 回收α |",
+        "| 政策 | 触发数 | 提前出场 | mean α | Δvs基準 | 配对 p(W) | rotation 實現超額 |",
         "|------|--------|---------|--------|---------|----------|---------------|",
     ]
     for s in summaries:
@@ -477,7 +477,7 @@ def format_event_exit_markdown(
             "",
             "## 解读",
             "",
-            "- **Primary**：相对 H20 基准，事件出场是否提升 **total α** 或 **rotation 回收α**。",
+            "- **Primary**：相对 H20 基準，事件出场是否提升 **total α** 或 **rotation 實現超額**。",
             "- 减码/出清为 **同 ETF 持股变动** 讯号，非全市场新闻。",
             "- regime 转弱为 PIT 标签（`classify_regime_pit`），仅持仓期间扫描。",
             "- 若配对 p>0.05 且 Δα≤0 → **维持固定 H20**，事件规则不采纳。",
@@ -500,7 +500,7 @@ def format_event_exit_markdown(
             [
                 "### Rotation 摘要",
                 "",
-                f"- 基准 H{baseline_h} 回收 α：**{b_rot:+,.0f}** NTD",
+                f"- 基準 H{baseline_h} 實現超額：**{b_rot:+,.0f}** NTD",
                 f"- 最高：**{best['policy_label']}** → "
                 f"{best.get('rotation_recycled_alpha_ntd'):+,.0f} NTD",
                 "",

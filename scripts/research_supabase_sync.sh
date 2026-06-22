@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 手動同步研究成果至 Supabase（已自 launchd / notify 排程移除 · 僅按需執行）
+# 同步 daily_briefs 至 Supabase（13:00 launchd · 16:30 daily_sync · 亦可手動執行）
 #
 # 用法：research_supabase_sync.sh <1300|1630> [<env開關名>]
 # 預設需 RUN_SUPABASE_RESEARCH_SYNC=1 才會執行。

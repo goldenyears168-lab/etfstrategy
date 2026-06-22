@@ -2,8 +2,7 @@
 
 | 子目錄 | 用途 |
 |--------|------|
-| **`publish/`** | **Website layer VFP** · 對外發布區（web dev + Supabase sync） |
-| **`daily/`** | 排程產物（Facts · Regime · launchd brief 根檔） |
+| **`daily/`** | 排程產物（Facts · Regime · launchd brief 根檔）→ Supabase sync 來源 |
 | **`research/`** | 回測 JSON · 廣度 HTML · copytrade 深度研究 |
 | **`samples/`** | 可提交的格式範例（版控） |
 
@@ -18,7 +17,8 @@
 | `{date}_etf_daily.md` | Facts  dated 副本 |
 | `vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（launchd 13:00） |
 | `vcp_pivot_gate_daily_brief.md` · `vcp_coil_close_daily_brief.md` | VCP 各 spec |
-| `rrg_mono_daily.md` · `rrg_mono_intraday_watch.md` | RRG mono（launchd 13:00 / 16:40） |
+| `rrg_mono_daily.md` · `rrg_mono_intraday_watch.md` | RRG mono（16:30 daily_sync / 13:00 盤中） |
+| `copytrade_l1h9_daily.md` | 00981A L1H9 每日訊號（`daily_sync` 16:30） |
 
 **閱讀順序**：`etf-daily/daily_brief.md` → `regime/daily_brief.md` → launchd 各軌。
 

@@ -10,7 +10,6 @@ from stock_db import PROJECT_ROOT
 
 REPORTS_ROOT = PROJECT_ROOT / "reports"
 REPORTS_DAILY = REPORTS_ROOT / "daily"
-REPORTS_PUBLISH = REPORTS_ROOT / "publish"
 REPORTS_RESEARCH = REPORTS_ROOT / "research"
 
 # Research HTML 子目錄（對齊 reports/README.md）

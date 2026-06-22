@@ -339,50 +339,15 @@ def render_markdown(
     as_of: str,
     all_mono: list[ScanRow],
     fresh_mono: list[ScanRow],
-    slots: list[dict[str, Any]],
-    expired: list[dict[str, Any]],
-    added: list[dict[str, Any]],
 ) -> str:
     lines = [
         f"# RRG mono 每日掃描 · {as_of}",
         "",
-        f"策略：**mono 濾網 + seg_last 排序 + 3 槽 + hold7**（{EXECUTION_RULE_ZH}）",
+        f"策略：**單軌濾網 + fresh 訊號 + 依軌跡排序 + 持有 7 日**（{EXECUTION_RULE_ZH}）",
         "",
-        "## 槽位狀態",
+        "## mono fresh 訊號（依軌跡排序）",
         "",
     ]
-    if not slots:
-        lines.append("- （目前無持倉，3 槽皆空）")
-    else:
-        lines.append("| 槽 | 代號 | 名稱 | 進場(D4) | 出場(D11) | seg_last |")
-        lines.append("|---|------|------|------|----------|----------|")
-        for p in sorted(slots, key=lambda x: int(x["slot"])):
-            lines.append(
-                f"| {int(p['slot']) + 1} | {p['stock_id']} | {p['stock_name']} | "
-                f"{p['entry_date']} | {p.get('exit_date') or '待補庫'} | {p.get('seg_last', '—')} |"
-            )
-    free = MAX_SLOTS - len(slots)
-    lines.extend(["", f"**空槽：{free} / {MAX_SLOTS}**", ""])
-
-    if expired:
-        lines.extend(["## 今日到期出場", ""])
-        for p in expired:
-            lines.append(
-                f"- 槽{int(p['slot']) + 1} **{p['stock_id']} {p['stock_name']}** "
-                f"（{p['entry_date']} → {p['exit_date']}）"
-            )
-        lines.append("")
-
-    if added:
-        lines.extend(["## 今日新進場（已寫入槽位狀態）", ""])
-        for p in added:
-            lines.append(
-                f"- 槽{int(p['slot']) + 1} **{p['stock_id']} {p['stock_name']}** "
-                f"seg_last={p['seg_last']:.3f}，持有至 {p.get('exit_date') or '（待補庫）'}"
-            )
-        lines.append("")
-
-    lines.extend(["## mono fresh 訊號（seg_last 排序）", ""])
     if not fresh_mono:
         lines.append("_今日無 mono fresh 新訊號。_")
     else:
@@ -410,14 +375,7 @@ def render_markdown(
                 f"| {i} | {r.stock_id} | {r.stock_name} | {fr} | {r.seg_last:.3f} | "
                 f"{r.disp:.2f} | {_fmt_pct(r.daily_pct)} | {qp} |"
             )
-    lines.extend(
-        [
-            "",
-            "---",
-            f"狀態檔：`{STATE_PATH.relative_to(PROJECT_ROOT)}`",
-            EXECUTION_DETAIL_ZH,
-        ]
-    )
+    lines.extend(["", "---", EXECUTION_DETAIL_ZH])
     return "\n".join(lines) + "\n"
 
 
@@ -446,9 +404,6 @@ def build_brief(
         as_of=trade_date,
         all_mono=all_mono,
         fresh_mono=fresh_mono,
-        slots=state.get("slots", []),
-        expired=expired,
-        added=added,
     )
     stamp = trade_date.replace("-", "")
     out_dated = REPORTS / f"{stamp}_rrg_mono_daily.md"

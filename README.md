@@ -80,7 +80,7 @@ make ci           # ruff + test + coverage
 | 檔案 | 內容 |
 |------|------|
 | [`reports/daily/etf-daily/daily_brief.md`](reports/daily/etf-daily/daily_brief.md) | **Facts** · 各檔 ETF 持股變化 |
-| [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場診斷 |
+| [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場環境 |
 | `reports/daily/vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（13:00 launchd） |
 | `reports/daily/rrg_mono_daily.md` | RRG mono 收盤確認（16:40 launchd） |
 | [`reports/research/00981a-copytrade/`](reports/research/00981a-copytrade/) | L1H9 跟單回測（手動） |

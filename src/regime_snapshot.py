@@ -105,7 +105,7 @@ def _breadth_sub_blocks(
     return out
 
 
-def _breadth_axis(
+def _market_breadth(
     conn: sqlite3.Connection,
     as_of: str,
     *,
@@ -292,7 +292,7 @@ def _axis_builders(
     tier_cfg: dict[str, float],
 ) -> dict[str, AxisBuilder]:
     return {
-        "breadth_zone_200": lambda conn, as_of, axis_cfg: _breadth_axis(
+        "breadth_zone_200": lambda conn, as_of, axis_cfg: _market_breadth(
             conn,
             as_of,
             impulse_params=impulse_params,

@@ -12,15 +12,18 @@ import pandas as pd
 
 from market_breadth_impulse import build_impulse_panel_from_close
 from market_breadth_ma import build_breadth_panel
+from project_config import DEFAULT_ETF_CODES
 from regime_charts import (
     BREADTH_CHART_DAYS,
     BAR_LOOKBACK,
+    RRG_SCATTER_SNAPSHOT_MAX,
     _breadth_records,
     _load_ix_df,
     _weekly_bar_stage,
     enrich_rrg_rotation_rankings,
     load_rrg_scatter_points,
 )
+from stock_db import load_etf_constituent_watchlist
 from regime_config import load_regime_config
 from regime_interpret import (
     interpret_breadth_composite,
@@ -150,6 +153,11 @@ def _rrg_chart_series(
         rrg_date, points = load_rrg_scatter_points(conn, as_of)
     except (ValueError, RuntimeError):
         return None
+    universe = {
+        w["stock_id"]
+        for w in load_etf_constituent_watchlist(conn, DEFAULT_ETF_CODES)
+    }
+    points = [p for p in points if p["stock_id"] in universe][:RRG_SCATTER_SNAPSHOT_MAX]
     serialized: list[dict[str, Any]] = []
     for p in points:
         trail = p.get("trail") or []

@@ -75,7 +75,7 @@ def _compare_two_samples(
     except Exception as exc:
         out["tests"] = {"error": str(exc)}
 
-    # 勝台指率兩比例 z 檢定
+    # 勝率兩比例 z 檢定
     try:
         from statsmodels.stats.proportion import proportions_ztest
 
@@ -89,7 +89,7 @@ def _compare_two_samples(
             "daily_wr_pct": round(beat_d / n_d * 100, 2),
             "interpretation": (
                 f"{'顯著' if p_z < 0.05 else '不顯著'}（α=0.05）"
-                f"：勝台指率 {label_a} vs {label_b}"
+                f"：勝率 {label_a} vs {label_b}"
             ),
         }
     except Exception:
@@ -140,7 +140,7 @@ def format_report(
         "",
         "## 全樣本摘要",
         "",
-        "| 頻率 | n | 勝台指% | 勝率（毛） | 均超額% | excess t p | Wilcoxon p |",
+        "| 頻率 | n | 勝率% | 勝率（毛） | 均超額% | excess t p | Wilcoxon p |",
         "|------|---|---------|-----------|---------|------------|------------|",
     ]
     ms = full["monthly_summary"]
@@ -175,7 +175,7 @@ def format_report(
     if "win_rate_ztest" in tests:
         w = tests["win_rate_ztest"]
         lines.append(
-            f"- **勝台指率 z 檢定**：月頻 {w['monthly_wr_pct']}% vs 日頻 {w['daily_wr_pct']}%"
+            f"- **勝率 z 檢定**：月頻 {w['monthly_wr_pct']}% vs 日頻 {w['daily_wr_pct']}%"
             f", z={w['z_stat']}, p={w.get('p_value', '—')} → {w['interpretation']}"
         )
 
@@ -183,7 +183,7 @@ def format_report(
     oms = overlap["monthly_summary"]
     ods = overlap["daily_summary"]
     lines.append(
-        f"| 頻率 | n | 勝台指% | 均超額% |",
+        f"| 頻率 | n | 勝率% | 均超額% |",
     )
     lines.append(f"|------|---|---------|---------|")
     lines.append(
@@ -202,7 +202,7 @@ def format_report(
     if "win_rate_ztest" in otests:
         w = otests["win_rate_ztest"]
         lines.append(
-            f"- 重疊區勝台指 z 檢定：p={w.get('p_value', '—')} → {w['interpretation']}"
+            f"- 重疊區勝率 z 檢定：p={w.get('p_value', '—')} → {w['interpretation']}"
         )
 
     lines.extend(

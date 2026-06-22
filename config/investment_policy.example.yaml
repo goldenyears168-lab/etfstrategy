@@ -1,5 +1,5 @@
 # 複製為 data/investment_policy.yaml（data/ 在 .gitignore）
-# 研究層：p6-tier paper 評估用資金假設（非執行層 IPS）
+# 研究層：p6-tier paper 評估用資金假設（非下單層 IPS）
 
 version: ips-v2-research
 capital_ntd: 100000

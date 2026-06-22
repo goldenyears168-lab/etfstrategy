@@ -136,7 +136,14 @@ def upsert_etf_holdings(conn: sqlite3.Connection, rows: list[dict]) -> int:
             source_edit_at=excluded.source_edit_at,
             synced_at=excluded.synced_at
     """
-    payload = [{**r, "synced_at": synced_at} for r in rows]
+    payload = [
+        {
+            **r,
+            "stock_name": normalize_stock_name(r.get("stock_name")),
+            "synced_at": synced_at,
+        }
+        for r in rows
+    ]
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
@@ -271,6 +278,34 @@ def normalize_stock_name(name: str | None) -> str:
     if any("\u4e00" <= ch <= "\u9fff" for ch in repaired):
         return repaired
     return text
+
+
+def repair_mojibake_stock_names_in_etf_holdings(conn: sqlite3.Connection) -> int:
+    """Backfill etf_holdings.stock_name where legacy rows were stored as mojibake."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT stock_id, stock_name
+        FROM etf_holdings
+        WHERE stock_name IS NOT NULL AND TRIM(stock_name) != ''
+        """
+    ).fetchall()
+    updated = 0
+    for row in rows:
+        fixed = normalize_stock_name(row["stock_name"])
+        if fixed == row["stock_name"]:
+            continue
+        cur = conn.execute(
+            """
+            UPDATE etf_holdings
+            SET stock_name = ?
+            WHERE stock_id = ? AND stock_name = ?
+            """,
+            (fixed, row["stock_id"], row["stock_name"]),
+        )
+        updated += cur.rowcount
+    if updated:
+        conn.commit()
+    return updated
 
 
 def compute_etf_holdings_changes(
@@ -444,7 +479,7 @@ def load_etf_constituent_watchlist(
         for row in conn.execute(sql, etf_codes):
             by_id[row["stock_id"]] = {
                 "stock_id": row["stock_id"],
-                "stock_name": row["stock_name"] or "",
+                "stock_name": normalize_stock_name(row["stock_name"]),
                 "etf_hold_count": int(row["etf_hold_count"]),
                 "fund_hold_count": 0,
                 "benchmark_hold_count": 0,

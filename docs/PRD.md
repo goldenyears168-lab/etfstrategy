@@ -6,7 +6,7 @@
 | 狀態 | **Living doc** — 以程式與 `config/` 為準 |
 | 詳細架構 | [architecture.md](./architecture.md) · [daily-operations.md](./daily-operations.md) |
 
-> 免責：產出僅供個人研究，不構成投資建議；執行層 out of scope（無 OMS、無券商 API）。
+> 免責：產出僅供個人研究，不構成投資建議；下單層僅本機 infra（不進公開網站、非投資建議）。
 
 ---
 
@@ -17,7 +17,7 @@
 - 本地 **SQLite**（`data/stocks.db`）+ 排程 ingest
 - **多條 alpha 軌並列**（無 ensemble 加權）
 - 各軌 **backtest spec** 在 `config/strategy.yaml` · 探索主題在 `config/research.yaml`
-- **執行層 out of scope**（無 OMS、無券商 API）
+- **下單層**（`config/order.yaml` · `src/order/`）本機送單 infra；**不**進公開網站、**非**產品日報層
 
 ---
 
@@ -123,7 +123,7 @@
 |------|------|
 | `00981a-v9-hybrid` / behavior stack | 見 [00981a-retired-research.md](./00981a-retired-research.md) |
 | `qlib-tw-factor` | 已自 repo 移除 |
-| E0 下單 / order_intents / execution_eval | 執行層退役 |
+| E0 下單 / order_intents / execution_eval | 舊 E0 執行軌退役（現行下單層見 `src/order/`） |
 | Swing 軌 / `portfolio_engine` / `portfolio_weights` | 突破計畫與 E0 部位建議已移除 |
 | `exposure_coach_tw` / Exposure overlay | Market posture 合成與 live gate 已移除 |
 | Evaluation layer · `track_evaluation` · `evaluation_contract` · `signal_review` | 跨軌 ex-post 審計已移除；backtest spec 併入 strategy.yaml |
@@ -135,9 +135,11 @@ Copytrade 方法論保留：[00981a-copytrade-research-methodology.md](./00981a-
 
 ## 11. 非目標（Out of Scope）
 
-- 自動下單、券商連線
+- 公開網站送單、匿名前端暴露券商憑證
 - Ensemble 加權合併多軌訊號
 - 即時 Level-2（僅 FinMind tick 盤中快照）
+
+（本機下單層 · 富邦 Neo intent 送單見 `config/order.yaml`；策略腳本只寫 JSON，不 import `order`。）
 
 ---
 

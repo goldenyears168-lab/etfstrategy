@@ -684,7 +684,7 @@ def format_sync_buy3_rank_band_report(payload: dict[str, object]) -> str:
 
     for h in horizons:
         lines.extend(["", f"## L1H{h} 對照", ""])
-        lines.append("| band | complete 日 | 勝台指% | 累計α | Wilcoxon p |")
+        lines.append("| band | complete 日 | 勝率% | 累計α | Wilcoxon p |")
         lines.append("|------|------------|---------|-------|------------|")
         for band_id, label, *_ in payload["bands"]:  # type: ignore[misc]
             pid = f"sync_buy3_{band_id}"
@@ -715,7 +715,7 @@ def format_sync_buy3_rank_band_report(payload: dict[str, object]) -> str:
         wr1 = getattr(r15, "win_rate_vs_bench_pct", r15.win_rate_pct)
         lines.append(
             f"- rank 6–10 vs rank 1–5：α {r610.total_alpha_ntd:+,.0f} vs "
-            f"{r15.total_alpha_ntd:+,.0f} · 勝台指 {wr6:.1f}% vs {wr1:.1f}%"
+            f"{r15.total_alpha_ntd:+,.0f} · 勝率 {wr6:.1f}% vs {wr1:.1f}%"
         )
     if r610 and r610.p_value_wilcoxon is not None:
         verdict = "支持假說" if (
@@ -826,7 +826,7 @@ def format_sync_buy3_entry_lag_report(payload: dict[str, object]) -> str:
     ]
     for h in horizons:
         lines.extend([f"## {h} 交易日持有（H{h}）", ""])
-        lines.append("| 進場 | complete 日 | 勝台指% | 累計α | Wilcoxon p |")
+        lines.append("| 進場 | complete 日 | 勝率% | 累計α | Wilcoxon p |")
         lines.append("|------|------------|---------|-------|------------|")
         for lag_days, label in payload["entry_lags"]:  # type: ignore[assignment]
             lag = _lag_label(lag_days)
@@ -967,7 +967,7 @@ def format_sync_buy_streak_report(payload: dict[str, object]) -> str:
 
     for h in horizons:
         lines.extend(["", f"## L1H{h} 對照", ""])
-        lines.append("| profile | complete 日 | 勝台指% | 累計α | Wilcoxon p |")
+        lines.append("| profile | complete 日 | 勝率% | 累計α | Wilcoxon p |")
         lines.append("|---------|------------|---------|-------|------------|")
         row2 = by_id.get(f"sync_buy2-L1H{h}")
         row3 = by_id.get(f"sync_buy3-L1H{h}")
@@ -989,7 +989,7 @@ def format_sync_buy_streak_report(payload: dict[str, object]) -> str:
             lines.append("")
             lines.append(
                 f"- Δα（buy2 − buy3）：**{d_alpha:+,.0f}** · "
-                f"Δ勝台指：**{wr2 - wr3:+.2f} pp**"
+                f"Δ勝率：**{wr2 - wr3:+.2f} pp**"
             )
 
     h9 = 9 if 9 in horizons else horizons[len(horizons) // 2]
@@ -1175,7 +1175,7 @@ def format_inst_flow_round4_report(
             lines.append("")
             if ins:
                 lines.append(
-                    f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：回收 α "
+                    f"- **Optimal hold (H*) H{ins['sweet_spot_h']}**：實現超額 "
                     f"{ins['sweet_spot_recycled_alpha_ntd']:+,.0f} NTD · "
                     f"{ins['sweet_spot_n_cycles']} 輪 · "
                     f"鎖倉日均 {ins['sweet_spot_alpha_per_locked_day']:.1f} NTD"
@@ -1192,11 +1192,11 @@ def format_inst_flow_round4_report(
                             f"{eff_row['alpha_per_locked_day']:.1f} NTD"
                         )
                 lines.append(
-                    f"- 建議持有至 **H{ins['hold_through_h']}**（邊際回收 α 遞減）"
+                    f"- 建議持有至 **H{ins['hold_through_h']}**（邊際實現超額 遞減）"
                 )
             lines.append("")
             lines.append(
-                "| H | 無約束α | 回收α | 輪數 | 捕獲% | α/鎖倉日 | Δ回收α |"
+                "| H | 無約束α | 實現超額 | 成交筆數 | 捕獲% | α/鎖倉日 | Δ實現超額 |"
             )
             lines.append("|---|--------|-------|------|-------|---------|--------|")
             sweet_h = int(ins["sweet_spot_h"]) if ins else -1
@@ -1222,7 +1222,7 @@ def format_inst_flow_round4_report(
             "",
             f"- 資料窗：**{w_start}** ～ **{w_end}**",
             f"- 第三輪用六檔 ETF confluence；第四輪收窄至 **{etf_tag}** 檢驗與主研究標的對齊",
-            "- 單池輪動下，H 過長會降低訊號捕獲率；Optimal hold (H*) 為 **回收 α 總量** 與 **捕獲率** 的折衷",
+            "- 單池輪動下，H 過長會降低訊號捕獲率；Optimal hold (H*) 為 **實現超額 總量** 與 **捕獲率** 的折衷",
             "",
         ]
     )
@@ -1288,7 +1288,7 @@ def format_inst_flow_report(
 
     if confluence and base_profile_ids:
         lines.extend(["", "## Confluence 對照（standalone vs ∩ETF · H9 為主）", ""])
-        lines.append("| profile | standalone α | ∩ETF α | Δα | 勝台指% standalone | ∩ETF | Δ pp |")
+        lines.append("| profile | standalone α | ∩ETF α | Δα | 勝率% standalone | ∩ETF | Δ pp |")
         lines.append("|---------|-------------|--------|-----|-------------------|------|------|")
         h_focus = 9 if 9 in horizons else horizons[len(horizons) // 2]
         for pid in base_profile_ids:
@@ -1309,7 +1309,7 @@ def format_inst_flow_report(
 
     lines.extend(["", "## L1 持有期比較", ""])
     lines.append(
-        "| profile | H | 訊號日 | complete | 勝台指% | 累計α (NTD) | 累計 gross | Wilcoxon p |"
+        "| profile | H | 訊號日 | complete | 勝率% | 累計α (NTD) | 累計 gross | Wilcoxon p |"
     )
     lines.append("|---------|---|--------|----------|---------|-------------|------------|------------|")
     report_profile_ids: list[str] = []
@@ -1363,7 +1363,7 @@ def format_inst_flow_report(
             sig = " *" if p_w is not None and p_w < 0.05 else ""
             lines.append(
                 f"- H{r.hold_trading_days}: α {r.total_alpha_ntd:+,.0f} · "
-                f"勝台指 {getattr(r, 'win_rate_vs_bench_pct', r.win_rate_pct)}% · "
+                f"勝率 {getattr(r, 'win_rate_vs_bench_pct', r.win_rate_pct)}% · "
                 f"p={p_w if p_w is not None else '—'}{sig}"
             )
         lines.append("")

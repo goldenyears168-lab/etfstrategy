@@ -269,9 +269,9 @@ def run_982a_day_filter_study(
         f"{strategy_id} 982A 重疊調倉日 filter（方向 A · 重疊日跟全 basket）："
         f"對齊窗口 {aligned_start} 起 · 重疊日 **{len(overlap_days)}** / {n_total_days}（{capture_pct}%）· "
         f"重疊日平均 {avg_legs_overlap} leg vs 非重疊 {avg_legs_non} leg。"
-        f"基準勝台指 {base['win_rate_vs_bench_pct']}% · 累計 α {base[PRIMARY_ALPHA_FIELD]:+,.0f} · "
+        f"基準勝率 {base['win_rate_vs_bench_pct']}% · 累計 α {base[PRIMARY_ALPHA_FIELD]:+,.0f} · "
         f"单池 {base[SECONDARY_ALPHA_FIELD]:+,.0f}。"
-        f"**僅重疊日**：勝台指 {overlap_sum['win_rate_vs_bench_pct']}%（Δ {ov_wr_s}）· "
+        f"**僅重疊日**：勝率 {overlap_sum['win_rate_vs_bench_pct']}%（Δ {ov_wr_s}）· "
         f"累計 α {overlap_sum[PRIMARY_ALPHA_FIELD]:+,.0f}（Δ {primary_alpha_delta:+,.0f}）· "
         f"单池 {overlap_sum[SECONDARY_ALPHA_FIELD]:+,.0f}（Δ {secondary_alpha_delta:+,.0f}）。"
         f"重疊 vs 非重疊日 α：mean {day_bucket_test.get('mean_a')} vs "
@@ -371,7 +371,7 @@ def format_982a_day_filter_markdown(result: dict[str, object]) -> str:
         "",
         "## 風控策略回測",
         "",
-        "| 策略 | 訊號日 | legs | 勝台指% | Δ pp | 累計 α | 单池回收 α |",
+        "| 策略 | 訊號日 | 異動檔數 | 勝率% | Δ pp | 累計 α | 單池實現超額 |",
         "|------|--------|------|---------|------|--------|------------|",
     ]
     for fid in DAY_FILTER_SPECS:
@@ -397,7 +397,7 @@ def format_982a_day_filter_markdown(result: dict[str, object]) -> str:
             "",
             f"**{result['verdict']}**",
             "",
-            f"- Primary Δ勝台指：{wr_d.get('day_982a_overlap'):+} pp · "
+            f"- Primary Δ勝率：{wr_d.get('day_982a_overlap'):+} pp · "
             f"Δ累計 α：{result['primary_alpha_delta']:+,.0f}",
             f"- Secondary Δ单池 α：{result['secondary_alpha_delta']:+,.0f}",
             "",

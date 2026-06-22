@@ -21,12 +21,14 @@ if [[ ! -x "${PYTHON}" ]]; then
   EXIT=1
 else
   set +e
-  "${PYTHON}" "${ROOT}/scripts/run_vcp_funnel_specs_daily_brief.py"
+  "${PYTHON}" "${ROOT}/scripts/run_vcp_funnel_intraday.py"
   EXIT=$?
   set -e
 fi
 
 echo "=== launchd vcp-funnel-specs 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+"${ROOT}/scripts/launchd/supabase_slot_sync.sh" 1300
 
 "${ROOT}/scripts/vcp_funnel_specs_notify.sh" "${EXIT}" || true
 

@@ -36,6 +36,7 @@ BREADTH_CHART_DAYS = 90
 PARTICIPATION_CHART_DAYS = 90
 RRG_TAIL_DAYS = 4
 RRG_RANK_PER_QUAD = 12
+RRG_SCATTER_SNAPSHOT_MAX = 150
 
 QUADRANT_ORDER = ("leading", "improving", "weakening", "lagging")
 
@@ -484,7 +485,7 @@ def render_participation_spark_svg(
             _SVG_FONT,
             '<rect width="100%" height="100%" fill="#131722"/>',
             f'<text x="{pad_l}" y="20" fill="#d1d4dc" font-size="12" font-weight="600">'
-            f"Stage-2 participation · bulk ≥7/8 · {as_of}</text>",
+            f"Stage 2 participation · bulk ≥7/8 · {as_of}</text>",
             f'<line x1="{plot_l}" y1="{y_at(50):.1f}" x2="{plot_l + plot_w}" y2="{y_at(50):.1f}" '
             f'stroke="#434651" stroke-dasharray="4,4"/>',
             f'<polyline fill="none" stroke="#089981" stroke-width="2" points="{pts}"/>',

@@ -69,5 +69,5 @@ PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \
 
 ## 相關
 
-- [terminology.md](./terminology.md) — SSOT
+- [terminology.md](./terminology.md) — SSOT · **§10 用語對照總表**
 - `.cursor/rules/terminology.mdc` — agent 規則

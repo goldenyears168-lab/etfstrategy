@@ -2,13 +2,14 @@
 
 | 文件 | 內容 |
 |------|------|
-| **[terminology.md](./terminology.md)** | **術語規範 SSOT**（中英 · 分層 · 文獻 lineage） |
+| **[terminology.md](./terminology.md)** | **術語規範 SSOT**（中英 · 分層 · 文獻 lineage · **§10 用語對照總表**） |
 | **[architecture.md](./architecture.md)** | **現行架構 · Facts / Regime / Strategy 分層** |
 | [src-map.md](./src-map.md) | **`src/` 模組分層 · 主線 vs research** |
 | [daily-operations.md](./daily-operations.md) | 每日 SOP |
 | [00981a-copytrade-research-methodology.md](./00981a-copytrade-research-methodology.md) | 00981A 跟單研究 |
 | [evaluation-contract.md](./evaluation-contract.md) | Backtest spec · per-track JSON |
 | [PRD.md](./PRD.md) | **現行產品範圍**（living doc） |
+| [修改計畫書.md](./修改計畫書.md) | **跨層交叉 Lens · ETF 資金故事**（規劃中） |
 
 ---
 
@@ -30,4 +31,4 @@
 - `00981a-v9-hybrid` / `etf_behavior_predict` 全棧
 - `qlib-tw-factor` 全棧
 - Swing 軌（`breakout_trade_planner`、`morning-regime` gate）
-- E0 執行層（`portfolio_engine`、`order_intents`、`execution_eval_runs`）
+- E0 執行軌（`portfolio_engine`、`order_intents`、`execution_eval_runs`）；現行下單層見 `src/order/`

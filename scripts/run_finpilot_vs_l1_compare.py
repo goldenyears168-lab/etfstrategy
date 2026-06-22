@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FinPilot 四策略 vs 00981A L1H9 · 勝台指率對照（H9 · IX0001）。"""
+"""FinPilot 四策略 vs 00981A L1H9 · 勝率對照（H9 · IX0001）。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def _l1h9_stats(conn, *, window_start: str | None, window_end: str | None) -> di
 
 def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
     lines = [
-        "# FinPilot 動能策略 vs 00981A L1H9 · 勝台指率對照",
+        "# FinPilot 動能策略 vs 00981A L1H9 · 勝率對照",
         "",
         "> 來源：[hu0937/FinPilot](https://github.com/hu0937/FinPilot) 策略邏輯本地重現",
         "> 資料：本專案 `stock_daily_bars` + `stock_fundamental`（FinMind 成分股聯集）",
@@ -60,7 +60,7 @@ def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
         "",
         "## L1H9 基準",
         "",
-        f"| 策略 | n | 勝率（毛） | **勝台指%** | 期間 |",
+        f"| 策略 | n | 勝率（毛） | **勝率%** | 期間 |",
         f"|------|---|-----------|------------|------|",
         f"| L1H9 | {l1['n_signal_days']} | {l1['win_rate_gross_pct']}% | "
         f"**{l1['win_rate_vs_bench_pct']}%** | {l1['window_start']} → {l1['window_end']} |",
@@ -69,7 +69,7 @@ def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
         "",
         "### 全樣本",
         "",
-        "| ID | 策略 | n | 勝率（毛） | **勝台指%** | 均報酬% | 期間 |",
+        "| ID | 策略 | n | 勝率（毛） | **勝率%** | 均報酬% | 期間 |",
         "|----|------|---|-----------|------------|---------|------|",
     ]
     for row in rows:
@@ -86,7 +86,7 @@ def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
             "",
             f"### L1 重疊區間（{l1['window_start']} → {l1['window_end']}）",
             "",
-            "| ID | 策略 | n | **勝台指%** | Δ vs L1 | 均報酬% |",
+            "| ID | 策略 | n | **勝率%** | Δ vs L1 | 均報酬% |",
             "|----|------|---|------------|---------|---------|",
             f"| — | **L1H9** | {l1['n_signal_days']} | **{l1['win_rate_vs_bench_pct']}%** | — | — |",
         ]
@@ -111,11 +111,11 @@ def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
     if best:
         bwr = best["overlap"]["win_rate_vs_bench_pct"]
         lines.append(
-            f"- 重疊區間勝台指最高：**{best['id']} {best['label']}**（{bwr}%）。"
+            f"- 重疊區間勝率最高：**{best['id']} {best['label']}**（{bwr}%）。"
         )
     lines.append(
-        f"- L1H9 勝台指 **{l1['win_rate_vs_bench_pct']}%**；"
-        "FinPilot 原版用 FinLab 全市場 + 月頻持有至下月，此處改 H9 對標。"
+        f"- L1H9 勝率 **{l1['win_rate_vs_bench_pct']}%**；"
+        "FinPilot 原版用 FinLab 全市場 + 月頻持有至下月，此處改 H9 對照。"
     )
     lines.append(
         "- 本地重現僅涵蓋 DB 內成分股聯集（~135 檔），非 FinLab 全市場；"
@@ -131,7 +131,7 @@ def format_report(l1: dict, rows: list[dict], *, hold_days: int) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FinPilot vs L1H9 勝台指率對照")
+    parser = argparse.ArgumentParser(description="FinPilot vs L1H9 勝率對照")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--hold-days", type=int, default=9)
     parser.add_argument(

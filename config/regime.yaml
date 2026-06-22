@@ -11,7 +11,7 @@ thresholds:
   tx_gap_risk_pct: -1.5
   sox_risk_pct: -2.0
 
-# Breadth axis · Level / Rhythm / Impulse（非 Strategy overlay · 無 exposure 仓位）
+# Market breadth（市場廣度）· Level / Rhythm / Impulse（非 Strategy overlay · 無 exposure 仓位）
 breadth:
   universe: stock_daily_bars
   level:
@@ -42,12 +42,12 @@ axes:
   trend_posture:
     module: stage_analysis
     label: Trend posture
-    label_zh: 趨勢姿態
+    label_zh: Weinstein 階段
   rrg_rotation:
     module: rrg_rotation
     label: RRG rotation
     label_zh: 相對輪動
   stage2_participation:
     module: stage_analysis
-    label: Stage-2 participation
+    label: Stage 2 participation
     label_zh: Stage 2 參與度

@@ -114,3 +114,87 @@ def persist_rrg_narrow_backtest_bundle(
         )
     conn.commit()
     return run_id
+
+
+def delete_rrg_universe_for_session(
+    conn: sqlite3.Connection,
+    session_date: str,
+    screen_kind: str,
+) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM rrg_universe_scores
+        WHERE session_date = ? AND screen_kind = ?
+        """,
+        (session_date, screen_kind),
+    )
+    conn.commit()
+    return int(cur.rowcount or 0)
+
+
+def replace_rrg_universe_scores(
+    conn: sqlite3.Connection,
+    *,
+    session_date: str,
+    screen_kind: str,
+    rows: list[dict],
+) -> int:
+    """同 session_date + screen_kind 先刪後插。"""
+    delete_rrg_universe_for_session(conn, session_date, screen_kind)
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO rrg_universe_scores (
+            session_date, screen_kind, data_baseline_date, stock_id, stock_name,
+            rs_ratio, rs_momentum, quadrant, quadrants_json, trend, disp, seg_last,
+            segs_json, tier2, mono_tier2, mono_fresh, daily_pct, tick_ok, synced_at
+        ) VALUES (
+            :session_date, :screen_kind, :data_baseline_date, :stock_id, :stock_name,
+            :rs_ratio, :rs_momentum, :quadrant, :quadrants_json, :trend, :disp, :seg_last,
+            :segs_json, :tier2, :mono_tier2, :mono_fresh, :daily_pct, :tick_ok, :synced_at
+        )
+    """
+    payload = []
+    for r in rows:
+        payload.append(
+            {
+                "session_date": session_date,
+                "screen_kind": screen_kind,
+                "data_baseline_date": r["data_baseline_date"],
+                "stock_id": r["stock_id"],
+                "stock_name": r.get("stock_name"),
+                "rs_ratio": r.get("rs_ratio"),
+                "rs_momentum": r.get("rs_momentum"),
+                "quadrant": r.get("quadrant"),
+                "quadrants_json": r.get("quadrants_json"),
+                "trend": r.get("trend"),
+                "disp": r.get("disp"),
+                "seg_last": r.get("seg_last"),
+                "segs_json": r.get("segs_json"),
+                "tier2": int(r.get("tier2") or 0),
+                "mono_tier2": int(r.get("mono_tier2") or 0),
+                "mono_fresh": int(r.get("mono_fresh") or 0),
+                "daily_pct": r.get("daily_pct"),
+                "tick_ok": r.get("tick_ok"),
+                "synced_at": r.get("synced_at") or synced_at,
+            }
+        )
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def load_rrg_universe_scores(
+    conn: sqlite3.Connection,
+    session_date: str,
+    screen_kind: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT * FROM rrg_universe_scores
+        WHERE session_date = ? AND screen_kind = ?
+        ORDER BY stock_id ASC
+        """,
+        (session_date, screen_kind),
+    ).fetchall()

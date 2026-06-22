@@ -229,11 +229,11 @@ def _kpi_strip_html(snap: dict[str, Any], *, bench: str, ref: str) -> str:
         f'<div class="kpi-strip" data-trade-date="{_esc(ref)}">'
         f'<div class="kpi" data-metric="breadth_200ma"><p class="kpi-label">200MA 廣度</p>'
         f'<p class="kpi-value">{_esc(breadth_val)}</p><p class="kpi-sub">{_esc(breadth_sub)}</p></div>'
-        f'<div class="kpi" data-metric="weinstein_stage"><p class="kpi-label">趨勢階段</p>'
+        f'<div class="kpi" data-metric="weinstein_stage"><p class="kpi-label">Weinstein 階段</p>'
         f'<p class="kpi-value">{_esc(trend_val)}</p><p class="kpi-sub">{_esc(trend_sub)}</p></div>'
         f'<div class="kpi" data-metric="rrg_health"><p class="kpi-label">RRG 健康度</p>'
         f'<p class="kpi-value">{_esc(rrg_val)}</p><p class="kpi-sub">{_esc(rrg_sub)}</p></div>'
-        f'<div class="kpi" data-metric="stage2_pass"><p class="kpi-label">Stage-2 參與</p>'
+        f'<div class="kpi" data-metric="stage2_pass"><p class="kpi-label">Stage 2</p>'
         f'<p class="kpi-value">{_esc(pass_val)}</p><p class="kpi-sub">{_esc(pass_sub)}</p></div>'
         "</div>"
     )

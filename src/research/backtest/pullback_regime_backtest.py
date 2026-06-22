@@ -517,7 +517,7 @@ def render_pullback_regime_markdown(result: dict) -> str:
     for hold in cfg["horizons"]:
         lines.append(f"### H{hold}")
         lines.append("")
-        lines.append("| 策略 | n | 勝台指% | 均超額% | 中位超額% | 均報酬% |")
+        lines.append("| 策略 | n | 勝率% | 均超額% | 中位超額% | 均報酬% |")
         lines.append("|------|---|---------|---------|-----------|---------|")
         rows = sorted(
             [s for s in result["summaries"] if s["hold_days"] == hold],

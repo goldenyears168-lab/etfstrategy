@@ -14,9 +14,9 @@ from holdings_research import (
     build_etf_holdings_changes_block,
     fmt_ntd_short,
 )
+from market_benchmark import latest_trading_date
 from project_config import ETF_CODES_HOLDINGS, ETF_CODES_LISTED, parse_etf_codes
 from report_paths import REPORTS_DIR, daily_track_dir, ensure_daily_dir
-from website_publish import publish_etf_daily
 from stock_db import DEFAULT_DB_PATH, connect, list_etf_snapshot_dates
 
 STRATEGY_ID = "etf-daily"
@@ -79,7 +79,7 @@ def build_etf_daily_markdown(
     *,
     as_of: str | None = None,
 ) -> str:
-    ref = as_of or date.today().isoformat()
+    ref = as_of or latest_trading_date(conn) or date.today().isoformat()
     sync = _holdings_sync_summary(conn, etf_codes)
     blocks = build_etf_holdings_changes_block(conn, etf_codes, changed_only=True)
 
@@ -209,7 +209,6 @@ def write_etf_daily_reports(
     for path in paths:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-    publish_etf_daily(text, ref)
     return paths
 
 

@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--hold7",
         action="store_true",
-        help="RRG 對標子 sweep：3 槽 · hold7 · near_pivot/section_a/pre_forming",
+        help="RRG 對照基準子 sweep：3 槽 · hold7 · near_pivot/section_a/pre_forming",
     )
     args = parser.parse_args(argv)
 
@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
         hold_days_list = (7,)
         min_composite_list = (45.0, 50.0, 55.0, 60.0)
         max_wait_list = (5, 10, 15)
-        sweep_title = "Hold7 × 3-slot sweep（RRG 對標）"
+        sweep_title = "Hold7 × 3-slot sweep（RRG 對照基準）"
         report_stem = "chunge_funnel_hold7_sweep"
         min_n = max(5, args.min_n)
     else:

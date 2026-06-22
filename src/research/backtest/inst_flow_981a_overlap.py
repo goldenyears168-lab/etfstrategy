@@ -343,7 +343,7 @@ def format_inst_flow_round5_report(payload: dict[str, object]) -> str:
     for h in horizons:
         lines.append(f"### H{h}")
         lines.append("")
-        lines.append("| bucket | 訊號日 | 勝台指% | 累計α | Wilcoxon p |")
+        lines.append("| bucket | 訊號日 | 勝率% | 累計α | Wilcoxon p |")
         lines.append("|--------|--------|---------|-------|------------|")
         for bid, _ in OVERLAP_BUCKET_SPECS:
             r = by_id.get(f"{bid}-L1H{h}")
@@ -363,7 +363,7 @@ def format_inst_flow_round5_report(payload: dict[str, object]) -> str:
     for h in horizons:
         lines.append(f"### H{h}")
         lines.append("")
-        lines.append("| 模型 | 回收α | 執行輪數 | 捕獲% | 峰值槽 |")
+        lines.append("| 模型 | 實現超額 | 成交筆數 | 捕獲% | 峰值槽 |")
         lines.append("|------|-------|----------|-------|--------|")
         for key, title in (
             (f"both_h{h}_1pool", "inst∩981A · 單池 1 槽"),
