@@ -1,0 +1,82 @@
+# 複製為 config/backtest_standard.yaml 後生效（尚無 loader · 屬設計草稿）
+# 用途：跨軌「比較層」SSOT —— 不取代 config/strategy.yaml 的契約版回測規格
+# 文件：docs/unified-backtest-standard.md
+
+version: backtest-standard-v1
+benchmark: IX0001
+
+# 比較層引擎：全六軌統一用 no-compound 固定槽位 + 逐日 mark-to-market
+# （即 src/research/backtest/slot_portfolio_metrics.simulate_slot_portfolio）
+nav_engine: slot_portfolio_metrics.simulate_slot_portfolio
+
+# 各軌如何被轉成 periods 餵進共同引擎（見 unified_nav_adapter.py）
+track_adapters:
+  00981a-l1h9:
+    source: copytrade_legs          # entry_date/exit_date/stock_id 直接沿用 L1H9 訊號腿
+    total_capital_ntd: 90000
+    n_slots: 9
+  rrg-mono-hold7:
+    source: slot_periods_native      # 已是 simulate_slot_portfolio 原生輸入
+    total_capital_ntd: 50000
+    n_slots: 3
+  rrg-mono-swap-accel:
+    source: slot_periods_native
+    total_capital_ntd: 60000
+    n_slots: 3
+  vcp-pivot-gate:
+    source: slot_periods_native
+    total_capital_ntd: 50000
+    n_slots: 5
+  vcp-coil-close:
+    source: slot_periods_native
+    total_capital_ntd: 50000
+    n_slots: 5
+  minervini-sepa-basket:
+    source: monthly_basket_to_periods  # 月末再平衡 picks → entry=當月再平衡日 · exit=次月再平衡日
+    total_capital_ntd: 50000
+    n_slots: 8                          # 與該月 basket 平均檔數對齊（待研究確認）
+
+# 比較窗口（每張排名表須標明用哪一個 window_id，不可混排）
+windows:
+  cmp_max_common:
+    label: "全六軌資料交集最長窗"
+    date_start: "2025-05-28"   # 受 00981a-l1h9 起算日卡住
+    date_end: null              # null = 今天
+    primary: true
+  cmp_rolling_252d:
+    label: "最近 252 個交易日滾動"
+    lookback_trading_days: 252
+  cmp_2025_full:
+    label: "2025 全年對照"
+    date_start: "2025-01-01"
+    date_end: "2025-12-31"
+  cmp_2026_ytd:
+    label: "2026 年初至今對照"
+    date_start: "2026-01-01"
+    date_end: null
+
+# 樣本不足門檻：交易日數低於此值時，不顯示 cagr_pct / 不做年化外推
+min_trading_days_for_annualization: 120
+
+# 交易成本模型（台股現貨；可關閉做敏感度對照）
+cost_model:
+  enabled: true
+  buy_fee_pct: 0.1425
+  sell_fee_pct: 0.1425
+  sell_tax_pct: 0.3
+  # 單次完整來回 ≈ buy_fee_pct + sell_fee_pct + sell_tax_pct = 0.575%
+
+# 排名表唯一超額定義（取代逐筆均/訊號日均超額）
+excess_definition: interval_excess_pct   # = strategy_cum_return_pct - benchmark_cum_return_pct
+
+# 統計顯著性（Phase 6 · 可選）
+significance:
+  enabled: false
+  bootstrap_resamples: 1000
+  ci_level_pct: 95
+  min_n_for_ci_required: 30
+
+output:
+  nav_csv_dir: reports/research/_unified/
+  league_table_json: reports/research/_unified/league_table_{window_id}.json
+  league_table_md: reports/research/_unified/league_table_{window_id}.md

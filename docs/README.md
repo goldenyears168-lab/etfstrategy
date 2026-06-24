@@ -8,6 +8,7 @@
 | [daily-operations.md](./daily-operations.md) | 每日 SOP |
 | [00981a-copytrade-research-methodology.md](./00981a-copytrade-research-methodology.md) | 00981A 跟單研究 |
 | [evaluation-contract.md](./evaluation-contract.md) | Backtest spec · per-track JSON |
+| [unified-backtest-standard.md](./unified-backtest-standard.md) | 跨軌比較層設計（不取代契約版） · 規劃中 |
 | [PRD.md](./PRD.md) | **現行產品範圍**（living doc） |
 | [修改計畫書.md](./修改計畫書.md) | **跨層交叉 Lens · ETF 資金故事**（規劃中） |
 

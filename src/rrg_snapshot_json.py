@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from project_config import DEFAULT_ETF_CODES
+from lens_ui_copy import RRG_ALL_CANDIDATES_TITLE_ZH, RRG_FRESH_ZH
 from rrg_mono_daily_brief import (
     EXECUTION_DETAIL_ZH,
     EXECUTION_RULE_ZH,
@@ -17,6 +18,7 @@ from rrg_mono_daily_brief import (
     _scan_rows,
     load_slot_state,
 )
+from snapshot_screen_status import rrg_screen_status
 
 _TPE = ZoneInfo("Asia/Taipei")
 CONTRACT = "rrg-mono-daily-v1"
@@ -73,6 +75,22 @@ def build_rrg_mono_snapshot_json(
     state = load_slot_state()
     slots = state.get("slots", [])
     occupied = len(slots)
+    scan_label = "盤中預估" if intraday else "收盤版"
+    if fresh_mono:
+        summary_zh = (
+            f"{scan_label}顯示 {len(fresh_mono)} 檔 fresh 訊號，"
+            f"全部單軌候選 {len(all_mono)} 檔。"
+        )
+        empty_reason_zh = None
+    elif all_mono:
+        summary_zh = (
+            f"{scan_label}暫無 fresh 訊號，"
+            f"但仍有 {len(all_mono)} 檔單軌候選可持續觀察。"
+        )
+        empty_reason_zh = None
+    else:
+        summary_zh = f"{scan_label}暫無符合單軌條件的候選。"
+        empty_reason_zh = "今日沒有符合單軌條件的候選標的。"
 
     return {
         "contract": CONTRACT,
@@ -86,17 +104,25 @@ def build_rrg_mono_snapshot_json(
         "slots_label": f"{occupied}/{MAX_SLOTS}",
         "fresh_count": len(fresh_mono),
         "mono_count": len(all_mono),
+        "screen_status": rrg_screen_status(
+            intraday=intraday,
+            mono_count=len(all_mono),
+            fresh_count=len(fresh_mono),
+            slots_label=f"{occupied}/{MAX_SLOTS}",
+        ),
+        "summary_zh": summary_zh,
+        "empty_reason_zh": empty_reason_zh,
         "execution_rule_zh": EXECUTION_RULE_ZH,
         "execution_detail_zh": EXECUTION_DETAIL_ZH,
         "strategy_spec_zh": f"單軌濾網 + fresh 訊號 + 依軌跡排序 + 持有 {HOLD_DAYS} 日（{EXECUTION_RULE_ZH}）",
         "tables": {
             "fresh_mono": {
-                "title": "mono fresh 候選",
+                "title": f"{RRG_FRESH_ZH} 候選",
                 "headers": FRESH_HEADERS,
                 "rows": [_fresh_row(i, r) for i, r in enumerate(fresh_mono, 1)],
             },
             "all_mono": {
-                "title": "所有 mono 候選",
+                "title": RRG_ALL_CANDIDATES_TITLE_ZH,
                 "headers": ALL_HEADERS,
                 "rows": [_all_row(i, r) for i, r in enumerate(all_mono, 1)],
             },

@@ -6,22 +6,44 @@ from dataclasses import dataclass
 
 from stock_db.util import utc_now_iso
 
+def _daily_bar_payload(rows: list[dict], synced_at: str) -> list[dict]:
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "code": r["code"],
+                "date": r["date"],
+                "open": r.get("open"),
+                "high": r.get("high"),
+                "low": r.get("low"),
+                "close": r["close"],
+                "adj_close": r.get("adj_close"),
+                "volume": r.get("volume"),
+                "spread": r.get("spread"),
+                "source": r["source"],
+                "synced_at": synced_at,
+            }
+        )
+    return out
+
+
 def upsert_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     if not rows:
         return 0
     synced_at = utc_now_iso()
     sql = """
         INSERT INTO daily_bars (
-            code, date, open, high, low, close, volume, spread, source, synced_at
+            code, date, open, high, low, close, adj_close, volume, spread, source, synced_at
         ) VALUES (
-            :code, :date, :open, :high, :low, :close, :volume, :spread, :source, :synced_at
+            :code, :date, :open, :high, :low, :close, :adj_close, :volume, :spread, :source, :synced_at
         )
         ON CONFLICT(code, date, source) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
-            close=excluded.close, volume=excluded.volume, spread=excluded.spread,
+            close=excluded.close, adj_close=excluded.adj_close,
+            volume=excluded.volume, spread=excluded.spread,
             synced_at=excluded.synced_at
     """
-    payload = [{**r, "synced_at": synced_at} for r in rows]
+    payload = _daily_bar_payload(rows, synced_at)
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
@@ -261,16 +283,16 @@ def upsert_stock_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     synced_at = utc_now_iso()
     sql = """
         INSERT INTO stock_daily_bars (
-            stock_id, trade_date, open, high, low, close, volume, source, synced_at
+            stock_id, trade_date, open, high, low, close, adj_close, volume, source, synced_at
         ) VALUES (
-            :stock_id, :trade_date, :open, :high, :low, :close, :volume, :source, :synced_at
+            :stock_id, :trade_date, :open, :high, :low, :close, :adj_close, :volume, :source, :synced_at
         )
         ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
-            close=excluded.close, volume=excluded.volume,
+            close=excluded.close, adj_close=excluded.adj_close, volume=excluded.volume,
             synced_at=excluded.synced_at
     """
-    payload = [{**r, "synced_at": synced_at} for r in rows]
+    payload = [{**r, "adj_close": r.get("adj_close"), "synced_at": synced_at} for r in rows]
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
@@ -451,16 +473,16 @@ def upsert_us_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     synced_at = utc_now_iso()
     sql = """
         INSERT INTO us_daily_bars (
-            ticker, trade_date, open, high, low, close, volume, source, synced_at
+            ticker, trade_date, open, high, low, close, adj_close, volume, source, synced_at
         ) VALUES (
-            :ticker, :trade_date, :open, :high, :low, :close, :volume, :source, :synced_at
+            :ticker, :trade_date, :open, :high, :low, :close, :adj_close, :volume, :source, :synced_at
         )
         ON CONFLICT(ticker, trade_date, source) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
-            close=excluded.close, volume=excluded.volume,
+            close=excluded.close, adj_close=excluded.adj_close, volume=excluded.volume,
             synced_at=excluded.synced_at
     """
-    payload = [{**r, "synced_at": synced_at} for r in rows]
+    payload = [{**r, "adj_close": r.get("adj_close"), "synced_at": synced_at} for r in rows]
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)

@@ -14,6 +14,7 @@ from project_config import (
     ETF_CODES_HOLDINGS,
     ETF_CODES_LISTED,
     MUTUAL_FUND_WATCHLIST_CODES,
+    SUPPLEMENTAL_WATCHLIST_STOCKS,
     SCORE_VERSION,
     csv_codes,
     parse_etf_codes,
@@ -39,6 +40,10 @@ class ProjectConfigTests(unittest.TestCase):
 
     def test_mutual_fund_watchlist_codes(self) -> None:
         self.assertEqual(MUTUAL_FUND_WATCHLIST_CODES, ("ACDD04",))
+
+    def test_supplemental_watchlist_stocks(self) -> None:
+        self.assertIn("3481", SUPPLEMENTAL_WATCHLIST_STOCKS)
+        self.assertEqual(SUPPLEMENTAL_WATCHLIST_STOCKS["3481"], "群創")
 
     def test_parse_etf_codes_empty_uses_default(self) -> None:
         self.assertEqual(parse_etf_codes(None), ETF_CODES_LISTED)

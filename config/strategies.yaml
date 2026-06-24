@@ -55,6 +55,25 @@ strategies:
       - "{date}_rrg_mono_daily.md"
       - "rrg_mono_daily.md"
 
+  rrg-mono-swap-accel:
+    title: RRG mono swap-accel · C18acc
+    layer: strategy
+    kind: competition
+    enabled: false
+    parent_strategy: rrg-mono-hold7
+    description: >
+      daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 C0/5m poll live screen ·
+      fresh mono 全池 · 四日加速对称换仓（簡化漏斗：不裁 top10 · 買方合併單規則）。
+    funnel_summary: >
+      池：mono tier2 + fresh 新进 · 全池 seg_last；
+      进：C0 盘中 scale · confirm 0|1；
+      换：卖加速<0最弱 · 买 seg_last+0.05 后加速最大 · min5 max10 · 1 swap/日。
+    sources:
+      - "{date}_rrg_mono_swap_accel_daily.md"
+      - "rrg_mono_swap_accel_daily.md"
+      - "{date}_rrg_c18acc_screen.md"
+      - "rrg_c18acc_screen.md"
+
   vcp-pivot-gate:
     title: VCP Pivot Gate
     layer: strategy

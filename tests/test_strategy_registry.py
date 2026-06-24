@@ -35,6 +35,7 @@ class StrategyRegistryTests(unittest.TestCase):
         for sid in (
             "00981a-l1h9",
             "rrg-mono-hold7",
+            "rrg-mono-swap-accel",
             "vcp-pivot-gate",
             "minervini-sepa-basket",
         ):

@@ -65,6 +65,7 @@ class ScanRow:
     rs_ratio: float
     rs_momentum: float
     daily_pct: float | None
+    composite_score: float | None = None
 
 
 def _feat(
@@ -115,17 +116,40 @@ def _feat(
     }
 
 
-def _tier2(f: dict[str, Any] | None) -> bool:
+def _tier2_gate(f: dict[str, Any] | None, *, end_q: str = "leading") -> bool:
     return bool(
         f
         and f["trend"] == "up_right"
-        and f["end_q"] == "leading"
+        and f["end_q"] == end_q
         and 1 <= f["disp"] < 2
     )
 
 
+def _tier2(f: dict[str, Any] | None) -> bool:
+    return _tier2_gate(f, end_q="leading")
+
+
+def _tier2_improving(f: dict[str, Any] | None) -> bool:
+    return _tier2_gate(f, end_q="improving")
+
+
 def _mono_tier2(f: dict[str, Any] | None) -> bool:
     return _tier2(f) and bool(f and f["mono_up"])
+
+
+def _mono_up_gate(f: dict[str, Any] | None) -> bool:
+    """up_right + mono_up + disp∈[1,2)；不要求終點 leading。"""
+    return bool(
+        f
+        and f["trend"] == "up_right"
+        and f["mono_up"]
+        and 1 <= f["disp"] < 2
+    )
+
+
+def _mono_up_simple(f: dict[str, Any] | None) -> bool:
+    """up_right + mono_up；不要求 leading · 不要求 disp 區間。"""
+    return bool(f and f["trend"] == "up_right" and f["mono_up"])
 
 
 def _fresh_mono(
@@ -134,11 +158,13 @@ def _fresh_mono(
     full_dates: list[str],
     si: int,
     sid: str,
+    *,
+    lb: int = LOOKBACK,
 ) -> bool:
-    f = _feat(rs_ratio, rs_mom, full_dates, si, sid)
+    f = _feat(rs_ratio, rs_mom, full_dates, si, sid, lb=lb)
     if not _mono_tier2(f):
         return False
-    prev = _feat(rs_ratio, rs_mom, full_dates, si - 1, sid)
+    prev = _feat(rs_ratio, rs_mom, full_dates, si - 1, sid, lb=lb)
     return not _mono_tier2(prev)
 
 

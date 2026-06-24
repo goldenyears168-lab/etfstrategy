@@ -23,6 +23,23 @@ set -e
 
 echo "=== launchd evening-holdings 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
 
+if [[ "${RUN_SUPABASE_RESEARCH_SYNC:-0}" == "1" || "${RUN_SUPABASE_LENS_SYNC:-1}" == "1" ]]; then
+  PYTHON="${ROOT}/.venv/bin/python"
+  if [[ -x "${PYTHON}" ]]; then
+    echo "--- Supabase 健康檢查 ---"
+    set +e
+    PYTHONPATH="${ROOT}/src" "${PYTHON}" "${ROOT}/scripts/supabase_health_check.py" --notify
+    HEALTH_EXIT=$?
+    set -e
+    if [[ "${HEALTH_EXIT}" -ne 0 ]]; then
+      echo "WARN: Supabase 健康檢查 FAIL（exit=${HEALTH_EXIT}）"
+      EXIT="${HEALTH_EXIT}"
+    else
+      echo "OK: Supabase 健康檢查"
+    fi
+  fi
+fi
+
 export ROOT="${ROOT}"
 "${ROOT}/scripts/evening_holdings_notify.sh" "${EXIT}" || true
 

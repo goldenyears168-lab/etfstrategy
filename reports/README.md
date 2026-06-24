@@ -34,7 +34,6 @@
 | `vcp/` | VCP benchmark、春哥 L4 校準 |
 | `minervini-sepa-basket/` | broad_momentum 回測 JSON |
 | `_archive/` | 已停損研究摘要 |
-| `strategy_hub.html` | 多軌 Dashboard（手動 render） |
 
 ## _archive/ 封存索引
 

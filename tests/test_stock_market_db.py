@@ -220,6 +220,22 @@ class TestStockMarketTables(unittest.TestCase):
         self.assertTrue(all(w["etf_hold_count"] == 0 for w in watch))
         self.assertTrue(all(w["fund_hold_count"] == 1 for w in watch))
 
+    def test_constituent_watchlist_includes_supplemental(self) -> None:
+        from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
+
+        watch = load_etf_constituent_watchlist(
+            self.conn,
+            (),
+            fund_codes=(),
+            benchmark_codes=(),
+        )
+        ids = {w["stock_id"] for w in watch}
+        self.assertTrue(ids.issuperset(SUPPLEMENTAL_WATCHLIST_STOCKS.keys()))
+        innolux = next(w for w in watch if w["stock_id"] == "3481")
+        self.assertEqual(innolux["stock_name"], "群創")
+        self.assertEqual(innolux["supplemental_hold_count"], 1)
+        self.assertEqual(innolux["etf_hold_count"], 0)
+
     def test_ever_held_and_universe_gaps(self) -> None:
         synced = "2026-06-01T00:00:00+00:00"
         rows = [

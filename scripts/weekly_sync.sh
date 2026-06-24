@@ -68,6 +68,12 @@ run_step "stock_beta (FinMind/Yahoo)" \
 run_step "benchmark constituents (0050)" \
   "$PYTHON" "${SRC}/sync_benchmark_constituents.py" --quiet
 
+YAHOO_REFRESH_START="$("$PYTHON" -c "from datetime import date, timedelta; print((date.today()-timedelta(days=45)).isoformat())")"
+run_step "yahoo research refresh (index/us/gaps)" \
+  "$PYTHON" "${SRC}/backfill_yahoo_research.py" --sync \
+  --only index-bars,us-bars,tw-gaps \
+  --start "$YAHOO_REFRESH_START" --quiet
+
 if [[ -f "${SRC}/sync_fundamentals.py" ]]; then
   run_step "fundamentals (L8/L8.5)" \
     "$PYTHON" "${SRC}/sync_fundamentals.py" --sync-db

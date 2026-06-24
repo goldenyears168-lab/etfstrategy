@@ -35,7 +35,7 @@ QUADRANT_LABEL_ZH = {
     "leading": "Leading 領先",
     "weakening": "Weakening 轉弱",
     "lagging": "Lagging 落後",
-    "improving": "Improving 改善",
+    "improving": "Improving 轉強",
 }
 
 DAY_COLORS = ("#6B8CAE", "#52A882", "#D4AF37", "#E87840", "#C75CB8")

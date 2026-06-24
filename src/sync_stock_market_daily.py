@@ -17,6 +17,7 @@ from pathlib import Path
 import requests
 
 from market_sync_window import min_rows_required, resolve_sync_window
+from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
 from stock_db import (
     DEFAULT_DB_PATH,
     StockMarketCoverage,
@@ -165,6 +166,9 @@ def sync_stock_market_daily(
                 stock_ids + stock_ids,
             ).fetchall()
             name_by_id = {str(r["stock_id"]): r["stock_name"] or "" for r in name_rows}
+            for sid in stock_ids:
+                if not name_by_id.get(sid):
+                    name_by_id[sid] = SUPPLEMENTAL_WATCHLIST_STOCKS.get(sid, "")
             watchlist = [
                 {
                     "stock_id": sid,
@@ -172,6 +176,7 @@ def sync_stock_market_daily(
                     "etf_hold_count": 0,
                     "fund_hold_count": 0,
                     "benchmark_hold_count": 0,
+                    "supplemental_hold_count": 1 if sid in SUPPLEMENTAL_WATCHLIST_STOCKS else 0,
                 }
                 for sid in stock_ids
             ]

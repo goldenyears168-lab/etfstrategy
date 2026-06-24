@@ -11,6 +11,7 @@
 | VCP′ | Pivot Gate / Coil Close · 收盤 screen+brief | 16:30 | `scripts/daily_sync.sh`（`RUN_VCP_FUNNEL_CLOSE=1`） |
 | ②a | RRG mono 收盤前預警 + universe snapshot | 13:00 | `scripts/launchd/rrg-mono-intraday-watch.command` |
 | ② | 收盤 ETF 日報（含 RRG universe close + mono 槽位 + **stock_daily_lens**） | 16:30 | `scripts/1630收盤雷達.command` |
+| ②b | 安聯台灣科技基金（ACDD04）月報公布偵測 | 16:30 | `scripts/launchd/mutual-fund-disclosure-watch.command` |
 | ③ | 週日補庫 | 週日 20:00 | `scripts/2000週日補庫.command` |
 
 ## Supabase 自動同步（`RUN_SUPABASE_RESEARCH_SYNC=1` · `RUN_SUPABASE_LENS_SYNC=1`）
@@ -22,14 +23,20 @@
 | `daily_briefs.snapshot_json` | `etf-daily-v1` · `regime-snapshot-v1` · **`vcp-daily-v1`** | sync 時預算 | — |
 | `rrg_universe_scores` | RRG 成分股象限（`intraday` / `close`） | 13:00 / 16:30（Python 內建） | `RUN_SUPABASE_RESEARCH_SYNC` |
 | `stock_daily_lens` · `lens_daily_alert` | 跨層 Lens · 當日 headline | 16:30 `daily_sync` | `RUN_SUPABASE_LENS_SYNC`（launchd 預設 1） |
-| `site_content` | 六層靜態頁 · 策略 catalog | **手動** 或 `RUN_SUPABASE_SITE_SYNC=1`（daily_close 尾段） | — |
-| `strategy_performance_yearly` | 已採納策略分年績效 | **手動** 或 `RUN_STRATEGY_PERF_SYNC=1`（daily_close 尾段） | — |
+| `site_content` | 六層靜態頁 · 策略 registry · 採納報告 · catalog 長文 | Readdy 直連 Supabase · authoring 見 [readdy-regime-strategy-lineage.md §7.4](./readdy-regime-strategy-lineage.md) | — |
+| `strategy_performance_yearly` | 已採納策略分年績效 | **手動** `scripts/sync_strategy_performance.py` 或 `RUN_STRATEGY_PERF_SYNC=1` | `RUN_STRATEGY_PERF_SYNC` |
 
 > `daily_briefs.snapshot_json`：`regime_daily` → `regime-snapshot-v1` · `etf_daily` → **`etf-daily-v1`**（Readdy 直讀，勿 parse MD）。`content_html` 不再 sync。
 
-> 規劃中、尚未實作：`etf_flow_story`（見 `docs/修改計畫書.md`）。
+> Migration **013**（registry 欄位）已部署 · 驗證 SQL 見 [readdy-regime-strategy-lineage.md §7.0](./readdy-regime-strategy-lineage.md)。
 
-## ② 收盤閱讀順序
+**收盤後健康檢查**（公開站是否 stale）：
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/supabase_health_check.py --notify
+```
+
+檢查：`daily_briefs`（1300/1630）· `stock_daily_highlight` · `daily_highlight_alert` · 五軌 `site_content` registry · `RUN_*` 開關。FAIL 時 exit 1；`--notify` 送 macOS 通知。
 
 1. **`reports/daily/etf-daily/daily_brief.md`** — 各 ETF 持股變化（00981A 新进/加码 等）
 2. **`reports/daily/regime/daily_brief.md`** — Regime 四格雷達

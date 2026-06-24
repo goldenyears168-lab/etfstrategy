@@ -34,6 +34,7 @@ YEAR_WINDOWS: dict[str, tuple[str, str]] = {
 _ADOPTED_STRATEGY_IDS = (
     "00981a-l1h9",
     "rrg-mono-hold7",
+    "rrg-mono-swap-accel",
     "vcp-pivot-gate",
     "vcp-coil-close",
     "minervini-sepa-basket",
@@ -234,6 +235,46 @@ def _vcp_rows(conn: sqlite3.Connection, *, strategy_id: str, cfg_dict: dict) -> 
     )
 
 
+def _swap_accel_run(
+    conn: sqlite3.Connection,
+    *,
+    date_start: str,
+    date_end: str,
+) -> dict[str, Any]:
+    from market_breadth_ma import build_breadth_panel
+    from market_benchmark import load_benchmark_close
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+    from research.backtest.rrg_mono_score_swap_c import (
+        champion_score_swap_c_config,
+        simulate_score_swap_c,
+    )
+    from rrg_mono_daily_brief import LENGTH
+    from rrg_rotation import compute_rrg_panel
+
+    cfg = champion_score_swap_c_config()
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if date_start <= d <= date_end]
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=date_start, date_end=date_end)
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    periods, summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=cfg,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+    )
+    return {"periods": periods, "summary": summary}
+
+
 def _minervini_rows(conn: sqlite3.Connection) -> list[StrategyPerformanceRow]:
     rows: list[StrategyPerformanceRow] = []
     for year_label, (ds, de) in YEAR_WINDOWS.items():
@@ -299,6 +340,16 @@ def compute_strategy_performance_yearly(
             n_slots=3,
             hold_days=7,
             run_fn=_rrg_run,
+        )
+    )
+    rows.extend(
+        _slot_strategy_rows(
+            conn,
+            strategy_id="rrg-mono-swap-accel",
+            capital_ntd=60_000.0,
+            n_slots=3,
+            hold_days=10,
+            run_fn=_swap_accel_run,
         )
     )
     rows.extend(_vcp_rows(conn, strategy_id="vcp-pivot-gate", cfg_dict=dict(VCP_PIVOT_GATE)))

@@ -302,6 +302,7 @@ def fetch_yahoo_index_bars(
                     "high": float(high_val) if high_val is not None else None,
                     "low": float(low_val) if low_val is not None else None,
                     "close": float(close_val),
+                    "adj_close": float(bar["Adj Close"]) if pd.notna(bar.get("Adj Close")) else float(close_val),
                     "volume": int(vol_val) if vol_val is not None else None,
                     "spread": None,
                     "source": "yahoo",

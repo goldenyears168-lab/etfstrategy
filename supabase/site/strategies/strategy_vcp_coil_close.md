@@ -9,6 +9,11 @@ tab_label_en: VCP 訊號收盤
 sort_order: 14
 role: 已採納凍結規格 · VCP 進場對照
 web_v1: 策略獨立頁
+icon: ri-flag-2-line
+description_short: 同 VCP 池、訊號日收盤即進場（突破確認的對照組）· 持 20 日 · 5 槽
+research_page_id: research_case_vcp_funnel
+brief_types:
+  - vcp_coil_close
 ---
 
 # VCP 訊號收盤

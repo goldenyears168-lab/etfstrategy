@@ -1,6 +1,6 @@
 -- 股市研究 briefs · 13:00 / 16:30 排程成果
 -- Project: lzaomqzsiqudkojokevr（好時官網預約）
--- 與官網預約 public.booking/product 表分離 → schema stock_research
+-- 與官網預約 photobooking.booking_logs 分離 → schema stock_research
 
 create schema if not exists stock_research;
 
@@ -29,7 +29,7 @@ grant usage on schema stock_research to service_role;
 grant all on stock_research.daily_briefs to service_role;
 
 comment on schema stock_research is
-  '股市研究 · 與官網預約 public.booking/product 表分離';
+  '股市研究 · 與官網預約 photobooking.booking_logs 分離';
 comment on table stock_research.daily_briefs is
   '13:00 VCP+RRG · 16:30 ETF+Regime scheduled briefs';
 

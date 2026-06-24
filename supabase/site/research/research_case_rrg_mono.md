@@ -3,25 +3,27 @@ page_id: research_case_rrg_mono
 layer_id: research
 research_topic: rrg-mono-breadth-study
 graduated_strategy_id: rrg-mono-hold7
-title: 示範 · RRG 單軌研究
-tab_label_zh: 案例 · RRG
-tab_label_en: 案例 · RRG
+title: 採納報告 · RRG 持7日
+tab_label_zh: 採納 · RRG 持7日
+tab_label_en: Adoption · RRG hold7
 sort_order: 32
 role: parameter grid · breadth stratification
-web_v1: 研究示範
+web_v1: 採納報告
 ---
 
-# 示範案例 · RRG 單軌（持7日）研究
+# 採納報告 · RRG 市場輪動圖選股策略（持7日）
 
-← [研究層](layer_research) · 採納 [RRG 單軌](strategy_rrg_mono_hold7)
+← [策略目錄](strategy_catalog) · [凍結規格](strategy_rrg_mono_hold7) · 變體 [RRG 四日加速換倉](research_case_rrg_mono_swap_accel)
 
-**研究主題** · RRG 單軌廣度分層 · 參數格掃描
+**研究主題** · RRG 單軌廣度分層 · 參數格掃描 · **本頁僅對應 `rrg-mono-hold7`**
+
+> **先讀這裡**：在 ETF 成分股裡，用 **Relative Rotation Graph（RRG，相對輪動圖）** 找「剛轉強、軌跡還 **fresh**」的標的，第 4 日收盤買、持有 **7 個交易日** 後收盤賣，看能否打贏台指。換倉變體見 [四日加速換倉採納報告](research_case_rrg_mono_swap_accel)。
 
 ---
 
 ## 1 · 研究問題
 
-在 ETF 成分宇宙內，**相對強度輪動（RRG）** 單軌 **fresh** 四日軌跡能否預測 **+7 日** 相對 **台指** 超額？**持有期 / 槽位 / 排序 / 廣度分區** 如何設？
+白話問句：**RRG mono fresh 四日軌跡，能不能預測之後約 7 個交易日的相對超額？** 持有天數、槽位、排序與 Market breadth（市場廣度）分區怎麼設，都在下面表格。
 
 ---
 
@@ -33,23 +35,26 @@ web_v1: 研究示範
 | 回看 | 3 / 4 / 5 日 | **4** | — |
 | 持有 | 5 / 7 / 10 / 20 | **7** | 持20日槽占用長 |
 | 槽位 | 1 / 3 / 5 | **3** | 與 VCP 5 槽錯開 |
-| 排序 | 依軌跡末段 / 其他 | **依軌跡末段** | — |
+| 排序 | **依軌跡排序** / 其他 | **依軌跡末段** | — |
 | 進場 | 收盤 / 隔日開盤 | **第 4 日收盤** | — |
 
 ---
 
-## 3 · 全樣本績效（2026 上半年 · 作 VCP 對照基準）
+## 3 · 分年組合績效（5 萬 · 3 槽 · 日內市值計價）
 
-本研究結果同時作 **VCP選股策略掃描** 的 **RRG 對照基準**：
+與策略目錄比較表同源 · `strategy_performance_yearly` · 窗口 **2026 = 2026-01-01～06-18**。
 
-| 指標 | 值 |
-|------|-----|
-| 成交筆數 | 39 |
-| 均超額% | +6.997% |
-| 總超額% | +272.89% |
-| 勝率% | 58.97% |
+| 年份 | 窗口 | 組合總報酬% | 年化報酬率% | 勝率% | Sharpe | 樣本 |
+|------|------|------------|------------|---------|--------|------|
+| **2025** | 2025-01-01～12-31 | **+95.0** | **+99.9** | 51.7 | 2.87 | 89 筆 |
+| **2026** | 2026-01-01～06-18 | **+129.2** | **+580.4** | 55.0 | 6.31 | 40 筆 |
 
-→ VCP 掃描門檻：候選需均超額 ≥ ~7% 且總超額 ≥ ~273%（或部分對照分）。
+| 指標 | 2026 上半年 | 備註 |
+|------|-------------|------|
+| 每筆均超額% | **+6.5%** | 40 筆 vs 台指 |
+| 用途 | VCP 掃描 **RRG 對照基準** | 候選需達類似超額門檻 |
+
+2026 年化為部分年度外推 · 五軌對照 [績效對照](strategy_catalog#績效對照)。
 
 ---
 
@@ -80,17 +85,9 @@ web_v1: 研究示範
 
 ---
 
-## 互動素材 · RRG 軌跡時間軸
+## 4 · 互動素材 · RRG 軌跡時間軸
 
-回測產物含 **RRG 軌跡時間軸** 互動 HTML（inline JSON + `<script>`，單檔約 1–2MB）。範例檔名：`20260620_rrg_mono_hold7_slots_rrg_timeline_2026.html`。
-
-| 交付方式 | 說明 |
-|----------|------|
-| **Supabase Storage + iframe** | 上傳至 public bucket · Readdy 以 `<iframe src="…">` 嵌入研究附錄 · **v1 推薦** |
-| **JSON + React 元件** | 從 HTML 抽出軌跡 JSON · 站內原生渲染 · v2 正規 |
-| ~~`site_content.content_html`~~ | **不可行** — DOMPurify 會移除 script |
-
-產生：`python scripts/render_rrg_universe_html.py` → `reports/research/rrg/`。網站嵌入契約見 [日報首頁規格 · 互動研究素材](daily_home#互動研究素材-rrg-timeline)。
+回測產物含 **RRG 軌跡時間軸** 互動 HTML。產生：`python scripts/render_rrg_universe_html.py` → `reports/research/rrg/`。
 
 ---
 
@@ -98,5 +95,7 @@ web_v1: 研究示範
 
 | 研究 | → 策略 |
 |------|--------|
-| 單軌 fresh + 依軌跡末段 + 持7日 + 3 槽 | [RRG 單軌](strategy_rrg_mono_hold7) |
-| 日頻篩選 | 收盤後掃描 |
+| 單軌 fresh + 依軌跡末段 + 持7日 + 3 槽 | [RRG 市場輪動圖選股策略](strategy_rrg_mono_hold7) |
+| 日頻篩選 | 收盤後掃描 · `rrg_mono_daily` |
+| 盤中預估 | `rrg_mono_intraday`（母策略附屬 · 非獨立採納軌） |
+| 換倉變體 | [RRG 四日加速換倉](research_case_rrg_mono_swap_accel) · 獨立採納報告 |

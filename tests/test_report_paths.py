@@ -55,7 +55,6 @@ class ReportPathsTests(unittest.TestCase):
             classify_research_html_filename("20260620_00981a_l1h9_slots_rrg_timeline.html"),
             "00981a-copytrade",
         )
-        self.assertIsNone(classify_research_html_filename("strategy_hub.html"))
 
     def test_research_html_path_categories(self) -> None:
         p = research_html_path("rrg", "demo.html")

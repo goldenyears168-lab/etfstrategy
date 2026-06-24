@@ -8,13 +8,18 @@ tab_label_en: VCP 突破確認
 sort_order: 13
 role: 已採納凍結規格 · VCP選股策略
 web_v1: 策略獨立頁
+icon: ri-flag-line
+description_short: 整理後接近 VCP 突破的股票，收盤確認再進場 · Volatility Contraction Pattern（波動收斂）· 持 20 日
+research_page_id: research_case_vcp_funnel
+brief_types:
+  - vcp_pivot_gate
 ---
 
 # VCP 突破確認
 
 ← [策略目錄](strategy_catalog) · [VCP 研究案例](research_case_vcp_funnel)
 
-**節奏** · 日頻 · [VCP 探索日報](/)
+**節奏** · 日頻 · [VCP 漏斗研究日報](/)
 
 ## 策略定義
 

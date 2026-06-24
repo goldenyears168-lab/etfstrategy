@@ -112,7 +112,9 @@ def build_etf_snapshot_json(
     """PIT-safe ETF daily payload for Readdy (no MD parsing)."""
     codes = etf_codes or ETF_CODES_HOLDINGS
     sync = _holdings_sync_summary(conn, codes)
-    blocks = build_etf_holdings_changes_block(conn, codes, changed_only=True)
+    blocks = build_etf_holdings_changes_block(
+        conn, codes, changed_only=True, as_of=as_of
+    )
 
     changed_etfs: list[str] = []
     unchanged_etfs: list[str] = []
@@ -128,7 +130,7 @@ def build_etf_snapshot_json(
         else:
             changed_etfs.append(code)
 
-    consensus_rows = build_cross_etf_consensus(conn, codes)
+    consensus_rows = build_cross_etf_consensus(conn, codes, as_of=as_of)
     consensus_adds = [r for r in consensus_rows if r.etf_add >= 2]
     consensus_adds.sort(key=lambda r: abs(float(r.flow_ntd or 0)), reverse=True)
 

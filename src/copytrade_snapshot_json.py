@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from snapshot_screen_status import copytrade_screen_status
 from copytrade_l1h9_daily import (
     HOLD_DAYS,
     N_SLOTS,
@@ -45,6 +46,15 @@ def build_copytrade_snapshot_json(
     consensus = _consensus_add_set(conn, codes)
     rows = [_table_row(sig, consensus) for sig in signals]
     consensus_hits = [s for s in signals if s.stock_id in consensus]
+    if signals:
+        summary_zh = (
+            f"今日有 {len(signals)} 檔新進或加碼，"
+            f"其中 {len(consensus_hits)} 檔屬跨 ETF 共識加碼。"
+        )
+        empty_reason_zh = None
+    else:
+        summary_zh = "今日無新進或加碼訊號。"
+        empty_reason_zh = "今日沒有符合條件的新進或加碼持股。"
 
     return {
         "contract": CONTRACT,
@@ -60,6 +70,9 @@ def build_copytrade_snapshot_json(
         },
         "signal_count": len(signals),
         "consensus_count": len(consensus_hits),
+        "screen_status": copytrade_screen_status(len(signals)),
+        "summary_zh": summary_zh,
+        "empty_reason_zh": empty_reason_zh,
         "strategy_spec_zh": (
             f"00981A 新進／加碼 → 隔日開盤 · 持 {HOLD_DAYS} 交易日 · {N_SLOTS} 槽"
         ),

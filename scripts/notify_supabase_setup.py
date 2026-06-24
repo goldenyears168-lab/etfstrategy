@@ -22,9 +22,10 @@ def main() -> int:
 【專案】好時官網預約 · lzaomqzsiqudkojokevr（名稱維持不變）
 https://supabase.com/dashboard/project/lzaomqzsiqudkojokevr/editor
 
-【資料表分離】
-  · 官網預約：public.booking_logs, public.product_* …
-  · 股市研究：stock_research.daily_briefs（獨立 schema）
+【資料表分離】（同專案 · 三 schema）
+  · 官網預約：photobooking.booking_logs（Edge Function simplybook-proxy 僅代理 SimplyBook API，log 由前端 insert）
+  · 股市研究：stock_research.*（daily_briefs · site_content …）
+  · public：yahoo_quotes（報價快取 · 無預約表）
 
 【已回填】
   · 1300 vcp_funnel_specs（2026-06-20）

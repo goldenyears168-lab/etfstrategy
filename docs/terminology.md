@@ -162,11 +162,11 @@
 
 **Monitoring list · 監控清單**
 
-**Definition (EN):** The cross-layer `stock_daily_lens` surveillance list for a trade date: union of ETF flow, VCP funnel, and RRG mono fresh candidates with delta and convergence fields.
+**Definition (EN):** The project's single cross-layer stock surveillance set: (1) **membership** — Taiwan listed names ingested for daily bars, institutional flow, RRG, and Lens, recomputed when tracked ETF/fund holdings refresh via `load_etf_constituent_watchlist` (listed ETF snapshots + designated mutual-fund names + benchmark ETF constituents + configured supplemental tickers; same-day signal union may add rows to avoid omissions); (2) **daily rows** — per `trade_date` `stock_daily_lens` records with ETF flow, regime, RRG, and VCP delta and convergence fields. Do **not** split membership and daily diagnostics into separate product layers.
 
-**定義（中文）：** 交易日 `stock_daily_lens` 之跨層**監控清單**：ETF 資金流、VCP 漏斗與 RRG mono fresh 候選之聯集，附 delta 與收斂欄位。
+**定義（中文）：** 專案唯一的跨層**監控清單**：（1）**成員** — 納入日 K 線、籌碼、RRG、Lens 的台股標的集合，於追蹤 ETF／基金持股更新時透過 `load_etf_constituent_watchlist` 重算（上市 ETF 最新持股 + 指定境內基金 + 基準 ETF 成分 + 設定補充股；當日訊號聯集可補漏）；（2）**每日列** — 各 `trade_date` 的 `stock_daily_lens` 列，含 ETF 資金流、環境層、RRG、VCP 之 delta 與收斂欄位。**勿**將「標的集合」與「每日診斷」拆成兩個產品層名詞。
 
-**Identifier:** `stock_daily_lens` · **Delta flag:** `delta_new_to_watchlist`
+**Identifier:** `stock_daily_lens` · `stock_daily_highlight` · **Loader:** `load_etf_constituent_watchlist` · **Delta flag:** `delta_new_to_watchlist`
 
 **New observation · 新進觀察**
 
@@ -174,7 +174,7 @@
 
 **定義（中文）：** 昨日不在**監控清單**、今日新出現之標的（`delta_new_to_watchlist = true`）；敘事前綴 `【新進觀察】`。
 
-**Do not use · 勿用:** 新進池 · 監控池 · Lens 池 · **N 檔新進監控清單**（生硬句型）· **收盤情報** · **今日亮點** · **監控標的** · 對外裸 **Delta** / **Watch** / **Lens**.
+**Do not use · 勿用:** 新進池 · 監控池 · Lens 池 · **N 檔新進監控清單**（生硬句型）· **收盤情報** · **今日亮點** · **監控標的** · 對外裸 **Delta** / **Watch** / **Lens** · 對外 **ETF 成分股聯集**（僅描述 membership 時）· **觀測名單** / **觀察名單**（此概念；IPS `pm_watchlist` 另議）· **覆蓋標的池** / **coverage universe**（拆層舊稱）。
 
 **Headline 句型 · 台灣慣用：** `今日亮點：N 檔四框架收斂` · `今日亮點：N 檔新進觀察` · `今日亮點：今日無結構變化` — SSOT `src/lens_ui_copy.py` · `format_headline_zh()`（日期見 `trade_date`，不入 headline）。
 
@@ -218,7 +218,7 @@
 | Leading | Leading | 領先 | RS-Ratio > 100 and RS-Momentum > 100 |
 | Weakening | Weakening | 轉弱 | RS-Ratio > 100 and RS-Momentum ≤ 100 |
 | Lagging | Lagging | 落後 | RS-Ratio ≤ 100 and RS-Momentum ≤ 100 |
-| Improving | Improving | 改善 | RS-Ratio ≤ 100 and RS-Momentum > 100 |
+| Improving | Improving | 轉強 | RS-Ratio ≤ 100 and RS-Momentum > 100 |
 
 ---
 
@@ -369,12 +369,13 @@ Before adding new strings, grep this section and [terminology-audit.md](./termin
 | 廣度軸 · **Breadth axis**（對外） | **Market breadth（市場廣度）** |
 | 新進池 | **新進觀察** · `delta_new_to_watchlist` |
 | 監控池 · Lens 池 · 監控表 | **監控清單** |
+| ETF 成分股聯集 · 觀測名單 · 觀察名單（Lens 語境）· 覆蓋標的池 · coverage universe | **監控清單**（成員 + 每日列同一概念） |
 | `delta_new_to_lens` | `delta_new_to_watchlist` |
 | 收盤情報 · 今日必看 · 今日有結構變化的標的 · 策略中心收盤情報 · Lens（區塊標題） | **今日亮點** |
 | N 檔新進監控清單 | **N 檔新進觀察** |
 | 今日訊號 · Watch（tab）· 裸 Delta / Watch / Lens（對外） | **今日異動** · **持續關注** |
 | **Lens Score**（排序選項） | **參考分** · `highlight_score` |
-| **監控標的**（今日亮點 chip） | **清單內 N 檔** |
+| **監控標的** · **清單內 N 檔** | **監控清單 N 檔** |
 | **共識**（今日亮點 chip · 非 ETF 加碼語境） | **四框架收斂 N** · `highlight_tier = fire` |
 | 策略中心（導覽／區塊舊稱） | **策略目錄** · **今日亮點**（依語境） |
 | `stock_daily_lens` · `lens_daily_alert` · `lens_score` | `stock_daily_highlight` · `daily_highlight_alert` · `highlight_score` |
@@ -406,7 +407,7 @@ Cite lineage when introducing methods in reports and docs:
 | [terminology-audit.md](./terminology-audit.md) | Deprecation audit checklist |
 | §10 below | **用語對照總表**（現行 ↔ 舊名 · 全文速查） |
 | `src/lens_ui_copy.py` | 今日亮點 headline · chip · tab · 排序文案 SSOT |
-| `supabase/site/daily_home.md` | 首頁 Layer 0–1 CX 契約 |
+| Supabase `site_content.page_id = daily_home` | 首頁 Layer 0–1 CX 契約 |
 
 ---
 
@@ -431,8 +432,8 @@ Cite lineage when introducing methods in reports and docs:
 
 ### 10.2 今日亮點 · Stock daily highlight（首屏 Layer 1）
 
-**概念：** 跨層監控清單 · 表 `stock_daily_highlight` · alert `daily_highlight_alert`。  
-**文案 SSOT：** `src/lens_ui_copy.py` · `supabase/site/daily_home.md` · `format_headline_zh()`。
+**概念：** 跨層**監控清單**（成員集合 + 每日診斷列，同一產品概念）· 表 `stock_daily_highlight` · alert `daily_highlight_alert`。  
+**文案 SSOT：** `src/lens_ui_copy.py` · Supabase `site_content`（`daily_home`）· `format_headline_zh()`。
 
 | UI 元素 | 現行 · Use | 舊名／勿用 · Don't use |
 |---------|------------|----------------------|
@@ -440,7 +441,7 @@ Cite lineage when introducing methods in reports and docs:
 | 副標（選配） | 跨 ETF 持股、市場廣度、RRG、VCP 之昨日對照 | 英文產品代號 |
 | 清單概念 | **監控清單** | 新進池、監控池、Lens 池、監控表 |
 | 新進標的 | **新進觀察** · `delta_new_to_watchlist` | 新進池 · N 檔新進監控清單 |
-| 統計 chip · 規模 | **清單內 N 檔** | **監控標的** |
+| 統計 chip · 規模 | **監控清單 N 檔** | **監控標的** · **清單內 N 檔** |
 | 統計 chip · 新進 | **新進觀察 N** | 單獨「新進」當 chip 標籤（不完整） |
 | 統計 chip · 收斂 | **四框架收斂 N** · `highlight_tier = fire` | **共識**（此處非 ETF 共識加碼） |
 | 篩選 tab | **今日異動** / **全部** / **持續關注** | 今日訊號、裸 **Watch**、僅 delta |
@@ -477,6 +478,16 @@ Cite lineage when introducing methods in reports and docs:
 | **fresh** · **依軌跡排序**（RRG 對外） | 新鮮 · 段落末 |
 | **大盤同向** / **大盤背離** | 環境同向 · 環境背離 |
 | **每日市場環境** | PIT 快照（當區塊標題） |
+
+### 10.3a 對外白話補充（RRG）
+
+| 名詞 | 對外白話 |
+|------|----------|
+| `fresh`（RRG） | **fresh**（mono fresh 訊號 · 依軌跡排序） |
+| `leading` | **領先** |
+| `improving` | **轉強** |
+| `weakening` | **轉弱** |
+| `lagging` | **落後** |
 
 ### 10.4 策略與研究 · Strategy & research
 
@@ -531,7 +542,7 @@ Cite lineage when introducing methods in reports and docs:
 | 畫面舊文案 | 改用 |
 |------------|------|
 | 策略中心收盤情報 · Lens | **今日亮點** |
-| 監控標的 44 | **清單內 44 檔** |
+| 監控標的 44 · 清單內 44 檔 | **監控清單 44 檔** |
 | 共識 1（Lens 區 chip） | **四框架收斂 1** |
 | Lens Score（排序） | **參考分** |
 | Regime 色標可保留 | 區塊標題仍只用 **今日亮點**，勿加 Lens |

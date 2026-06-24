@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     high REAL,
     low REAL,
     close REAL NOT NULL,
+    adj_close REAL,
     volume INTEGER,
     spread REAL,
     source TEXT NOT NULL DEFAULT 'finmind',
@@ -207,6 +208,7 @@ CREATE TABLE IF NOT EXISTS stock_daily_bars (
     high REAL,
     low REAL,
     close REAL NOT NULL,
+    adj_close REAL,
     volume INTEGER,
     source TEXT NOT NULL DEFAULT 'finmind',
     synced_at TEXT NOT NULL,
@@ -646,11 +648,28 @@ CREATE TABLE IF NOT EXISTS us_daily_bars (
     high REAL,
     low REAL,
     close REAL,
+    adj_close REAL,
     volume REAL,
     source TEXT NOT NULL,
     synced_at TEXT NOT NULL,
     PRIMARY KEY (ticker, trade_date, source)
 );
+
+CREATE TABLE IF NOT EXISTS stock_corporate_actions (
+    symbol_key TEXT NOT NULL,
+    ex_date TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    amount REAL,
+    split_numerator REAL,
+    split_denominator REAL,
+    split_ratio TEXT,
+    source TEXT NOT NULL DEFAULT 'yahoo',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (symbol_key, ex_date, action_type, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_corporate_actions_date
+    ON stock_corporate_actions (ex_date DESC, symbol_key);
 
 CREATE TABLE IF NOT EXISTS qlib_tw_factor_scores (
     stock_id TEXT NOT NULL,
@@ -864,52 +883,45 @@ CREATE INDEX IF NOT EXISTS idx_rrg_narrow_regime_cal_date
 CREATE INDEX IF NOT EXISTS idx_rrg_narrow_year_stats_run
     ON rrg_narrow_regime_year_stats (run_id, year);
 
-CREATE TABLE IF NOT EXISTS stock_daily_lens (
+CREATE TABLE IF NOT EXISTS lens_daily_highlight (
     trade_date TEXT NOT NULL,
     stock_id TEXT NOT NULL,
-    stock_name TEXT,
-    etf_add_count INTEGER NOT NULL DEFAULT 0,
-    etf_reduce_count INTEGER NOT NULL DEFAULT 0,
-    etf_add_codes_json TEXT NOT NULL DEFAULT '[]',
-    etf_flow_ntd REAL,
-    share_delta_total REAL,
-    growth_pct REAL,
-    consensus_add INTEGER NOT NULL DEFAULT 0,
-    consensus_streak_days INTEGER NOT NULL DEFAULT 0,
-    breadth_zone_200 TEXT,
-    trend_posture TEXT,
-    regime_aligned INTEGER NOT NULL DEFAULT 0,
+    row_json TEXT NOT NULL,
+    lens_score REAL NOT NULL DEFAULT 0,
+    highlight_tier TEXT NOT NULL DEFAULT 'none',
     rrg_quadrant TEXT,
-    rrg_quadrant_prev TEXT,
     rrg_mono_fresh INTEGER NOT NULL DEFAULT 0,
     rrg_tier2 INTEGER NOT NULL DEFAULT 0,
-    vcp_composite REAL,
-    vcp_execution_state TEXT,
-    vcp_distance_pivot_pct REAL,
-    copytrade_l1h9_signal INTEGER NOT NULL DEFAULT 0,
-    delta_new_to_watchlist INTEGER NOT NULL DEFAULT 0,
-    delta_rrg_quadrant_change TEXT,
-    delta_consensus_new_today INTEGER NOT NULL DEFAULT 0,
-    delta_score_change REAL,
-    delta_any_signal INTEGER NOT NULL DEFAULT 0,
-    signal_convergence INTEGER NOT NULL DEFAULT 0,
-    lens_score REAL NOT NULL DEFAULT 0,
-    narrative_zh TEXT NOT NULL DEFAULT '',
-    highlight_tier TEXT NOT NULL DEFAULT 'none',
-    holdings_aligned INTEGER NOT NULL DEFAULT 1,
-    data_baseline_date TEXT NOT NULL,
-    sources_json TEXT NOT NULL DEFAULT '{}',
-    computed_at TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
     PRIMARY KEY (trade_date, stock_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_stock_daily_lens_date
-    ON stock_daily_lens (trade_date, delta_any_signal DESC, signal_convergence DESC);
+CREATE INDEX IF NOT EXISTS idx_lens_daily_highlight_date
+    ON lens_daily_highlight (trade_date, lens_score DESC);
+
+CREATE TABLE IF NOT EXISTS stock_kbar_1m (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    minute TEXT NOT NULL,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL NOT NULL,
+    volume INTEGER,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, minute, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_kbar_1m_date
+    ON stock_kbar_1m (trade_date, stock_id);
 
 CREATE TABLE IF NOT EXISTS lens_daily_alert (
     trade_date TEXT PRIMARY KEY,
+    total_count INTEGER NOT NULL DEFAULT 0,
     fire_count INTEGER NOT NULL DEFAULT 0,
     delta_new_count INTEGER NOT NULL DEFAULT 0,
+    consensus_add_count INTEGER NOT NULL DEFAULT 0,
     headline_zh TEXT NOT NULL,
     items_json TEXT NOT NULL DEFAULT '[]',
     computed_at TEXT NOT NULL
@@ -947,6 +959,23 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "entry_tags_json",
             "ALTER TABLE pm_watchlist ADD COLUMN entry_tags_json TEXT",
         ),
+        (
+            "lens_daily_alert",
+            "total_count",
+            "ALTER TABLE lens_daily_alert ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "lens_daily_alert",
+            "consensus_add_count",
+            "ALTER TABLE lens_daily_alert ADD COLUMN consensus_add_count INTEGER NOT NULL DEFAULT 0",
+        ),
+        ("daily_bars", "adj_close", "ALTER TABLE daily_bars ADD COLUMN adj_close REAL"),
+        (
+            "stock_daily_bars",
+            "adj_close",
+            "ALTER TABLE stock_daily_bars ADD COLUMN adj_close REAL",
+        ),
+        ("us_daily_bars", "adj_close", "ALTER TABLE us_daily_bars ADD COLUMN adj_close REAL"),
     ]
     for table, col, ddl in migrations:
         try:
@@ -957,22 +986,13 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
     conn.commit()
     _migrate_flow_tape_regime_column(conn)
-    _migrate_delta_new_to_watchlist_column(conn)
+    _drop_retired_stock_daily_lens_table(conn)
     _drop_retired_execution_tables(conn)
 
 
-def _migrate_delta_new_to_watchlist_column(conn: sqlite3.Connection) -> None:
-    try:
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(stock_daily_lens)").fetchall()
-        }
-    except sqlite3.OperationalError:
-        return
-    if cols and "delta_new_to_lens" in cols and "delta_new_to_watchlist" not in cols:
-        conn.execute(
-            "ALTER TABLE stock_daily_lens RENAME COLUMN delta_new_to_lens TO delta_new_to_watchlist"
-        )
-        conn.commit()
+def _drop_retired_stock_daily_lens_table(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS stock_daily_lens")
+    conn.commit()
 
 
 def _migrate_flow_tape_regime_column(conn: sqlite3.Connection) -> None:

@@ -380,6 +380,14 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_RRG_MONO_DAILY=0）"
   fi
 
+  if [[ "${RUN_RRG_MONO_SWAP_ACCEL_DAILY:-1}" != "0" ]]; then
+    run_step_optional "RRG mono swap-accel (C18acc) daily diagnostic brief" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_mono_swap_accel_daily_brief.py" || true
+  else
+    log_line "--- RRG mono swap-accel (C18acc) daily diagnostic brief ---"
+    log_line "  SKIP（RUN_RRG_MONO_SWAP_ACCEL_DAILY=0）"
+  fi
+
   if [[ "${RUN_CHIP_SYNC:-0}" == "1" ]]; then
     CHIP_ARGS=(
       "${PYTHON_QUIET[@]}"
@@ -463,11 +471,6 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   else
     log_line "--- Supabase research sync (1300 / 1630) ---"
     log_line "  SKIP（RUN_SUPABASE_RESEARCH_SYNC=0）"
-  fi
-
-  if [[ "${RUN_SUPABASE_SITE_SYNC:-0}" == "1" ]]; then
-    run_step_optional "Supabase site_content sync" \
-      "$PYTHON" "${ROOT}/scripts/sync_site_content_to_supabase.py" || true
   fi
 
   if [[ "${RUN_STRATEGY_PERF_SYNC:-0}" == "1" ]]; then

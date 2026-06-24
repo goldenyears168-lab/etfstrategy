@@ -12,7 +12,7 @@
 | # | 項目 | 驗收 |
 |---|------|------|
 | A1 | **App Shell 統一** | 全站共用 top nav · 日期 picker · brief tab · 免責 banner（非 iframe 整頁） |
-| A2 | **Regime 嵌入模式** | 使用 `content_html` 內 `<article class="regime-embed">` · 無重複 h1 / Cursor banner |
+| A2 | **Regime snapshot 模式** | 讀 `regime_daily.snapshot_json` · `schema_version === regime-snapshot-v1` · Recharts · 無 `content_html` |
 | A3 | **日報首頁 KPI** | 首屏六格：200MA 廣度 · 趨勢 · RRG · Stage-2 · VCP 候選 · 跨 ETF 共識（不需載入 50KB HTML） |
 | A4 | **中文對外品名** | 頁面標題用「市場環境日報」等（見 §4）· 英文作 subtitle |
 | A5 | **ETF / VCP 共用元件** | 同一 `DataTable` · `Chip` · `LayerBadge` · 非裸 Markdown |
@@ -22,9 +22,8 @@
 ### v1.0 可延後
 
 - 帳號登入 · 推播 · 即時報價連結  
-- `snapshot_json` 互動圖  
-- Strategy layer adopted spec  
-- `rrg_mono_intraday`（資料尚未 sync）
+- Strategy layer 互動回測 drill-down  
+- RRG timeline Storage + iframe（見 `daily_home.md` §互動研究素材）
 
 ---
 
@@ -49,9 +48,9 @@
 | `stock_research.daily_briefs` | 依 `trade_date` 的日報（Facts / Regime / Research） |
 | `stock_research.site_content` | **靜態頁** · 專案六層介紹 · 各層 tab · 策略 catalog |
 
-本機同步：`scripts/sync_research_to_supabase.py` · `scripts/sync_site_content_to_supabase.py`
+本機同步：`scripts/sync_research_to_supabase.py` · `scripts/sync_strategy_performance.py`
 
-**網站文案 SSOT**：`supabase/site/*.md`（先改 MD，再一次 upsert）
+**網站文案 SSOT**：Supabase `stock_research.site_content`（Readdy 直讀；無本機 MD sync）
 
 ### 2.2 daily_briefs
 
@@ -61,19 +60,24 @@
 | `schedule_slot` | `1300` 午盤研究 / `1630` 收盤情報 |
 | `brief_type` | 路由 + 模板 |
 | `title` | SEO · 麵包屑 |
-| `content_md` | ETF · VCP 渲染源 |
-| `content_html` | **Regime embed 片段**（含 KPI + section + SVG） |
+| `content_md` | 溯源 · provenance（sync 保留；**前端不 parse**） |
+| `content_html` | **deprecated** · sync 不再寫入 |
 | `source_path` | 頁尾 provenance |
 | `synced_at` | 「同步時間」 |
-| `snapshot_json` | v1 **不使用** |
+| `snapshot_json` | **前端 SSOT** · `brief_type` → `contract` / `schema_version` → `briefSnapshot.ts` |
 
-**brief_type → 產品層**
+**brief_type → 產品層 · snapshot 契約**
 
-| brief_type | 層 |
-|------------|-----|
-| `etf_daily` | 事實層 Facts |
-| `regime_daily` | 環境層 Regime |
-| `vcp_funnel_specs` | 研究層 Research |
+| brief_type | 層 | snapshot 契約 |
+|------------|-----|---------------|
+| `etf_daily` | Facts | `contract: etf-daily-v1` |
+| `regime_daily` | Regime | `schema_version: regime-snapshot-v1` |
+| `vcp_funnel_specs` | Research | `contract: vcp-daily-v1` |
+| `vcp_pivot_gate` / `vcp_coil_close` | Strategy | `contract: vcp-daily-v1` |
+| `rrg_mono_daily` / `rrg_mono_intraday` | Strategy | `contract: rrg-mono-daily-v1` |
+| `copytrade_l1h9` | Strategy | `contract: copytrade-daily-v1` |
+
+前端 SSOT：`readdy-490731/src/lib/briefContracts.ts` → `briefSnapshot.ts`
 
 ### 2.3 site_content · 六層 tab
 
@@ -108,28 +112,9 @@ order by sort_order;
 | `content_md` | 頁面 Markdown |
 | `sort_order` | Tab 排序 |
 
-### 2.4 Regime HTML 兩種產物
+### 2.4 Regime HTML（deprecated · 本機瀏覽用）
 
-| 檔案 | 用途 |
-|------|------|
-| `daily_brief.html` | 本機瀏覽器完整頁（含 h1 · 方法說明） |
-| `daily_brief.embed.html` | **Supabase `content_html`** · Readdy 嵌入 |
-
-Sync 優先讀取 `daily_brief.embed.html`（見 `supabase_research_sync.load_brief`）。
-
-Embed 結構：
-
-```html
-<style>/* scoped .regime-embed … */</style>
-<article class="regime-embed" data-trade-date="2026-06-18" data-layer="regime">
-  <div class="kpi-strip">…4 tiles…</div>
-  <section id="synopsis">…</section>
-  <section id="breadth">…</section>
-  …
-</article>
-```
-
-**KPI `data-metric`：** `breadth_200ma` · `weinstein_stage` · `rrg_health` · `stage2_pass`
+Sync **不再**寫入 `content_html`。本機仍產出 `daily_brief.html` / embed 供除錯；Readdy 只讀 `snapshot_json`。
 
 ### 2.5 連線
 
@@ -179,7 +164,7 @@ createClient(URL, ANON_KEY, { db: { schema: 'stock_research' } })
 |------|------|
 | `LayerBadge` | Facts / Regime / Research 色標 |
 | `PitBanner` | 免責 + PIT 說明 |
-| `KpiTile` | 日報首頁 + Regime 四格（可從 embed DOM 或 MD parse） |
+| `KpiTile` | 日報首頁 + Regime 四格（from `snapshot_json` axes） |
 | `DataTable` | ETF flow · VCP 候選 · RRG 表 |
 | `ActionChip` | 加碼綠 / 減碼紅 · VCP state |
 | `SectionCard` | 對應 Regime `section` 外框 |
@@ -210,10 +195,12 @@ createClient(URL, ANON_KEY, { db: { schema: 'stock_research' } })
 | `/` | 日報首頁 · 最新日 KPI + 三 brief 入口 |
 | `/briefs` | 交易日列表 |
 | `/briefs/:date` | 當日總覽（預設 Regime tab） |
-| `/briefs/:date/regime` | Regime embed |
-| `/briefs/:date/etf` | ETF MD → 結構化 UI |
-| `/briefs/:date/vcp` | VCP MD → variant tabs |
-| `/briefs/:date/strategy/:brief_type` | 策略每日篩選（`copytrade_l1h9` · `rrg_mono_daily` · `vcp_*`） |
+| `/briefs/:date/regime` | Regime · `regime-snapshot-v1` |
+| `/briefs/:date/etf` | ETF · `etf-daily-v1` |
+| `/briefs/:date/vcp` | VCP · `vcp-daily-v1` |
+| `/briefs/:date/rrg` | RRG mono · `rrg-mono-daily-v1` |
+| `/briefs/:date/copytrade` | Copytrade L1H9 · `copytrade-daily-v1` |
+| `/pages/layer_order` | Order layer 說明（本機 intent · **不進日報 tab**） |
 | `/about` | 方法論 · 免責 · 排程說明 |
 
 ---
@@ -222,33 +209,28 @@ createClient(URL, ANON_KEY, { db: { schema: 'stock_research' } })
 
 ### 6.1 日報首頁 `/`
 
-**文案／KPI 契約 SSOT：** `supabase/site/daily_home.md`（sync → `site_content.page_id = daily_home`）
+**文案／KPI 契約 SSOT：** Supabase `site_content.page_id = daily_home` · `src/lens_ui_copy.py`
 
-**資料查詢（輕量 · 不載 content_html）：**
+**資料查詢（輕量 · 僅 snapshot_json）：**
 
 ```typescript
+import { DAILY_BRIEF_SELECT } from '@/hooks/useBriefs'
+
 const { data } = await supabase
   .from('daily_briefs')
-  .select('trade_date, brief_type, title, content_md, synced_at')
+  .select(DAILY_BRIEF_SELECT)
   .eq('trade_date', latestDate)
 ```
 
-**Hero · 六格 KPI（Regime 四格 + Facts/Research 兩格）：**
+**Hero · 六格 KPI：** 讀 `regime_daily.snapshot_json`（`getRegimeSnapshot`）+ `etf-daily-v1` / `vcp-daily-v1` resolver · **不 parse `content_md`**
 
-優先從各 brief `content_md` 解析（日報首頁 不 fetch HTML）：
+| KPI | 來源 |
+|-----|------|
+| 200MA 廣度 · Trend · RRG · Stage-2 | `regime-snapshot-v1` · `axes` |
+| VCP 候選 | `vcp-daily-v1` · `candidate_count` |
+| 共識加碼 | `etf-daily-v1` · `consensus_add_count` |
 
-| `data-metric` | 解析 |
-|---------------|------|
-| `breadth_200ma` | `% above 200-day MA ([\d.]+)%` |
-| `trend_posture` | `Weinstein Stage (\d)` |
-| `rrg_health` | `Leading \+ Improving: ([\d.]+)%` |
-| `stage2_pass` | `(?:template )?pass rate ([\d.]+)%` |
-| `vcp_pass` | VCP variant 段數或候選列數 |
-| `consensus_adds` | 跨 ETF **≥2 檔同步加碼** 檔數 · 邏輯 `build_cross_etf_consensus()` |
-
-選配：`etf_981a_adds` — `### 00981A` 區塊內新進／加碼列數。
-
-Synopsis 一句：Regime MD 的 `Daily synopsis` section 首段。
+Synopsis：`interpretations.synopsis`（regime snapshot）。
 
 **三張入口卡：**
 
@@ -258,7 +240,7 @@ Synopsis 一句：Regime MD 的 `Daily synopsis` section 首段。
 | ETF 持股日報 | `持股同步 **6/6**` · 有變化 ETF chips · **共識 ≥2** 檔數 |
 | VCP 漏斗研究 | variant 數量 · Top composite 最高檔 |
 
-**今日亮點（Layer 1 · `stock_daily_lens`）：** 文案 SSOT → `supabase/site/daily_home.md` §今日亮點 · `src/lens_ui_copy.py`。區塊標題 **今日亮點**（勿用「今日亮點」·「收盤情報」）。chip：**清單內 N 檔** · **新進觀察** · **四框架收斂**。tab：**今日異動** / **全部** / **持續關注**。排序預設 **變化優先**。headline 例：`今日亮點：3 檔四框架收斂 · 2 檔新進觀察`。
+**今日亮點（`stock_daily_highlight`）：** 文案 SSOT → `src/lens_ui_copy.py` · Supabase `site_content.page_id = daily_home`。
 
 **互動研究素材（RRG timeline）：** Storage + iframe · 勿寫入 `content_html` · 見 `daily_home.md` §互動研究素材。
 
@@ -266,22 +248,14 @@ Synopsis 一句：Regime MD 的 `Daily synopsis` section 首段。
 
 ### 6.2 Regime `/briefs/:date/regime`
 
-**渲染（v1 推薦）：**
+**渲染（v2 · snapshot_json SSOT）：**
 
-```tsx
-function RegimeBody({ html }: { html: string }) {
-  return (
-    <div
-      className="regime-host"
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, { ADD_TAGS: ['svg'], ADD_ATTR: ['viewBox', 'xmlns'] }) }}
-    />
-  )
-}
-```
+- 讀 `regime_daily.snapshot_json` · `schema_version === regime-snapshot-v1`
+- Resolver：`src/lib/briefSnapshot.ts` → `getRegimeSnapshot`
+- Recharts 圖表 · 勿 parse `content_md` · 勿 render `content_html`
 
-- 外層 App Shell 提供 **h1「市場環境日報 · {date}」** — embed 內不再重複標題  
-- Regime 內 `.kpi-strip` 可保留（詳頁 double KPI 可接受）或 CSS hide duplicate  
-- Section anchor：`#synopsis` `#breadth` `#trend` `#rrg` `#stage2` — 可做 sticky 目錄
+- 外層 App Shell 提供 **h1「市場環境日報 · {date}」**
+- Section anchor：`#synopsis` `#breadth` `#trend` `#rrg` `#stage2` — sticky 目錄見 `RegimeTOC`
 
 **勿顯示：** Cursor banner · 「請用瀏覽器開啟」類開發者文案
 
@@ -289,7 +263,7 @@ function RegimeBody({ html }: { html: string }) {
 
 ### 6.3 ETF `/briefs/:date/etf`
 
-**渲染：** parse `content_md` → 結構化，**非** prose Markdown。
+**渲染：** 讀 `snapshot_json.contract === etf-daily-v1` · `resolveEtfSections`（**非** parse MD）。
 
 | MD 區塊 | UI |
 |---------|-----|
@@ -303,7 +277,7 @@ function RegimeBody({ html }: { html: string }) {
 
 ### 6.4 VCP `/briefs/:date/vcp`
 
-**渲染：** 以 `---` 分割 variant · 每段一 tab。
+**渲染：** 讀 `snapshot_json.contract === vcp-daily-v1` · `resolveVcpVariants`。
 
 | 欄位 | UI |
 |------|-----|
@@ -331,22 +305,11 @@ function RegimeBody({ html }: { html: string }) {
 ## 8. 查詢範例
 
 ```typescript
-/** 日報首頁 · 最新 Regime KPI teaser */
-export async function fetchRegimeTeaser(date: string) {
+/** 日報首頁 · Regime snapshot */
+export async function fetchRegimeSnapshot(date: string) {
   const { data } = await supabase
     .from('daily_briefs')
-    .select('trade_date, title, content_md, synced_at')
-    .eq('brief_type', 'regime_daily')
-    .eq('trade_date', date)
-    .single()
-  return data
-}
-
-/** Regime 詳頁 · 僅 embed HTML */
-export async function fetchRegimeEmbed(date: string) {
-  const { data } = await supabase
-    .from('daily_briefs')
-    .select('content_html, title, synced_at, source_path')
+    .select('trade_date, title, snapshot_json, synced_at, source_path')
     .eq('brief_type', 'regime_daily')
     .eq('trade_date', date)
     .single()
@@ -361,11 +324,12 @@ export async function fetchRegimeEmbed(date: string) {
 ### 必做
 
 - [ ] App Shell + Tab nav  
-- [ ] Regime：`content_html` embed · DOMPurify  
-- [ ] 日報首頁：四 KPI from MD · 不 preload HTML  
-- [ ] ETF/VCP：結構化 table · 共用 token  
+- [ ] Regime：`regime-snapshot-v1` · `getRegimeSnapshot` · Recharts  
+- [ ] 日報首頁：六 KPI from `snapshot_json`  
+- [ ] ETF/VCP/RRG/Copytrade：`briefContracts` → `briefSnapshot` resolvers  
 - [ ] 中文品名 + PIT footer  
 - [ ] `db.schema = stock_research`  
+- [ ] Order layer：僅 `/pages/layer_order` 靜態說明 · 無日報 brief tab
 
 ### 安全
 
@@ -382,13 +346,12 @@ export async function fetchRegimeEmbed(date: string) {
 | 13:00 | `vcp_funnel_specs` |
 | 16:30 | `etf_daily` · `regime_daily` |
 
-**v2 HTML 改版後**需重新產出 regime 報告並 sync：
+**v2 HTML 改版後**需重新產出 regime snapshot 並 sync：
 
 ```bash
-# 產出 daily_brief.embed.html 後
-python scripts/backfill_supabase_research.py --days 14
-# 或單日
 python scripts/sync_research_to_supabase.py --slot 1630 --date 2026-06-18
+# 或 backfill
+python scripts/backfill_supabase_research.py --days 14
 ```
 
 ---
@@ -397,10 +360,9 @@ python scripts/sync_research_to_supabase.py --slot 1630 --date 2026-06-18
 
 | 版本 | 內容 |
 |------|------|
-| **v1.0** | App Shell · embed Regime · 日報首頁 KPI · 結構化 ETF/VCP |
-| **v1.1** | `rrg_mono_intraday` · 日報首頁 結構化 JSON teaser 欄位（optional migration） |
-| **v2.0** | Strategy adopted spec sync |
-| **v2.x** | `snapshot_json` 互動 React charts |
+| **v1.0** | App Shell · snapshot_json 日報 · 六格 KPI · Lens · 策略目錄 |
+| **v1.1** | `stock_signal_hits` 個股搜尋 · FinMind 報價 cache |
+| **v2.0** | RRG timeline 互動 · Strategy perf drill-down |
 
 ---
 
@@ -408,8 +370,8 @@ python scripts/sync_research_to_supabase.py --slot 1630 --date 2026-06-18
 
 - [terminology.md](terminology.md)  
 - [config/regime.yaml](../config/regime.yaml)  
-- [src/regime_daily_html.py](../src/regime_daily_html.py) · `render_regime_embed_html`  
-- [src/supabase_research_sync.py](../src/supabase_research_sync.py)
+- [src/regime_snapshot_json.py](../src/regime_snapshot_json.py)  
+- [readdy-490731/src/lib/briefContracts.ts](../readdy-490731/src/lib/briefContracts.ts) · [briefSnapshot.ts](../readdy-490731/src/lib/briefSnapshot.ts)
 
 ---
 

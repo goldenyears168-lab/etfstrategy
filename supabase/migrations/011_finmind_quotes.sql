@@ -1,7 +1,7 @@
--- FinMind quote cache · public schema · Readdy edge functions + useFinmindQuote
--- Writer: finmind-quote / finmind-cron (service_role) · Reader: anon SELECT
+-- Yahoo quote cache · public schema · Readdy edge functions + useYahooQuote
+-- Writer: yahoo-quote / yahoo-cron (service_role) · Reader: anon SELECT
 
-create table if not exists public.finmind_quotes (
+create table if not exists public.yahoo_quotes (
   code text primary key,
   price numeric,
   change_val numeric,
@@ -10,17 +10,19 @@ create table if not exists public.finmind_quotes (
   updated_at timestamptz not null default now()
 );
 
-create index if not exists finmind_quotes_updated_at_idx
-  on public.finmind_quotes (updated_at desc);
+create index if not exists yahoo_quotes_updated_at_idx
+  on public.yahoo_quotes (updated_at desc);
 
-alter table public.finmind_quotes enable row level security;
+alter table public.yahoo_quotes enable row level security;
 
-grant select on public.finmind_quotes to anon, authenticated;
-grant all on public.finmind_quotes to service_role;
+grant select on public.yahoo_quotes to anon, authenticated;
+grant all on public.yahoo_quotes to service_role;
 
-create policy "finmind_quotes_public_read"
-  on public.finmind_quotes
+drop policy if exists "yahoo_quotes_public_read" on public.yahoo_quotes;
+
+create policy "yahoo_quotes_public_read"
+  on public.yahoo_quotes
   for select to anon, authenticated using (true);
 
-comment on table public.finmind_quotes is
-  'FinMind TaiwanStockPrice cache · 15m TTL · edge function upsert';
+comment on table public.yahoo_quotes is
+  'Yahoo Chart API quote cache · 15m TTL · yahoo-cron / yahoo-quote upsert';

@@ -13,15 +13,17 @@ web_v1: 研究示範
 
 # 示範案例 · Minervini SEPA 趨勢籃研究
 
-← [研究層](layer_research) · 採納 [Minervini SEPA](strategy_minervini_sepa_basket)
+← [策略目錄](strategy_catalog) · [凍結規格](strategy_minervini_sepa_basket)
 
 **研究主題** · 廣度動量 · Minervini SEPA 對照實驗
+
+> **先讀這裡**：這不是日內「槽位輪動」策略，而是 **月末再平衡** 的持倉籃：每月底用 **Minervini Trend Template（趨勢模板）** 挑出符合 **Weinstein Stage 2（第 2 階段）** 的強勢股，等權持有。研究在比：這條規則是否優於其他常見動量／趨勢對照。
 
 ---
 
 ## 1 · 研究問題
 
-在 ~133 檔 ETF 成分股宇宙、基準 **台指** 下，**月末等權 趨勢模板（Trend Template）7/8 Stage 2籃** 是否優於其他 **TradingView 映射**動量/趨勢規則？與日內槽位型 VCP/RRG/跟單 **是否低相關**？
+在約 133 檔 ETF 成分股、對照基準為台指的前提下：**月末等權 Stage 2 籃（Trend Template 7/8 項通過）** 是否優於其他 TradingView 映射的動量規則？它與日內槽位型的 VCP／RRG／Copytrade（跟單）**資金模型不同**，適合作並行持倉軌。
 
 ---
 
@@ -57,7 +59,7 @@ web_v1: 研究示範
 
 ---
 
-## 4 · 延伸探索（仍屬研究層 · 尚未採納為策略）
+## 4 · 延伸探索（尚未採納為策略）
 
 | 方向 | 問題 |
 |------|------|

@@ -34,9 +34,10 @@ intent:
     - execution-intent-v1
   default_dir: reports/order/intents
 
-# launchd 開盤追價（週一至五 09:00–09:04 每分鐘 · install-order-launchd.sh）
-# 需 .env：ORDER_LAUNCHD_ENABLED=1
+# launchd 開盤追價（已停用 · 原週一至五 09:00–09:04 · install-order-launchd.sh）
+# 重新啟用：.env ORDER_LAUNCHD_ENABLED=1 + scripts/install-order-launchd.sh
 schedule:
+  enabled: false
   label: com.jackm4.etf.order-chase-open
   window: "09:00-09:04"
   interval_minutes: 1

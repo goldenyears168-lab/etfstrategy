@@ -25,8 +25,23 @@
 | `AUTO:vcp-sweep-top25` | `research/research_case_vcp_funnel.md` |
 | `AUTO:rrg-breadth` | `research/research_case_rrg_mono.md` |
 
-刷新：`python scripts/refresh_strategy_site_tables.py`  
-推送：`python scripts/sync_site_content_to_supabase.py`
+刷新 AUTO 區塊或 **UI 文案 SSOT**（`lens_ui_copy.py` · `supabase/site/`）後推送：
+
+```bash
+# 文案一鍵：site_content + highlight narrative（建議）
+./scripts/resync_readdy_ui_copy.sh
+./scripts/resync_readdy_ui_copy.sh --latest          # 僅最近 1 交易日
+./scripts/resync_readdy_ui_copy.sh --site-only       # 只推靜態頁
+
+# 本機 supabase/site/ 存在時
+PYTHONPATH=src .venv/bin/python scripts/sync_site_content_to_supabase.py
+
+# 僅 git HEAD 快照（無本機 site/ 目錄時）
+PYTHONPATH=src .venv/bin/python scripts/push_site_content_md.py
+PYTHONPATH=src .venv/bin/python scripts/push_site_content_md.py --page research_case_copytrade
+```
+
+詳見 [readdy-regime-strategy-lineage.md §7.4](../../docs/readdy-regime-strategy-lineage.md)。
 
 ## page_id 一覽
 

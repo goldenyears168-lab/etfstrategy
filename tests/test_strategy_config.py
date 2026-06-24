@@ -14,8 +14,9 @@ class StrategyConfigTests(unittest.TestCase):
         ids = cfg.strategy_ids()
         self.assertIn("00981a-l1h9", ids)
         self.assertIn("rrg-mono-hold7", ids)
+        self.assertIn("rrg-mono-swap-accel", ids)
         self.assertIn("vcp-pivot-gate", ids)
-        self.assertEqual(len(ids), 5)
+        self.assertEqual(len(ids), 6)
 
     def test_adopted_spec_fields(self) -> None:
         cfg = load_strategy_config()

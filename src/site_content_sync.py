@@ -1,10 +1,11 @@
-"""Load supabase/site/*.md and upsert to stock_research.site_content."""
+"""Load site Markdown and upsert to stock_research.site_content (§7.4)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
@@ -33,6 +34,11 @@ class SitePage:
     tab_label_en: str | None = None
     sort_order: int = 0
     content_html: str | None = None
+    strategy_id: str | None = None
+    icon: str | None = None
+    description_short: str | None = None
+    research_page_id: str | None = None
+    brief_types: list[str] | None = None
 
 
 def parse_site_markdown(path: Path) -> tuple[dict[str, object], str]:
@@ -46,6 +52,21 @@ def parse_site_markdown(path: Path) -> tuple[dict[str, object], str]:
     return meta, body.lstrip("\n")
 
 
+def _optional_str(meta: dict[str, object], key: str) -> str | None:
+    if key not in meta or meta[key] is None:
+        return None
+    return str(meta[key])
+
+
+def _optional_brief_types(meta: dict[str, object]) -> list[str] | None:
+    raw = meta.get("brief_types")
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    return None
+
+
 def _page_from_file(path: Path) -> SitePage:
     meta, body = parse_site_markdown(path)
     for key in _REQUIRED_META:
@@ -56,13 +77,18 @@ def _page_from_file(path: Path) -> SitePage:
         layer_id=str(meta["layer_id"]),
         title=str(meta["title"]),
         content_md=body,
-        role=str(meta["role"]) if meta.get("role") is not None else None,
-        data_sources=str(meta["data_sources"]) if meta.get("data_sources") is not None else None,
-        web_v1=str(meta["web_v1"]) if meta.get("web_v1") is not None else None,
+        role=_optional_str(meta, "role"),
+        data_sources=_optional_str(meta, "data_sources"),
+        web_v1=_optional_str(meta, "web_v1"),
         tab_label_zh=str(meta["tab_label_zh"]),
         tab_label_en=str(meta["tab_label_en"]),
         sort_order=int(meta["sort_order"]),
-        content_html=str(meta["content_html"]) if meta.get("content_html") else None,
+        content_html=_optional_str(meta, "content_html"),
+        strategy_id=_optional_str(meta, "strategy_id"),
+        icon=_optional_str(meta, "icon"),
+        description_short=_optional_str(meta, "description_short"),
+        research_page_id=_optional_str(meta, "research_page_id"),
+        brief_types=_optional_brief_types(meta),
     )
 
 
@@ -80,7 +106,6 @@ def load_all_pages() -> list[SitePage]:
 
 
 def build_all_pages() -> list[SitePage]:
-    """Alias for sync script."""
     return load_all_pages()
 
 
@@ -89,8 +114,8 @@ def _site_content_url() -> str:
     return f"{base}/{_TABLE}"
 
 
-def upsert_site_page(page: SitePage) -> None:
-    payload = {
+def _page_payload(page: SitePage) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "page_id": page.page_id,
         "layer_id": page.layer_id,
         "title": page.title,
@@ -104,10 +129,24 @@ def upsert_site_page(page: SitePage) -> None:
         "sort_order": page.sort_order,
         "updated_at": datetime.now(_TPE).isoformat(),
     }
+    if page.strategy_id is not None:
+        payload["strategy_id"] = page.strategy_id
+    if page.icon is not None:
+        payload["icon"] = page.icon
+    if page.description_short is not None:
+        payload["description_short"] = page.description_short
+    if page.research_page_id is not None:
+        payload["research_page_id"] = page.research_page_id
+    if page.brief_types is not None:
+        payload["brief_types"] = page.brief_types
+    return payload
+
+
+def upsert_site_page(page: SitePage) -> None:
     resp = requests.post(
         _site_content_url(),
         headers=_headers(),
-        json=payload,
+        json=_page_payload(page),
         params={"on_conflict": "page_id"},
         timeout=120,
     )

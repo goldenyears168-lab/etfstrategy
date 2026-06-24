@@ -39,6 +39,14 @@ BENCHMARK_ETF_WATCHLIST_CODES: tuple[str, ...] = (
     "0056",  # 元大高股息
 )
 
+# 手動併入研究池（非 ETF 成分，擴充 K 線 / RRG / 籌碼 universe）
+SUPPLEMENTAL_WATCHLIST_STOCKS: dict[str, str] = {
+    "1409": "新纖",
+    "3481": "群創",
+    "2409": "友達",
+    "8105": "凌巨",
+}
+
 BENCHMARK_CODES: tuple[str, ...] = ("IX0001", "IR0002")
 
 # --- Universe ---

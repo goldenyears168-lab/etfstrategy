@@ -330,6 +330,51 @@ def _breakout_close_entry_px(
     return round(close_px, 2)
 
 
+VCP_EXPERT_ENTRY_MODES = ("bone_zone", "vwap_reclaim", "pivot_retest")
+
+
+def _expert_pivot_breakout_fill(
+    conn: sqlite3.Connection,
+    stock_id: str,
+    trade_date: str,
+    pivot_price: float,
+    fill_mode: str,
+    *,
+    bars_cache: dict[tuple[str, str], tuple] | None = None,
+    kbar_stats: dict[str, int] | None = None,
+) -> tuple[float, str] | None:
+    """VCP 突破當日 1m 確認 K 線進場 · 需當日 high≥pivot。
+
+    PIT：vcp_screen 來自 signal_date 收盤快照（與 chunge 日線候選一致）；
+    盤中 fill 僅用當日 1m K（09:05 起；09:00–09:04 不交易）。
+    """
+    from research.backtest.rrg_mono_expert_entry import (
+        ExpertEntryMode,
+        detect_vcp_expert_entry_after_breakout,
+    )
+    from stock_db.kbar import KbarBar, load_kbar_day_bars
+
+    cache = bars_cache if bars_cache is not None else {}
+    stats = kbar_stats if kbar_stats is not None else {"hits": 0, "checks": 0}
+    key = (stock_id, trade_date)
+    stats["checks"] += 1
+    if key not in cache:
+        cache[key] = load_kbar_day_bars(conn, stock_id, trade_date)
+    bars: tuple[KbarBar, ...] = cache[key]
+    if bars:
+        stats["hits"] += 1
+    if not bars:
+        return None
+    trig = detect_vcp_expert_entry_after_breakout(
+        fill_mode,  # type: ignore[arg-type]
+        bars,
+        pivot_price,
+    )
+    if trig is None:
+        return None
+    return round(float(trig.entry_px), 4), str(trig.entry_minute)
+
+
 def simulate_chunge_pivot_stop(
     conn: sqlite3.Connection,
     *,
@@ -343,6 +388,7 @@ def simulate_chunge_pivot_stop(
     max_entry_wait_days: int = 10,
     stop_lookback_days: int = 20,
     entry_mode: str = "pivot_stop",
+    entry_fill_mode: str | None = None,
     zone_by_date: dict[str, str] | None = None,
     zone_filter: BreadthZoneFilter = None,
 ) -> tuple[list[dict], dict]:
@@ -354,6 +400,11 @@ def simulate_chunge_pivot_stop(
     else:
         fill_fn = _pivot_breakout_entry_px
         mode_label = "pivot_stop"
+    expert_fill = entry_fill_mode if entry_fill_mode in VCP_EXPERT_ENTRY_MODES else None
+    if expert_fill:
+        mode_label = expert_fill
+    bars_cache: dict[tuple[str, str], tuple] = {}
+    kbar_stats = {"hits": 0, "checks": 0}
     date_idx = {d: i for i, d in enumerate(full_dates)}
     pending: list[dict] = []
     open_positions: list[dict] = []
@@ -425,21 +476,37 @@ def simulate_chunge_pivot_stop(
             entry_px = fill_fn(
                 conn, pend["stock_id"], as_of, float(pend["pivot_price"])
             )
+            entry_minute: str | None = None
+            if expert_fill and entry_mode == "pivot_stop":
+                expert_hit = _expert_pivot_breakout_fill(
+                    conn,
+                    pend["stock_id"],
+                    as_of,
+                    float(pend["pivot_price"]),
+                    expert_fill,
+                    bars_cache=bars_cache,
+                    kbar_stats=kbar_stats,
+                )
+                if expert_hit is None:
+                    continue
+                entry_px, entry_minute = expert_hit
             if entry_px is None:
                 continue
             pending.remove(pend)
-            open_positions.append(
-                {
-                    "slot": pend["slot"],
-                    "stock_id": pend["stock_id"],
-                    "stock_name": pend["stock_name"],
-                    "signal_date": pend["signal_date"],
-                    "entry_date": as_of,
-                    "entry_px": entry_px,
-                    "stop_loss": pend["stop_loss"],
-                    "composite_score": pend.get("composite_score"),
-                }
-            )
+            pos = {
+                "slot": pend["slot"],
+                "stock_id": pend["stock_id"],
+                "stock_name": pend["stock_name"],
+                "signal_date": pend["signal_date"],
+                "entry_date": as_of,
+                "entry_px": entry_px,
+                "stop_loss": pend["stop_loss"],
+                "composite_score": pend.get("composite_score"),
+            }
+            if entry_minute:
+                pos["entry_minute"] = entry_minute
+                pos["entry_fill_mode"] = expert_fill
+            open_positions.append(pos)
 
         # 3) New signals → pending (occupies slot until fill or expire)
         cands = candidates_by_date.get(as_of, [])
@@ -506,7 +573,10 @@ def simulate_chunge_pivot_stop(
     summary["n_time_exit"] = n_time_exit
     summary["n_pending_expired"] = n_pending_expired
     summary["entry_price_mode"] = mode_label
+    summary["entry_fill_mode"] = expert_fill or mode_label
     summary["zone_filter"] = zone_filter
+    checks = kbar_stats["checks"]
+    summary["kbar_coverage_pct"] = round(kbar_stats["hits"] / checks * 100.0, 2) if checks else 0.0
     if trade_dates:
         summary["screen_coverage_pct"] = round(
             100.0 * signal_days_with_data / len(trade_dates), 2

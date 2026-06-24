@@ -21,10 +21,31 @@ def resolve_change_dates(
     etf_code: str,
     curr_date: str | None = None,
     prev_date: str | None = None,
+    *,
+    as_of: str | None = None,
 ) -> tuple[str, str] | None:
+    """Resolve (curr, prev) for holdings diff.
+
+    Live (``as_of`` omitted): latest adjacent snapshot pair.
+    PIT (``as_of`` = brief trade_date): ``prev`` must equal ``as_of`` and
+    ``curr`` the next newer snapshot; otherwise None (skip ETF).
+    """
     dates = list_etf_snapshot_dates(conn, etf_code)
     if not dates:
         return None
+    if as_of is not None:
+        if as_of not in dates:
+            return None
+        idx = dates.index(as_of)
+        if idx == 0:
+            return None
+        prev = as_of
+        curr = dates[idx - 1]
+        if prev_date is not None and prev_date != prev:
+            return None
+        if curr_date is not None and curr_date != curr:
+            return None
+        return curr, prev
     curr = curr_date or dates[0]
     prev = prev_date
     if prev is None:
@@ -319,12 +340,14 @@ class ConsensusStock:
 def build_cross_etf_consensus(
     conn: sqlite3.Connection,
     etf_codes: tuple[str, ...],
+    *,
+    as_of: str | None = None,
 ) -> list[ConsensusStock]:
     by_stock: dict[str, ConsensusStock] = {}
     anchor_by_stock: dict[str, str] = {}
 
     for etf_code in etf_codes:
-        pair = resolve_change_dates(conn, etf_code)
+        pair = resolve_change_dates(conn, etf_code, as_of=as_of)
         if not pair:
             continue
         curr, prev = pair
@@ -358,16 +381,16 @@ def build_cross_etf_consensus(
     for sid, entry in by_stock.items():
         prev = anchor_by_stock.get(sid, "")
         pair_dates = [
-            resolve_change_dates(conn, etf)[0]
+            resolve_change_dates(conn, etf, as_of=as_of)[0]
             for etf in entry.etf_add_list or entry.etf_reduce_list
-            if resolve_change_dates(conn, etf)
+            if resolve_change_dates(conn, etf, as_of=as_of)
         ]
         curr_fallback = pair_dates[0] if pair_dates else None
         close = implied_close_from_holdings(conn, sid, prev, curr_fallback or "")
         entry.flow_ntd = implied_flow_ntd(entry.share_delta_total, close)
         if entry.etf_add == 1 and entry.etf_add_list:
             etf = entry.etf_add_list[0]
-            pair = resolve_change_dates(conn, etf)
+            pair = resolve_change_dates(conn, etf, as_of=as_of)
             if pair:
                 for r in compute_etf_holdings_changes(conn, etf, pair[0], pair[1]):
                     if r["stock_id"] == sid:
@@ -420,19 +443,30 @@ def build_etf_holdings_changes_block(
     etf_codes: tuple[str, ...],
     *,
     changed_only: bool = True,
+    as_of: str | None = None,
 ) -> list[dict]:
     """各 ETF 逐檔 L1 持股變化（evening_digest 等人類摘要）。"""
     blocks: list[dict] = []
     for etf_code in etf_codes:
-        pair = resolve_change_dates(conn, etf_code)
+        pair = resolve_change_dates(conn, etf_code, as_of=as_of)
         if not pair:
+            if as_of is not None:
+                dates = list_etf_snapshot_dates(conn, etf_code)
+                if not dates:
+                    note = "insufficient snapshots"
+                elif as_of not in dates:
+                    note = f"no snapshot on {as_of}"
+                else:
+                    note = f"no update after {as_of}"
+            else:
+                note = "insufficient snapshots"
             blocks.append(
                 {
                     "etf_code": etf_code,
                     "prev_date": None,
                     "curr_date": None,
                     "changes": [],
-                    "note": "insufficient snapshots",
+                    "note": note,
                 }
             )
             continue

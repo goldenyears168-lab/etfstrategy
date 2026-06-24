@@ -13,15 +13,17 @@ web_v1: 研究示範
 
 # 示範案例 · VCP選股策略 · Minervini 參數掃描
 
-← [研究層](layer_research) · 採納 [VCP 突破確認](strategy_vcp_pivot_gate) · [VCP 訊號收盤](strategy_vcp_coil_close)
+← [策略目錄](strategy_catalog) · [VCP 突破確認](strategy_vcp_pivot_gate) · [VCP 訊號收盤](strategy_vcp_coil_close)
 
 **研究規模** · 約 **864 組** 參數組合 · 對照 **RRG 單軌（持7日）** 標尺
+
+> **先讀這裡**：在 **Minervini** 語意下，用 **Volatility Contraction Pattern（VCP，波動收斂）** 漏斗掃了約 864 組「怎麼篩、怎麼進、持多久」。結論不是只挑報酬最高的一組，而是 **並行採納兩種進場**：收盤確認突破 vs 訊號日收盤即進（對照組）。
 
 ---
 
 ## 1 · 研究問題
 
-**波動收斂（VCP）** 漏斗在 **Minervini** 語意下，哪組 **篩選條件 × 進場方式 × 槽位 × 持有 × 綜合分** 能達 **RRG 對照基準**？**突破收盤確認** vs **訊號日收盤** 如何取捨？
+白話問句：**哪一組 VCP 篩選 × 進場方式，能穩定打贏同窗口的 RRG 對照基準？** 「突破收盤確認」與「訊號日收盤」哪個更適合寫進凍結規格，見下文採納表。
 
 ### 掃描維度
 

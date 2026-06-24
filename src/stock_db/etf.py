@@ -450,7 +450,11 @@ def load_etf_constituent_watchlist(
     benchmark_codes: tuple[str, ...] | None = None,
 ) -> list[dict]:
     """最新各 ETF snapshot 持股聯集，並併入境內基金／基準 ETF 成分股（日內監控 universe）。"""
-    from project_config import BENCHMARK_ETF_WATCHLIST_CODES, MUTUAL_FUND_WATCHLIST_CODES
+    from project_config import (
+        BENCHMARK_ETF_WATCHLIST_CODES,
+        MUTUAL_FUND_WATCHLIST_CODES,
+        SUPPLEMENTAL_WATCHLIST_STOCKS,
+    )
     from stock_db.benchmark import _load_benchmark_watchlist_stocks
 
     if fund_codes is None:
@@ -483,6 +487,7 @@ def load_etf_constituent_watchlist(
                 "etf_hold_count": int(row["etf_hold_count"]),
                 "fund_hold_count": 0,
                 "benchmark_hold_count": 0,
+                "supplemental_hold_count": 0,
             }
 
     for stock_id, fund_row in _load_mutual_fund_watchlist_stocks(conn, fund_codes).items():
@@ -497,6 +502,7 @@ def load_etf_constituent_watchlist(
                 "etf_hold_count": 0,
                 "fund_hold_count": fund_row["fund_hold_count"],
                 "benchmark_hold_count": 0,
+                "supplemental_hold_count": 0,
             }
 
     for stock_id, bench_row in _load_benchmark_watchlist_stocks(conn, benchmark_codes).items():
@@ -511,12 +517,32 @@ def load_etf_constituent_watchlist(
                 "etf_hold_count": 0,
                 "fund_hold_count": 0,
                 "benchmark_hold_count": bench_row["benchmark_hold_count"],
+                "supplemental_hold_count": 0,
             }
+
+    for stock_id, stock_name in SUPPLEMENTAL_WATCHLIST_STOCKS.items():
+        if stock_id in by_id:
+            if not by_id[stock_id]["stock_name"]:
+                by_id[stock_id]["stock_name"] = stock_name
+            continue
+        by_id[stock_id] = {
+            "stock_id": stock_id,
+            "stock_name": stock_name,
+            "etf_hold_count": 0,
+            "fund_hold_count": 0,
+            "benchmark_hold_count": 0,
+            "supplemental_hold_count": 1,
+        }
 
     return sorted(
         by_id.values(),
         key=lambda w: (
-            -(w["etf_hold_count"] + w["fund_hold_count"] + w["benchmark_hold_count"]),
+            -(
+                w["etf_hold_count"]
+                + w["fund_hold_count"]
+                + w["benchmark_hold_count"]
+                + w.get("supplemental_hold_count", 0)
+            ),
             w["stock_id"],
         ),
     )

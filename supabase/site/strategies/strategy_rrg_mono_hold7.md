@@ -2,17 +2,23 @@
 page_id: strategy_rrg_mono_hold7
 layer_id: strategy
 strategy_id: rrg-mono-hold7
-title: RRG 單軌（持7日）
-tab_label_zh: RRG 單軌
-tab_label_en: RRG 單軌
+title: RRG 市場輪動圖選股策略（持7日）
+tab_label_zh: RRG 市場輪動圖選股策略
+tab_label_en: RRG 市場輪動圖選股策略
 sort_order: 12
 role: 已採納凍結規格 · RRG 輪動
 web_v1: 策略獨立頁
+icon: ri-bubble-chart-line
+description_short: 從 Relative Rotation Graph（RRG）找 fresh 轉強標的 · 持 7 日 · 3 槽 · 日頻收盤掃描
+research_page_id: research_case_rrg_mono
+brief_types:
+  - rrg_mono_daily
+  - rrg_mono_intraday
 ---
 
-# RRG 單軌（持7日）
+# RRG 市場輪動圖選股策略（持7日）
 
-← [策略目錄](strategy_catalog) · [RRG 研究案例](research_case_rrg_mono)
+← [策略目錄](strategy_catalog) · [採納報告](research_case_rrg_mono) · 變體 [RRG 四日加速換倉](strategy_rrg_mono_swap_accel)
 
 **節奏** · 日頻（收盤後）· 對照 [市場環境日報](/)
 
@@ -48,12 +54,12 @@ ETF 成分股中，**相對強度輪動（RRG）** 單軌 **fresh** 四日軌跡
 
 | 年份 | 窗口 | 組合總報酬% | 年化報酬率% | 勝率% | Sharpe | 樣本 |
 |------|------|------------|------------|---------|--------|------|
-| **2025** | 2025-01-01～12-31 | **+114.8** | **+121.0** | 53.9 | **3.33** | 89 筆 |
-| **2026** | 2026-01-01～06-18 | **+127.6** | **+569.3** | 59.0 | **6.88** | 39 筆 |
+| **2025** | 2025-01-01～12-31 | **+95.0** | **+99.9** | 51.7 | **2.87** | 89 筆 |
+| **2026** | 2026-01-01～06-18 | **+129.2** | **+580.4** | 55.0 | **6.31** | 40 筆 |
 
 | 指標 | 2026 上半年 | 備註 |
 |------|-------------|------|
-| 每筆均超額% | **+7.0%** | 39 筆 vs 台指 |
+| 每筆均超額% | **+6.5%** | 40 筆 vs 台指 |
 | 組合回撤 | 待公布 | [風險快照](strategy_catalog#風險快照) |
 
 2026 年化為部分年度外推 · 五軌對照 [績效對照](strategy_catalog#績效對照)。
@@ -68,4 +74,4 @@ ETF 成分股中，**相對強度輪動（RRG）** 單軌 **fresh** 四日軌跡
 
 ## 研究出處
 
-[RRG 研究案例](research_case_rrg_mono)
+[RRG 研究案例](research_case_rrg_mono) · 換倉變體見 [四日加速換倉採納報告](research_case_rrg_mono_swap_accel)

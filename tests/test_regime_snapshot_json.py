@@ -28,7 +28,18 @@ class RegimeSnapshotJsonTests(unittest.TestCase):
         self.assertEqual(payload["as_of"], "2026-06-17")
         self.assertIn("breadth_zone_200", payload["axes"])
         self.assertTrue(payload["axes"]["breadth_zone_200"].get("available"))
-        self.assertIn("synopsis", payload["interpretations"])
+        self.assertIn("overview_plain_zh", payload["interpretations"])
+        self.assertTrue(payload["interpretations"]["overview_plain_zh"])
+        if payload.get("home_kpis"):
+            self.assertIn("hint_zh", payload["home_kpis"][0])
+        self.assertIn("display", payload)
+        self.assertIn("trend_posture_zh", payload["display"])
+        self.assertIn("rrg_migrations_zh", payload["display"])
+        migrations_zh = payload["display"]["rrg_migrations_zh"]
+        if migrations_zh:
+            self.assertIn("key", migrations_zh[0])
+            self.assertIn("label", migrations_zh[0])
+            self.assertIn("count", migrations_zh[0])
         self.assertIn("breadth", payload["chart_series"])
         self.assertGreater(len(payload["chart_series"]["breadth"]), 10)
         rrg = payload["chart_series"].get("rrg_scatter")

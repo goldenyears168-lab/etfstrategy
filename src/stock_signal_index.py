@@ -7,56 +7,68 @@ import sqlite3
 from typing import Any
 
 from copytrade_l1h9_daily import signals_for_date
-from stock_db import load_stock_daily_lens_for_date
+from stock_daily_lens import build_stock_daily_lens_rows
 from supabase_research_sync import BriefRecord
 
 BRIEF_META: dict[str, dict[str, str]] = {
     "etf_daily": {
         "source": "etf_daily",
         "tab": "etf",
-        "layer_label": "Facts · 事實層",
+        "layer_label": "事實層",
         "brief_label": "ETF 持股日報",
     },
     "vcp_funnel_specs": {
         "source": "vcp_funnel",
         "tab": "vcp",
-        "layer_label": "Research · 研究層",
+        "layer_label": "研究層",
         "brief_label": "VCP 漏斗研究",
     },
     "vcp_pivot_gate": {
         "source": "vcp_pivot_gate",
         "tab": "vcp",
-        "layer_label": "Strategy · 策略層",
-        "brief_label": "VCP Pivot Gate",
+        "layer_label": "策略層",
+        "brief_label": "VCP 突破確認",
     },
     "vcp_coil_close": {
         "source": "vcp_coil_close",
         "tab": "vcp",
-        "layer_label": "Strategy · 策略層",
-        "brief_label": "VCP Coil Close",
+        "layer_label": "策略層",
+        "brief_label": "VCP 訊號收盤",
     },
     "copytrade_l1h9": {
         "source": "copytrade_l1h9",
         "tab": "copytrade",
-        "layer_label": "Strategy · 策略層",
+        "layer_label": "策略層",
         "brief_label": "ETF00981A 跟單策略",
     },
     "rrg_mono_daily": {
         "source": "rrg_mono_daily",
         "tab": "rrg",
-        "layer_label": "Strategy · 策略層",
-        "brief_label": "RRG 策略掃描",
+        "layer_label": "策略層",
+        "brief_label": "RRG 市場輪動圖選股策略",
     },
     "rrg_mono_intraday": {
         "source": "rrg_mono_intraday",
         "tab": "rrg",
-        "layer_label": "Strategy · 策略層",
-        "brief_label": "RRG 盤中預警",
+        "layer_label": "策略層",
+        "brief_label": "RRG 盤中預估",
+    },
+    "rrg_mono_swap_accel_daily": {
+        "source": "rrg_mono_swap_accel",
+        "tab": "rrg",
+        "layer_label": "策略層",
+        "brief_label": "RRG mono swap-accel（C18acc）",
+    },
+    "rrg_c18acc_screen": {
+        "source": "rrg_mono_swap_accel",
+        "tab": "rrg",
+        "layer_label": "策略層",
+        "brief_label": "RRG mono swap-accel 盤中",
     },
     "lens": {
         "source": "stock_daily_lens",
         "tab": "lens",
-        "layer_label": "Regime · 市場診斷層",
+        "layer_label": "今日亮點",
         "brief_label": "今日亮點",
     },
 }
@@ -209,6 +221,40 @@ def _hits_from_rrg_snapshot(record: BriefRecord) -> list[dict[str, Any]]:
     return out
 
 
+def _hits_from_rrg_swap_accel_snapshot(record: BriefRecord) -> list[dict[str, Any]]:
+    snap = record.snapshot_json or {}
+    if snap.get("contract") != "rrg-swap-accel-daily-v1":
+        return []
+    out: list[dict[str, Any]] = []
+    day = record.trade_date.isoformat()
+    tables = snap.get("tables") or {}
+    pool = tables.get("tomorrow_pool") if isinstance(tables, dict) else {}
+    headers = pool.get("headers") if isinstance(pool, dict) else []
+    for row in (pool.get("rows") if isinstance(pool, dict) else []) or []:
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            continue
+        sid = str(row[1]).strip()
+        if not re.match(r"^\d{4,6}$", sid):
+            continue
+        name = str(row[2]) if len(row) > 2 else ""
+        values = [str(c) for c in row]
+        out.append(
+            _hit(
+                trade_date=day,
+                stock_id=sid,
+                brief_type=record.brief_type,
+                schedule_slot=record.schedule_slot,
+                stock_name=name,
+                row_json={
+                    "headers": headers,
+                    "values": values,
+                    "fresh": True,
+                },
+            )
+        )
+    return out
+
+
 def _parse_md_table_hits(record: BriefRecord) -> list[dict[str, Any]]:
     """Fallback: extract | table | rows from content_md."""
     out: list[dict[str, Any]] = []
@@ -312,31 +358,34 @@ def hits_from_brief(conn: sqlite3.Connection, record: BriefRecord) -> list[dict[
     if record.brief_type in ("rrg_mono_daily", "rrg_mono_intraday"):
         if contract == "rrg-mono-daily-v1":
             return _hits_from_rrg_snapshot(record)
-    if record.brief_type in ("rrg_mono_daily", "rrg_mono_intraday", "etf_daily", "copytrade_l1h9"):
+    if record.brief_type == "rrg_mono_swap_accel_daily":
+        if contract == "rrg-swap-accel-daily-v1":
+            return _hits_from_rrg_swap_accel_snapshot(record)
+    if record.brief_type in ("rrg_mono_daily", "rrg_mono_intraday", "rrg_mono_swap_accel_daily", "rrg_c18acc_screen", "etf_daily", "copytrade_l1h9"):
         return _parse_md_table_hits(record)
     return []
 
 
 def hits_from_lens(conn: sqlite3.Connection, trade_date: str) -> list[dict[str, Any]]:
-    rows = load_stock_daily_lens_for_date(conn, trade_date)
+    rows = build_stock_daily_lens_rows(conn, trade_date)
     out: list[dict[str, Any]] = []
     for row in rows:
-        sid = str(row["stock_id"])
+        sid = str(row.stock_id)
         out.append(
             _hit(
                 trade_date=trade_date,
                 stock_id=sid,
                 brief_type="lens",
                 schedule_slot="1630",
-                stock_name=str(row["stock_name"] or ""),
+                stock_name=str(row.stock_name or ""),
                 row_json={
-                    "lens_score": row["lens_score"],
-                    "signal_convergence": row["signal_convergence"],
-                    "narrative_zh": row["narrative_zh"],
-                    "delta_any_signal": bool(int(row["delta_any_signal"] or 0)),
-                    "consensus_add": bool(int(row["consensus_add"] or 0)),
+                    "lens_score": row.lens_score,
+                    "signal_convergence": row.signal_convergence,
+                    "narrative_zh": row.narrative_zh,
+                    "delta_any_signal": row.delta_any_signal,
+                    "consensus_add": row.consensus_add,
                 },
-                headline_zh=str(row["narrative_zh"] or ""),
+                headline_zh=str(row.narrative_zh or ""),
             )
         )
     return out

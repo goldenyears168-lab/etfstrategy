@@ -246,3 +246,76 @@ def interpret_stage2(s: dict[str, Any], b: dict[str, Any] | None = None) -> str:
         elif zone in ("oversold", "weak") and pct < 30:
             parts.append("廣度與 pass rate 均偏低。")
     return " ".join(parts)
+
+
+def interpret_overview_plain_zh(
+    b: dict[str, Any],
+    t: dict[str, Any],
+    r: dict[str, Any],
+    s: dict[str, Any],
+) -> str:
+    """首頁／日報一句話結論（白話優先 · 術語首用 English（中文））。"""
+    if not any(x.get("available") for x in (b, t, r, s)):
+        return "資料不足，尚無法整理今日市場總覽。"
+
+    clauses: list[str] = []
+
+    if t.get("available"):
+        stage = t.get("stage")
+        name = str(t.get("stage_name") or "")
+        if stage == 2 and name == "advancing":
+            clauses.append(
+                "大盤仍在 Weinstein Stage 2（第 2 階段）多頭結構"
+            )
+        elif stage is not None:
+            stage_name_zh = {
+                "advancing": "上升",
+                "topping": "築頂",
+                "declining": "下降",
+                "basing": "築底",
+            }.get(name, name)
+            clauses.append(f"大盤趨勢階段為 Stage {stage}（{stage_name_zh}）")
+
+    if b.get("available"):
+        p200 = float(b.get("pct_above_200") or 0)
+        zone = str(b.get("breadth_zone_200") or "")
+        if zone == "overbought" or p200 > 80:
+            tone = "偏熱"
+        elif p200 > 60:
+            tone = "偏強"
+        else:
+            tone = "偏弱"
+        clauses.append(f"Market breadth（市場廣度）{p200:.0f}%，整體{tone}")
+
+    if r.get("available"):
+        health = round(
+            float(r.get("leading_pct") or 0) + float(r.get("improving_pct") or 0)
+        )
+        if health >= 50:
+            clauses.append(
+                f"Relative Rotation Graph（RRG）健康度約 {health}%，輪動結構尚可"
+            )
+        else:
+            clauses.append(
+                f"RRG 健康度約 {health}%，強勢族群占比偏低"
+            )
+        mig = r.get("migrations") if isinstance(r.get("migrations"), dict) else {}
+        n = int(mig.get("improving_to_leading") or 0)
+        if n > 0:
+            clauses.append(f"今日有 {n} 個族群由轉強進入領先象限")
+
+    if s.get("available") and not clauses:
+        pct = float(s.get("pass_pct") or 0)
+        clauses.append(f"Stage 2 participation（第 2 階段參與率）{pct:.0f}%")
+
+    if not clauses:
+        return "今日市場資料有限，請至日報查看完整圖表。"
+
+    zone = str(b.get("breadth_zone_200") or "") if b.get("available") else ""
+    if zone == "overbought" and t.get("stage") == 2:
+        lead = "目前市場仍偏強，但位置已不低，屬於高檔延續而不是剛起漲。"
+        return f"{lead}{'；'.join(clauses)}。"
+    if zone in ("oversold", "weak"):
+        return f"目前市場偏弱，宜保守看待風險。{'；'.join(clauses)}。"
+
+    return f"{'；'.join(clauses)}。"

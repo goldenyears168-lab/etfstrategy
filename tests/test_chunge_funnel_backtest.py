@@ -235,6 +235,116 @@ class TestChungeFunnelBacktest(unittest.TestCase):
             self.assertAlmostEqual(trade["exit_px"], 89.1, places=1)
             conn.close()
 
+    def test_expert_fill_uses_1m_after_breakout(self) -> None:
+        from stock_db.kbar import upsert_stock_kbar_1m
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect(Path(tmp) / "t.db")
+            synced = "2026-06-01T00:00:00+00:00"
+            dates = ["2026-06-10", "2026-06-11"]
+            upsert_stock_daily_bars(
+                conn,
+                [
+                    {
+                        "stock_id": "2330",
+                        "trade_date": d,
+                        "open": op,
+                        "high": hi,
+                        "low": lo,
+                        "close": cl,
+                        "volume": 1000,
+                        "source": "finmind",
+                        "synced_at": synced,
+                    }
+                    for d, op, hi, lo, cl in [
+                        ("2026-06-10", 97.0, 98.0, 96.0, 97.5),
+                        ("2026-06-11", 99.0, 101.0, 98.0, 100.0),
+                    ]
+                ],
+            )
+            upsert_daily_bars(
+                conn,
+                [
+                    {
+                        "code": "IX0001",
+                        "date": d,
+                        "open": 100.0,
+                        "high": 100.0,
+                        "low": 100.0,
+                        "close": 100.0,
+                        "volume": 0,
+                        "spread": 0.0,
+                        "source": "tej",
+                        "synced_at": synced,
+                    }
+                    for d in dates
+                ],
+            )
+            upsert_vcp_screen_scores_v2(
+                conn,
+                [
+                    {
+                        "stock_id": "2330",
+                        "as_of_date": "2026-06-10",
+                        "model_id": "vcp-funnel",
+                        "stock_name": "台積電",
+                        "composite_score": 72.0,
+                        "rating": "VCP-adjacent",
+                        "execution_state": "Pre-breakout",
+                        "entry_ready": 1,
+                        "pattern_type": "VCP-adjacent",
+                        "pivot_price": 100.0,
+                        "distance_from_pivot_pct": -2.0,
+                        "stop_loss": None,
+                        "risk_pct": None,
+                        "valid_vcp": 1,
+                        "metadata_json": "{}",
+                    }
+                ],
+            )
+            upsert_stock_kbar_1m(
+                conn,
+                [
+                    {
+                        "stock_id": "2330",
+                        "trade_date": "2026-06-11",
+                        "minute": m,
+                        "open": o,
+                        "high": h,
+                        "low": lo,
+                        "close": c,
+                        "volume": 1000,
+                        "source": "finmind",
+                    }
+                    for m, o, h, lo, c in [
+                        ("09:05:00", 99.0, 100.5, 98.8, 99.6),
+                        ("09:06:00", 99.6, 100.2, 99.4, 100.1),
+                    ]
+                ],
+            )
+            close, _, _ = load_price_panels(conn)
+            full_dates = close.index.astype(str).tolist()
+            cands = build_chunge_candidates_calendar(
+                conn, ["2026-06-10"], min_composite=45.0, entry_ready_only=True
+            )
+            periods, summary = simulate_chunge_pivot_stop(
+                conn,
+                trade_dates=dates,
+                full_dates=full_dates,
+                close=close,
+                candidates_by_date=cands,
+                n_slots=1,
+                hold_days=20,
+                max_entry_wait_days=5,
+                stop_lookback_days=5,
+                entry_fill_mode="vwap_reclaim",
+            )
+            self.assertEqual(summary["n_periods"], 1)
+            trade = periods[0]
+            self.assertEqual(trade["entry_date"], "2026-06-11")
+            self.assertAlmostEqual(trade["entry_px"], 100.1)
+            conn.close()
+
 
 class TestTrackEvaluationSlot(unittest.TestCase):
     def test_load_slot_from_json(self) -> None:

@@ -16,6 +16,7 @@ from copytrade.signals import (
     snapshot_pairs,
 )
 from holdings_research import build_cross_etf_consensus
+from market_benchmark import resolve_brief_trade_date
 from project_config import ETF_CODES_HOLDINGS
 from report_paths import REPORTS_DIR
 from stock_db import DEFAULT_DB_PATH, connect, list_etf_snapshot_dates
@@ -92,7 +93,7 @@ def build_copytrade_l1h9_markdown(
     ]
     if score_date and outcome_date:
         lines.append(f"- **持股區間**：{score_date} → {outcome_date}")
-    lines.append(f"- **今日訊號檔數**：**{len(signals)}**")
+    lines.append(f"- **異動檔數**：**{len(signals)}**")
     if signals:
         consensus_hits = [s for s in signals if s.stock_id in consensus]
         lines.append(
@@ -100,7 +101,7 @@ def build_copytrade_l1h9_markdown(
         )
     else:
         lines.append("- **跨 ETF 共識加碼（≥2 檔）**：0 檔")
-    lines.extend(["", "## 今日訊號（L1 新進／加碼）", ""])
+    lines.extend(["", "## 新進／加碼異動", ""])
 
     if not signals:
         if outcome_date and outcome_date != trade_date:
@@ -174,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     conn = connect(DEFAULT_DB_PATH)
     try:
         as_of = args.date or None
+        if args.write_reports and not as_of:
+            as_of = resolve_brief_trade_date(conn, date.today()).isoformat()
         if args.write_reports:
             paths = write_copytrade_l1h9_reports(conn, as_of=as_of)
             if not args.quiet:

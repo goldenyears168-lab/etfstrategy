@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.rrg-c18acc-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/open</string>
+		<string>-gj</string>
+		<string>{{PROJECT_ROOT}}/scripts/launchd/rrg-c18acc-poll.command</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>rrg-c18acc-poll</string>
+		<key>RUN_RRG_C18ACC_SCREEN</key>
+		<string>1</string>
+		<key>ORDER_C18ACC_DRY_RUN</key>
+		<string>1</string>
+		<key>ORDER_C18ACC_APPLY_STATE</key>
+		<string>1</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 每 5 分鐘觸發；scripts/launchd/rrg-c18acc-poll.command 內再限 Mon–Fri 09:00–13:20 -->
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-c18acc-poll.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-c18acc-poll.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

@@ -17,7 +17,6 @@ RESEARCH_BREADTH = REPORTS_RESEARCH / "breadth"
 RESEARCH_RRG = REPORTS_RESEARCH / "rrg"
 RESEARCH_COPYTRADE_00981A = REPORTS_RESEARCH / "00981a-copytrade"
 RESEARCH_VCP = REPORTS_RESEARCH / "vcp"
-RESEARCH_STRATEGY_HUB = REPORTS_RESEARCH / "strategy_hub.html"
 
 RESEARCH_HTML_DIRS: dict[str, Path] = {
     "breadth": RESEARCH_BREADTH,
@@ -111,8 +110,6 @@ def regime_snapshot_brief_path(track_dir: Path, as_of: str) -> Path:
 def classify_research_html_filename(filename: str) -> str | None:
     """Map a research HTML basename to its canonical category (or None if unknown)."""
     name = filename.lower()
-    if name == "strategy_hub.html":
-        return None
     if any(k in name for k in ("00981a", "copytrade", "holdings_change", "l1h9")):
         return "00981a-copytrade"
     if "vcp" in name:

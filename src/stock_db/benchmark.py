@@ -57,6 +57,132 @@ def upsert_benchmark_constituents(conn: sqlite3.Connection, rows: list[dict]) ->
     return len(payload)
 
 
+def load_benchmark_constituents_as_of(
+    conn: sqlite3.Connection,
+    benchmark_code: str,
+    as_of_date: str,
+) -> list[sqlite3.Row]:
+    """PIT：取 as_of_date 當日或之前最近一版成分。"""
+    row = conn.execute(
+        """
+        SELECT snapshot_date
+        FROM benchmark_constituents_meta
+        WHERE benchmark_code = ? AND snapshot_date <= ?
+        ORDER BY snapshot_date DESC
+        LIMIT 1
+        """,
+        (benchmark_code.upper(), as_of_date),
+    ).fetchone()
+    if row is None:
+        return []
+    snap = row["snapshot_date"]
+    return conn.execute(
+        """
+        SELECT stock_id, stock_name, weight_pct, snapshot_date, source
+        FROM benchmark_constituents
+        WHERE benchmark_code = ? AND snapshot_date = ?
+        ORDER BY stock_id
+        """,
+        (benchmark_code.upper(), snap),
+    ).fetchall()
+
+
+def seed_benchmark_pit_quarterly_snapshots(
+    conn: sqlite3.Connection,
+    benchmark_code: str,
+    *,
+    start_date: str,
+    end_date: str,
+    source: str = "pit_seeded_quarterly",
+) -> int:
+    """以最新 Yuanta 成分為模板，補齊季末交易日 snapshot（無歷史 API 時的 PIT proxy）。"""
+    code = benchmark_code.upper()
+    latest = conn.execute(
+        """
+        SELECT snapshot_date
+        FROM benchmark_constituents_meta
+        WHERE benchmark_code = ?
+        ORDER BY snapshot_date DESC
+        LIMIT 1
+        """,
+        (code,),
+    ).fetchone()
+    if latest is None:
+        return 0
+    snap = latest["snapshot_date"]
+    template = conn.execute(
+        """
+        SELECT stock_id, stock_name, weight_pct
+        FROM benchmark_constituents
+        WHERE benchmark_code = ? AND snapshot_date = ?
+        ORDER BY stock_id
+        """,
+        (code, snap),
+    ).fetchall()
+    if not template:
+        return 0
+
+    trading_dates = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT date FROM daily_bars
+            WHERE code = 'IX0001'
+              AND date >= ? AND date <= ?
+            ORDER BY date
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    ]
+    if not trading_dates:
+        return 0
+
+    quarter_last: dict[tuple[int, int], str] = {}
+    for d in trading_dates:
+        y, m = int(d[:4]), int(d[5:7])
+        q = (y, (m - 1) // 3 + 1)
+        quarter_last[q] = d
+    quarter_ends = sorted(quarter_last.values())
+
+    existing = {
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT snapshot_date FROM benchmark_constituents_meta
+            WHERE benchmark_code = ?
+            """,
+            (code,),
+        ).fetchall()
+    }
+
+    inserted = 0
+    for qd in quarter_ends:
+        if qd in existing:
+            continue
+        upsert_benchmark_constituents_meta(
+            conn,
+            {
+                "benchmark_code": code,
+                "snapshot_date": qd,
+                "holding_count": len(template),
+                "source": source,
+            },
+        )
+        rows = [
+            {
+                "benchmark_code": code,
+                "snapshot_date": qd,
+                "stock_id": r["stock_id"],
+                "stock_name": r["stock_name"],
+                "weight_pct": r["weight_pct"],
+                "source": source,
+            }
+            for r in template
+        ]
+        inserted += upsert_benchmark_constituents(conn, rows)
+    return inserted
+
+
 def _load_benchmark_watchlist_stocks(
     conn: sqlite3.Connection,
     benchmark_codes: tuple[str, ...],

@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from research.backtest.chunge_funnel_backtest import ChungeCandidate
+from snapshot_screen_status import vcp_screen_status
 from vcp_funnel_specs_daily import (
     ENTRY_HINTS,
     SPEC_REGISTRY,
@@ -139,6 +140,7 @@ def build_vcp_snapshot_json(
         "intraday": intraday,
         "variant_count": len(variants),
         "candidate_count": total_candidates,
+        "screen_status": vcp_screen_status(total_candidates),
         "variants": variants,
         "meta": {
             "generated_at": datetime.now(_TPE).isoformat(),

@@ -8,6 +8,11 @@ tab_label_en: ETF00981A 跟單策略
 sort_order: 11
 role: 已採納凍結規格 · 跟單
 web_v1: 策略獨立頁
+icon: ri-bookmark-3-line
+description_short: 跟著 00981A ETF 持股變化找標的 · Copytrade（跟單）隔日開盤進 · 持 9 日 · 9 槽
+research_page_id: research_case_copytrade
+brief_types:
+  - copytrade_l1h9
 ---
 
 # ETF00981A 跟單策略（隔日開盤·持9日）

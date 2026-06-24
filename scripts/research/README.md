@@ -22,7 +22,6 @@
 | `run_breadth_impulse_validation.py` | Zweig/Deemer Regime 診斷 validation |
 | `run_market_breadth_report.py` | **Breadth zone** HTML → `reports/research/breadth/` |
 | `render_rrg_universe_html.py` | RRG → `research/rrg/` · 00981A → `research/00981a-copytrade/` |
-| `render_strategy_hub_html.py` | **策略入口** → `reports/research/strategy_hub.html` |
 | `organize_research_html.py` | 將散落的 HTML 移入子目錄，並在 `research/` 根建立 **symlink** 別名 |
 | `run_dual_momentum_antonacci_backtest.py` | Antonacci dual momentum |
 | `run_pullback_regime_backtest.py` | Pullback regime |

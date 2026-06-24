@@ -17,6 +17,8 @@ GUI_DOMAIN="gui/${UID_NUM}"
 
 LABELS=(
   com.jackm4.etf.evening-holdings
+  com.jackm4.etf.mutual-fund-disclosure-watch
+  com.jackm4.etf.rrg-c18acc-poll
   com.jackm4.etf.rrg-mono-intraday-watch
   com.jackm4.etf.vcp-funnel-specs
   com.jackm4.etf.weekly-deep
@@ -24,6 +26,8 @@ LABELS=(
 
 TEMPLATES=(
   com.jackm4.etf.evening-holdings.plist.template
+  com.jackm4.etf.mutual-fund-disclosure-watch.plist.template
+  com.jackm4.etf.rrg-c18acc-poll.plist.template
   com.jackm4.etf.rrg-mono-intraday-watch.plist.template
   com.jackm4.etf.vcp-funnel-specs.plist.template
   com.jackm4.etf.weekly-deep.plist.template
@@ -38,7 +42,9 @@ usage() {
 
   排程（本地時間）：
     ② evening-holdings      週一至五 16:30（持股 + RRG close + VCP close + stock_daily_lens → Supabase）
+    ②b mutual-fund-watch    週一至五 16:30（ACDD04 月報公布偵測 · 新快照寄信）
     ②a rrg-mono-intraday    週一至五 13:00（收盤前預警 + universe snapshot）
+    C18acc rrg-c18acc-poll   週一至五 09:00–13:20 每 5 分（swap-accel live screen · dry-run）
     VCP funnel specs          週一至五 13:00（Pivot Gate / Coil Close brief）
     ③ weekly-deep           週日     20:00
 
@@ -52,6 +58,8 @@ EOF
 
 LAUNCHD_COMMANDS=(
   evening-holdings
+  mutual-fund-disclosure-watch
+  rrg-c18acc-poll
   rrg-mono-intraday-watch
   vcp-funnel-specs
   weekly-deep

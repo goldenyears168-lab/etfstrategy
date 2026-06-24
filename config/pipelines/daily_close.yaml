@@ -16,6 +16,8 @@ outputs:
   - reports/daily/{date}_etf_daily.md
   - reports/daily/{date}_rrg_mono_daily.md
   - reports/daily/rrg_mono_daily.md
+  - reports/daily/{date}_rrg_mono_swap_accel_daily.md
+  - reports/daily/rrg_mono_swap_accel_daily.md
   - reports/daily/{date}_vcp_funnel_specs_daily_brief.md
   - reports/daily/vcp_funnel_specs_daily_brief.md
   - data/stocks.db
@@ -97,6 +99,14 @@ phases:
         module: src/rrg_mono_daily_brief.py
         run_script: scripts/run_rrg_mono_daily_brief.py
         env_flag: RUN_RRG_MONO_DAILY
+        env_default: "1"
+        fail_kind: aux
+
+      - id: rrg_mono_swap_accel_daily
+        label: RRG mono swap-accel（C18acc）16:30 收盤診斷 brief（Scheme A）
+        module: src/rrg_mono_swap_accel_daily_brief.py
+        run_script: scripts/run_rrg_mono_swap_accel_daily_brief.py
+        env_flag: RUN_RRG_MONO_SWAP_ACCEL_DAILY
         env_default: "1"
         fail_kind: aux
 

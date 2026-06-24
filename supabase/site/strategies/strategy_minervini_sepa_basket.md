@@ -8,6 +8,10 @@ tab_label_en: Minervini SEPA
 sort_order: 15
 role: 已採納凍結規格 · 持倉籃
 web_v1: 策略獨立頁
+icon: ri-stock-line
+description_short: Minervini Trend Template 月頻 Stage 2 強勢籃 · 不是每天都有新候選
+research_page_id: research_case_minervini_sepa
+brief_types: []
 ---
 
 # Minervini SEPA 趨勢籃

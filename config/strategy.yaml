@@ -79,6 +79,71 @@ strategies:
       source_summary: reports/research/rrg/rrg_mono_hold7_slot_backtest_2026.json
       notes: "mono fresh · seg_last · D close / hold7"
 
+  rrg-mono-swap-accel:
+    title: RRG mono swap-accel · C18acc · 四日加速对称换仓
+    kind: competition
+    schedule: daily_sync
+    schedule_time: "16:30 Asia/Taipei Mon-Fri"
+    enabled: false
+    parent_strategy: rrg-mono-hold7
+    n_slots: 3
+    hold_days: 10
+    module: rrg_mono_swap_accel_daily_brief
+    screen_module: rrg_mono_swap_accel_screen
+    backtest_module: rrg_mono_score_swap_c
+    run_script: scripts/run_rrg_mono_swap_accel_daily_brief.py
+    screen_script: scripts/run_rrg_mono_swap_accel_screen.py
+    description: >
+      RRG mono fresh 全池 · C0 盘中 scale 进 · 5m poll 换仓 · 四日加速卖弱买强 · margin=0.05 ·
+      16:30 Scheme A 收盤診斷 + 盤中 live screen（enabled: false 直至手動啟用）。
+    funnel:
+      pool:
+        - "ETF 成分 watchlist"
+        - "mono tier2: up_right + leading + disp∈[1,2) + mono_up"
+        - "fresh: 昨日非 mono tier2、今日新进"
+        - "seg_last 排序 · 全池（不裁 top10 · passthrough）"
+      entry:
+        leg: C0
+        timing: poll_5m
+        score_mode: scale
+        confirm_bars: "0|1"
+      swap:
+        timing_mode: poll_5m
+        min_hold_days: 5
+        max_hold_days: 10
+        max_swaps_per_day: 1
+        sort_key: avg_accel_decel
+        buy_rule: "seg_last > held + 0.05 后取四日加速最大"
+        accel_sell_negative_only: true
+        score_margin: 0.05
+        accel_lookback: 4
+      removed_no_op:
+        - top10_crop
+        - shortlist_refilter
+    backtest:
+      spec_type: slot_strategy_backtest
+      source_module: rrg_mono_score_swap_c
+      variant_id: C18acc
+      metrics:
+        - n_periods
+        - win_rate_vs_bench_pct
+        - mean_excess_pct
+        - mean_return_pct
+        - swaps_total
+      date_start: "2024-01-01"
+      date_end: "2026-06-22"
+      n_slots: 3
+      hold_days: 10
+      min_hold_days: 5
+      capital_ntd: 60000
+      entry_price_mode: intraday_c0
+      score_margin: 0.05
+      sort_key: avg_accel_decel
+      buy_sort_key: avg_accel_decel
+      accel_lookback: 4
+      source_summary: reports/research/rrg/20260624_c18_acc4_dls1_stability.json
+      notes: "C18acc champion · 簡化漏斗 SSOT · breadth hold-out passed · graduation 2026-06"
+
   vcp-pivot-gate:
     title: VCP Pivot Gate
     kind: competition

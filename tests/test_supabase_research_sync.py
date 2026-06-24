@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from supabase_research_sync import (
     BRIEF_CATALOG,
+    BriefRecord,
     INTRADAY_WATCH_META,
     STRATEGY_SCREEN_META,
     SLOT_BRIEF_TYPES,
     _find_brief_file,
     _intraday_data_baseline,
+    _record_payload,
     load_brief,
     sync_slot,
 )
@@ -23,23 +25,30 @@ class TestBriefCatalog(unittest.TestCase):
     def test_strategy_briefs_in_1630_slot(self) -> None:
         slot_types = SLOT_BRIEF_TYPES["1630"]
         self.assertIn("rrg_mono_daily", slot_types)
+        self.assertIn("rrg_mono_swap_accel_daily", slot_types)
         self.assertIn("copytrade_l1h9", slot_types)
 
     def test_strategy_briefs_in_1300_slot(self) -> None:
         slot_types = SLOT_BRIEF_TYPES["1300"]
         self.assertIn("vcp_pivot_gate", slot_types)
         self.assertIn("vcp_coil_close", slot_types)
+        self.assertIn("rrg_c18acc_screen", slot_types)
 
     def test_strategy_screen_meta_covers_daily_screens(self) -> None:
         for brief_type in (
             "copytrade_l1h9",
             "rrg_mono_daily",
+            "rrg_mono_swap_accel_daily",
             "vcp_pivot_gate",
             "vcp_coil_close",
         ):
             meta = STRATEGY_SCREEN_META[brief_type]
             self.assertIn("strategy_id", meta)
             self.assertEqual(meta["layer"], "strategy")
+
+    def test_intraday_screen_meta_maps_c18acc(self) -> None:
+        meta = INTRADAY_WATCH_META["rrg_c18acc_screen"]
+        self.assertEqual(meta["strategy_id"], "rrg-mono-swap-accel")
 
     def test_find_rrg_mono_daily_dated_file(self) -> None:
         root = Path(__file__).resolve().parent.parent
@@ -76,6 +85,11 @@ class TestBriefCatalog(unittest.TestCase):
         assert record.snapshot_json is not None
         self.assertEqual(record.snapshot_json.get("strategy_id"), "00981a-l1h9")
         self.assertEqual(record.snapshot_json.get("contract"), "copytrade-daily-v1")
+        display = record.snapshot_json.get("display")
+        self.assertIsInstance(display, dict)
+        assert isinstance(display, dict)
+        self.assertIn("hint_zh", display)
+        self.assertTrue(display["hint_zh"])
 
     def test_canonical_brief_catalog_single_path(self) -> None:
         self.assertEqual(len(BRIEF_CATALOG["etf_daily"][1]), 1)
@@ -149,12 +163,23 @@ class TestBriefCatalog(unittest.TestCase):
         record = load_brief("rrg_mono_intraday")
         self.assertIsNotNone(record)
         assert record is not None
-        self.assertEqual(record.trade_date, date(2026, 6, 18))
+        self.assertEqual(record.trade_date, date(2026, 6, 22))
         self.assertIsNotNone(record.snapshot_json)
         assert record.snapshot_json is not None
         self.assertEqual(record.snapshot_json.get("contract"), "rrg-mono-daily-v1")
         self.assertEqual(record.snapshot_json.get("session_date"), "2026-06-22")
         self.assertEqual(record.snapshot_json.get("data_baseline_date"), "2026-06-18")
+
+    def test_find_intraday_undated_when_lookup_not_today(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        undated = root / "reports/daily/rrg_mono_intraday_watch.md"
+        dated = root / "reports/daily/20260622_rrg_mono_intraday_watch.md"
+        if not undated.is_file() and not dated.is_file():
+            self.skipTest("missing intraday watch fixture")
+        found = _find_brief_file("rrg_mono_intraday", date(2026, 6, 22))
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertTrue(found.name.endswith("rrg_mono_intraday_watch.md"))
 
     @patch("supabase_research_sync.build_backtest_reference")
     @patch("supabase_research_sync._find_brief_file")
@@ -186,6 +211,31 @@ class TestBriefCatalog(unittest.TestCase):
         assert ref is not None
         self.assertEqual(ref["win_rate_vs_bench_pct"], 55.0)
 
+    def test_record_payload_omits_content_html_when_none(self) -> None:
+        record = BriefRecord(
+            trade_date=date(2026, 6, 20),
+            schedule_slot="1630",
+            brief_type="etf_daily",
+            title="ETF 日報",
+            content_md="# md",
+            source_path="reports/daily/x.md",
+        )
+        payload = _record_payload(record)
+        self.assertNotIn("content_html", payload)
+
+    def test_record_payload_includes_content_html_when_set(self) -> None:
+        record = BriefRecord(
+            trade_date=date(2026, 6, 20),
+            schedule_slot="1630",
+            brief_type="etf_daily",
+            title="ETF 日報",
+            content_md="# md",
+            source_path="reports/daily/x.md",
+            content_html="<p>html</p>",
+        )
+        payload = _record_payload(record)
+        self.assertEqual(payload["content_html"], "<p>html</p>")
+
     @patch("supabase_research_sync.supabase_configured", return_value=True)
     @patch("supabase_research_sync.allow_scheduled_supabase_push", return_value=False)
     def test_sync_slot_skips_non_trading_day(
@@ -202,8 +252,6 @@ class TestBriefCatalog(unittest.TestCase):
     def test_sync_slot_with_explicit_date_bypasses_trading_day_gate(
         self, mock_load: object, _mock_allow: object, _mock_cfg: object
     ) -> None:
-        from supabase_research_sync import BriefRecord
-
         mock_load.return_value = BriefRecord(
             trade_date=date(2026, 6, 19),
             schedule_slot="1630",
@@ -216,6 +264,24 @@ class TestBriefCatalog(unittest.TestCase):
             result = sync_slot("1630", date(2026, 6, 19))
         self.assertIn("etf_daily", result.uploaded)
         mock_load.assert_called()
+
+    @patch("supabase_research_sync.supabase_configured", return_value=True)
+    @patch("supabase_research_sync.allow_scheduled_supabase_push", return_value=True)
+    @patch("supabase_research_sync._default_lookup_date", return_value=date(2026, 6, 23))
+    @patch("supabase_research_sync.load_brief")
+    def test_sync_slot_uses_resolved_trade_date_when_omitted(
+        self,
+        mock_load: object,
+        _mock_default: object,
+        _mock_allow: object,
+        _mock_cfg: object,
+    ) -> None:
+        mock_load.return_value = None
+        with patch("supabase_research_sync.upsert_brief"):
+            sync_slot("1630")
+        self.assertTrue(mock_load.called)
+        for call in mock_load.call_args_list:
+            self.assertEqual(call.args[1], date(2026, 6, 23))
 
 
 if __name__ == "__main__":

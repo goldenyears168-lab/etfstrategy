@@ -10,10 +10,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from copytrade_l1h9_daily import signals_for_date
+from lens_ui_copy import RRG_FRESH_ZH, badge_plain_zh, format_watchlist_count_zh
 from holdings_research import (
     ConsensusStock,
     build_cross_etf_consensus,
-    fmt_ntd_short,
     resolve_aligned_change_window,
 )
 from market_benchmark import latest_trading_date, list_trading_dates, previous_trading_date
@@ -24,20 +24,25 @@ from research.backtest.chunge_funnel_backtest import (
     VCP_PIVOT_GATE,
 )
 from stock_db import (
-    delete_stock_daily_lens_for_date,
+    load_etf_constituent_watchlist,
     load_rrg_universe_scores,
-    load_stock_daily_lens_for_date,
-    load_stock_daily_lens_row,
     load_vcp_screen_v2_for_date,
     normalize_stock_name,
-    upsert_stock_daily_lens_rows,
+    upsert_lens_daily_alert,
 )
+from supabase_lens_sync import load_supabase_highlight_for_date
 from vcp_funnel_screen import FUNNEL_MODEL_IDS
 
 _TPE = ZoneInfo("Asia/Taipei")
 _VCP_MIN_SCORE = float(VCP_PIVOT_GATE["min_composite"])
 _VCP_STATES = tuple(VCP_PIVOT_GATE["execution_states"])
 _CONVERGENCE_FIRE = 3
+_RRG_QUADRANT_ZH = {
+    "leading": "領先",
+    "improving": "轉強",
+    "weakening": "轉弱",
+    "lagging": "落後",
+}
 
 
 @dataclass
@@ -75,12 +80,7 @@ class LensRow:
     trade_date: str
     stock_id: str
     stock_name: str = ""
-    etf_add_count: int = 0
-    etf_reduce_count: int = 0
     etf_add_codes: list[str] = field(default_factory=list)
-    etf_flow_ntd: float | None = None
-    share_delta_total: float = 0.0
-    growth_pct: float | None = None
     consensus_add: bool = False
     consensus_streak_days: int = 0
     breadth_zone_200: str | None = None
@@ -90,6 +90,10 @@ class LensRow:
     rrg_quadrant_prev: str | None = None
     rrg_mono_fresh: bool = False
     rrg_tier2: bool = False
+    rrg_rs_ratio: float | None = None
+    rrg_rs_momentum: float | None = None
+    rrg_rank: int | None = None
+    rrg_total: int | None = None
     vcp_composite: float | None = None
     vcp_execution_state: str | None = None
     vcp_distance_pivot_pct: float | None = None
@@ -97,12 +101,15 @@ class LensRow:
     delta_new_to_watchlist: bool = False
     delta_rrg_quadrant_change: str | None = None
     delta_consensus_new_today: bool = False
-    delta_score_change: float | None = None
     delta_any_signal: bool = False
     signal_convergence: int = 0
     lens_score: float = 0.0
     narrative_zh: str = ""
     highlight_tier: str = "none"
+    featured_rank: int | None = None
+    home_preview_rank: int | None = None
+    strategy_group_rank: int | None = None
+    badges_json: list[dict[str, str]] = field(default_factory=list)
     holdings_aligned: bool = True
     data_baseline_date: str = ""
     sources_json: dict[str, Any] = field(default_factory=dict)
@@ -112,12 +119,7 @@ class LensRow:
             "trade_date": self.trade_date,
             "stock_id": self.stock_id,
             "stock_name": self.stock_name,
-            "etf_add_count": self.etf_add_count,
-            "etf_reduce_count": self.etf_reduce_count,
             "etf_add_codes": self.etf_add_codes,
-            "etf_flow_ntd": self.etf_flow_ntd,
-            "share_delta_total": self.share_delta_total,
-            "growth_pct": self.growth_pct,
             "consensus_add": self.consensus_add,
             "consensus_streak_days": self.consensus_streak_days,
             "breadth_zone_200": self.breadth_zone_200,
@@ -127,6 +129,10 @@ class LensRow:
             "rrg_quadrant_prev": self.rrg_quadrant_prev,
             "rrg_mono_fresh": self.rrg_mono_fresh,
             "rrg_tier2": self.rrg_tier2,
+            "rrg_rs_ratio": self.rrg_rs_ratio,
+            "rrg_rs_momentum": self.rrg_rs_momentum,
+            "rrg_rank": self.rrg_rank,
+            "rrg_total": self.rrg_total,
             "vcp_composite": self.vcp_composite,
             "vcp_execution_state": self.vcp_execution_state,
             "vcp_distance_pivot_pct": self.vcp_distance_pivot_pct,
@@ -134,12 +140,15 @@ class LensRow:
             "delta_new_to_watchlist": self.delta_new_to_watchlist,
             "delta_rrg_quadrant_change": self.delta_rrg_quadrant_change,
             "delta_consensus_new_today": self.delta_consensus_new_today,
-            "delta_score_change": self.delta_score_change,
             "delta_any_signal": self.delta_any_signal,
             "signal_convergence": self.signal_convergence,
             "lens_score": self.lens_score,
             "narrative_zh": self.narrative_zh,
             "highlight_tier": self.highlight_tier,
+            "featured_rank": self.featured_rank,
+            "home_preview_rank": self.home_preview_rank,
+            "strategy_group_rank": self.strategy_group_rank,
+            "badges_json": self.badges_json,
             "holdings_aligned": self.holdings_aligned,
             "data_baseline_date": self.data_baseline_date,
             "sources_json": self.sources_json,
@@ -229,11 +238,14 @@ def _regime_aligned_for_stock(
     return (stock_return_20d > 0) == (breadth_delta_5d > 0)
 
 
-def _load_context(conn: sqlite3.Connection, trade_date: str) -> LensContext:
+def _load_context(conn: sqlite3.Connection, trade_date: str, *, light_regime: bool = False) -> LensContext:
     prev = previous_trading_date(conn, trade_date)
     holdings_aligned = resolve_aligned_change_window(conn, ETF_CODES_LISTED) is not None
-    breadth_zone, trend_posture = _regime_axes(conn, trade_date)
-    breadth_delta = _breadth_delta_5d(conn, trade_date)
+    if light_regime:
+        breadth_zone, trend_posture, breadth_delta = None, None, None
+    else:
+        breadth_zone, trend_posture = _regime_axes(conn, trade_date)
+        breadth_delta = _breadth_delta_5d(conn, trade_date)
     vcp_as_of = _resolve_vcp_as_of(conn, trade_date)
 
     rrg_rows = load_rrg_universe_scores(conn, trade_date, "close")
@@ -270,6 +282,34 @@ def _rrg_map(
     return {str(r["stock_id"]): r for r in rows}
 
 
+def _compute_rrg_universe_rank(
+    rrg_rows: list[sqlite3.Row],
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    """Full RRG universe rank by rs_ratio DESC · rs_momentum DESC · stock_id ASC."""
+    eligible: list[sqlite3.Row] = []
+    for row in rrg_rows:
+        if row["rs_ratio"] is not None:
+            eligible.append(row)
+    eligible.sort(
+        key=lambda r: (
+            -float(r["rs_ratio"]),
+            -float(r["rs_momentum"] or 0),
+            str(r["stock_id"]),
+        )
+    )
+    total = len(eligible)
+    rank_map: dict[str, dict[str, Any]] = {}
+    for idx, row in enumerate(eligible):
+        sid = str(row["stock_id"])
+        mom = row["rs_momentum"]
+        rank_map[sid] = {
+            "rrg_rs_ratio": float(row["rs_ratio"]),
+            "rrg_rs_momentum": float(mom) if mom is not None else None,
+            "rrg_rank": idx + 1,
+        }
+    return total, rank_map
+
+
 def _vcp_map(
     conn: sqlite3.Connection,
     as_of_date: str | None,
@@ -297,12 +337,25 @@ def _l1h9_signal_ids(conn: sqlite3.Connection, trade_date: str) -> set[str]:
     return {sig.stock_id for sig in signals}
 
 
-def _union_pool(
+def _constituent_name_map(
+    conn: sqlite3.Connection,
+    etf_codes: tuple[str, ...],
+) -> dict[str, str]:
+    """監控清單成員（load_etf_constituent_watchlist）→ stock_id → name。"""
+    return {
+        w["stock_id"]: normalize_stock_name(w.get("stock_name") or "")
+        for w in load_etf_constituent_watchlist(conn, etf_codes)
+    }
+
+
+def _monitoring_pool(
+    constituents: dict[str, str],
     consensus: dict[str, ConsensusStock],
     rrg: dict[str, sqlite3.Row],
     vcp: dict[str, sqlite3.Row],
 ) -> set[str]:
-    pool: set[str] = set()
+    """監控清單成員：loader 聯集為底，再併入當日訊號聯集（防漏）。"""
+    pool = set(constituents.keys())
     for sid, row in consensus.items():
         if row.etf_add > 0 or row.etf_reduce > 0:
             pool.add(sid)
@@ -332,11 +385,8 @@ def _compute_convergence(row: LensRow) -> int:
 
 def _compute_lens_score(row: LensRow) -> float:
     score = 0.0
-    score += row.etf_add_count * 10.0
     if row.consensus_add:
         score += 25.0
-    if row.etf_flow_ntd:
-        score += min(abs(row.etf_flow_ntd) / 1e8, 20.0)
     if row.vcp_composite:
         score += row.vcp_composite * 0.2
     if row.rrg_mono_fresh:
@@ -349,15 +399,25 @@ def _compute_lens_score(row: LensRow) -> float:
 
 
 def build_narrative_zh(row: LensRow) -> str:
+    def to_rrg_label(text: str | None) -> str:
+        if not text:
+            return ""
+        out = str(text)
+        for key, label in _RRG_QUADRANT_ZH.items():
+            out = out.replace(key, label)
+            out = out.replace(key.title(), label)
+            out = out.replace(key.upper(), label)
+        return out
+
     prefixes: list[str] = []
     if row.delta_new_to_watchlist:
         prefixes.append("【新進觀察】")
     if row.delta_consensus_new_today:
-        prefixes.append("【今日首次共識】")
+        prefixes.append("【跨 ETF 共識加碼】")
     if row.delta_rrg_quadrant_change:
-        prefixes.append(f"【RRG {row.delta_rrg_quadrant_change}】")
+        prefixes.append(f"【RRG {to_rrg_label(row.delta_rrg_quadrant_change)}】")
     if row.consensus_streak_days >= 8 and row.consensus_add:
-        prefixes.append(f"【已知事實·連續第{row.consensus_streak_days}日共識】")
+        prefixes.append(f"【已知事實·連續第{row.consensus_streak_days}日共識加碼】")
 
     head = "".join(prefixes)
     body = f"{row.stock_id} {row.stock_name}：".strip()
@@ -365,32 +425,24 @@ def build_narrative_zh(row: LensRow) -> str:
     parts: list[str] = []
     if row.consensus_add and row.etf_add_codes:
         codes = "+".join(row.etf_add_codes)
-        flow = fmt_ntd_short(row.etf_flow_ntd)
-        seg = f"共識加碼（{codes}）"
-        if flow:
-            seg += f" {flow}"
-        parts.append(seg)
-    elif row.etf_add_count == 1 and row.etf_add_codes:
-        parts.append(f"單檔加碼（{row.etf_add_codes[0]}）")
-    elif row.etf_reduce_count > 0:
-        parts.append("ETF 減碼異動")
+        parts.append(f"共識加碼（{codes}）")
 
     if row.rrg_quadrant:
-        seg = f"RRG {row.rrg_quadrant}"
+        seg = f"RRG {to_rrg_label(row.rrg_quadrant)}"
         if row.rrg_mono_fresh:
-            seg += " fresh"
+            seg += f" {RRG_FRESH_ZH}"
         parts.append(seg)
 
     if row.vcp_composite is not None:
         seg = f"VCP 綜合分 {row.vcp_composite:.0f}"
         if row.vcp_distance_pivot_pct is not None:
-            seg += f" 距樞紐 {row.vcp_distance_pivot_pct:.1f}%"
+            seg += f" 距突破價 {row.vcp_distance_pivot_pct:.1f}%"
         parts.append(seg)
 
     if row.regime_aligned:
-        parts.append("體制同向")
+        parts.append("大盤同向")
     elif row.breadth_zone_200 and row.stock_id:
-        parts.append("體制背離")
+        parts.append("大盤背離")
 
     text = head + body + " ".join(parts)
     if row.signal_convergence >= _CONVERGENCE_FIRE:
@@ -398,16 +450,130 @@ def build_narrative_zh(row: LensRow) -> str:
     return text.strip()
 
 
+_FEATURED_LIMIT = 10
+_HOME_PREVIEW_LIMIT = 6
+_VCP_FEATURED_MIN = 60.0
+
+
+def _is_good_quadrant_change(change: str | None) -> bool:
+    if not change:
+        return False
+    parts = change.split("→")
+    if len(parts) < 2:
+        return False
+    to_q = parts[1].strip().lower()
+    return to_q in ("leading", "improving", "領先", "轉強")
+
+
+def _is_meaningful_row(row: LensRow) -> bool:
+    if row.rrg_quadrant == "leading" and row.rrg_mono_fresh:
+        return True
+    if (
+        row.vcp_composite is not None
+        and row.vcp_composite >= _VCP_FEATURED_MIN
+        and row.vcp_execution_state
+    ):
+        return True
+    if row.copytrade_l1h9_signal:
+        return True
+    return _is_good_quadrant_change(row.delta_rrg_quadrant_change)
+
+
+def _is_positive_home_preview(row: LensRow) -> bool:
+    change = row.delta_rrg_quadrant_change or ""
+    if any(x in change.lower() for x in ("weakening", "lagging")) or any(
+        x in change for x in ("轉弱", "落後")
+    ):
+        return False
+    if row.narrative_zh and any(x in row.narrative_zh for x in ("減碼", "出清", "剔除")):
+        return False
+    return (
+        row.delta_new_to_watchlist
+        or row.consensus_add
+        or row.delta_consensus_new_today
+        or row.rrg_mono_fresh
+        or row.copytrade_l1h9_signal
+        or _is_good_quadrant_change(row.delta_rrg_quadrant_change)
+    )
+
+
+def _strategy_priority(row: LensRow) -> int:
+    if row.rrg_mono_fresh:
+        return 0
+    if row.vcp_execution_state:
+        return 1
+    if row.copytrade_l1h9_signal:
+        return 2
+    return 3
+
+
+def build_badges_json(row: LensRow) -> list[dict[str, str]]:
+    badges: list[dict[str, str]] = []
+
+    def _append(key: str, label_zh: str, tone: str) -> None:
+        badges.append(
+            {
+                "key": key,
+                "label_zh": label_zh,
+                "plain_zh": badge_plain_zh(key, label_zh),
+                "tone": tone,
+            }
+        )
+
+    if row.delta_new_to_watchlist:
+        _append("new_observation", "新進觀察", "accent")
+    if row.consensus_add:
+        _append("consensus_add", "ETF共識加碼", "primary")
+    if row.delta_consensus_new_today and not row.consensus_add:
+        _append("consensus_delta", "跨 ETF 共識加碼", "accent")
+    if row.delta_rrg_quadrant_change:
+        label = f"RRG {row.delta_rrg_quadrant_change}"
+        _append("rrg_change", label, "accent")
+    if row.rrg_mono_fresh:
+        _append("rrg_fresh", RRG_FRESH_ZH, "accent")
+    if row.copytrade_l1h9_signal:
+        _append("copytrade", "跟單訊號", "primary")
+    if row.delta_any_signal and not badges:
+        _append("signal", "訊號", "accent")
+    if row.highlight_tier == "watch":
+        _append("watch", "持續關注", "secondary")
+    return badges
+
+
+def _apply_featured_ranks(rows: list[LensRow]) -> None:
+    for row in rows:
+        row.badges_json = build_badges_json(row)
+        row.strategy_group_rank = _strategy_priority(row)
+
+    meaningful = [r for r in rows if _is_meaningful_row(r)]
+    meaningful.sort(
+        key=lambda r: (
+            _strategy_priority(r),
+            -float(r.lens_score),
+        ),
+    )
+    for rank, row in enumerate(meaningful[:_FEATURED_LIMIT], start=1):
+        row.featured_rank = rank
+
+    positive = [r for r in rows if _is_positive_home_preview(r)]
+    positive.sort(
+        key=lambda r: (
+            int(r.delta_any_signal),
+            1 if r.highlight_tier == "fire" else 0,
+            r.signal_convergence,
+            float(r.lens_score),
+        ),
+        reverse=True,
+    )
+    for rank, row in enumerate(positive[:_HOME_PREVIEW_LIMIT], start=1):
+        row.home_preview_rank = rank
+
+
 def _apply_facts(row: LensRow, stock: ConsensusStock | None) -> None:
     if stock is None:
         return
     row.stock_name = normalize_stock_name(stock.stock_name or row.stock_name)
-    row.etf_add_count = stock.etf_add
-    row.etf_reduce_count = stock.etf_reduce
     row.etf_add_codes = list(stock.etf_add_list)
-    row.etf_flow_ntd = stock.flow_ntd
-    row.share_delta_total = stock.share_delta_total
-    row.growth_pct = stock.growth_pct
     row.consensus_add = stock.etf_add >= 2
 
 
@@ -442,27 +608,44 @@ def _apply_overlay(
             row.stock_name = normalize_stock_name(str(vcp["stock_name"]))
 
 
+def _prev_field(row: dict[str, Any] | sqlite3.Row, key: str, alt_key: str | None = None) -> Any:
+    if isinstance(row, dict):
+        if row.get(key) is not None:
+            return row[key]
+        if alt_key and row.get(alt_key) is not None:
+            return row[alt_key]
+        return None
+    try:
+        val = row[key]
+        if val is not None:
+            return val
+    except (KeyError, IndexError):
+        pass
+    if alt_key:
+        try:
+            return row[alt_key]
+        except (KeyError, IndexError):
+            pass
+    return None
+
+
 def _apply_deltas(
     row: LensRow,
-    prev_row: sqlite3.Row | None,
+    prev_row: dict[str, Any] | sqlite3.Row | None,
     in_prev_pool: bool,
 ) -> None:
     row.delta_new_to_watchlist = not in_prev_pool
     if prev_row is not None:
-        prev_q = prev_row["rrg_quadrant"]
+        prev_q = _prev_field(prev_row, "rrg_quadrant")
         if prev_q and row.rrg_quadrant and str(prev_q) != str(row.rrg_quadrant):
             row.delta_rrg_quadrant_change = f"{prev_q}→{row.rrg_quadrant}"
             row.rrg_quadrant_prev = str(prev_q)
         if row.consensus_add:
-            prev_streak = int(prev_row["consensus_streak_days"] or 0)
-            if int(prev_row["consensus_add"] or 0):
+            prev_streak = int(_prev_field(prev_row, "consensus_streak_days") or 0)
+            if _prev_bool(prev_row, "consensus_add"):
                 row.consensus_streak_days = prev_streak + 1
             else:
                 row.consensus_streak_days = 1
-        row.delta_score_change = round(
-            row.lens_score - float(prev_row["lens_score"] or 0),
-            2,
-        )
     elif row.consensus_add:
         row.consensus_streak_days = 1
 
@@ -475,23 +658,40 @@ def _apply_deltas(
     )
 
 
+def _prev_bool(row: dict[str, Any] | sqlite3.Row, key: str) -> bool:
+    val = _prev_field(row, key)
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    return bool(int(val or 0))
+
+
 def build_stock_daily_lens_rows(
     conn: sqlite3.Connection,
     trade_date: str,
     *,
     etf_codes: tuple[str, ...] = ETF_CODES_LISTED,
+    prev_highlight_rows: list[dict[str, Any]] | None = None,
+    light_regime: bool = False,
 ) -> list[LensRow]:
-    ctx = _load_context(conn, trade_date)
+    ctx = _load_context(conn, trade_date, light_regime=light_regime)
+    constituents = _constituent_name_map(conn, etf_codes)
     consensus = _consensus_map(conn, etf_codes)
-    rrg = _rrg_map(conn, trade_date)
+    rrg_rows = load_rrg_universe_scores(conn, trade_date, "close")
+    rrg = {str(r["stock_id"]): r for r in rrg_rows}
+    rrg_total, rrg_rank_map = _compute_rrg_universe_rank(rrg_rows)
     vcp = _vcp_map(conn, ctx.vcp_as_of_date)
     l1h9_ids = _l1h9_signal_ids(conn, trade_date)
-    pool = _union_pool(consensus, rrg, vcp)
+    pool = _monitoring_pool(constituents, consensus, rrg, vcp)
 
     prev_pool: set[str] = set()
-    prev_by_stock: dict[str, sqlite3.Row] = {}
+    prev_by_stock: dict[str, dict[str, Any]] = {}
     if ctx.prev_trade_date:
-        for prow in load_stock_daily_lens_for_date(conn, ctx.prev_trade_date):
+        prev_rows = prev_highlight_rows
+        if prev_rows is None:
+            prev_rows = load_supabase_highlight_for_date(ctx.prev_trade_date)
+        for prow in prev_rows:
             sid = str(prow["stock_id"])
             prev_pool.add(sid)
             prev_by_stock[sid] = prow
@@ -499,6 +699,8 @@ def build_stock_daily_lens_rows(
     rows: list[LensRow] = []
     for stock_id in sorted(pool):
         row = LensRow(trade_date=trade_date, stock_id=stock_id)
+        if constituents.get(stock_id):
+            row.stock_name = constituents[stock_id]
         _apply_facts(row, consensus.get(stock_id))
         stock_ret = _stock_return_20d(conn, stock_id, ctx.data_baseline_date)
         _apply_overlay(
@@ -509,6 +711,13 @@ def build_stock_daily_lens_rows(
             stock_id in l1h9_ids,
             stock_ret,
         )
+        rank_info = rrg_rank_map.get(stock_id)
+        if rank_info:
+            row.rrg_rs_ratio = rank_info["rrg_rs_ratio"]
+            row.rrg_rs_momentum = rank_info["rrg_rs_momentum"]
+            row.rrg_rank = rank_info["rrg_rank"]
+        if rrg_total > 0:
+            row.rrg_total = rrg_total
         row.signal_convergence = _compute_convergence(row)
         row.lens_score = _compute_lens_score(row)
         _apply_deltas(row, prev_by_stock.get(stock_id), stock_id in prev_pool)
@@ -520,16 +729,14 @@ def build_stock_daily_lens_rows(
             row.highlight_tier = "watch"
         row.narrative_zh = build_narrative_zh(row)
         row.sources_json = {
-            "facts": "holdings_research.build_cross_etf_consensus",
+            "universe": format_watchlist_count_zh(len(constituents)),
+            "facts": "ETF 公開持股檔",
             "regime": {"trade_date": trade_date},
             "rrg": {
-                "table": "rrg_universe_scores",
-                "screen_kind": "close",
-                "session_date": trade_date,
+                "label": f"RRG 收盤掃描 · {trade_date}",
             },
             "vcp": {
-                "table": "vcp_screen_scores_v2",
-                "as_of_date": ctx.vcp_as_of_date,
+                "label": f"VCP 篩選 · 資料日 {ctx.vcp_as_of_date or trade_date}",
             },
             "delta_prev_trade_date": ctx.prev_trade_date,
         }
@@ -539,25 +746,33 @@ def build_stock_daily_lens_rows(
         key=lambda r: (
             int(r.delta_any_signal),
             r.signal_convergence,
-            r.delta_score_change or 0.0,
             r.lens_score,
         ),
         reverse=True,
     )
+    _apply_featured_ranks(rows)
     return rows
 
 
-def persist_stock_daily_lens(
+def publish_stock_daily_highlight(
     conn: sqlite3.Connection,
     trade_date: str,
     *,
     etf_codes: tuple[str, ...] = ETF_CODES_LISTED,
-) -> int:
-    rows = build_stock_daily_lens_rows(conn, trade_date, etf_codes=etf_codes)
-    delete_stock_daily_lens_for_date(conn, trade_date)
-    if not rows:
-        return 0
-    return upsert_stock_daily_lens_rows(conn, [r.to_db_dict() for r in rows])
+    prev_highlight_rows: list[dict[str, Any]] | None = None,
+) -> tuple[list[LensRow], dict[str, Any]]:
+    """Build 全成分監控清單 → alert；不寫本機 SQLite stock_daily_lens。"""
+    from lens_alert_digest import build_lens_daily_alert_from_rows
+
+    rows = build_stock_daily_lens_rows(
+        conn,
+        trade_date,
+        etf_codes=etf_codes,
+        prev_highlight_rows=prev_highlight_rows,
+    )
+    alert = build_lens_daily_alert_from_rows(rows, trade_date)
+    upsert_lens_daily_alert(conn, alert)
+    return rows, alert
 
 
 def resolve_lens_trade_date(

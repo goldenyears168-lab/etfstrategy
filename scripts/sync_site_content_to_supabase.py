@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload supabase/site/*.md → stock_research.site_content (edit MD first, sync once)."""
+"""Upload supabase/site/*.md → stock_research.site_content (§7.4 · local tree)."""
 
 from __future__ import annotations
 
@@ -25,11 +25,16 @@ def main() -> int:
         )
         return 2
 
+    if not SITE_DIR.is_dir():
+        print(
+            f"缺少 {SITE_DIR} · 改用 scripts/push_site_content_md.py（從 git HEAD 讀取）",
+            file=sys.stderr,
+        )
+        return 2
+
     pages = load_all_pages()
     print(f"source: {SITE_DIR}")
     print(f"pages:  {len(pages)}")
-    for p in pages:
-        print(f"  · {p.page_id} ← {p.page_id}.md")
 
     uploaded = sync_all_site_content()
     print(f"uploaded: {len(uploaded)}")

@@ -150,6 +150,33 @@ class TestHoldingsDbFixtures(unittest.TestCase):
         pair = resolve_change_dates(self.conn, "00981A")
         self.assertEqual(pair, ("2026-06-01", "2026-05-28"))
 
+    def test_resolve_change_dates_pit_anchors_on_trade_date(self) -> None:
+        _seed_two_day_holdings(self.conn, "00981A", "2026-06-17", "2026-06-18")
+        pair = resolve_change_dates(self.conn, "00981A", as_of="2026-06-17")
+        self.assertEqual(pair, ("2026-06-18", "2026-06-17"))
+
+    def test_resolve_change_dates_pit_skips_without_trade_date_snapshot(self) -> None:
+        _seed_two_day_holdings(self.conn, "00403A", "2026-06-18", "2026-06-22")
+        self.assertIsNone(resolve_change_dates(self.conn, "00403A", as_of="2026-06-17"))
+
+    def test_resolve_change_dates_pit_skips_when_no_newer_snapshot(self) -> None:
+        _seed_two_day_holdings(self.conn, "00982A", "2026-06-16", "2026-06-17")
+        self.assertIsNone(resolve_change_dates(self.conn, "00982A", as_of="2026-06-17"))
+
+    def test_build_etf_holdings_changes_block_pit_excludes_stale_etfs(self) -> None:
+        _seed_two_day_holdings(self.conn, "00981A", "2026-06-17", "2026-06-18")
+        _seed_two_day_holdings(self.conn, "00403A", "2026-06-18", "2026-06-22")
+        blocks = build_etf_holdings_changes_block(
+            self.conn,
+            ("00981A", "00403A"),
+            as_of="2026-06-17",
+        )
+        by_code = {b["etf_code"]: b for b in blocks}
+        self.assertEqual(by_code["00981A"]["prev_date"], "2026-06-17")
+        self.assertEqual(by_code["00981A"]["curr_date"], "2026-06-18")
+        self.assertIn("note", by_code["00403A"])
+        self.assertEqual(by_code["00403A"]["changes"], [])
+
     def test_build_etf_holdings_changes_block(self) -> None:
         _seed_two_day_holdings(self.conn, "00981A", "2026-05-28", "2026-06-01")
         blocks = build_etf_holdings_changes_block(self.conn, ("00981A",))

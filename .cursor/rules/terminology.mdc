@@ -54,7 +54,7 @@ alwaysApply: true
 | **監控清單** | 監控池 · Lens 池 · 監控表 |
 | **策略目錄** | 策略中心（舊 Readdy 導覽） |
 | **今日亮點** | 收盤情報 · 今日必看 · 今日有結構變化的標的 · 策略中心收盤情報 · Lens |
-| **清單內 N 檔** · **新進觀察** · **四框架收斂** | 監控標的 · 共識（Lens chip）· Lens Score |
+| **監控清單 N 檔** · **新進觀察** · **四框架收斂** | 監控標的 · 清單內 N 檔 · 共識（Lens chip）· Lens Score |
 | **變化優先** · **今日異動** | 今日訊號 · 裸 Delta / Watch / Lens |
 
 ## Lineage (cite when introducing methods)

@@ -53,6 +53,433 @@ topics:
     report_dir: reports/research/rrg
     graduated_strategy: rrg-mono-hold7
 
+  rrg-mono-hold3-tactical:
+    title: RRG mono hold1–3 · 日線訊號 + 盤中執行（TradingView 雙層）
+    status: active
+    run_scripts:
+      - scripts/run_rrg_mono_intraday_entry_sweep.py
+      - scripts/run_rrg_mono_intraday_ab.py
+      - scripts/run_rrg_mono_intraday_c_sweep.py
+      - scripts/run_rrg_mono_intraday_exit_sweep.py
+    report_dir: reports/research/rrg
+    parent_strategy: rrg-mono-hold7
+  # 出場 sweep（scripts/run_rrg_mono_intraday_exit_sweep.py）：
+  # E1/E2 · 象限轉弱連續 N 日 · E3/E4 · 位移連續 3 日左下 ll_streak
+  # E5 · mono 加速中斷 · E6/E7 · D4 未再加速 accel_d4 · 觸發日 1 分 K scale/full_rrg 賣點
+  # 採納前不得寫入 config/strategy.yaml · 需 stock_kbar_1m backfill 才可信盤中腿
+  # C 腿 sweep 假說（scripts/run_rrg_mono_intraday_c_sweep.py）：
+  # H-C1 · 30m 輪詢較 5m 降噪 · H-C2 · shortlist 盤中 full RRG 重算
+  # H-C3 · confirm_bars 連續居前才建倉 · H-C4 · D+1 加速 → D+2 盤中建倉
+  # 假說全文見本檔 topics 註解 · 採納前不得寫入 config/strategy.yaml
+  # H1：日線 mono fresh（LENGTH=20）在 hold1–3 仍具超額 · H2：T+1 盤中進場優於 D4 收盤
+  # 參考：JdK 日線戰術 RRG · TV 社群 RS-Momentum 領先 · 不建週線層
+
+  expert-intraday-standalone:
+    title: 專家盤中進場 · 獨立策略回測（非日線訊號疊加）
+    status: active
+    run_scripts:
+      - scripts/run_expert_intraday_standalone_backtest.py
+    report_dir: reports/research/intraday
+  # 假說：VWAP reclaim/bounce · Bone Zone · ORB · Pivot retest 作為獨立系統是否有超額
+  # 出場：structure stop 當日 · 否則 hold 5 交易日收盤 · 對照 IX0001
+  # Universe：ETF 成分聯集 ∩ 有 1m K 覆蓋 · pivot_retest 需 vcp_screen pivot
+
+  vcp-intraday-rrg-h3:
+    title: H3 · 日線 VCP pivot 池 + 盤中 RRG seg_last 重排
+    status: active
+    run_scripts:
+      - scripts/run_vcp_intraday_rrg_ab.py
+    report_dir: reports/research/rrg
+  # 假說：日線 VCP 定池 · 盤中 RRG 定序優於收盤 composite（D vs D0）
+  # 對照：D0 基線 · RRG mono A 腿交叉引用 · hold7 出場
+  # 採納門檻：vs D0 +0.5pp 均超額 · kbar 覆蓋率 ≥70% · 廣度分桶待 Phase 2
+
+  rrg-mono-score-swap-c:
+    title: RRG mono · 模式 C · 純 seg_last 分數換倉
+    status: active
+    run_scripts:
+      - scripts/run_rrg_mono_score_swap_c.py
+      - scripts/run_c18_dl_neighborhood_sweep.py
+      - scripts/run_c18_dla_margin_sweep.py
+      - scripts/run_c18_dlb_margin_sweep.py
+      - scripts/run_c18_accel_lead_sweep.py
+      - scripts/run_c18_pure_accel_sweep.py
+      - scripts/run_c18_acel3_followup_sweep.py
+      - scripts/run_c18_acel3_dls1_stability.py
+      - scripts/run_c18_buy_accel_phase1_sweep.py
+      - scripts/run_c18_buy_accel_phase2_sweep.py
+      - scripts/run_rrg_mono_swap_accel_breadth.py
+      - scripts/run_rrg_mono_swap_accel_candidate_pool.py
+      - scripts/run_c18acc_no_lead_accel_sweep.py
+      - scripts/run_c18acc_pool_merge_sweep.py
+      - scripts/run_c18acc_breadth_funnel_sweep.py
+      - scripts/run_c18acc_breadth_swapday_sweep.py
+      - scripts/analyze_c18acc_slot_utilization.py
+    report_dir: reports/research/rrg
+    parent_strategy: rrg-mono-hold7
+    baseline_variant: C18
+    # ── C18acc 簡化漏斗 SSOT（20260624 funnel ablation · 去掉不影響回測的層）──
+    # 全樣本 2024-01-01～2026-06-22：5.38% 均超額 · 41 swaps · variant_id C18acc
+    #
+    # A 候選池（PIT · 信號日 T−1 收盤）
+    #   ETF 成分 watchlist
+    #   → mono tier2：up_right + 終點 leading + disp∈[1,2) + mono_up
+    #   → fresh：昨日非 mono tier2、今日新進 mono tier2
+    #   → seg_last 排序 · 全池（不裁 top10 · shortlist passthrough）
+    #
+    # B 進場（空槽補倉）
+    #   C0 盤中 · 5m · 信號日 seg_last 以盤中價 scale 排序
+    #   confirm_bars=0 或 1 皆可（消融 41/41 腿相同）
+    #
+    # C 換倉（5m poll · 每日最多 1 次）
+    #   min_hold=5 · max_hold=10 · max_swaps_per_day=1
+    #   賣：四日平均加速（lookback=4）最負且 < 0
+    #   買：seg_last 贏持倉 +0.05 的候選中 · 取四日加速最大（合併單條規則 · 非兩步）
+    #
+    # 已拿掉／等效 no-op（回測不變）
+    #   top10 裁切 · shortlist 再篩（accel>0 · challenger_gate · top-N 重排）
+    #   structural_gate=none · decel_gate=false（冠軍本即 off）
+    #
+    # 不可簡化（消融會動結果）
+    #   mono_up / leading / disp / fresh · buy 加速排序 · margin=0.05 · max_swaps=1
+    #   拿掉 mono_up −1.69pp · 拿掉 buy_sort −0.07pp · confirm=2 −0.13pp · max_swaps=2 −0.20pp
+    #
+    # ── 全樣本 2024-01-01 ~ 2026-06-22 · 對照 C18 baseline（内部骨架）──
+    # C18（seg_last · margin=0.10 · 無 gate）          4.89% 均超額 · 45 swaps
+    #
+    # research_champion（最高均超額 · 已採納 strategy.yaml · rrg-mono-swap-accel）：
+    #   rrg-mono-swap-accel · C18acc → 5.38% · 41 swaps
+    #
+    # research_stable（跨期较稳 · 位移 gate · swap 更少）：
+    #   C18-dls1 · 4 日位移 down_left gate · seg_last 卖 · margin=0.08
+    #   → 5.19% · 33 swaps · 胜台指 59.6%
+    #
+    # ── 买方加速度 Phase 1–2（20260624）──
+    # Phase 2 买排序改「四日加速最大」有效（+0.07pp vs 只比 seg_last）
+    # margin sweet spot 0.05
+    #
+    # ── C18acc vs dls1 稳定性（20260624_c18_acc4_dls1_stability.json）──
+    # 全样本 +0.20pp · 2024 C18acc 领先 · 2025 dls1 领先 · 子区间 C18acc 胜 3/5
+    #
+    # ── 候选池 · 无 leading（20260624_rrg_mono_swap_accel_candidate_pool.json）──
+    # 三轴保留：up_right + mono_up + disp∈[1,2) · 仅拿掉终点 leading
+    # 换仓规则不变（四日加速对称 · margin=0.05）· 全样本 2024-01-01 ~ 2026-06-22：
+    #   C18acc fresh leading      5.38% · 41 swaps（冠军 · 维持）
+    #   C18acc-mono leading 全池  5.09% · 45 swaps（-0.29pp · 略差）
+    #   C18acc-muf mono_up fresh    4.45% · 65 swaps（-0.93pp）
+    #   C18acc-mu  mono_up 全池     3.81% · 71 swaps（-1.57pp · 池更大 churn 高）
+    # 结论：leading 对 C18acc 仍有正边际；no_leading 在 hold7 空槽 fallback 有效，
+    #       但 score swap 全程放宽候选池会稀释换仓质量 · 不采纳 mono_up 替代 fresh
+    #
+    # ── 无 leading top10 加速度筛选 sweep（20260624_c18acc_no_lead_accel_sweep.json）──
+    # 基池 mono_up_fresh（三轴 · 无 leading）· top10 改加速度排序 / >0 / v·a>0 / top3/5 / margin
+    # 多数变体结果相同（~3.65% · 70 swaps）：muf 池日均 ~3.5 档 · 常 ≤10 · 筛序几乎无差
+    # 最佳无 leading：C18acc-nla-muf-arap-t3（top3 · 加速>0）3.82% · -1.56pp · 仍不及 C18acc
+    # margin=0.08 / top3 略减 churn；mu 全池 / lb3 更差 · 不采纳
+    #
+    # ── 漏斗消融（20260624_c18acc_funnel_ablation.json）──
+    # top10 裁切恒 no-op（池 max=8）· 买合并规则=冠军 · buy_sort_key 拿掉 -0.07pp
+    # mono_tier2 池 +0.15pp · signal_seg_last 建仓 +0.11pp · 组合 mono-sigseg 全样本 +0.26pp
+    # mono_up 拿掉 -1.69pp · max_swaps=2 非等价 · confirm=2 -0.13pp
+    #
+    # ── C18acc-mono-sigseg 稳定性（20260624_c18acc_mono_sigseg_stability.json）──
+    # 全样本 +0.26pp（5.64% vs 5.38%）· breadth gate PASS（strong/overbought 均正且优于冠军）
+    # 分年：2024 +0.37pp · 2025 -0.94pp · 2026 +2.73pp（n=34）→ 2025 明显回撤
+    # 子区间 3/5 胜 · H1-24~25H1 -0.35pp · breadth 偏弱/中性落后 -1.4/-0.6pp
+    # 结论：全样本增益不稳 · 不替换 C18acc 冠军 · 保留为 research optional combo
+    #
+    # ── 三方向漏斗合并（20260624_c18acc_pool_merge_sweep.json）──
+    # D1 entry fresh / swap mono_tier2：5.09% · 45 swaps（-0.29pp · 与 C18acc-mono 同）
+    #   换仓腿仅 7/41 前缀一致 · 2025 落后 0.96pp · 不采纳分池
+    # D2 fresh∪(mono_tier2∧ā>0)：5.53% · 46 swaps（+0.15pp · 2019+ 亦 +0.11pp）
+    #   2025 仅 3.68%（-1.14pp）· overbought +1.13pp 但 strong/neutral 走弱 · 不稳
+    # D3 加强 C（同池 fresh）：margin 0.06 / recent_accel_up / v·a>0 与冠军完全相同（41/41 腿）
+    #   pos-accel 略差 -0.05pp（40 swaps · 28/41 前缀一致）· margin 0.07/0.08 更差
+    # 结论：维持 C18acc 冠军 · 无变体在 2024–2026 分年均稳定优于冠军
+    #
+    # ── 廣度漏斗層（20260624_c18acc_breadth_funnel_sweep.json）──
+    # 單一 spec · breadth_pool_mode / entry|swap zone gate（非雙策略交替）
+    # 冠军 5.38% · 41 swaps · n=183
+    # entry gate（仅 strong/overbought 进场）：5.45% · 27 swaps（+0.07pp · n=109）
+    #   2024 3.98 / 2025 4.54 均落后 · 2026 持平 · 少交易不稳
+    # swap gate（仅 hot 日换仓）：3.86% · 28 swaps（-1.53pp）→ neutral 日换仓是冠军利润来源
+    # pool mono_in_hot_zones（进+换同切 mono/fresh）：5.91% · 42（+0.53pp · 2019+ 仅 +0.39pp）
+    #   2025 4.63 vs 4.82（-0.19pp）· strong/overbought 区 +0.7/+1.1pp 但 neutral 不变
+    # swap_mono_in_hot_zones（进 fresh · hot 换 mono）：5.49% · 43（+0.10pp · 7/41 前缀）
+    # swap_union_accel_in_hot_zones：与 swap_mono 完全相同（43 swaps · 7/41）· D2 union 无增量
+    # 结论：无变体 2024–2026 分年全胜 · 维持 C18acc 冠军
+    #   swap gate 证伪「只在强势换」· neutral 区 mean excess 5.78% 是核心 alpha 池
+    #
+    # ── 換倉日 vs 進場日 zone 路由（20260624_c18acc_breadth_swapday_sweep.json）──
+    # breadth_challenger_pool_mode: entry_day | swap_day · breadth_swap_zone_date: swap_day | entry_day
+    # 冠军 5.38% · 41 swaps
+    # entry-day pool mono-hot：5.91% · 42（+0.53pp · 2019+ 5.26% · 2025 4.63 落后 -0.19pp）
+    # swap-day pool mono：5.49% · 43（+0.10pp · 7/41 前缀 · 2019+ 4.95%）
+    # swap-day pool union：与 swap-day mono 完全相同（43 · 7/41）
+    # swap-day gate：3.86% · 28（-1.53pp）· entry-day gate：3.87% · 29（-1.52pp）→ 双 gate 均证伪
+    # 结论：swap-day 路由不优于 entry-day pool mono-hot · 无变体 2024–2026 分年全胜 · 维持 C18acc
+    #
+    # ── 已拒絕 ──
+    # 候选 3 日 fresh · 四日加速 3 日窗 · min_hold=4 提早换 · 纯 v·a 卖 · down_left+加速卖 等
+    #
+    # 报告 JSON：20260624_c18_*_sweep.json · breadth hold-out 见 rrg_mono_swap_accel_breadth_zones.*
+    # 2026-06-24 graduation stack：config/strategy.yaml · daily brief · pipeline · site_content
+    #
+    # ── 空槽頻率分析（20260624_c18acc_slot_utilization.json）──
+    # 全樣本 2024-01-01～2026-06-23（596 日）· MAX_SLOTS=3 · min_hold=5 · max_hold=10
+    #   3/3 填滿：85.2%（508 日）
+    #   2/3 填：12.4%（74 日）← 主要空槽型態（max_hold 出場 + fresh=0 同日）
+    #   1/3 填：1.7%（10 日）
+    #   0/3 填：0.7%（4 日）· 均出現於回測啟動暖機期
+    #   均 fill：2.822 / 均 empty：0.178
+    #   fresh pool=0 的交易日：40.1%（239 日）！但因持倉仍在，不直接造成空槽
+    #   均 fresh pool 大小：1.02 檔/日 · 池極窄
+    #   2026 子期（111 日）：3/3 填滿 81.1% · 2/3 填 18.0% · fresh=0 佔 39.6%
+    #   union_accel 池：3/3 填滿 86.2%（+1.0pp） · mean_excess 5.53%（+0.15pp · 全樣本）
+    #                   2026 與 champion 完全相同（35 腿 · 9 swaps）
+    # 結論：空槽不頻繁（14.8% 任意空槽）但 fresh pool 極窄是結構性弱點；
+    #       若強制填倉需引入次優候選池，需驗證不稀釋換倉品質
+    #
+    # ── 空槽填倉 sweep 假說（待執行）──
+    # 目標：降低「2/3 填滿日（12.4%）」· 評估強制填倉對 mean_excess 的邊際影響
+    #
+    # H1 · 進場 union / 換倉 fresh（entry_pool/swap_pool 分池）
+    #   config: entry_pool="fresh_union_accel", swap_pool="fresh"
+    #   已知：full union 替換 +0.15pp（但 2025 不穩）；此版僅 entry 放寬
+    #   預期空槽改善：moderate（union 池約擴 ~0.5 檔/日）
+    #   Alpha 風險：low-moderate（換倉仍用 fresh · 不稀釋 swap 品質）
+    #   快速執行：C18acc_POOL_MERGE_SWEEP 加入 entry_pool="fresh_union_accel", swap_pool="fresh" 一條
+    #
+    # H2 · 延長 candidate_lookback（4→6 日）
+    #   config: candidate_lookback=6（fresh 定義窗加長 → 更多股票當日仍算 fresh）
+    #   預期空槽改善：moderate（池窗加長後 fresh pool=0 比例可能降至 ~25%）
+    #   Alpha 風險：moderate（窗加長可能納入已趨弱標的）
+    #   快速執行：ScoreSwapCConfig(..., candidate_lookback=6) 一條
+    #
+    # H3 · entry fallback pool（新 config flag · 僅設計不實作）
+    #   config: entry_fallback_pool="mono_tier2"（fresh=0 時降級用 mono_tier2 補倉）
+    #   機制：simulate_score_swap_c _fill_empty_slots 前檢查 entry_shortlist；
+    #         若為空且有 entry_fallback_pool → 用 fallback_pool rows 補倉（swap 規則不變）
+    #   預期空槽改善：high（理論上可將 2/3 填滿天 → 3/3 · 但需確認進場品質）
+    #   Alpha 風險：moderate（fallback 候選四軸合格但非 fresh 動能）
+    #   實作成本：ScoreSwapCConfig 加 entry_fallback_pool 欄位 · simulate 加 ~10 行
+    #
+    # H4 · 延長 max_hold（10→12 或 15 日）
+    #   config: max_hold_days=12 or 15
+    #   預期空槽改善：low-moderate（減少強制出場 → 減少空槽觸發）
+    #   Alpha 風險：low（少交易但持倉期延長 · 可能錯過輪換）
+    #   快速執行：ScoreSwapCConfig(..., max_hold_days=12) · ScoreSwapCConfig(..., max_hold_days=15)
+    #
+    # H5 · breadth_pool_mode="mono_in_hot_zones"（重新驗證 · 附空槽統計）
+    #   config: breadth_pool_mode="mono_in_hot_zones"
+    #   已知：全樣本 +0.53pp · 2025 落後 -0.19pp（不穩）
+    #   重跑目的：補錄空槽改善統計（之前未量化槽位利用率）
+    #   Alpha 風險：high（2025 穩定性未過）· 不建議採納，僅作資訊參考
+    #
+    # 優先執行順序：H1 → H2 → H4（均在現有框架內，不需改程式）；H3 需少量程式
+    # 執行腳本：scripts/run_c18acc_slot_fill_sweep.py
+    #   使用 C18acc_POOL_MERGE_SWEEP 框架 + slot_snapshots 參數 · 同步輸出槽位統計
+    # 結果 JSON：reports/research/rrg/20260624_c18acc_slot_fill_sweep.json
+    #
+    # ── 執行結果摘要（2024-01-01 ~ 2026-06-23 · n=183腿 · champion mean_excess=5.38%）──
+    # H1 entry-union  : excess=5.83% Δ+0.45pp · 3/3 full 86.2%（+1.0pp）· 2025 微降（建議觀察 · 已複驗）
+    # H2 lb6          : excess=5.30% Δ-0.08pp · 3/3 full  5.2%（-80pp）· lb=6 反而縮窄 fresh 池
+    # H3 fallback-mono: excess=5.26% Δ-0.12pp · 3/3 full 85.4%（+0.2pp）· 填倉品質稀釋
+    # H4a mh12        : excess=4.29% Δ-1.09pp · 3/3 full 85.7%（+0.5pp）· 持倉延長損益下降顯著
+    # H4b mh15        : excess=4.82% Δ-0.56pp · 3/3 full 91.1%（+5.9pp）· 最大槽位改善但 alpha 犧牲
+    # H5 breadth-hot  : excess=5.91% Δ+0.53pp · 3/3 full 85.7%（+0.5pp）· 參考用 · 2025 不穩
+    # 結論：僅強制填倉難以同時改善 alpha · H1 entry-union 為目前最優（入場放寬 · 換倉保品質）
+    #
+    # ── H1 entry-union · 2025 穩定性複驗（2024-01-01~2025-12-31 · 20260624_c18acc_h1_2025_stability.json）──
+    # 冠軍 2025 full: 5.01% · 2025H1: 3.55% · 2025H2: 6.30%（n=35/40 · swaps=7/10）
+    # H1   2025 full: 5.06% Δ+0.04pp · 2025H1: 3.55% Δ0.00pp · 2025H2: 6.38% Δ+0.08pp
+    # 廣度 strong/overbought: Δ+0.11pp · neutral/weak/oversold: Δ0.00pp（無影響）
+    # 2025H1 完全一致（同腿）→ union 池在 2025 上半年未能擴充進場機會
+    # 輕微改善集中於 2025H2 與 strong zone · 幅度 < 0.1pp · 不具決策意義
+    # 結論：H1 在 2025 不破壞 alpha · 全年 Δ+0.04pp · 不顯著 · 維持「觀察中」不採納
+    graduated_strategy: rrg-mono-swap-accel
+    breadth_holdout:
+      status: passed
+      report_md: reports/research/rrg/20260624_rrg_mono_swap_accel_breadth_zones.md
+      report_json: reports/research/rrg/20260624_rrg_mono_swap_accel_breadth_zones.json
+      date_start: "2024-01-01"
+      date_end: "2026-06-22"
+      gate: strong_overbought_positive
+    research_champion:
+      slug: rrg-mono-swap-accel
+      short_name: C18acc
+      title: RRG mono · 四日加速对称换仓
+      variant_id: C18acc
+      mean_excess_pct: 5.38
+      swaps_total: 41
+      candidate_pool: fresh
+      sort_key: avg_accel_decel
+      buy_sort_key: avg_accel_decel
+      score_margin: 0.05
+      accel_lookback: 4
+      candidate_lookback: 4
+      accel_sell_negative_only: true
+      entry_leg: C0
+      timing_mode: poll_5m
+      confirm_bars: "0|1"
+      funnel:
+        pool:
+          - "ETF 成分 watchlist"
+          - "mono tier2: up_right + leading + disp∈[1,2) + mono_up"
+          - "fresh: 昨日非 mono tier2、今日新进"
+          - "seg_last 排序 · 全池（不裁 top10）"
+        entry:
+          - "C0 盘中 · 5m · seg_last 盘中 scale 排序"
+          - "confirm_bars=0 或 1"
+        swap:
+          - "poll_5m · min_hold=5 · max_hold=10 · max_swaps_per_day=1"
+          - "卖: 四日平均加速最负且 < 0"
+          - "买: seg_last 赢持仓 +0.05 后取四日加速最大"
+        removed_no_op:
+          - top10_crop
+          - shortlist_refilter
+        ablation_report: reports/research/rrg/20260624_c18acc_funnel_ablation.json
+      legacy_variant_ids:
+        - C18-acc4-05
+        - C18-acel3-5-bavg
+    research_stable:
+      variant_id: C18-dls1
+      mean_excess_pct: 5.19
+      swaps_total: 33
+      structural_gate: down_left
+      sort_key: seg_last
+      score_margin: 0.08
+
+  rrg-mono-swap-exit-b:
+    title: RRG mono · 模式 B · 左下 + challenger 換倉
+    status: active
+    run_scripts:
+      - scripts/run_rrg_mono_swap_exit_b.py
+      - scripts/run_rrg_mono_c0_swap_b.py
+    report_dir: reports/research/rrg
+    parent_strategy: rrg-mono-hold7
+
+  rrg-vcp-sequential-h1:
+    title: H1 · RRG 觸發 → N 日內 VCP pivot 序列進場
+    status: active
+    run_scripts:
+      - scripts/run_rrg_vcp_sequential_h1.py
+    report_dir: reports/research/rrg
+  # 假說：RRG mono_tier2_new 觸發 · max_lag 內首個 VCP pivot 優於純 RRG 或純 VCP
+  # 對照：A（mono fresh 收盤）· D0（僅 VCP）· H1_lag{N}
+  # sweep：--sweep-lags 5/10/15/20
+
+  rrg-lens-score-swap:
+    title: RRG 監控清單 · 日線+盤中加權分 · Top-N 升級換倉
+    status: active
+    run_scripts:
+      - scripts/backfill_rrg_lens_backtest_data.py
+      - scripts/run_rrg_lens_score_swap.py
+      - scripts/run_rrg_lens_score_swap_phase1_parallel.sh
+      - scripts/summarize_rrg_lens_score_swap.py
+    report_dir: reports/research/rrg
+    parent_strategy: rrg-mono-hold7
+    baseline_strategy: rrg-mono-hold7
+    # 假說全文見本檔 topics 註解 · 採納前不得寫入 config/strategy.yaml
+    # 對照基準：rrg-mono-hold7（3 槽 · hold7 · mono fresh · seg_last）· 待 run_rrg_lens_score_swap.py
+    # score = alpha × 盤中 RRG 分 + (1-alpha) × 日線 Lens 分 · 候選池 ⊆ prior_close_lens（PIT）
+    #
+    # A · 加權分 alpha（日線 vs 盤中）
+    # H-A1：盤中 RRG 動量對輪動股有領先性；alpha 過低會滯後 → 補測 0.5 / 0.9 / 1.0（純盤中）
+    # H-A2：Lens 含共識／flow，日線權重過高會排上已充分反映標的 → 低 alpha 區 0.3–0.5（若允許）
+    # H-A3：最佳 alpha 隨廣度分區變化（強勢偏盤中、過熱偏日線）→ alpha × breadth_zone 矩陣
+    # H-A4：盤中排序鍵 seg_last / disp / rs_momentum 對 alpha 最優解有交互作用
+    #
+    # B · 候選門檻 candidate_gate
+    # H-B1：lens_only 太寬雜訊多；mono_tier2 太窄錯過 Lens 先發 → 五檔為主軸
+    # H-B2：mono fresh 當日是 hold7 對齊條件 → 增 mono_fresh_1d 與 mono_fresh_2d 對照
+    # H-B3：mono_fresh_2d 降假突破但晚一日 → 比較勝率 vs 覆蓋率
+    # H-B4：leading_improving 適合滿槽換倉，不適合空槽建倉 → 分開測建倉／換倉 gate
+    # H-B5：四框架收斂 ≥ 2 標的換倉邊際貢獻更高 → lens_convergence_ge2
+    # H-B6：僅大盤同向（regime_aligned）允許換入 → overlay filter 維度
+    #
+    # C · 槽位 max_slots
+    # H-C1：邊際標的品質隨槽位遞減 → 除 3 / 5 外測 1 槽集中
+    # H-C2：5 槽 + max_swaps_per_day=1 → 槽位閒置 → 5 槽應聯動放寬換倉上限
+    # H-C3：動態槽位（強勢 5、過熱 3）→ max_slots × breadth_zone
+    #
+    # D · 換倉觸發 swap_trigger · 賣出腿 sell_leg
+    # H-D1：beat_held_best 保守減 churn，但可能抱最弱腿太久 → 對照 beat_held_median / beat_held_worst
+    # H-D2：challenger 僅略優於 worst 時換倉不值得 → score_margin δ ∈ {0, 5, 10, 20}
+    # H-D3：應賣分數下滑最快腿 → sell_leg: held_worst vs held_fastest_decay
+    # H-D4：空槽 Top-1 建倉、滿槽才換倉 → 與 hold7 開倉對齊
+    #
+    # E · 盤中節奏 rebalance_interval_min · confirm_bars
+    # H-E1：15 分鐘為台股輪動合理折衷 → 對照 5 / 30 / 60 分鐘
+    # H-E2：confirm_bars=2 濾 1 分 K 雜訊 → 對照 1 / 3
+    # H-E3：09:00–09:30 不換倉（價格發現）→ no_swap_before: "09:30"
+    # H-E4：定點 10:00 / 11:00 / 13:00 優於連續輪詢 → 銜接 rrg-mono-hold3-tactical
+    #
+    # F · 出場 exit_quadrants · min_hold_days · max_hold_days
+    # H-F1：weakening / lagging 早於 hold7 止損輪動衰竭 → 對照僅 lagging
+    # H-F2：min_hold_days=1 易來回洗 → 對照 2 / 3 / 7
+    # H-F3：未觸發象限出場則最長持有 7 日（對齊父策略）→ max_hold_days: 7
+    # H-F4：先出場再評 challenger（exit-first）vs 先換倉再出場
+    #
+    # G · 換倉頻率 max_swaps_per_day
+    # H-G1：每日 1 次壓制過度交易 → 對照 0 / 1 / 2 / unlimited
+    # H-G2：max_slots=5 且每日 1 次 → 退化成緩慢再平衡
+    #
+    # H · PIT watchlist_pit
+    # H-H1：prior_close_lens 為正確 PIT 邊界（固定）
+    # H-H2：盤中分可用當日 1 分 K，候選池必須 ⊆ 昨日監控清單 → 洩漏測試 sanity
+    # H-H3：新進觀察是否允許當日盤中進池 → allow_intraday_new_to_watchlist false / true
+    #
+    # I · RRG 參數 rrg_length
+    # H-I1：父策略已凍結 LENGTH=20，Phase 1 不動 → Phase 2 才掃 15 / 25
+    # H-I2：盤中分用當日軌跡延伸，不另縮 window
+    #
+    # J · 環境分層（銜接 rrg-mono-breadth-study）
+    # H-J1：強勢區換倉 + 較高 alpha 有正邊際
+    # H-J2：過熱區應少換倉或提高 min_hold_days
+    # H-J3：超賣／偏弱／中性應關閉或降槽
+    #
+    # Phase 4 · 換倉診斷（候選池不足時 beat_held_* 永不觸發 · 見 sweep_swap_diagnostic）
+    # → Phase 3 swap_trigger × sell_leg × score_margin · 廣度分層 hold-out
+    # 採納門檻（vs hold7 ~7.0% 均超額 · ~59% 勝率）：均超額 +0.5–1.0pp · 強勢+過熱分桶均正 · PIT 通過
+    sweep:
+      alpha: [0.6, 0.7, 0.75, 0.8, 0.85, 1.0]
+      max_slots: [3, 5]
+      candidate_gate:
+        - lens_only
+        - tier2
+        - mono_tier2
+        - mono_fresh_2d
+        - leading_improving
+    fixed:
+      rrg_length: 20
+      rebalance_interval_min: 15
+      confirm_bars: 2
+      swap_trigger: beat_held_best
+      sell_leg: held_worst
+      exit_quadrants: [weakening, lagging]
+      min_hold_days: 1
+      max_hold_days: 7
+      max_swaps_per_day: 1
+      watchlist_pit: prior_close_lens
+      no_swap_before: "09:30"
+    sweep_phase2:
+      min_hold_days: [1, 2, 3, 7]
+      max_swaps_per_day: [0, 1, 2]
+      rebalance_interval_min: [5, 15, 30]
+    sweep_phase3:
+      swap_trigger: [beat_held_best, beat_held_median, beat_held_worst]
+      sell_leg: [held_worst, held_fastest_decay]
+      score_margin: [0, 5, 10, 20]
+    sweep_swap_diagnostic:
+      entry_gate: tier2
+      swap_gate: lens_only
+      min_hold_days: 1
+      swap_trigger: [beat_held_worst, beat_held_median, beat_held_best]
+      confirm_bars: [1, 2]
+      max_swaps_per_day: [1, 2, 99]
+      score_margin: [0]
+
   broad-momentum-sepa:
     title: Minervini SEPA basket ad-hoc 回測
     status: active

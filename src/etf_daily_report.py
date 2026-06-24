@@ -81,7 +81,9 @@ def build_etf_daily_markdown(
 ) -> str:
     ref = as_of or latest_trading_date(conn) or date.today().isoformat()
     sync = _holdings_sync_summary(conn, etf_codes)
-    blocks = build_etf_holdings_changes_block(conn, etf_codes, changed_only=True)
+    blocks = build_etf_holdings_changes_block(
+        conn, etf_codes, changed_only=True, as_of=ref
+    )
 
     changed_etfs: list[str] = []
     unchanged_etfs: list[str] = []
@@ -217,7 +219,9 @@ def print_terminal_summary(
 ) -> None:
     ref = as_of or date.today().isoformat()
     sync = _holdings_sync_summary(conn, etf_codes)
-    blocks = build_etf_holdings_changes_block(conn, etf_codes, changed_only=True)
+    blocks = build_etf_holdings_changes_block(
+        conn, etf_codes, changed_only=True, as_of=ref
+    )
 
     print("")
     print("==============================================")

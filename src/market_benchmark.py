@@ -9,28 +9,26 @@ import pandas as pd
 
 
 def load_benchmark_close(conn: sqlite3.Connection, *, code: str = "IX0001") -> pd.Series:
+    """Per-date priority: tej → finmind → yahoo → other (backfill 2015–2019 FinMind TAIEX)."""
     rows = conn.execute(
         """
         SELECT date AS trade_date, close
         FROM daily_bars
-        WHERE code = ? AND source = 'tej'
-        ORDER BY date
+        WHERE code = ?
+        ORDER BY date,
+            CASE source
+                WHEN 'tej' THEN 0
+                WHEN 'finmind' THEN 1
+                WHEN 'yahoo' THEN 2
+                ELSE 3
+            END
         """,
         (code,),
     ).fetchall()
     if not rows:
-        rows = conn.execute(
-            """
-            SELECT date AS trade_date, close
-            FROM daily_bars
-            WHERE code = ?
-            ORDER BY date
-            """,
-            (code,),
-        ).fetchall()
-    if not rows:
         return pd.Series(dtype=float)
     df = pd.DataFrame(rows, columns=["trade_date", "close"])
+    df = df.drop_duplicates(subset=["trade_date"], keep="first")
     return df.set_index("trade_date")["close"].astype(float)
 
 

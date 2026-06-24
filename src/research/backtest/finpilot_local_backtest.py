@@ -43,15 +43,16 @@ def _wide_from_long(df: pd.DataFrame, col: str) -> pd.DataFrame:
 def load_price_panels(conn: sqlite3.Connection) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     rows = conn.execute(
         """
-        SELECT stock_id, trade_date, open, close, volume
+        SELECT stock_id, trade_date, open, close, volume, source
         FROM stock_daily_bars
-        WHERE source = 'finmind'
-        ORDER BY trade_date, stock_id
+        ORDER BY trade_date, stock_id,
+            CASE source WHEN 'finmind' THEN 0 WHEN 'yfinance' THEN 1 ELSE 2 END
         """
     ).fetchall()
     if not rows:
         raise RuntimeError("stock_daily_bars 無資料，請先跑 daily_sync / stock market sync")
-    df = pd.DataFrame(rows, columns=["stock_id", "trade_date", "open", "close", "volume"])
+    df = pd.DataFrame(rows, columns=["stock_id", "trade_date", "open", "close", "volume", "source"])
+    df = df.drop_duplicates(subset=["stock_id", "trade_date"], keep="first")
     close = _wide_from_long(df, "close").astype(float)
     opn = _wide_from_long(df, "open").astype(float)
     vol = _wide_from_long(df, "volume").astype(float)
