@@ -51,8 +51,8 @@ usage() {
   log：${PROJECT_ROOT}/logs/launchd_*.log
 
   注意：Mac 須已登入；睡眠中可能不觸發。
-        專案在 ~/Documents 時，launchd 無法直接執行腳本（TCC）；
-        安裝程式改以 open -gj 觸發 scripts/launchd/*.command。
+        專案在 ~/Documents 時，多數 job 以 open -gj 觸發 .command（避 TCC）；
+        rrg-c18acc-poll 預設改以 /bin/bash 背景執行（不彈 Terminal）。
 EOF
 }
 
@@ -129,7 +129,22 @@ bootstrap_label() {
 render_template() {
   local template="$1"
   local dest="$2"
-  sed "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" "${template}" >"${dest}"
+  sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+      -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
+      "${template}" >"${dest}"
+}
+
+install_c18acc_launcher() {
+  local src="${LAUNCHD_SRC}/rrg-c18acc-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  C18ACC_LAUNCHER="${app_support}/rrg-c18acc-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${C18ACC_LAUNCHER}"
+  chmod +x "${C18ACC_LAUNCHER}"
 }
 
 install_agents() {
@@ -141,6 +156,7 @@ install_agents() {
 
   mkdir -p "${AGENT_DIR}" "${PROJECT_ROOT}/logs"
   ensure_launchd_commands
+  install_c18acc_launcher
 
   echo "專案：${PROJECT_ROOT}"
   echo "安裝至：${AGENT_DIR}"

@@ -3,6 +3,53 @@
 > **非 Facts product layer** — 本文件是 launchd / 手動腳本排程；事實產物見 `reports/daily/etf-daily/`（**Facts layer** · `layer: facts`）。  
 > 架構：[architecture.md](./architecture.md) · 術語：[terminology.md](./terminology.md)
 
+## daily_sync profile · Gate 規則
+
+**收盤管線 SSOT**：`scripts/daily_sync.sh` · `src/pipeline_gates.py` · `config/strategies.yaml`
+
+| 機制 | 說明 |
+|------|------|
+| **`SYNC_PROFILE=slim`** | 載入 `.env` 後覆寫：關 RRG / VCP close / Lens / Supabase brief sync；**只保證** ingest + **Facts** + **Regime** |
+| **`SYNC_PROFILE=full`** | 不覆寫；沿用 `.env` 各 `RUN_*`（`.env.example` 預設） |
+| **Registry gate** | `config/strategies.yaml` · `enabled=false` → 對應策略步驟 **SKIP**（即使 `RUN_*=1`） |
+| **`RUN_*` gate** | `RUN_*=0` → SKIP（在 registry 已啟用時才會跑到） |
+
+```bash
+# 僅 Facts + Regime（本地研究、不看策略 brief）
+SYNC_PROFILE=slim scripts/daily_sync.sh --holdings-report
+
+# 完整收盤（沿用 .env）
+scripts/1630收盤雷達.command
+```
+
+**啟用策略軌**：同時設 `config/strategies.yaml` + `config/strategy.yaml` · `enabled: true`（兩檔一致），並開對應 `RUN_*`。
+
+**健康檢查**（registry 與 `RUN_*` 不一致時 WARN）：
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/supabase_health_check.py
+PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
+```
+
+### Profile 對照（16:30 `daily_sync`）
+
+| 步驟 | slim | full（`.env.example`） | Registry `strategy_id` |
+|------|------|------------------------|-------------------------|
+| ingest + 持股 + **etf-daily** + **regime-daily** | ✓ | ✓ | `etf-daily` · `regime-daily`（恆 `enabled: true`） |
+| RRG universe / mono / swap-accel brief | ✗ | ✓ | `rrg-mono-hold7` · `rrg-mono-swap-accel` |
+| L1H9 copytrade screen | ✓ | ✓ | `00981a-l1h9` |
+| VCP funnel close | ✗ | ✓ | `vcp-pivot-gate` / `vcp-coil-close` |
+| stock_daily_lens → Supabase | ✗ | ✓ | （跨層 publish · 僅 `RUN_STOCK_DAILY_LENS`） |
+
+`minervini-sepa-basket` 維持 `enabled: false`（ad-hoc 回測 · 非 daily）。
+
+### 日誌目錄
+
+| 路徑 | 用途 |
+|------|------|
+| **`logs/`** | 排程 SSOT：`daily_sync_YYYYMMDD.log` · `launchd_*.log` · `weekly_sync_*.log` |
+| **`log/`** | 富邦 Neo SDK / 本機 client（`.gitignore`）；**非** daily_sync 主 log |
+
 ## 排程
 
 | # | 名稱 | 時間 | 入口 |
@@ -36,7 +83,7 @@
 PYTHONPATH=src .venv/bin/python scripts/supabase_health_check.py --notify
 ```
 
-檢查：`daily_briefs`（1300/1630）· `stock_daily_highlight` · `daily_highlight_alert` · 五軌 `site_content` registry · `RUN_*` 開關。FAIL 時 exit 1；`--notify` 送 macOS 通知。
+檢查：`daily_briefs`（1300/1630）· `stock_daily_highlight` · `daily_highlight_alert` · 五軌 `site_content` registry · `RUN_*` 開關 · **pipeline registry 對齊**。FAIL 時 exit 1；`--notify` 送 macOS 通知。
 
 1. **`reports/daily/etf-daily/daily_brief.md`** — 各 ETF 持股變化（00981A 新进/加码 等）
 2. **`reports/daily/regime/daily_brief.md`** — Regime 四格雷達
@@ -59,9 +106,14 @@ PYTHONPATH=src .venv/bin/python scripts/supabase_health_check.py --notify
 
 ## `.env`（摘）
 
+見 [`.env.example`](../.env.example) · **`SYNC_PROFILE=slim|full`** · **`RUN_*`** · **`config/strategies.yaml` · `enabled`** 三者須一致。
+
 ```bash
+# slim：僅 Facts + Regime
+SYNC_PROFILE=slim scripts/daily_sync.sh
+
+# 已退役
 RUN_SCORE_ENGINE=0
-RUN_VCP_FUNNEL=1
 ```
 
-（`RUN_SCORE_ENGINE` 已退役；收盤主線僅 ETF 日報。）
+（`RUN_SCORE_ENGINE` 已退役；收盤核心為 etf-daily + regime-daily。策略軌另受 registry gate 約束。）

@@ -2,6 +2,8 @@
 
 排程與收盤鏈會呼叫的腳本。回測／sweep 見 [`../research/README.md`](../research/README.md)。
 
+**Pipeline SSOT**：[`config/pipeline_scripts.yaml`](../config/pipeline_scripts.yaml) · [`docs/research-script-inventory.md`](../docs/research-script-inventory.md)
+
 ## Shell / 排程
 
 | 檔案 | 用途 |

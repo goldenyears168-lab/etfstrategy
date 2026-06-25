@@ -17,7 +17,7 @@ strategies:
     title: 00981A copytrade L1H9
     kind: competition
     schedule: manual
-    enabled: false  # manual · 非 daily close；須與 strategies.yaml 一致
+    enabled: true  # manual 回測 · 16:30 daily screen；須與 strategies.yaml 一致
     etf_code: "00981A"
     strategy_id: L1H9
     entry_row: L1
@@ -26,6 +26,7 @@ strategies:
     module: copytrade/signals
     backtest_module: copytrade_backtest
     run_script: scripts/run_00981a_copytrade_backtest.py
+    screen_script: scripts/run_copytrade_l1h9_daily_brief.py
     methodology: docs/00981a-copytrade-research-methodology.md
     description: >
       00981A 新进/加码 跟單 · T+1 開 · 9 槽 · hold9 · 手動 screen / 回測。
@@ -53,12 +54,13 @@ strategies:
     kind: competition
     schedule: daily_sync
     schedule_time: "16:30 Asia/Taipei Mon-Fri"
-    enabled: false
+    enabled: true
     n_slots: 3
     hold_days: 7
     module: rrg_mono_daily_brief
     backtest_module: rrg_mono_backtest
     run_script: scripts/run_rrg_mono_daily_brief.py
+    screen_script: scripts/run_rrg_mono_intraday_watch.py
     description: >
       RRG mono fresh · seg_last · 3 槽 hold7 · 併入 daily_sync 16:30（原 16:40 launchd 已退役）。
     backtest:
@@ -84,7 +86,7 @@ strategies:
     kind: competition
     schedule: daily_sync
     schedule_time: "16:30 Asia/Taipei Mon-Fri"
-    enabled: false
+    enabled: true
     parent_strategy: rrg-mono-hold7
     n_slots: 3
     hold_days: 10
@@ -95,7 +97,7 @@ strategies:
     screen_script: scripts/run_rrg_mono_swap_accel_screen.py
     description: >
       RRG mono fresh 全池 · C0 盘中 scale 进 · 5m poll 换仓 · 四日加速卖弱买强 · margin=0.05 ·
-      16:30 Scheme A 收盤診斷 + 盤中 live screen（enabled: false 直至手動啟用）。
+      16:30 Scheme A 收盤診斷 + 盤中 live screen（C18acc · RUN_RRG_C18ACC_SCREEN）。
     funnel:
       pool:
         - "ETF 成分 watchlist"
@@ -151,13 +153,15 @@ strategies:
     launchd_label: com.jackm4.etf.vcp-funnel-specs
     schedule_time: "13:00 Asia/Taipei Mon-Fri"
     env_flag: RUN_VCP_FUNNEL_SPECS
-    enabled: false
+    enabled: true
     model_version: vcp-pivot-gate-h20
     n_slots: 5
     hold_days: 20
     module: vcp_funnel_screen
     backtest_module: chunge_funnel_backtest
     run_script: scripts/run_vcp_funnel_specs_daily_brief.py
+    screen_script: scripts/run_vcp_funnel_intraday.py
+    close_script: scripts/run_vcp_funnel_close.py
     description: >
       VCP funnel · near pivot · breakout close · 5 槽 hold20 · launchd 13:00。
     backtest:
@@ -199,7 +203,7 @@ strategies:
     launchd_label: com.jackm4.etf.vcp-funnel-specs
     schedule_time: "13:00 Asia/Taipei Mon-Fri"
     env_flag: RUN_VCP_FUNNEL_SPECS
-    enabled: false
+    enabled: true
     model_version: vcp-coil-close-h20
     n_slots: 5
     hold_days: 20

@@ -66,6 +66,63 @@ log_only() {
   echo "$@" >>"$LOG_FILE"
 }
 
+_apply_sync_profile() {
+  case "${SYNC_PROFILE:-}" in
+    slim)
+      export RUN_RRG_UNIVERSE_CLOSE=0
+      export RUN_RRG_MONO_DAILY=0
+      export RUN_RRG_MONO_SWAP_ACCEL_DAILY=0
+      export RUN_VCP_FUNNEL_CLOSE=0
+      export RUN_STOCK_DAILY_LENS=0
+      export RUN_SUPABASE_RESEARCH_SYNC=0
+      export RUN_SUPABASE_LENS_SYNC=0
+      export RUN_STRATEGY_PERF_SYNC=0
+      export RUN_SUPABASE_SIGNAL_SYNC=0
+      log_line "SYNC_PROFILE=slim（僅 ingest + Facts + Regime；策略軌與 Lens 關閉）"
+      ;;
+    full)
+      log_line "SYNC_PROFILE=full（沿用 .env RUN_* 預設）"
+      ;;
+    "" ) ;;
+    * )
+      log_line "WARN: 未知 SYNC_PROFILE=${SYNC_PROFILE}（忽略；沿用 .env）"
+      ;;
+  esac
+}
+
+_pipeline_skip_reason() {
+  local step="$1"
+  "$PYTHON" "${SRC}/pipeline_gates.py" skip-reason "$step" 2>/dev/null || true
+}
+
+run_step_if_pipeline_enabled() {
+  local step="$1"
+  local label="$2"
+  shift 2
+  local reason
+  reason="$(_pipeline_skip_reason "$step")"
+  if [[ -n "$reason" ]]; then
+    log_line "--- ${label} ---"
+    log_line "  SKIP（${reason}）"
+    return 0
+  fi
+  run_step_optional "$label" "$@"
+}
+
+run_timed_pipe_if_pipeline_enabled() {
+  local step="$1"
+  local label="$2"
+  shift 2
+  local reason
+  reason="$(_pipeline_skip_reason "$step")"
+  if [[ -n "$reason" ]]; then
+    log_line "--- ${label} ---"
+    log_line "  SKIP（${reason}）"
+    return 0
+  fi
+  run_timed_pipe "$label" "$@"
+}
+
 pipe_out() {
   if [[ "$QUIET" -eq 1 ]] && ! _report_to_terminal; then
     cat >>"$LOG_FILE"
@@ -82,6 +139,8 @@ if [[ -f "${ROOT}/.env" ]]; then
 else
   log_line "警告：未找到 .env，TEJ 同步可能失敗"
 fi
+
+_apply_sync_profile
 
 MARKET=1
 HOLDINGS=1
@@ -365,7 +424,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   fi
 
   if [[ "${RUN_RRG_UNIVERSE_CLOSE:-1}" != "0" ]]; then
-    run_step_optional "RRG universe close snapshot" \
+    run_step_if_pipeline_enabled "rrg_universe_close" "RRG universe close snapshot" \
       "$PYTHON" "${ROOT}/scripts/run_rrg_universe_close.py" || true
   else
     log_line "--- RRG universe close snapshot ---"
@@ -373,7 +432,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   fi
 
   if [[ "${RUN_RRG_MONO_DAILY:-1}" != "0" ]]; then
-    run_step_optional "RRG mono daily brief + slot confirm" \
+    run_step_if_pipeline_enabled "rrg_mono_daily" "RRG mono daily brief + slot confirm" \
       "$PYTHON" "${ROOT}/scripts/run_rrg_mono_daily_brief.py" || true
   else
     log_line "--- RRG mono daily brief + slot confirm ---"
@@ -381,7 +440,8 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   fi
 
   if [[ "${RUN_RRG_MONO_SWAP_ACCEL_DAILY:-1}" != "0" ]]; then
-    run_step_optional "RRG mono swap-accel (C18acc) daily diagnostic brief" \
+    run_step_if_pipeline_enabled "rrg_mono_swap_accel_daily" \
+      "RRG mono swap-accel (C18acc) daily diagnostic brief" \
       "$PYTHON" "${ROOT}/scripts/run_rrg_mono_swap_accel_daily_brief.py" || true
   else
     log_line "--- RRG mono swap-accel (C18acc) daily diagnostic brief ---"
@@ -432,7 +492,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   if [[ "$QUIET" -eq 1 ]]; then
     COPYTRADE_ARGS+=(--quiet)
   fi
-  run_step_optional "00981A 跟單 L1H9 篩選" \
+  run_step_if_pipeline_enabled "copytrade_l1h9_daily" "00981A 跟單 L1H9 篩選" \
     "${COPYTRADE_ARGS[@]}" || true
 
   REGIME_ARGS=(
@@ -448,7 +508,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     "${REGIME_ARGS[@]}" || true
 
   if [[ "${RUN_VCP_FUNNEL_CLOSE:-1}" != "0" ]]; then
-    run_step_optional "VCP funnel close screen + brief" \
+    run_step_if_pipeline_enabled "vcp_funnel_close" "VCP funnel close screen + brief" \
       "$PYTHON" "${ROOT}/scripts/run_vcp_funnel_close.py" || true
   else
     log_line "--- VCP funnel close screen + brief ---"

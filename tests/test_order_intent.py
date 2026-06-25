@@ -108,6 +108,28 @@ class TestOrderIntent(unittest.TestCase):
         with self.assertRaises(ValueError):
             item.validate()
 
+    def test_chase_ask_without_price_validates(self) -> None:
+        item = OrderIntent(
+            symbol="6488",
+            side="buy",
+            quantity_shares=10,
+            price_type="chase_ask",
+        )
+        item.validate()
+
+    def test_apply_config_defaults_chase_ask(self) -> None:
+        batch = OrderIntentBatch(
+            schema_version=SCHEMA_VERSION,
+            strategy_id="manual",
+            as_of="2026-06-25",
+            intents=[OrderIntent(symbol="6488", side="buy", quantity_shares=10)],
+        )
+        from order.intent import apply_config_defaults
+
+        apply_config_defaults(batch, default_price_mode="chase_ask")
+        batch.validate()
+        self.assertEqual(batch.intents[0].price_type, "chase_ask")
+
 
 if __name__ == "__main__":
     unittest.main()

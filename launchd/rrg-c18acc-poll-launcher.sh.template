@@ -1,28 +1,20 @@
 #!/usr/bin/env bash
-# launchd 專用：週一至五 09:00–13:30 · C18acc 5 分鐘 poll（預設 dry-run）
-# 背景排程由 install-launchd 安裝 ~/Library/Application Support/com.jackm4.etf/rrg-c18acc-poll.sh（不開 Terminal）
-# 手動除錯仍可用：open -gj scripts/launchd/rrg-c18acc-poll.command
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 背景執行 C18acc poll（不開 Terminal；launchd 無法 exec Documents 內 .command/.sh）
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/launchd_rrg-c18acc-poll.log"
-TICK_LOG="${ROOT}/logs/rrg_c18acc_poll_tick.log"
+ROOT="{{PROJECT_ROOT}}"
 EXIT=0
 
 mkdir -p "${ROOT}/logs"
-: >>"${LAUNCHD_LOG}"
-: >>"${TICK_LOG}"
 
-exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""
 echo "=== launchd rrg-c18acc-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))
 M=$((10#$(date '+%M')))
-# 1=Mon … 5=Fri · 6–7 skip
 if [[ "${WD}" -gt 5 ]]; then
   echo "skip: weekend"
   exit 0
@@ -39,7 +31,6 @@ export ORDER_C18ACC_DRY_RUN="${ORDER_C18ACC_DRY_RUN:-1}"
 export ORDER_C18ACC_APPLY_STATE="${ORDER_C18ACC_APPLY_STATE:-1}"
 export C18ACC_KBAR_SYNC="${C18ACC_KBAR_SYNC:-1}"
 export RUN_RRG_C18ACC_EMAIL="${RUN_RRG_C18ACC_EMAIL:-1}"
-# 今日手動候選（移除或改日期即恢復 PIT fresh mono）
 export C18ACC_POOL_OVERRIDE="${C18ACC_POOL_OVERRIDE:-3711,6488,2344,3008}"
 export C18ACC_POOL_OVERRIDE_DATE="${C18ACC_POOL_OVERRIDE_DATE:-$(date +%Y-%m-%d)}"
 
@@ -57,8 +48,23 @@ echo "${OUT}"
 
 if echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
   EXTRA_LINES="$(echo "${OUT}" | grep -E 'C18acc (screen|intent)|C18ACC_SIGNAL' || true)"
-  export JOB_NOTIFY_EXTRA=$'本輪觸發動作（dry-run intent）\n'"${EXTRA_LINES}"
-  "${ROOT}/scripts/rrg_c18acc_poll_notify.sh" "${EXIT}" || true
+  STAMP="$(date '+%Y%m%d')"
+  EXTRA="${JOB_NOTIFY_EXTRA:-$'本輪觸發動作（dry-run intent）\n'"${EXTRA_LINES}"$'\n'}"
+  LAUNCHD_LOG="${ROOT}/logs/launchd_rrg-c18acc-poll.log"
+  for rel in \
+    "reports/daily/${STAMP}_rrg_c18acc_screen.md" \
+    "reports/daily/rrg_c18acc_screen.md" \
+    "logs/rrg_c18acc_poll_tick.log"; do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="C18acc 盤中訊號" \
+    --exit-code="${EXIT}" \
+    --log-path="${LAUNCHD_LOG}" \
+    --extra="${EXTRA}" \
+    --env-flag="RUN_RRG_C18ACC_EMAIL"
+  set -e
 fi
 
 echo "=== launchd rrg-c18acc-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="

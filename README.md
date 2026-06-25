@@ -68,21 +68,14 @@ cp .env.example .env
 scripts/1630收盤雷達.command
 ```
 
-```bash
-make install      # 首次：venv + requirements.txt
-make install-dev  # + ruff / coverage（CI 同款）
-make test         # 全量 unittest
-make ci           # ruff + test + coverage
-```
-
 ## Daily reading
 
 | 檔案 | 內容 |
 |------|------|
 | [`reports/daily/etf-daily/daily_brief.md`](reports/daily/etf-daily/daily_brief.md) | **Facts** · 各檔 ETF 持股變化 |
 | [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場環境 |
-| `reports/daily/vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（13:00 launchd） |
-| `reports/daily/rrg_mono_daily.md` | RRG mono 收盤確認（16:40 launchd） |
+| `reports/daily/vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（13:00 盤中 · 16:30 收盤覆寫） |
+| `reports/daily/rrg_mono_daily.md` | RRG mono 收盤確認（**16:30 daily_sync**） |
 | [`reports/research/00981a-copytrade/`](reports/research/00981a-copytrade/) | L1H9 跟單回測（手動） |
 
-SOP：[docs/daily-operations.md](docs/daily-operations.md) · 產品範圍：[docs/PRD.md](docs/PRD.md)
+SOP：[docs/daily-operations.md](docs/daily-operations.md)（含 **slim/full profile** · registry gate）· 產品範圍：[docs/PRD.md](docs/PRD.md)

@@ -14,6 +14,8 @@ Data / Ingest（infra · sync_* → stocks.db）
 
 **已退役**：multi-track `research_digest` · `research_os` · `p6-tier-flow` daily 鏈。
 
+**daily_sync gate（2026-06）**：`src/pipeline_gates.py` — 策略步驟須 `config/strategies.yaml` · `enabled: true` **且** 對應 `RUN_*=1`。Profile：`SYNC_PROFILE=slim|full`（見 [daily-operations.md](./daily-operations.md)）。
+
 ---
 
 ## Terminology（市場狀態用語）
@@ -63,7 +65,8 @@ Registry：`config/strategies.yaml`（`layer: facts` · `layer: regime`）
 |------|------|
 | [`config/strategy.yaml`](../config/strategy.yaml) | 採納規格 · `strategies.*.backtest` |
 | [`config/strategies.yaml`](../config/strategies.yaml) | Registry · publish 路徑 · `layer: strategy` |
-| [`config/research.yaml`](../config/research.yaml) | 探索主題 · sweep · 矩陣（採納前） |
+| [`config/research.yaml`](../config/research.yaml) | 探索主題 · sweep · graduation gates |
+| [`config/pipeline_scripts.yaml`](../config/pipeline_scripts.yaml) | Pipeline / launchd 腳本 registry |
 
 Backtest spec 說明：[evaluation-contract.md](./evaluation-contract.md)
 

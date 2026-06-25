@@ -94,6 +94,31 @@ def _check_env_flags() -> list[HealthCheck]:
     return checks
 
 
+def _check_pipeline_registry_alignment() -> list[HealthCheck]:
+    from pipeline_gates import registry_env_mismatches
+
+    checks: list[HealthCheck] = []
+    for line in registry_env_mismatches():
+        checks.append(
+            HealthCheck(
+                name="pipeline:registry-env",
+                ok=False,
+                level="warn",
+                detail=line,
+            )
+        )
+    if not checks:
+        checks.append(
+            HealthCheck(
+                name="pipeline:registry-env",
+                ok=True,
+                level="ok",
+                detail="strategies.yaml enabled 與 RUN_* 一致（daily_sync gate）",
+            )
+        )
+    return checks
+
+
 def _check_briefs(trade_date: str, *, slot: str) -> HealthCheck:
     expected = set(SLOT_BRIEF_TYPES[slot])
     intraday = {bt for bt in expected if bt in INTRADAY_WATCH_META}
@@ -311,6 +336,7 @@ def run_health_checks(
         )
     )
     checks.extend(_check_env_flags())
+    checks.extend(_check_pipeline_registry_alignment())
 
     try:
         checks.append(_check_briefs(trade_date, slot="1630"))

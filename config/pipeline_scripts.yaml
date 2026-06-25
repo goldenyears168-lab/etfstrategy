@@ -1,0 +1,74 @@
+# Pipeline / ops scripts — SSOT（非 Research topic）
+# 盤點：docs/research-script-inventory.md
+# 對照：config/pipelines/daily_close.yaml · scripts/launchd/
+
+version: pipeline-scripts-v1
+
+scripts:
+  run_rrg_universe_close:
+    path: scripts/run_rrg_universe_close.py
+    layer: pipeline
+    pipeline: daily_close
+    node: rrg_universe_close
+    module: src/rrg_universe_snapshot.py
+    env_flag: RUN_RRG_UNIVERSE_CLOSE
+
+  run_vcp_funnel_close:
+    path: scripts/run_vcp_funnel_close.py
+    layer: pipeline
+    pipeline: daily_close
+    node: vcp_funnel_close
+    module: src/vcp_funnel_specs_daily.py
+    env_flag: RUN_VCP_FUNNEL_CLOSE
+    strategy_ids: [vcp-pivot-gate, vcp-coil-close]
+
+  run_vcp_funnel_intraday:
+    path: scripts/run_vcp_funnel_intraday.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/vcp-funnel-specs.command
+    module: src/vcp_funnel_specs_daily.py
+    strategy_ids: [vcp-pivot-gate, vcp-coil-close]
+
+  run_stock_daily_lens:
+    path: scripts/run_stock_daily_lens.py
+    layer: pipeline
+    pipeline: daily_close
+    node: stock_daily_lens
+    module: src/stock_daily_lens.py
+    env_flag: RUN_STOCK_DAILY_LENS
+
+  run_copytrade_l1h9_daily_brief:
+    path: scripts/run_copytrade_l1h9_daily_brief.py
+    layer: pipeline
+    pipeline: daily_close
+    node: copytrade_l1h9_screen
+    module: src/copytrade_l1h9_daily.py
+    strategy_id: 00981a-l1h9
+
+  run_rrg_mono_intraday_watch:
+    path: scripts/run_rrg_mono_intraday_watch.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/rrg-mono-intraday-watch.command
+    module: src/rrg_mono_intraday_watch.py
+    parent_strategy: rrg-mono-hold7
+
+  run_mutual_fund_disclosure_watch:
+    path: scripts/run_mutual_fund_disclosure_watch.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/mutual-fund-disclosure-watch.command
+    module: src/mutual_fund_disclosure_watch.py
+
+  run_sync_mutual_fund_holdings:
+    path: scripts/run_sync_mutual_fund_holdings.py
+    layer: pipeline
+    pipeline: manual
+    module: src/sync_mutual_fund_holdings.py
+
+  run_market_breadth_report:
+    path: scripts/run_market_breadth_report.py
+    layer: regime
+    purpose: Breadth zone standalone HTML · 非 daily close
+    report_dir: reports/research/breadth

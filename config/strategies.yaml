@@ -37,7 +37,7 @@ strategies:
     title: 00981A copytrade L1H9
     layer: strategy
     kind: competition
-    enabled: false
+    enabled: true
     description: >
       00981A 新进/加码 · T+1 開 · 9 槽 hold9 · 手動 screen / 回測。
     sources:
@@ -49,7 +49,7 @@ strategies:
     title: RRG mono · seg_last · 3-slot hold7
     layer: strategy
     kind: competition
-    enabled: false
+    enabled: true
     description: daily_sync 16:30 · RRG mono 槽位確認（原 16:40 launchd 已退役）。
     sources:
       - "{date}_rrg_mono_daily.md"
@@ -59,7 +59,7 @@ strategies:
     title: RRG mono swap-accel · C18acc
     layer: strategy
     kind: competition
-    enabled: false
+    enabled: true
     parent_strategy: rrg-mono-hold7
     description: >
       daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 C0/5m poll live screen ·
@@ -78,7 +78,7 @@ strategies:
     title: VCP Pivot Gate
     layer: strategy
     kind: competition
-    enabled: false
+    enabled: true
     env_flag: RUN_VCP_FUNNEL_SPECS
     model_version: vcp-pivot-gate-h20
     description: Separate launchd vcp-funnel-specs · 13:00 · hold20。
@@ -90,7 +90,7 @@ strategies:
     title: VCP Coil Close
     layer: strategy
     kind: competition
-    enabled: false
+    enabled: true
     env_flag: RUN_VCP_FUNNEL_SPECS
     model_version: vcp-coil-close-h20
     description: VCP funnel 變體 · 訊號日 close · 共用 vcp-funnel-specs launchd。

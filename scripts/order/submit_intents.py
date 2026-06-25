@@ -30,7 +30,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from order.fubon_session import check_python_version, connect_fubon  # noqa: E402
-from order.intent import load_intent_batch  # noqa: E402
+from order.intent import apply_config_defaults, load_intent_batch  # noqa: E402
 
 
 def _reports_dir() -> Path:
@@ -62,6 +62,11 @@ def main() -> int:
     parser.add_argument("intent_file", nargs="?", help="order-intent-v1 JSON 路徑")
     parser.add_argument("--dry-run", action="store_true", help="解析意圖並預覽，不送單（預設）")
     parser.add_argument("--submit", action="store_true", help="實際送單（需明確指定）")
+    parser.add_argument(
+        "--cancel-open",
+        action="store_true",
+        help="送單前撤銷同標的委託中買單（追價重掛）",
+    )
     parser.add_argument("--query-orders", action="store_true", help="查詢今日委託狀態")
     args = parser.parse_args()
 
@@ -93,15 +98,24 @@ def main() -> int:
         print(f"錯誤：無法讀取 intent — {exc}", file=sys.stderr)
         return 1
 
+    from order.config import default_price_mode
+
+    apply_config_defaults(batch, default_price_mode=default_price_mode())  # type: ignore[arg-type]
+    try:
+        batch.validate()
+    except ValueError as exc:
+        print(f"錯誤：intent 驗證失敗 — {exc}", file=sys.stderr)
+        return 1
+
     submit = bool(args.submit)
     if not submit and not args.dry_run:
         args.dry_run = True
 
     try:
         session = connect_fubon()
-        from order.fubon_orders import place_batch, resolved_orders_preview
+        from order.fubon_orders import cancel_open_buys_for_symbols, place_batch, resolved_orders_preview
 
-        preview = resolved_orders_preview(session, batch)
+        resolved, preview = resolved_orders_preview(session, batch)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"錯誤：{exc}", file=sys.stderr)
         return 1
@@ -113,6 +127,15 @@ def main() -> int:
         "mode": "submit" if submit else "dry_run",
         "resolved": preview,
     }
+
+    cancel_open = bool(args.cancel_open) or bool(batch.metadata.get("cancel_open_buys"))
+    if cancel_open and submit:
+        try:
+            symbols = {x.symbol for x in batch.intents}
+            payload["cancelled_open_buys"] = cancel_open_buys_for_symbols(session, symbols)
+        except RuntimeError as exc:
+            print(f"錯誤：撤單失敗 — {exc}", file=sys.stderr)
+            return 1
 
     if not preview:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -127,7 +150,7 @@ def main() -> int:
         return 0
 
     try:
-        result = place_batch(session, batch)
+        result = place_batch(session, batch, resolved=resolved)
     except RuntimeError as exc:
         print(f"錯誤：送單失敗 — {exc}", file=sys.stderr)
         return 1

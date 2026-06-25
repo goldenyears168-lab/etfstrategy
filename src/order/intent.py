@@ -15,7 +15,9 @@ SCHEMA_VERSION = "order-intent-v1"
 LEGACY_SCHEMA_VERSIONS = frozenset({"execution-intent-v1"})
 
 Side = Literal["buy", "sell"]
-PriceTypeName = Literal["limit", "market", "reference", "limit_up", "limit_down"]
+PriceTypeName = Literal[
+    "limit", "market", "reference", "limit_up", "limit_down", "chase_ask"
+]
 MarketTypeName = Literal["common", "odd", "intraday_odd", "emg"]
 TimeInForceName = Literal["rod", "ioc", "fok"]
 OrderTypeName = Literal["stock", "daytrade", "margin", "short"]
@@ -35,7 +37,7 @@ class OrderIntent:
     quantity_shares: int | None = None
     target_shares: int | None = None
     price: str | None = None
-    price_type: PriceTypeName = "limit"
+    price_type: PriceTypeName | None = None
     market_type: MarketTypeName = "common"
     time_in_force: TimeInForceName = "rod"
     order_type: OrderTypeName = "stock"
@@ -63,8 +65,18 @@ class OrderIntent:
             tgt = int(self.target_shares or 0)
             if tgt < 0:
                 raise ValueError(f"{sym}: target_shares 不可為負")
-        if self.price_type == "limit" and not str(self.price or "").strip():
+        pt = self.price_type or "limit"
+        if pt == "limit" and not str(self.price or "").strip():
             raise ValueError(f"{sym}: price_type=limit 時須提供 price")
+        if pt not in (
+            "limit",
+            "market",
+            "reference",
+            "limit_up",
+            "limit_down",
+            "chase_ask",
+        ):
+            raise ValueError(f"{sym}: 不支援 price_type={pt!r}")
 
 
 @dataclass
@@ -121,13 +133,26 @@ def _intent_from_dict(raw: dict[str, Any]) -> OrderIntent:
             int(raw["target_shares"]) if raw.get("target_shares") is not None else None
         ),
         price=(str(raw["price"]) if raw.get("price") is not None else None),
-        price_type=str(raw.get("price_type") or "limit").lower(),  # type: ignore[arg-type]
+        price_type=(
+            str(raw["price_type"]).lower() if raw.get("price_type") is not None else None
+        ),
         market_type=str(raw.get("market_type") or "common").lower(),  # type: ignore[arg-type]
         time_in_force=str(raw.get("time_in_force") or "rod").lower(),  # type: ignore[arg-type]
         order_type=str(raw.get("order_type") or "stock").lower(),  # type: ignore[arg-type]
         user_def=(str(raw["user_def"]) if raw.get("user_def") is not None else None),
         note=(str(raw["note"]) if raw.get("note") is not None else None),
     )
+
+
+def apply_config_defaults(
+    batch: OrderIntentBatch,
+    *,
+    default_price_mode: PriceTypeName = "chase_ask",
+) -> None:
+    """未指定 price_type 的 intent 套用 config 預設（預設追賣一）。"""
+    for intent in batch.intents:
+        if intent.price_type is None:
+            intent.price_type = default_price_mode
 
 
 def load_intent_batch(path: Path | str) -> OrderIntentBatch:
@@ -145,7 +170,6 @@ def load_intent_batch(path: Path | str) -> OrderIntentBatch:
         intents=[_intent_from_dict(x) for x in intents_raw if isinstance(x, dict)],
         metadata=dict(raw.get("metadata") or {}),
     )
-    batch.validate()
     return batch
 
 
@@ -177,7 +201,7 @@ def resolve_intents(
                     side=intent.side,
                     quantity_shares=int(intent.quantity_shares),
                     price=intent.price,
-                    price_type=intent.price_type,
+                    price_type=intent.price_type or "limit",
                     market_type=intent.market_type,
                     time_in_force=intent.time_in_force,
                     order_type=intent.order_type,
@@ -199,7 +223,7 @@ def resolve_intents(
                 side="buy" if delta > 0 else "sell",
                 quantity_shares=abs(delta),
                 price=intent.price,
-                price_type=intent.price_type,
+                price_type=intent.price_type or "limit",
                 market_type=intent.market_type,
                 time_in_force=intent.time_in_force,
                 order_type=intent.order_type,

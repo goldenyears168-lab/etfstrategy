@@ -33,6 +33,8 @@ intent:
   legacy_schema_versions:
     - execution-intent-v1
   default_dir: reports/order/intents
+  # 未指定 price_type 時：限價追賣一（盤中零股 · 送單當下查價）
+  default_price_mode: chase_ask
 
 # launchd 開盤追價（已停用 · 原週一至五 09:00–09:04 · install-order-launchd.sh）
 # 重新啟用：.env ORDER_LAUNCHD_ENABLED=1 + scripts/install-order-launchd.sh

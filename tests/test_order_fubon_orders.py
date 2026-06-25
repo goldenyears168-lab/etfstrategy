@@ -8,6 +8,15 @@ from order.fubon_orders import _map_enum
 
 
 class TestFubonEnumMapping(unittest.TestCase):
+    def test_is_open_order_status_zero(self) -> None:
+        from types import SimpleNamespace
+
+        from order.fubon_orders import is_open_order
+
+        self.assertTrue(is_open_order(SimpleNamespace(status=0)))
+        self.assertTrue(is_open_order(SimpleNamespace(status=10)))
+        self.assertFalse(is_open_order(SimpleNamespace(status=50)))
+
     def test_time_in_force_rod(self) -> None:
         from fubon_neo.constant import TimeInForce
 

@@ -31,3 +31,14 @@ def broker_block(cfg: dict[str, Any]) -> dict[str, Any]:
 def account_block(cfg: dict[str, Any]) -> dict[str, Any]:
     block = cfg.get("account")
     return block if isinstance(block, dict) else {}
+
+
+def intent_block(cfg: dict[str, Any]) -> dict[str, Any]:
+    block = cfg.get("intent")
+    return block if isinstance(block, dict) else {}
+
+
+def default_price_mode(cfg: dict[str, Any] | None = None) -> str:
+    raw = intent_block(cfg or load_order_config()).get("default_price_mode")
+    mode = str(raw or "chase_ask").strip().lower()
+    return mode if mode else "chase_ask"

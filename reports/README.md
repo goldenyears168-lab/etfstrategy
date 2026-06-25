@@ -41,7 +41,6 @@
 |------|--------|----------|
 | `00981a-filter-studies.md` | §10 filter #2–#10 | `copytrade_*_filter_compare` |
 | `etf-behavior-studies.md` | v8/v9 行為預測 | 方法論 §10 #5 |
-| `inst-flow-studies.md` | 法人 flow 回測 | `run_inst_flow_backtest.py` |
 | `exploratory-studies.md` | S04 / FinPilot / tw_stocker 對照 | 一次性腳本 |
 
 決策紀錄：[docs/00981a-retired-research.md](../docs/00981a-retired-research.md)

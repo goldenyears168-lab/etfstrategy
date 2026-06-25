@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 from dataclasses import asdict, dataclass, field
@@ -770,7 +771,7 @@ def _reset_daily_counters(state: dict[str, Any], session_date: str) -> None:
 
 def _lot_shares(price: float, budget_twd: float, *, board_lot: bool = False) -> int:
     """依槽位預算計算股數。預設零股（floor 預算／價）；C18ACC_BOARD_LOT=1 為整張。"""
-    if price <= 0 or budget_twd <= 0:
+    if price <= 0 or budget_twd <= 0 or math.isnan(price):
         return 0
     if board_lot:
         lots = int(budget_twd / price) // 1000

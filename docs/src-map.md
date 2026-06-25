@@ -7,7 +7,7 @@
 
 | 層 | 目錄（目標） | 職責 |
 |----|-------------|------|
-| **L0** Platform | `stock_db`, `project_config`, `report_paths`, `finmind_client`, `notify_email`, `project_dotenv`, `research_config`, `regime_config` | DB、設定、路徑、registry |
+| **L0** Platform | `stock_db`, `project_config`, `report_paths`, `finmind_client`, `notify_email`, `project_dotenv`, `research_config`, `regime_config`, `pipeline_gates`, `strategy_registry` | DB、設定、路徑、registry |
 | **L1** Ingest | `sync_*`, `query_stock_prices`, `backfill_market_data`, `etfedge_*` | 寫入 `stocks.db` |
 | **L2** Domain | `holdings_research`, `market_*`, `flow_*`, `regime_snapshot`, `analytics/bench`, … | 跨軌共用領域邏輯 |
 | **L3** Pipeline | `etf_daily_report`, `regime_daily_brief`, `report_hygiene` | 收盤 daily brief |
@@ -35,9 +35,11 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 
 | Track ID | 模組 | 排程 |
 |----------|------|------|
-| **`00981a-l1h9`** | **`copytrade/signals`** · `copytrade_backtest`（L1H9） | 手動回測 |
-| `rrg-mono-hold7` | `rrg_mono_daily_brief`, `rrg_rotation` | launchd 16:40 |
-| `vcp-pivot-gate` / `vcp-coil-close` | `vcp_funnel_screen`, `chunge_funnel_screen` | launchd 13:00 |
+| **`00981a-l1h9`** | **`copytrade/signals`** · `copytrade_backtest`（L1H9） | 手動回測 · 16:30 screen（registry + `pipeline_gates`） |
+| `rrg-mono-hold7` | `rrg_mono_daily_brief`, `rrg_rotation` | **16:30 daily_sync**（原 16:40 launchd 已退役） |
+| `vcp-pivot-gate` / `vcp-coil-close` | `vcp_funnel_screen`, `chunge_funnel_screen` | 13:00 launchd 盤中 · **16:30** close（`RUN_VCP_FUNNEL_CLOSE`） |
+
+**daily_sync gate**：`src/pipeline_gates.py` — `strategies.yaml` · `enabled` 優先於 `RUN_*`。
 
 **已退役 daily 鏈**：`p6-tier-flow`（`score_engine` → `pm_watchlist` · `RUN_SCORE_ENGINE=0`）
 

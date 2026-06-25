@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Lens daily alert email · 收盤後（需 RUN_LENS_DAILY_NOTIFY=1）
+# log/program.log = 富邦 Neo SDK 本機 log（非排程 SSOT；排程見 logs/）
 set -euo pipefail
 ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 exec "${ROOT}/scripts/job_notify.sh" \

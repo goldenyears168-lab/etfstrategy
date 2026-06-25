@@ -20,12 +20,12 @@ from .chase import (
     save_session_state,
     shares_for_budget,
 )
-from .fubon_orders import _result_ok, place_resolved_order
+from .fubon_orders import _result_ok, is_open_order, order_status, place_resolved_order
 from .fubon_session import FubonSession
 from .intent import ResolvedOrder
 
 
-# Fubon order status: 10=委託中 50=完全成交 30=刪除 90=失敗
+# Fubon order status: 0/10=委託中 50=完全成交 30=刪除 90=失敗
 _STATUS_OPEN = 10
 _STATUS_FILLED = 50
 _STATUS_CANCELLED = 30
@@ -50,7 +50,7 @@ def _filled_shares(item: Any) -> int:
 
 
 def _order_status(item: Any) -> int:
-    return int(getattr(item, "status", 0) or 0)
+    return order_status(item)
 
 
 def _cancel_order(session: FubonSession, item: Any, acc: Any | None = None) -> bool:
@@ -141,7 +141,7 @@ def run_chase_round(
                 entry["filled_shares"] = st.filled_shares
                 log.append(entry)
                 continue
-            if item is not None and _order_status(item) == _STATUS_OPEN and _is_chase_order(item):
+            if item is not None and is_open_order(item) and _is_chase_order(item):
                 if not dry_run:
                     _cancel_order(session, item, acc)
                 entry["cancelled"] = st.order_no
