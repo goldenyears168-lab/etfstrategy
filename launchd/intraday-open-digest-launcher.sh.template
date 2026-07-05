@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝 · 09:06 開盤解讀 digest
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday"
+
+WD="$(date '+%u')"
+H=$((10#$(date '+%H')))
+M=$((10#$(date '+%M')))
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+if [[ "${H}" -ne 9 || "${M}" -lt 5 || "${M}" -gt 8 ]]; then
+  exit 0
+fi
+
+echo "=== launchd intraday-open-digest $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+export RUN_INTRADAY_OPEN_DIGEST="${RUN_INTRADAY_OPEN_DIGEST:-1}"
+export RUN_INTRADAY_OPEN_DIGEST_EMAIL="${RUN_INTRADAY_OPEN_DIGEST_EMAIL:-1}"
+
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/run_intraday_open_digest.py" \
+  --write --notify 2>&1)"
+EXIT=$?
+set -e
+echo "${OUT}"
+
+echo "=== launchd intraday-open-digest end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+exit "${EXIT}"

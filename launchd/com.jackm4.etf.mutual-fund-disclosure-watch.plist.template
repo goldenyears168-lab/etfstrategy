@@ -6,9 +6,8 @@
 	<string>com.jackm4.etf.mutual-fund-disclosure-watch</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gj</string>
-		<string>{{PROJECT_ROOT}}/scripts/launchd/mutual-fund-disclosure-watch.command</string>
+		<string>/bin/bash</string>
+		<string>{{MUTUAL_FUND_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -19,31 +18,11 @@
 	</dict>
 	<key>StartCalendarInterval</key>
 	<array>
-		<dict>
-			<key>Weekday</key><integer>1</integer>
-			<key>Hour</key><integer>16</integer>
-			<key>Minute</key><integer>30</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>2</integer>
-			<key>Hour</key><integer>16</integer>
-			<key>Minute</key><integer>30</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>3</integer>
-			<key>Hour</key><integer>16</integer>
-			<key>Minute</key><integer>30</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>4</integer>
-			<key>Hour</key><integer>16</integer>
-			<key>Minute</key><integer>30</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>5</integer>
-			<key>Hour</key><integer>16</integer>
-			<key>Minute</key><integer>30</integer>
-		</dict>
+		<dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+		<dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+		<dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+		<dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+		<dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
 	<string>{{PROJECT_ROOT}}/logs/launchd_mutual-fund-disclosure-watch.log</string>

@@ -5,9 +5,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/launchd_rrg-mono-intraday-watch.log"
+LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-mono-intraday-watch.log"
 EXIT=1
 
+mkdir -p "${ROOT}/logs/intraday"
 exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""
 echo "=== launchd rrg-mono-intraday-watch 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

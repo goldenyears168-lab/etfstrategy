@@ -1,0 +1,38 @@
+# Slot backtest summary JSON schema (contract layer)
+# Writer: research.backtest.slot_backtest_summary.build_summary_payload
+# Notional SSOT: config/backtest_standard.yaml → comparison_notional_ntd
+
+schema_version: slot_backtest_summary-v2
+
+required:
+  - schema_version
+  - track_id
+  - spec_type
+  - date_start
+  - date_end
+  - n_slots
+  - total_capital_ntd
+  - capital_per_slot_ntd
+  - notional_ssot
+  - summary
+
+fields:
+  schema_version:
+    const: slot_backtest_summary-v2
+  notional_ssot:
+    const: config/backtest_standard.yaml#comparison_notional_ntd
+  total_capital_ntd:
+    description: 寫入時取自 comparison_notional_ntd（非 strategy.yaml）
+  capital_per_slot_ntd:
+    description: total_capital_ntd / n_slots
+  summary:
+    description: 契約指標 · 以 % 為主
+    primary_metrics:
+      - mean_excess_pct
+      - mean_return_pct
+      - win_rate_vs_bench_pct
+      - n_periods
+
+legacy_v1:
+  deprecated_field: capital_ntd
+  migration: omit from strategy.yaml · use comparison_notional_ntd SSOT

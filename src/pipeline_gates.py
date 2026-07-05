@@ -37,6 +37,11 @@ _DAILY_SYNC_STEPS: dict[str, dict[str, Any]] = {
         "run_env": "RUN_VCP_FUNNEL_CLOSE",
         "run_default": "1",
     },
+    "rrg_improving_watch_daily": {
+        "strategy_ids": (),
+        "run_env": "RUN_RRG_IMPROVING_WATCH",
+        "run_default": "1",
+    },
 }
 
 
@@ -49,6 +54,9 @@ def _registry_skip_reason(
 ) -> str | None:
     """Registry gate: enabled only (launchd env_flag is checked separately via is_active)."""
     _ = env
+    if not strategy_ids:
+        return None
+
     if match == "any":
         active: list[str] = []
         inactive: list[str] = []
@@ -90,9 +98,10 @@ def daily_sync_skip_reason(
 
     strategy_ids: tuple[str, ...] = tuple(meta["strategy_ids"])
     match = str(meta.get("match", "all"))
-    reason = _registry_skip_reason(reg, strategy_ids, match=match, env=e)
-    if reason:
-        return reason
+    if strategy_ids:
+        reason = _registry_skip_reason(reg, strategy_ids, match=match, env=e)
+        if reason:
+            return reason
 
     run_env = meta.get("run_env")
     if run_env:
@@ -127,9 +136,12 @@ def registry_env_mismatches(
             continue
         default = str(meta.get("run_default", "0"))
         run_on = e.get(run_env, default) != "0"
+        strategy_ids = tuple(meta["strategy_ids"])
+        if not strategy_ids:
+            continue
         reg_reason = _registry_skip_reason(
             reg,
-            tuple(meta["strategy_ids"]),
+            strategy_ids,
             match=str(meta.get("match", "all")),
             env=e,
         )

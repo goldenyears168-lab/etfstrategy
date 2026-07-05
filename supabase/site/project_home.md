@@ -71,7 +71,6 @@ Readdy 路由 `/` 的 KPI 列與解析契約見 [日報首頁規格](daily_home#
 | [RRG 單軌](strategy_rrg_mono_hold7) | **RRG** 單軌延續 · **持 7 交易日** | 相對強度能否延續一週 | [市場環境](/) |
 | [VCP 突破確認](strategy_vcp_pivot_gate) | **VCP** · **突破收盤確認** · 持 20 日 | 進場確認 vs 過早進場 | [VCP 漏斗研究](/) |
 | [VCP 訊號收盤](strategy_vcp_coil_close) | 同池 · **訊號日收盤** 進（對照） | 進場方式 A/B | [VCP 漏斗研究](/) |
-| [Minervini SEPA](strategy_minervini_sepa_basket) | 月末等權 **Stage 2（Stage 2）** 籃 | **趨勢模板（Trend Template）** | 月頻 · 見策略頁 |
 
 → [閱讀導覽](strategy_catalog#閱讀導覽)
 

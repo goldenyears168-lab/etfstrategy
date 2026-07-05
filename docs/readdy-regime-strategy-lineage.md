@@ -48,12 +48,12 @@
 
 **行／上下文（環境軸）**：當日 **1 份** Regime 四軸快照（不是 n 個 regime 狀態的笛卡爾積）
 
-| 環境摘要（當日 1 行） | 00981a-l1h9 | rrg-mono-hold7 | vcp-pivot-gate | vcp-coil-close | minervini-sepa-basket |
-|----------------------|-------------|----------------|----------------|----------------|----------------------|
-| Strong 廣度 · Stage 2 advancing · RRG 健康 44% | 2 訊號 | 1 槽 | 3 候選 | 2 候選 | 月頻 · 無 screen |
+| 環境摘要（當日 1 行） | 00981a-l1h9 | rrg-mono-hold7 | rrg-mono-swap-accel | vcp-pivot-gate | vcp-coil-close |
+|----------------------|-------------|----------------|---------------------|----------------|----------------|
+| Strong 廣度 · Stage 2 advancing · RRG 健康 44% | 2 訊號 | 1 槽 | poll 換倉 | 3 候選 | 2 候選 |
 
 - **資料來源**：`regime_daily.snapshot_json` + 各軌 `daily_briefs`（`brief_types`）
-- **路由**：儲存格 → `/briefs/{date}/{tab}` 或 `/strategies/{strategy_id}`
+- **路由**：screen 儲存格 → 當日 brief tab；策略名 → `/strategies/{strategy_id}` **凍結規格**
 - **前端元件**：`StrategyScreenStatusBar`（已規劃／部分實作）
 
 這張表回答 **「環境 × 策略 screen」**，不回答研究過程。
@@ -74,9 +74,9 @@
 |-------------|----------|----------|--------|----------|
 | `00981a-l1h9` | ETF00981A 跟單策略 | L1 開 · 9 槽 · hold 9 | 2026-06 | [採納報告](#) |
 | `rrg-mono-hold7` | RRG 市場輪動圖選股策略 | fresh · 3 槽 · hold 7 | 2026-06 | [採納報告](#) |
+| `rrg-mono-swap-accel` | RRG 四日加速換倉 | C18acc · poll_5m · 3 槽 | 2026-06 | [採納報告](#) |
 | `vcp-pivot-gate` | VCP 突破確認 | near pivot · hold 20 · 5 槽 | 2026-06 | [採納報告](#) |
 | `vcp-coil-close` | VCP 訊號收盤 | 訊號日 close · hold 20 | 2026-06 | [採納報告](#) |
-| `minervini-sepa-basket` | Minervini SEPA | 月末 Stage 2 籃 · 月頻 | 2026-06-19 | [採納報告](#) |
 
 #### 表二 · 詳情（每策略一頁 · 採納報告契約）
 
@@ -101,7 +101,7 @@
 | `vcp-pivot-gate` | `AUTO:vcp-sweep-top25` | **~864 組 sweep Top 25** · 對照基準 | `research_case_vcp_funnel` |
 | `vcp-coil-close` | 同上 + 分軌敘事 | 進場對照 · 不可合併績效 | 同上 · 錨點分節 `#coil-close` |
 | `rrg-mono-hold7` | `AUTO:rrg-breadth` | hold／槽位格 · **廣度分區分層** | `research_case_rrg_mono` |
-| `minervini-sepa-basket` | 對照實驗表 | vs Antonacci / ADX-RSI 等 | `research_case_minervini_sepa` |
+| `rrg-mono-swap-accel` | （採納報告錨點 §3.5.1） | C18acc sweep · breadth hold-out | `research_case_rrg_mono` |
 
 刷新：採納報告內 AUTO 大表由研究腳本產出後 **upsert 至 Supabase `site_content.content_md`**（§7.4 · 無本機 `supabase/site/` 目錄；舊 `sync_site_content_to_supabase.py` 已退役）。
 
@@ -141,7 +141,7 @@
 | `/strategies` | **策略目錄** | 表二索引 · 卡片 · 績效比較表 · 怎麼讀表（長文區塊） | `site_content`（`layer_id=strategy` + `strategy_id`）+ `strategy_performance_yearly` |
 | `/strategies/:strategy_id` | **凍結規格** | 規則 · 績效 · 鏈回表一 | Supabase `site_content`（`strategy_id` 列） |
 | `/strategies/:strategy_id/lineage` | **採納報告** | 敘事 + AUTO sweep 大表 | `research_page_id` → `site_content` 採納報告列 |
-| `/strategies/:strategy_id/research` | （同採納報告或別名） | 可選；v1 以 lineage 為準 | 同上 |
+| `/strategies/:strategy_id/research` | redirect → `/lineage`（別名 · 勿新建連結） | 同上 |
 | `/pages/strategy_catalog` | — | **不對外 nav**；長文併入 `/strategies` 後 **301 → `/strategies#…`** | `site_content.page_id = strategy_catalog` |
 
 **`/pages/strategy_catalog` 處置（v1.2）**：
@@ -151,7 +151,13 @@
 3. 站內 markdown 連結 `[策略目錄](strategy_catalog)` → 前端解析為 **`/strategies`**（hash 保留，如 `/strategies#績效對照`）。
 4. Regime 日報內原 `/pages/strategy_catalog#…` → 改 **`/strategies#…`**。
 
-**內容 SSOT（v1.2 起）**：`stock_research.site_content` 表 · **無**本機 `supabase/site/` 目錄（已退役；authoring 見 §7.4）。
+**內容 SSOT**：
+
+| 角色 | 位置 |
+|------|------|
+| **Runtime（公開站）** | Supabase `stock_research.site_content` · Readdy 只讀 DB |
+| **Authoring（git）** | `supabase/site/*.md` — 編輯後 `./scripts/resync_readdy_ui_copy.sh --site-only` 推送 |
+| **勿雙寫漂移** | Dashboard 手改後須回寫 git，或改 git 後重推 |
 
 **站內 MD 連結契約**（Phase C · F12）：`SiteContentView` 須將下列 href 重寫為 React 路由，否則採納報告內導覽會 404：
 
@@ -421,7 +427,7 @@ site_content（layer_id=strategy · strategy_id 有值）
 | `rrg-mono-hold7` | `rrg-mono-breadth-study` | `research_case_rrg_mono` · `AUTO:rrg-breadth` |
 | `vcp-pivot-gate` | `chunge-funnel-sweep` | `research_case_vcp_funnel` · `AUTO:vcp-sweep-top25` |
 | `vcp-coil-close` | 同上 | 同上 · §Coil Close 分節 |
-| `minervini-sepa-basket` | `broad-momentum-sepa` | `research_case_minervini_sepa` |
+| `rrg-mono-swap-accel` | `rrg-mono-score-swap-c` | `research_case_rrg_mono` · §3.5.1 C18acc |
 
 #### 3.5.1 `rrg-mono-hold7` · 子研究 topic（未採納 · 本机 SSOT）
 
@@ -454,8 +460,6 @@ site_content（layer_id=strategy · strategy_id 有值）
 | brief → strategy 映射 | `site_content.brief_types[]` | `STRATEGY_SCREEN_META` |
 | 五軌 slug SSOT | `config/strategy.yaml` keys | 同上 + `config/strategies.yaml` |
 | 績效列 | `strategy_performance_yearly.strategy_id` | `scripts/sync_strategy_performance.py` |
-
-**Minervini 已知例外**：`strategyScreenStatus.ts` 對 `minervini-sepa-basket` 硬編碼「月頻 · 無 screen」；v1 可接受（`brief_types` 為空）。v2 可改 DB 欄位 `screen_cadence: monthly` 移除 slug 硬編碼。
 
 **新 brief 型別**：除 §3.4.4 外，須同步改 `strategyScreenStatus.ts` · `briefContracts.ts` · `STRATEGY_SCREEN_META`（若該 brief 要進表一）。
 
@@ -491,11 +495,11 @@ site_content（layer_id=strategy · strategy_id 有值）
 - [ ] 1 段：探索漏斗 `vcp_funnel_specs` vs 凍結 Pivot/Coil 差異
 - [ ] 凍結：hold 20 · 5 槽 · pivot 距離帶 / breakout_close vs close
 
-### 4.4 `minervini-sepa-basket`
+### 4.4 `rrg-mono-swap-accel`
 
-- [ ] **統計證明**：對照實驗表（Antonacci / ADX-RSI / buy-hold）
-- [ ] 凍結：Trend Template 7/7 · 月頻 · Breadth 濾網
-- [ ] 無日頻 screen 的原因
+- [ ] 敘事：C18acc 四日加速對称换仓 · 由 `rrg-mono-score-swap-c` 畢業
+- [ ] **統計證明**：§3.5.1 sweep · breadth hold-out（`20260624_rrg_mono_swap_accel_breadth_zones.json`）
+- [ ] 凍結：`poll_5m` · min_hold=5 · max_hold=10 · fresh mono 全池 · 3 槽
 
 ---
 
@@ -582,8 +586,8 @@ site_content（layer_id=strategy · strategy_id 有值）
 |------|------|------|
 | Migration **013** · registry 欄位 | **✓ 已部署** | 經 Supabase SQL Editor 執行 `supabase/migrations/013_site_content_strategy_meta.sql` |
 | 前端 registry hook · 表一 · lineage 路由 | **✓** | F1–F6 · F11 |
-| 本機 `supabase/site/` MD 目錄 | **退役** | SSOT 改 Supabase；勿恢復雙寫 |
-| 舊 sync 腳本 | **退役** | `sync_site_content_to_supabase.py` · `refresh_strategy_site_tables.py` · `src/site_content_sync.py` |
+| 本機 `supabase/site/` MD | **Authoring mirror** | git 編輯 → `--site-only` 推 Supabase |
+| 舊 sync 腳本 | **退役** | 改用 `sync_site_content_to_supabase.py` · `push_site_content_md.py` |
 
 **013 部署後驗證**（SQL Editor · 任一步失敗則停）：
 
@@ -662,7 +666,6 @@ flowchart TD
 | `rrg-mono-swap-accel` | `research_case_rrg_mono` | `rrg_mono_swap_accel_daily`, `rrg_c18acc_screen` |
 | `vcp-pivot-gate` | `research_case_vcp_funnel` | `vcp_pivot_gate` |
 | `vcp-coil-close` | `research_case_vcp_funnel` | `vcp_coil_close` |
-| `minervini-sepa-basket` | `research_case_minervini_sepa` | `{}` 或 NULL |
 
 **A2 · 採納報告全文**
 
@@ -690,8 +693,8 @@ RUN_STRATEGY_PERF_SYNC=1
 
 | 情境 | 做法 |
 |------|------|
-| 敘事 / 凍結規格小改 | Supabase Dashboard → `site_content` → 編輯 `content_md` |
-| 首次灌入 / 大量 upsert | SQL Editor · `insert … on conflict (page_id) do update` |
+| 敘事 / 凍結規格小改 | 編輯 git `supabase/site/*.md` → `./scripts/resync_readdy_ui_copy.sh --site-only` |
+| 緊急 hotfix | Supabase Dashboard → `site_content` → **須回寫 git** |
 | **AUTO 大表刷新** | ① 本機研究腳本產出 HTML/MD 片段（含 marker 註解）→ ② 貼入或腳本 patch 對應 `page_id` 的 `content_md` → ③ `updated_at = now()` |
 
 **AUTO marker 對照**（刷新時保留 marker 行，僅替換下方表格）：
@@ -701,11 +704,10 @@ RUN_STRATEGY_PERF_SYNC=1
 | `AUTO:lxh-matrix` | `research_case_copytrade` |
 | `AUTO:vcp-sweep-top25` | `research_case_vcp_funnel` |
 | `AUTO:rrg-breadth` | `research_case_rrg_mono` |
-| （對照實驗表 · 無固定 marker） | `research_case_minervini_sepa` |
 
 **待實作（P1 · 非 v1 阻塞）**：`scripts/push_site_content_md.py` · `scripts/sync_site_content_to_supabase.py`（已就緒 · 含 013 registry 欄位）— 研究產出 AUTO 表後執行推送。
 
-**勿做**：恢復 `supabase/site/` 為 SSOT；在 git 保留已刪 MD 卻不同步 Supabase（雙源漂移）。
+**勿做**：Dashboard 手改卻不同步 git；git 改 MD 卻不推 Supabase（雙源漂移）。
 
 ### 7.5 Phase C · 前端 · registry 驅動收尾
 

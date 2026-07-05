@@ -7,7 +7,7 @@ ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 STAMP="$(date '+%Y%m%d')"
 
 exec "${ROOT}/scripts/job_notify.sh" \
-  "C18acc 盤中訊號" "${1:-0}" "logs/launchd_rrg-c18acc-poll.log" RUN_RRG_C18ACC_EMAIL \
+  "C18acc 盤中訊號" "${1:-0}" "logs/intraday/launchd_rrg-c18acc-poll.log" RUN_RRG_C18ACC_EMAIL \
   "reports/daily/${STAMP}_rrg_c18acc_screen.md" \
   "reports/daily/rrg_c18acc_screen.md" \
-  "logs/rrg_c18acc_poll_tick.log"
+  "logs/intraday/rrg_c18acc_poll_tick.log"

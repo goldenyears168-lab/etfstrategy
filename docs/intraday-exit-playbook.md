@@ -1,8 +1,9 @@
-# 盤中減碼準則 · Intraday exit playbook **v2**
+# 盤中減碼準則 · Intraday exit playbook **v2.1**
 
 **層級**：Order layer（下單層）輔助規則 · 非 Strategy layer 採納規格  
 **回測依據**：72 檔宇宙 × 110 交易日（2026-01-02～06-22）· CORE4 · 持倉子集 · sync_dd3 環境日 · 6/23 真實分 K（2337/5347）· Bootstrap / beta 分離  
 **v2 變更**：全宇宙一致性回測後 **停用 S3/S4**；S2 限環境；修正預期效果區間  
+**v2.1 增訂**（2026-06-29）：補 **持倉 blind spot** — **S0 觀測**、**S1a 接線**、**holdings_stress** 組合標記、**S2-lite**（強/中檔在組合壓力下 -3% advisory）；**不改** S1b / S2 語意  
 **免責**：研究用執行框架；實盤需 dry-run、滑價與 API 限流自行驗證。
 
 ---
@@ -82,7 +83,7 @@ S2 在 v2 中**建議僅在 `sync_dd3=ON` 或 `portfolio_exit_mode=ON` 時啟用
 | **S2** | 弱檔 -3% | `tier=weak` 且 `px ≤ 昨收 × 0.97` 且（`sync_dd3=ON` **或** `portfolio_exit_mode=ON`） | 市價賣出 **100%** | **CAUTION** — 限環境 |
 | ~~**S3**~~ | ~~中性 -2%~~ | ~~`MODE=ON` 且 `tier=neutral` 且 `px ≤ 昨收 × 0.98`~~ | ~~賣 **50%**~~ | **DISABLE** — 勝率 26% |
 | ~~**S4**~~ | ~~弱檔 -2%~~ | ~~`MODE=ON` 且 `tier=weak` 且 `px ≤ 昨收 × 0.98`~~ | ~~賣 **100%**~~ | **DISABLE** — 勝率 36% |
-| **—** | 強檔 | `tier=strong` | **不主動賣**；僅 S1 | — |
+| **—** | 強檔 | `tier=strong` | **不適用 S1b/S2**；適用 **S0 / S1a / S2-lite**（§3.5） | v2.1 |
 
 **S1 適用範圍（v2）**：優先限 **持倉** 或 **CORE4**；全宇宙 72 檔套用時觸發過頻（n≈1,400）且勝率 ~42%，不建議無差別自動化。
 
@@ -110,6 +111,55 @@ S2 在 v2 中**建議僅在 `sync_dd3=ON` 或 `portfolio_exit_mode=ON` 時啟用
 - `2327`、`3264`、`5347` 的任何 -2% 路徑（v1 已禁，v2 無 S3/S4）
 - 當日已觸發賣出 ≥ **2 檔**（避免組合衝擊）
 - `ORDER_INTRADAY_EXIT_ENABLED≠1` 或 `--dry-run`
+- **S0 / S0b**：僅 advisory 寄信，**不送單**（v2.1）
+
+### 3.5 持倉增訂 · **v2.1**（S0 / S1a / holdings stress / S2-lite）
+
+> **動機**：v2 對 `tier=strong` 僅保留 S1a，實盤 6/29 持倉（3008/5536/6223 等 leading·strong 單日 -6%）無任何機械提醒。v2.1 補 **觀測層** 與 **組合壓力層**，仍維持 S1b/S2 原語意與 S3/S4 停用。
+
+#### 3.5.1 組合持倉壓力（每輪重算）
+
+```
+holdings_stress = ON  當且僅當：
+  持倉中 ≥3 檔 即時價 px ≤ 昨收 × 0.98（-2%）
+```
+
+| 欄位 | 說明 |
+|------|------|
+| `holdings_stress` | ON/OFF · 非 gate · 每 poll 重算 |
+| `holdings_stress_count` | 觸發 -2% 的持倉檔數 |
+
+#### 3.5.2 單檔規則（僅 **持倉** · 09:05 之後 · 優先序由高到低）
+
+| 優先序 | 規則 | 條件 | 動作 | 類型 |
+|--------|------|------|------|------|
+| **S1a** | VCP stop | `px ≤ vcp_stop_loss`（PIT 昨收前最新 `vcp_screen_scores_v2`） | 市價賣出 **100%** advisory | **sell** |
+| **S1b** | RRG weakening | 同 §3.3 | 同 §3.3 | **sell** |
+| **S2** | 弱檔 -3% | 同 §3.3（須 `portfolio_exit_mode=ON`） | 同 §3.3 | **sell** |
+| **S2-lite** | 組合壓力 -3% | `holdings_stress=ON` 且 `tier∈{strong,neutral}` 且 `px ≤ 昨收×0.97` 且未觸發 S1a/S1b/S2 | 市價賣出 **100%** advisory | **sell** |
+| **S0** | 持倉 -3% 觀測 | 任一 tier · `px ≤ 昨收×0.97` 且未觸發上列 sell 規則 | **寄信觀測** · 不送單 | **watch** |
+| **S0b** | 自高點回落觀測 | 盤中 high ≥ 昨收×1.01 且 `px ≤ high×0.97` 且未觸發上列 | **寄信觀測** · 不送單 | **watch** |
+
+**S2-lite 與 S2 分工**：
+
+- `tier=weak`：仍走 S1b（weakening）或 S2（lagging + gate ON）；**不走 S2-lite**。
+- `tier=strong|neutral`：gate OFF 且非 sync_dd3 時，v2 完全靜默；v2.1 在 `holdings_stress=ON` 時可觸發 **S2-lite**。
+
+**S0 與 S2-lite**：同一 poll 同一檔僅輸出 **一條**（優先序如上）；S0 覆蓋 strong 在非 stress 日的 -3% 單檔急跌（僅提醒、不建議機械全賣）。
+
+#### 3.5.3 實作對照（sell-signal-radar）
+
+| 環境變數 | 預設 | 作用 |
+|----------|------|------|
+| `SIGNAL_RADAR_STRUCTURAL_EXIT` | `1` | 總開關（S1a/S1b/S2/S2-lite/S0） |
+| `SIGNAL_RADAR_S1A_VCP` | `1` | S1a · VCP stop |
+| `SIGNAL_RADAR_HOLDINGS_STRESS` | `1` | holdings_stress 計算 + S2-lite |
+| `SIGNAL_RADAR_S0_WATCH` | `1` | S0 -3% 觀測寄信 |
+| `SIGNAL_RADAR_S0B_WATCH` | `1` | S0b 自高點 -3% 觀測 |
+
+模組：`src/order/intraday_structural_exit.py` · `scan_holdings_exit_signals()` · 併入 `strategy_signal_radar.py` 持倉 overlay。
+
+事件寫入 `order_intraday_exit_log.event`：`trigger_s1a` · `trigger_s1b` · `trigger_s2` · `trigger_s2_lite` · `watch_s0` · `watch_s0b`。
 
 ---
 
@@ -163,7 +213,7 @@ CREATE TABLE IF NOT EXISTS order_intraday_exit_log (
     trade_date      TEXT NOT NULL,
     checked_at      TEXT NOT NULL,
     stock_id        TEXT,
-    event           TEXT,            -- gate_on | gate_off | trigger_s1a | trigger_s1b | trigger_s2 | skip
+    event           TEXT,            -- gate_on | gate_off | trigger_s1a | trigger_s1b | trigger_s2 | trigger_s2_lite | watch_s0 | watch_s0b | skip
     detail_json     TEXT,
     dry_run         INTEGER DEFAULT 1
 );
@@ -213,23 +263,28 @@ ORDER_INTRADAY_EXIT_DISABLE_S4=1  # v2 預設 1
 
 - [ ] `order_holdings_snapshot` migration
 - [ ] `scripts/order/sync_holdings_snapshot.py`（富邦 → SQLite）
-- [ ] `scripts/order/intraday_exit_watch.py`（gate + S1a/S1b/S2；**S3/S4 預設關**）
+- [x] `src/order/intraday_exit_gate.py` + `intraday_structural_exit.py`（gate + v2.1 持倉規則）
+- [x] `strategy_signal_radar.py` 持倉 overlay（extension + structural）
+- [ ] `scripts/order/intraday_exit_watch.py` 統一 CLI（可選；現由 launchd 分 job）
 - [ ] launchd plist（08:50 + 09:05–13:20）
 - [ ] 至少 5 個交易日 dry-run 對照 log
 - [ ] `ORDER_INTRADAY_EXIT_ENABLED=1` 前人工複核
 
 ---
 
-## 9. 快速決策卡（v2）
+## 9. 快速決策卡（v2.1）
 
 ```
-08:50  持倉入庫 + 結構分級
-09:05  CORE4≥2檔≤-2% 且 2330≤-0.5%？ → MODE=ON/OFF
-09:06+ 破 VCP stop？ → S1a 賣100%（持倉/CORE4）
-       RRG已weakening 且 ≤-3%？ → S1b 賣100%
-       MODE=ON 或 sync_dd3 且 弱檔≤-3%？ → S2 賣100%
-       強檔？ → 不賣（除非 S1）
-       ~~中性≤-2%？~~ → v2 停用
+08:50  持倉入庫 + 結構分級 + trigger 距離（S0/S1b）
+09:06  CORE4≥2檔≤-2% 且 2330≤-0.5%？ → portfolio_exit_mode ON/OFF
+09:06+ 每 poll：holdings_stress = 持倉≥3檔≤-2%？
+       破 VCP stop？ → S1a 賣100% advisory
+       RRG weakening 且 ≤-3%？ → S1b 賣100%
+       MODE=ON 且 弱檔≤-3%？ → S2 賣100%
+       holdings_stress=ON 且 強/中≤-3%？ → S2-lite 賣100% advisory
+       任一持倉≤-3% 且未觸發 sell？ → S0 觀測寄信（不送單）
+       盤中曾+1% 後自 high -3%？ → S0b 觀測寄信
+       ~~中性/弱 -2%~~ → v2 停用（S3/S4）
        2327/3264/5347？ → 無 -2% 路徑
 ```
 
@@ -237,13 +292,8 @@ ORDER_INTRADAY_EXIT_DISABLE_S4=1  # v2 預設 1
 
 ## 10. 相關腳本
 
+> **2026-06 清理**：`stress_test_intraday_exit*.py` · `backtest_intraday_exit_universe.py` · `backtest_literature_exit_lens.py` 已刪除；若需重跑 intraday exit 研究，從 `run_rrg_mono_intraday_*` 與 `config/research.yaml` topic `rrg-mono-hold3-tactical` 重建。
+
 | 腳本 | 用途 |
 |------|------|
-| `scripts/stress_test_intraday_exit.py` | 9 項壓力測試 |
-| `scripts/stress_test_intraday_exit_phase2.py` | Bootstrap CI · beta/alpha · 6/23 驗證 |
-| `scripts/backtest_intraday_exit_universe.py` | **v2** 全宇宙分規則回測 · `--json` 輸出旗標 |
-
-```bash
-PYTHONPATH=src python3 scripts/backtest_intraday_exit_universe.py
-PYTHONPATH=src python3 scripts/backtest_intraday_exit_universe.py --json
-```
+| `scripts/run_rrg_mono_intraday_exit.py` | hold3 戰術出場回測 |

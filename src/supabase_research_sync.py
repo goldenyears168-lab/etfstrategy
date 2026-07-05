@@ -12,7 +12,12 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from market_benchmark import is_trading_date, latest_trading_date, resolve_brief_trade_date
+from market_benchmark import (
+    is_trading_date,
+    is_trading_session_day,
+    latest_trading_date,
+    resolve_brief_trade_date,
+)
 from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect
 from strategy_backtest_reference import build_backtest_reference
 from home_ui_copy import attach_brief_display_hint
@@ -217,11 +222,18 @@ def allow_scheduled_supabase_push(
     conn: sqlite3.Connection,
     *,
     scheduled: bool = True,
+    intraday: bool = False,
 ) -> bool:
-    """排程推送僅在台股交易日執行；backfill 傳 scheduled=False。"""
+    """排程推送僅在台股交易日執行；backfill 傳 scheduled=False。
+
+    intraday=True（1300 slot）：盤中 TEJ 日線尚未落庫時仍允許推送。
+    """
     if not scheduled:
         return True
-    return is_trading_date(conn, _today_tpe())
+    today = _today_tpe()
+    if intraday:
+        return is_trading_session_day(conn, today)
+    return is_trading_date(conn, today)
 
 
 def _extract_title(content: str, fallback: str) -> str:
@@ -526,7 +538,8 @@ def sync_slot(schedule_slot: str, trade_date: date | None = None) -> SyncResult:
     conn = connect()
     try:
         if trade_date is None:
-            if not allow_scheduled_supabase_push(conn):
+            intraday_slot = schedule_slot == "1300"
+            if not allow_scheduled_supabase_push(conn, intraday=intraday_slot):
                 label = f"non-trading-day ({_today_tpe().isoformat()})"
                 return SyncResult([], [label], [])
             trade_date = _default_lookup_date(conn)

@@ -56,8 +56,8 @@ Registry：`config/strategies.yaml`（`layer: facts` · `layer: regime`）
 |----|------|------|------|
 | `00981a-l1h9` | 00981A 新进/加码 跟單 · T+1 開 · 持 9 日 | `copytrade/signals` · `copytrade_backtest` | manual |
 | `rrg-mono-hold7` | RRG mono 槽位 hold7 | `rrg_mono_daily_brief` | launchd 16:40 |
+| `rrg-mono-swap-accel` | RRG C18acc · poll_5m 換倉 | `rrg_mono_swap_accel_screen` | launchd poll |
 | `vcp-pivot-gate` / `vcp-coil-close` | VCP funnel | `vcp_funnel_specs_daily` | launchd 13:00 |
-| `minervini-sepa-basket` | Stage 2 basket 回測 | `broad_momentum_tv_backtest` | ad_hoc |
 
 **SSOT**
 
@@ -71,6 +71,20 @@ Registry：`config/strategies.yaml`（`layer: facts` · `layer: regime`）
 Backtest spec 說明：[evaluation-contract.md](./evaluation-contract.md)
 
 Copytrade 採納規格：**L1H9** · [00981a-copytrade-research-methodology.md](./00981a-copytrade-research-methodology.md)
+
+---
+
+## 公開站 IA（Readdy · Supabase 為 runtime SSOT）
+
+| 層 | Runtime SSOT | Authoring |
+|----|--------------|-----------|
+| 日報 · 表一 | `stock_research.daily_briefs` | Python sync · `reports/daily/` |
+| 策略 registry · 靜態頁 | `stock_research.site_content` | git `supabase/site/*.md` → `resync_readdy_ui_copy.sh --site-only` |
+| 績效列 | `stock_research.strategy_performance_yearly` | `scripts/sync_strategy_performance.py` |
+
+**Canonical nav**：`/` · `/briefs` · `/strategies` · `/about` — 詳見 [readdy-regime-strategy-lineage.md §1.3](./readdy-regime-strategy-lineage.md)。
+
+**勿作主 nav**：獨立 Research 層 · `/pages/strategy_catalog`（→ `/strategies#…`）。
 
 ---
 

@@ -1,7 +1,7 @@
 """RRG mono swap-accel（C18acc）· 盤中 live screen · Strategy layer（rrg-mono-swap-accel · enabled: false）。
 
 严格对齐回测：
-  · 信号层：昨收 PIT · fresh mono 全池（`build_fresh_mono_calendar` 同款）
+  · 信号层：昨收 PIT · fresh∪accel 全池（`champion_score_swap_c_config` · POOL1）
   · 执行层：1 分 K · C0 scale · 5m 格点 · poll_5m 换仓（`rrg_mono_intraday_ab` + `score_swap_c`）
 """
 
@@ -39,6 +39,7 @@ from research.backtest.rrg_mono_score_swap_c import (
     _last_va_dot,
     _pick_swap_pair,
     _trading_days_between,
+    build_pit_candidate_pool,
     candidate_shortlist_is_passthrough,
     champion_score_swap_c_config,
 )
@@ -57,15 +58,23 @@ from market_benchmark import load_benchmark_close
 from research.backtest.finpilot_local_backtest import load_price_panels
 from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect, load_etf_constituent_watchlist, upsert_stock_kbar_1m
 from stock_db.kbar import kbar_day_has_data
+from c18acc_extension_overlay import (
+    ExtensionAlert,
+    append_overlay_log,
+    overlay_enabled,
+    poll_interval_for_now,
+    scan_held_extension_alerts,
+    write_overlay_snapshot,
+)
 from yahoo_chart_sync import fetch_tw_intraday_kbar_rows
 
 STATE_PATH = PROJECT_ROOT / "data" / "rrg_c18acc_slots.json"
 STATE_SCHEMA = "rrg-c18acc-slots-v1"
 INTENTS_DIR = PROJECT_ROOT / "reports" / "order" / "intents"
-TICK_LOG_PATH = PROJECT_ROOT / "logs" / "rrg_c18acc_poll_tick.log"
+TICK_LOG_PATH = PROJECT_ROOT / "logs" / "intraday" / "rrg_c18acc_poll_tick.log"
 ALIGN_MODE = "backtest_pit"
 
-ActionKind = Literal["entry", "swap", "max_hold_exit"]
+ActionKind = Literal["entry", "swap", "max_hold_exit", "extension_exit"]
 
 
 @dataclass
@@ -106,6 +115,7 @@ class ScreenResult:
     lead: str = ""
     lead_drift: str = ""
     blocker: str = ""
+    extension_alerts: list[ExtensionAlert] = field(default_factory=list)
 
 
 def _scan_row_to_dict(row: ScanRow) -> dict[str, Any]:
@@ -137,23 +147,45 @@ def _signal_date_for_session(full_dates: list[str], session: str) -> str | None:
     return prior[-1] if prior else None
 
 
+def _pool_section_title(candidate_pool: str) -> str:
+    if candidate_pool == "fresh_union_accel":
+        return "fresh∪accel 全池"
+    return "fresh mono 全池"
+
+
 def lock_pit_fresh_pool(
     conn: sqlite3.Connection,
     *,
     session: str,
     close: pd.DataFrame,
     bench: pd.Series,
+    config: ScoreSwapCConfig | None = None,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
 ) -> tuple[list[ScanRow], str, int]:
-    """昨收 PIT · fresh mono 全池（依 seg_last 排序 · 不裁 top10）。"""
+    """昨收 PIT · champion candidate pool（依 seg_last 排序 · 不裁 top10）。"""
+    cfg = config or champion_score_swap_c_config()
     full_dates = close.index.astype(str).tolist()
     signal_as_of = _signal_date_for_session(full_dates, session)
     if not signal_as_of:
         return [], "", 0
-    _all_mono, fresh_mono = scan_rows_from_panels(
+    all_mono, fresh_mono = scan_rows_from_panels(
         conn, signal_as_of, close, bench, etf_codes=etf_codes
     )
-    ranked = sorted(fresh_mono, key=lambda r: (-r.seg_last, r.stock_id))
+    if cfg.candidate_pool == "fresh":
+        ranked = sorted(fresh_mono, key=lambda r: (-r.seg_last, r.stock_id))
+        return ranked, signal_as_of, len(fresh_mono)
+    close_sig, bench_sig, rs_ratio, rs_mom, signal_dates = _signal_rrg_panels(
+        close, bench, signal_as_of
+    )
+    ranked = build_pit_candidate_pool(
+        fresh_mono=fresh_mono,
+        mono_rows=all_mono,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        full_dates=signal_dates,
+        as_of=signal_as_of,
+        config=cfg,
+    )
     return ranked, signal_as_of, len(fresh_mono)
 
 
@@ -226,6 +258,7 @@ def load_or_lock_pool(
     session: str,
     close: pd.DataFrame,
     bench: pd.Series,
+    config: ScoreSwapCConfig | None = None,
     override_ids: list[str] | None = None,
 ) -> tuple[list[ScanRow], str, int, list[str]]:
     if override_ids:
@@ -252,11 +285,19 @@ def load_or_lock_pool(
         state["pool"] = [_scan_row_to_dict(r) for r in pool]
         return pool, signal_as_of, len(pool), override_ids
 
+    had_override = bool(state.get("pool_override"))
     state.pop("pool_override", None)
+    if had_override:
+        state.pop("pool", None)
+        state.pop("pool_as_of", None)
+        state.pop("pool_fresh_n", None)
+        state.pop("pool_session", None)
     if state.get("pool_session") == session and state.get("pool"):
         rows = [_scan_row_from_dict(x) for x in state["pool"] if isinstance(x, dict)]
         return rows, str(state.get("pool_as_of") or ""), int(state.get("pool_fresh_n") or len(rows)), []
-    pool, signal_as_of, fresh_n = lock_pit_fresh_pool(conn, session=session, close=close, bench=bench)
+    pool, signal_as_of, fresh_n = lock_pit_fresh_pool(
+        conn, session=session, close=close, bench=bench, config=config
+    )
     state["pool_session"] = session
     state["pool_as_of"] = signal_as_of
     state["pool_fresh_n"] = fresh_n
@@ -268,8 +309,10 @@ def sync_watchlist_kbar(
     conn: sqlite3.Connection,
     stock_ids: list[str],
     trade_date: str,
+    *,
+    env_key: str = "C18ACC_KBAR_SYNC",
 ) -> int:
-    if not _env_flag("C18ACC_KBAR_SYNC", "1"):
+    if not _env_flag(env_key, "1"):
         return 0
     d = date.fromisoformat(trade_date)
     total = 0
@@ -692,13 +735,18 @@ def append_poll_tick_log(result: ScreenResult, *, log_path: Path | None = None) 
     lead = result.lead or "—"
     lead_drift = result.lead_drift or "—"
     blocker = result.blocker or "—"
+    ext_bits = [
+        f"{a.stock_id}:heat={a.heat_score}@{a.minute}" for a in result.extension_alerts
+    ]
+    ext_s = ";".join(ext_bits) if ext_bits else "—"
     line = (
         f"{result.polled_at} | session={result.session_date} | signal={signal} | "
         f"pool_as_of={result.pool_as_of or '—'} | minute={result.poll_minute or '—'} | "
         f"override={override_s} | pool={top_ids} | fresh_n={result.disp_universe_n} | "
         f"kbar_sync={result.kbar_sync_n} | slots={len(result.slots)}/{MAX_SLOTS} | "
-        f"swaps_today={result.swaps_today} | actions={actions_s} | skip={skip} | "
-        f"entry_gate={entry_gate} | lead={lead} | lead_drift={lead_drift} | blocker={blocker}\n"
+        f"swaps_today={result.swaps_today} | actions={actions_s} | ext_overlay={ext_s} | "
+        f"skip={skip} | entry_gate={entry_gate} | lead={lead} | lead_drift={lead_drift} | "
+        f"blocker={blocker}\n"
     )
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line)
@@ -943,6 +991,17 @@ def _apply_actions_to_state(
                     "exit_reason": "max_hold",
                 }
             )
+        elif act.kind == "extension_exit" and act.side == "sell":
+            if _env_flag("C18ACC_EXTENSION_APPLY_STATE", "0"):
+                slots = [p for p in slots if str(p["stock_id"]) != act.stock_id]
+                state.setdefault("history", []).append(
+                    {
+                        "stock_id": act.stock_id,
+                        "stock_name": act.stock_name,
+                        "exit_date": session_date,
+                        "exit_reason": "extension_overlay",
+                    }
+                )
         elif act.kind == "swap" and act.side == "sell" and act.counterparty_id:
             sell_id = act.stock_id
             buy_id = act.counterparty_id
@@ -1074,7 +1133,7 @@ def render_markdown(result: ScreenResult) -> str:
     pool_title = (
         f"## 手動候選（{result.session_date} · 信號日 {result.pool_as_of or '—'}）"
         if result.pool_override
-        else f"## fresh mono 全池（昨收 PIT · {result.pool_as_of or '—'}）"
+        else f"## {_pool_section_title(cfg.candidate_pool)}（昨收 PIT · {result.pool_as_of or '—'}）"
     )
     lines.extend([pool_title, ""])
     if not result.mono_top10:
@@ -1105,6 +1164,19 @@ def render_markdown(result: ScreenResult) -> str:
             lines.append(
                 f"| {int(p.get('slot', 0)) + 1} | {p['stock_id']} | {p.get('stock_name', '')} | "
                 f"{p.get('entry_date', '')} | {hold} |"
+            )
+    lines.append("")
+
+    lines.extend(["## Extension overlay（X4 · dry-run）", ""])
+    if not result.extension_alerts:
+        lines.append("_持倉無 heat≥70 觸發。_")
+    else:
+        lines.append("| 代號 | 時間 | 價 | heat | 區間 | ext_prev% | 備註 |")
+        lines.append("|------|------|-----|------|------|-----------|------|")
+        for a in result.extension_alerts:
+            lines.append(
+                f"| {a.stock_id} | {a.minute} | {a.price:.2f} | {a.heat_score} | "
+                f"{a.zone} | {a.ext_prev_pct:.1f} | {a.note} |"
             )
     lines.append("")
 
@@ -1206,7 +1278,13 @@ def run_screen(
     _reset_daily_counters(state, session)
     override_ids = _parse_pool_override(session)
     pool, pool_as_of, fresh_n, active_override = load_or_lock_pool(
-        state, conn, session=session, close=close, bench=bench, override_ids=override_ids
+        state,
+        conn,
+        session=session,
+        close=close,
+        bench=bench,
+        config=cfg,
+        override_ids=override_ids,
     )
     result.mono_top10 = pool
     result.pool_as_of = pool_as_of
@@ -1359,6 +1437,42 @@ def run_screen(
 
     result.actions = actions
 
+    if overlay_enabled() and slots and pool_as_of:
+        ext_interval = poll_interval_for_now(now)
+        session_dates = close.index.astype(str).tolist()
+        alerts = scan_held_extension_alerts(
+            conn,
+            slots=slots,
+            session=session,
+            poll_minute=poll_minute,
+            full_dates=session_dates,
+            min_hold_days=cfg.min_hold_days,
+            poll_interval_min=ext_interval,
+        )
+        result.extension_alerts = alerts
+        append_overlay_log(session=session, poll_minute=poll_minute, alerts=alerts)
+        write_overlay_snapshot(session=session, poll_minute=poll_minute, alerts=alerts)
+        if _env_flag("C18ACC_EXTENSION_EMIT_INTENT", "0"):
+            sold_ids = {a.stock_id for a in actions if a.side == "sell"}
+            for alert in alerts:
+                if alert.stock_id in sold_ids:
+                    continue
+                pos = next((p for p in slots if str(p["stock_id"]) == alert.stock_id), None)
+                if not pos:
+                    continue
+                act = _make_action(
+                    kind="extension_exit",
+                    row=pos,
+                    side="sell",
+                    price=alert.price,
+                    quantity_shares=_lot_shares(alert.price, budget, board_lot=board_lot),
+                    note=f"extension {alert.exit_mode} · {alert.note}",
+                )
+                if act:
+                    actions.append(act)
+                    sold_ids.add(alert.stock_id)
+            result.actions = actions
+
     new_last_poll = _fill_entry_narrative(
         result,
         state=state,
@@ -1423,9 +1537,12 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"C18acc screen: report={md_path} pool_as_of={result.pool_as_of} fresh_pool_n={len(result.mono_top10)} "
         f"minute={result.poll_minute} kbar={result.kbar_sync_n} "
-        f"actions={len(result.actions)} dry_run={result.dry_run} skip={result.skip_reason or '—'} "
-        f"tick_log={tick_log}"
+        f"actions={len(result.actions)} ext_alerts={len(result.extension_alerts)} "
+        f"dry_run={result.dry_run} skip={result.skip_reason or '—'} tick_log={tick_log}"
     )
+    if result.extension_alerts:
+        for a in result.extension_alerts:
+            print(f"EXT_OVERLAY {a.stock_id} heat={a.heat_score} @ {a.minute} px={a.price:.2f} ({a.note})")
     print(f"C18ACC_SIGNAL={signal} actions={len(result.actions)}")
     if intent_path:
         print(f"C18acc intent: {intent_path}")

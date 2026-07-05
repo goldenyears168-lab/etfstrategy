@@ -523,10 +523,12 @@ def _append_position(
     entry_leg: str,
     entry_minute: str | None,
     variant_id: str | None = None,
+    max_slots: int | None = None,
 ) -> dict[str, Any] | None:
+    slot_cap = max_slots if max_slots is not None else MAX_SLOTS
     held = {p["stock_id"] for p in state.get("slots", [])}
     used_slots = {int(p["slot"]) for p in state.get("slots", [])}
-    free_slots = [i for i in range(MAX_SLOTS) if i not in used_slots]
+    free_slots = [i for i in range(slot_cap) if i not in used_slots]
     if not free_slots or row.stock_id in held:
         return None
     exit_d = _exit_date_from_entry(conn, full_dates, entry_date, HOLD_DAYS)
@@ -574,6 +576,7 @@ def _apply_intraday_entries(
     full_rrg_cache: dict[tuple[Any, ...], list[ScanRow]] | None = None,
     entry_leg: str = "C",
     ohlcv_cache: dict[tuple[str, str], tuple[KbarBar, ...]] | None = None,
+    max_slots: int | None = None,
 ) -> list[dict[str, Any]]:
     from research.backtest.rrg_mono_expert_entry import (
         ExpertEntryMode,
@@ -589,8 +592,9 @@ def _apply_intraday_entries(
     added: list[dict[str, Any]] = []
     expert_mode: ExpertEntryMode | None = _expert_fill_mode(config)  # type: ignore[assignment]
     bars_cache = ohlcv_cache if ohlcv_cache is not None else {}
+    slot_cap = max_slots if max_slots is not None else MAX_SLOTS
     for minute in minutes:
-        if len(state.get("slots", [])) >= MAX_SLOTS:
+        if len(state.get("slots", [])) >= slot_cap:
             break
         ranked = rank_shortlist(
             shortlist,
@@ -605,7 +609,7 @@ def _apply_intraday_entries(
         )
         if not ranked:
             continue
-        top_ids = {r.stock_id for r in ranked[:MAX_SLOTS]}
+        top_ids = {r.stock_id for r in ranked[:slot_cap]}
         for sid in list(confirm.keys()):
             if sid not in top_ids:
                 confirm[sid] = 0
@@ -617,7 +621,7 @@ def _apply_intraday_entries(
             if confirm[sid] >= config.confirm_bars and sid not in confirm_ready_at:
                 confirm_ready_at[sid] = minute
         for row in ranked:
-            if len(state.get("slots", [])) >= MAX_SLOTS:
+            if len(state.get("slots", [])) >= slot_cap:
                 break
             sid = row.stock_id
             if sid in {p["stock_id"] for p in state.get("slots", [])}:
@@ -663,6 +667,7 @@ def _apply_intraday_entries(
                 entry_leg=entry_leg,
                 entry_minute=entry_minute,
                 variant_id=config.variant_id,
+                max_slots=slot_cap,
             )
             if pos:
                 if expert_mode is not None:

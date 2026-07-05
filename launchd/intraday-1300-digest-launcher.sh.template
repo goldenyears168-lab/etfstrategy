@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝 · 13:02 盤中研究合併摘要（VCP + RRG mono）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+EXIT=1
+
+mkdir -p "${ROOT}/logs"
+
+WD="$(date '+%u')"
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+
+echo ""
+echo "=== launchd intraday-1300-digest 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+PYTHON="${ROOT}/.venv/bin/python"
+
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/run_intraday_1300_digest.py" \
+  --write --notify --require-reports 2>&1)"
+EXIT=$?
+set -e
+echo "${OUT}"
+
+echo "=== launchd intraday-1300-digest 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+exit "${EXIT}"

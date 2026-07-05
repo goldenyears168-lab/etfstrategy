@@ -71,10 +71,17 @@ def send_job_result(
     subject = f"[ETF研究] {subject_prefix} · {status}"
     log_tail = ""
     path = Path(log_path)
-    if path.is_file():
+    if path.is_file() and os.environ.get("JOB_NOTIFY_LOG_TAIL", "1").strip() not in (
+        "0",
+        "false",
+        "False",
+    ):
         text = path.read_text(encoding="utf-8", errors="replace")
         log_tail = text[-4000:] if len(text) > 4000 else text
-    body = f"{subject_prefix} {status}\n\n{extra.strip()}\n\n--- log tail ---\n{log_tail}".strip()
+    body_parts = [f"{subject_prefix} {status}", extra.strip()]
+    if log_tail:
+        body_parts.extend(["", "--- log tail ---", log_tail])
+    body = "\n\n".join(p for p in body_parts if p).strip()
     if _env("NOTIFY_WEBHOOK_URL"):
         _webhook_send(subject, body, success=success)
     else:

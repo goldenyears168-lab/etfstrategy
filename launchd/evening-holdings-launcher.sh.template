@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 背景執行收盤持股雷達（不 exec Documents 內腳本 · 避免 TCC EPERM）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd evening-holdings 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+export SYNC_PROFILE="evening-holdings"
+export RUN_STOCK_DAILY_LENS="${RUN_STOCK_DAILY_LENS:-1}"
+export RUN_SUPABASE_LENS_SYNC="${RUN_SUPABASE_LENS_SYNC:-1}"
+export RUN_SCREENER_DATA_SYNC="${RUN_SCREENER_DATA_SYNC:-1}"
+
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+"${PYTHON}" "${ROOT}/scripts/run_daily_sync.py" --holdings-only --holdings-report --quiet
+EXIT=$?
+set -e
+
+echo "=== launchd evening-holdings daily_sync exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${RUN_SUPABASE_RESEARCH_SYNC:-0}" == "1" || "${RUN_SUPABASE_LENS_SYNC:-1}" == "1" ]]; then
+  if [[ -x "${PYTHON}" ]]; then
+    echo "--- Supabase 健康檢查 ---"
+    set +e
+    PYTHONPATH="${ROOT}/src" "${PYTHON}" "${ROOT}/scripts/supabase_health_check.py" --notify
+    HEALTH_EXIT=$?
+    set -e
+    if [[ "${HEALTH_EXIT}" -ne 0 ]]; then
+      echo "WARN: Supabase 健康檢查 FAIL（exit=${HEALTH_EXIT}）"
+      EXIT="${HEALTH_EXIT}"
+    else
+      echo "OK: Supabase 健康檢查"
+    fi
+  fi
+fi
+
+echo "=== launchd evening-holdings 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ -x "${PYTHON}" ]]; then
+  STAMP="$(date '+%Y%m%d')"
+  EXTRA=""
+  for rel in \
+    "reports/daily/${STAMP}_etf_daily.md" \
+    "reports/daily/etf-daily/daily_brief.md" \
+    "reports/daily/regime/daily_brief.md"
+  do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="ETF 日報" \
+    --exit-code="${EXIT}" \
+    --log-path="${ROOT}/logs/daily_sync_${STAMP}.log" \
+    --extra="${EXTRA}" \
+    --env-flag="RUN_EVENING_HOLDINGS_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

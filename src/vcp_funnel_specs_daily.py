@@ -441,6 +441,8 @@ def write_spec_briefs(
     spec_keys: tuple[str, ...] = ("pivot_gate", "coil_close"),
     intraday: bool = False,
     etf_codes: tuple[str, ...] | None = None,
+    intraday_evals: list[VcpFunnelEval] | None = None,
+    intraday_meta: dict[str, Any] | None = None,
 ) -> list[Path]:
     ref = as_of_date or date.today().isoformat()
     stamp = ref.replace("-", "")
@@ -448,9 +450,7 @@ def write_spec_briefs(
     written: list[Path] = []
     sections: list[str] = []
     slug_map = {"pivot_gate": "vcp_pivot_gate", "coil_close": "vcp_coil_close"}
-    intraday_evals: list[VcpFunnelEval] | None = None
-    intraday_meta: dict[str, Any] | None = None
-    if intraday:
+    if intraday and (intraday_evals is None or intraday_meta is None):
         intraday_evals, intraday_meta = run_intraday_funnel_screen(
             conn, ref, etf_codes=etf_codes, persist=False
         )

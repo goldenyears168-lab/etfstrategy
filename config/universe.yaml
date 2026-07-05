@@ -1,0 +1,27 @@
+# Universe SSOT · Research OS ML path vs copytrade/VCP watchlist
+# etf_watchlist = existing load_etf_constituent_watchlist (unchanged for radar/VCP)
+# tw100 = FinMind TaiwanStockMarketValue top-N by market cap (separate ML universe)
+
+version: universe-v1
+
+universes:
+  etf_watchlist:
+    description: ETF holdings union + supplemental (copytrade · VCP · radar)
+    loader: etf_watchlist
+
+  tw100:
+    description: TW top stocks by market cap (FinMind TaiwanStockMarketValue)
+    loader: finmind_market_value
+    rank_limit: 100
+    stock_id_pattern: "^\\d{4}$"
+    source: finmind
+    # Listed ETFs in market-cap rank (exclude from ML universe; qlib-tw-trader convention)
+    exclude_stock_ids: ["0050", "0056"]
+    # Reject corrupt partial snapshots (weekend refresh accidents)
+    min_constituent_count: 95
+    # Research backfill SSOT · walk-forward 504+100 needs ≥611 bars/stock
+    research_backfill_start: "2015-01-01"
+    research_snapshot_date: "2026-06-26"
+    # Official index members outside rank cutoff (e.g. 2834 ≈ rank 101 on 2026-06-26)
+    extra_stock_ids: ["2834"]
+    default_lookback_days: 400

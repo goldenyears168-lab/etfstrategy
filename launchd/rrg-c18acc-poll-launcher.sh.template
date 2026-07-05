@@ -7,32 +7,39 @@ set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 EXIT=0
 
-mkdir -p "${ROOT}/logs"
-
-echo ""
-echo "=== launchd rrg-c18acc-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+mkdir -p "${ROOT}/logs/intraday"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))
 M=$((10#$(date '+%M')))
 if [[ "${WD}" -gt 5 ]]; then
-  echo "skip: weekend"
   exit 0
 fi
 if [[ "${H}" -lt 9 ]] || [[ "${H}" -gt 13 ]] || { [[ "${H}" -eq 13 ]] && [[ "${M}" -gt 30 ]]; }; then
-  echo "skip: outside 09:00–13:30"
   exit 0
 fi
+
+echo ""
+echo "=== launchd rrg-c18acc-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
 export RUN_RRG_C18ACC_SCREEN="${RUN_RRG_C18ACC_SCREEN:-1}"
 export ORDER_C18ACC_DRY_RUN="${ORDER_C18ACC_DRY_RUN:-1}"
-export ORDER_C18ACC_APPLY_STATE="${ORDER_C18ACC_APPLY_STATE:-1}"
+export ORDER_C18ACC_APPLY_STATE="${ORDER_C18ACC_APPLY_STATE:-0}"
 export C18ACC_KBAR_SYNC="${C18ACC_KBAR_SYNC:-1}"
-export RUN_RRG_C18ACC_EMAIL="${RUN_RRG_C18ACC_EMAIL:-1}"
-export C18ACC_POOL_OVERRIDE="${C18ACC_POOL_OVERRIDE:-3711,6488,2344,3008}"
-export C18ACC_POOL_OVERRIDE_DATE="${C18ACC_POOL_OVERRIDE_DATE:-$(date +%Y-%m-%d)}"
+export RUN_RRG_C18ACC_EMAIL="${RUN_RRG_C18ACC_EMAIL:-0}"
+export RUN_C18ACC_EXTENSION_OVERLAY="${RUN_C18ACC_EXTENSION_OVERLAY:-0}"
+export C18ACC_EXTENSION_MODE="${C18ACC_EXTENSION_MODE:-combo_spike}"
+export C18ACC_EXTENSION_MIN_SPIKE_PCT="${C18ACC_EXTENSION_MIN_SPIKE_PCT:-4}"
+export C18ACC_EXTENSION_MIN_FADE_PCT="${C18ACC_EXTENSION_MIN_FADE_PCT:-1.0}"
+export C18ACC_EXTENSION_POLL_MIN="${C18ACC_EXTENSION_POLL_MIN:-1}"
+export C18ACC_EXTENSION_WATCH_HEAT="${C18ACC_EXTENSION_WATCH_HEAT:-70}"
+export C18ACC_EXTENSION_HEAT="${C18ACC_EXTENSION_HEAT:-70}"
+export C18ACC_EXTENSION_DRY_RUN="${C18ACC_EXTENSION_DRY_RUN:-1}"
+export C18ACC_EXTENSION_EMIT_INTENT="${C18ACC_EXTENSION_EMIT_INTENT:-0}"
+export C18ACC_EXTENSION_APPLY_STATE="${C18ACC_EXTENSION_APPLY_STATE:-0}"
+# 候選池：昨收 PIT fresh mono 全池（僅 .env 設 C18ACC_POOL_OVERRIDE 時才用手動名單）
 
 PYTHON="${ROOT}/.venv/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then
@@ -50,11 +57,11 @@ if echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
   EXTRA_LINES="$(echo "${OUT}" | grep -E 'C18acc (screen|intent)|C18ACC_SIGNAL' || true)"
   STAMP="$(date '+%Y%m%d')"
   EXTRA="${JOB_NOTIFY_EXTRA:-$'本輪觸發動作（dry-run intent）\n'"${EXTRA_LINES}"$'\n'}"
-  LAUNCHD_LOG="${ROOT}/logs/launchd_rrg-c18acc-poll.log"
+  LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
   for rel in \
     "reports/daily/${STAMP}_rrg_c18acc_screen.md" \
     "reports/daily/rrg_c18acc_screen.md" \
-    "logs/rrg_c18acc_poll_tick.log"; do
+    "logs/intraday/rrg_c18acc_poll_tick.log"; do
     [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
   done
   set +e

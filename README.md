@@ -1,61 +1,26 @@
-# ETF Holdings Research · Parallel Alpha Tracks
+# 股票研究 · 台股量化交易 Research OS
 
-台股 ETF 持股研究 · 本地 **SQLite**（`data/stocks.db`）+ market data ingest + **Facts / Regime daily** + 並行 strategy 研究。
+台股量化交易研究系統：本地 **SQLite**（`data/stocks.db`）+ market data ingest + **多軌並行 alpha 策略**（RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等）+ **Facts / Regime daily** 每日診斷 + 唯讀公開研究站（**Readdy + Supabase**）。
 
-架構：[docs/architecture.md](docs/architecture.md) · 術語：[docs/terminology.md](docs/terminology.md) · 營運：[docs/daily-operations.md](docs/daily-operations.md)
+> 專案起源自 ETF 持股追蹤（Phase 0），現行 **ETF 持股變化只是其中一項資料來源與訊號**（`etf-daily` Facts 層 + `00981a-l1h9` 跟單訊號），並非整個系統的核心；核心是個股層級的多軌策略研究。
 
-> **免責**：產出僅供個人研究，不構成投資建議。
+> **免責**：產出僅供個人研究，不構成投資建議。公開站僅唯讀展示，不進行下單。
 
-## Glossary
+---
 
-| Canonical term | 說明 |
-|----------------|------|
-| **Parallel alpha tracks** | 多軌並行 · no ensemble · 各層 VFP 見 [terminology.md](docs/terminology.md) §1.1 |
-| **Facts layer** | 持股 diff 事實 · `etf-daily` · 不選股不評分 |
-| **Regime layer** | 四軸 market diagnostic · 非 alpha |
-| **Research layer** | 探索主題 · sweep · `config/research.yaml` |
-| **Strategy layer** | 採納規格 · screen / backtest · `config/strategy.yaml` |
+## 從這裡開始
 
-清障清單：[docs/terminology-audit.md](docs/terminology-audit.md)
+| 想知道 | 看這份 |
+|--------|--------|
+| 完整產品範圍、資料層、策略清單、非目標 | [docs/PRD.md](docs/PRD.md) |
+| 系統架構、分層、公開站 IA | [docs/architecture.md](docs/architecture.md) |
+| 每日排程、launchd、Supabase sync SOP | [docs/daily-operations.md](docs/daily-operations.md) |
+| 術語規範（中英對照 SSOT） | [docs/terminology.md](docs/terminology.md) |
+| `src/` 模組分層（L0–L5） | [docs/src-map.md](docs/src-map.md) |
+| LLM / agent 任務導航 | [docs/agent-brief.md](docs/agent-brief.md) |
+| 所有文件完整索引 | [docs/README.md](docs/README.md) |
 
-## Architecture
-
-```mermaid
-flowchart TB
-  subgraph dataLayer [Ingest]
-    DB["stocks.db"]
-  end
-  subgraph dailyClose [FactsAndRegime]
-    ETF["etf-daily"]
-    REG["regime-daily"]
-  end
-  subgraph strategy [StrategyLayer]
-    L1H9["00981a-l1h9"]
-    RRG["rrg-mono-hold7"]
-  end
-  DB --> ETF & REG
-  DB --> L1H9 & RRG
-```
-
-| Layer | 設定 · 模組 |
-|-------|-------------|
-| Data | `sync_*` → `stocks.db` |
-| Facts / Regime | `config/strategies.yaml` · `etf_daily_report` · `regime_daily_brief` |
-| Strategy | [`config/strategy.yaml`](config/strategy.yaml) · copytrade / VCP / RRG launchd |
-| Research | [`config/research.yaml`](config/research.yaml) · sweep / 矩陣 |
-| Ex-post | 手動回測 JSON · [evaluation-contract.md](docs/evaluation-contract.md) |
-| Execution | Out of scope |
-
-模組分層：[docs/src-map.md](docs/src-map.md)
-
-## Backtest（手動 · `strategy.yaml`）
-
-| 入口 | 內容 |
-|------|------|
-| [`config/strategy.yaml`](config/strategy.yaml) → `strategies.*.backtest` | 採納規格 · JSON 路徑 |
-| [`config/research.yaml`](config/research.yaml) → `topics.*` | 探索 sweep · 矩陣 |
-| `scripts/run_factor_validation.py` | VCP 因子 IC 檢定（可選） |
-| `scripts/write_copytrade_slot_summary.py` | L1H9 slot JSON 匯出 |
+---
 
 ## Quick start
 
@@ -68,14 +33,13 @@ cp .env.example .env
 scripts/1630收盤雷達.command
 ```
 
-## Daily reading
+---
+
+## 每日先看這兩份
 
 | 檔案 | 內容 |
 |------|------|
 | [`reports/daily/etf-daily/daily_brief.md`](reports/daily/etf-daily/daily_brief.md) | **Facts** · 各檔 ETF 持股變化 |
 | [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場環境 |
-| `reports/daily/vcp_funnel_specs_daily_brief.md` | VCP Pivot Gate + Coil Close（13:00 盤中 · 16:30 收盤覆寫） |
-| `reports/daily/rrg_mono_daily.md` | RRG mono 收盤確認（**16:30 daily_sync**） |
-| [`reports/research/00981a-copytrade/`](reports/research/00981a-copytrade/) | L1H9 跟單回測（手動） |
 
-SOP：[docs/daily-operations.md](docs/daily-operations.md)（含 **slim/full profile** · registry gate）· 產品範圍：[docs/PRD.md](docs/PRD.md)
+其餘策略軌（VCP、RRG mono、Minervini SEPA、buy/sell signal radar…）的 daily brief 清單與排程時間，見 [docs/PRD.md](docs/PRD.md) 與 [docs/daily-operations.md](docs/daily-operations.md)。

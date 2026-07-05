@@ -25,7 +25,6 @@
 | `run_copytrade_l1h9_daily_brief.py` | `00981a-l1h9` · 收盤訊號篩選 |
 | `backfill_vcp_funnel_screen.py` | DB backfill |
 | `run_rrg_mono_daily_brief.py` | `rrg-mono-hold7` |
-| `run_factor_validation.py` | 週末可選 |
 | `import_etfedge_holdings.py` | ETFEdge 持股 |
 | `notify_job_result.py` | 通知 helper |
 

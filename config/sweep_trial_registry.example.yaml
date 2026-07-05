@@ -1,0 +1,86 @@
+# Trial registry schema · SSOT for research/sweep_runner.py
+# Taxonomy: topic → trial_family → trial → run
+
+version: sweep-trial-registry-v2
+
+# Each run JSON (reports/research/{topic}/trials/{family}/{run_id}.json)
+run_record:
+  required:
+    - run_id
+    - topic_id
+    - family_id
+    - trial_id
+    - status          # pending | pass | fail | error
+    - variant_params
+    - metrics
+    - gate_results
+    - config_hash
+    - created_at
+  optional:
+    - artifact_path
+    - hypothesis_ids
+    - notes
+
+# Family index (_index.json)
+family_index:
+  required:
+    - topic_id
+    - family_id
+    - run_count
+    - runs
+    - updated_at
+  optional:
+    - sweep_meta
+
+# Structured gate rules (hypothesis gate_rules or sweep pass_threshold)
+gate_rules:
+  optional_keys:
+    - min_oos_n
+    - min_oos_avg_net_pct
+    - min_mean_excess_pct
+    - min_delta_vs_baseline_pp
+    - min_bootstrap_ci95_lo
+    - min_win_rate_delta_pp
+    - max_n_reduction_ratio
+
+# Topic artifacts (config/research.yaml topics.*.artifacts)
+topic_artifacts:
+  optional_keys:
+    - rejection_registry
+    - hypothesis_results
+    - initial_backtest
+    - catalog_sweep
+    - next_steps
+
+# IS/OOS split SSOT: config/research_splits.yaml
+split_spec_ref: config/research_splits.yaml
+
+# Example run
+example:
+  run_id: lens-alpha-sweep-001-a1b2c3d4
+  topic_id: rrg-lens-score-swap
+  family_id: alpha-sweep
+  trial_id: alpha-sweep:a1b2c3d4
+  status: pass
+  variant_params:
+    alpha: 0.75
+    max_slots: 3
+    candidate_gate: mono_tier2
+  metrics:
+    mean_excess_pct: 7.52
+    win_rate_vs_bench_pct: 58.3
+    n_periods: 142
+    n_oos: 42
+  gate_results:
+    G2_oos_holdout: passed
+  config_hash: a1b2c3d4e5f67890
+  hypothesis_ids: [H-A1]
+  created_at: "2026-06-25T16:30:00+08:00"
+
+# Example family sweep_meta
+example_sweep_meta:
+  preregistered: true
+  param_grid_size: 24
+  n_comparisons: 24
+  split_spec: default_is_oos
+  fdr_alpha: 0.05

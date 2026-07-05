@@ -33,7 +33,7 @@ for arg in "$@"; do
     --quiet) EXTRA+=(--quiet) ;;
     --max-stocks=*) EXTRA+=("$arg") ;;
     --help|-h)
-      echo "Usage: $0 [--report] [--only=etf-bars,stock-market,chip] [--calendar-days=730] [--chunk-days=90] [--quiet]"
+      echo "Usage: $0 [--report] [--only=etf-bars,stock-market,chip,shareholding,dividend,futures-inst,market-value,technical] [--calendar-days=730] [--chunk-days=90] [--universe=tw100|etf_watchlist|both] [--start-date=YYYY-MM-DD] [--quiet]"
       exit 0
       ;;
     * )

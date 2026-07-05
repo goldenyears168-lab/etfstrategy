@@ -11,9 +11,9 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from research.backtest.broad_momentum_tv_backtest import run_all_broad_momentum_backtests
 from research.backtest.chunge_funnel_backtest import VCP_COIL_CLOSE, VCP_PIVOT_GATE, run_chunge_slot_backtest
 from research.backtest.copytrade_backtest import simulate_fixed_slots
+from backtest_standard_config import comparison_notional_ntd
 from research.backtest.finpilot_local_backtest import load_price_panels
 from research.backtest.rrg_mono_backtest import run_breadth_zone_comparison
 from research.backtest.slot_backtest_summary import SlotBacktestConfig
@@ -37,7 +37,6 @@ _ADOPTED_STRATEGY_IDS = (
     "rrg-mono-swap-accel",
     "vcp-pivot-gate",
     "vcp-coil-close",
-    "minervini-sepa-basket",
 )
 
 
@@ -108,7 +107,7 @@ def _copytrade_rows(conn: sqlite3.Connection, full_dates: list[str]) -> list[Str
         dict(d) for d in load_copytrade_signal_days_for_run(conn, str(run["run_id"]))
     ]
     complete = [d for d in signal_days if str(d.get("status") or "") == "complete"]
-    capital = 90_000.0
+    capital = comparison_notional_ntd()
     rows: list[StrategyPerformanceRow] = []
 
     for year_label, (ds, de) in YEAR_WINDOWS.items():
@@ -228,7 +227,7 @@ def _vcp_rows(conn: sqlite3.Connection, *, strategy_id: str, cfg_dict: dict) -> 
     return _slot_strategy_rows(
         conn,
         strategy_id=strategy_id,
-        capital_ntd=50_000.0,
+        capital_ntd=comparison_notional_ntd(),
         n_slots=int(cfg_dict.get("n_slots") or 5),
         hold_days=int(cfg_dict.get("hold_days") or 20),
         run_fn=_run,
@@ -275,43 +274,6 @@ def _swap_accel_run(
     return {"periods": periods, "summary": summary}
 
 
-def _minervini_rows(conn: sqlite3.Connection) -> list[StrategyPerformanceRow]:
-    rows: list[StrategyPerformanceRow] = []
-    for year_label, (ds, de) in YEAR_WINDOWS.items():
-        summary, _, _ = run_all_broad_momentum_backtests(conn, start_date=ds, end_date=de)
-        row = summary[summary["strategy"].str.contains("Minervini", na=False)].iloc[0]
-        rows.append(
-            StrategyPerformanceRow(
-                strategy_id="minervini-sepa-basket",
-                year_label=year_label,
-                window_start=ds,
-                window_end=de,
-                capital_ntd=0.0,
-                n_slots=None,
-                hold_days=None,
-                total_return_pct=_round_opt(float(row["total_return_pct"])) or 0.0,
-                cagr_pct=_round_opt(float(row["cagr_pct"])),
-                win_rate_vs_bench_pct=_round_opt(
-                    float(row["beat_bench_days"]) / float(row["trading_days"]) * 100.0,
-                    2,
-                ),
-                sharpe_ratio=_round_opt(float(row["sharpe"]), 2),
-                mean_excess_pct=_round_opt(float(row["excess_return_pct"])),
-                n_periods=int(row["trading_days"]),
-                partial_year=year_label == "2026",
-                metrics_json=json.dumps(
-                    {
-                        "excess_kind": "interval",
-                        "trading_days": int(row["trading_days"]),
-                        "max_drawdown_pct": float(row["max_drawdown_pct"]),
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-        )
-    return rows
-
-
 def compute_strategy_performance_yearly(
     conn: sqlite3.Connection | None = None,
 ) -> list[StrategyPerformanceRow]:
@@ -326,6 +288,7 @@ def compute_strategy_performance_yearly(
     now = datetime.now(_TPE).isoformat(timespec="seconds")
     rows: list[StrategyPerformanceRow] = []
 
+    notional = comparison_notional_ntd()
     rows.extend(_copytrade_rows(conn, full_dates))
 
     def _rrg_run(c: sqlite3.Connection, *, date_start: str, date_end: str) -> dict:
@@ -336,7 +299,7 @@ def compute_strategy_performance_yearly(
         _slot_strategy_rows(
             conn,
             strategy_id="rrg-mono-hold7",
-            capital_ntd=50_000.0,
+            capital_ntd=notional,
             n_slots=3,
             hold_days=7,
             run_fn=_rrg_run,
@@ -346,7 +309,7 @@ def compute_strategy_performance_yearly(
         _slot_strategy_rows(
             conn,
             strategy_id="rrg-mono-swap-accel",
-            capital_ntd=60_000.0,
+            capital_ntd=notional,
             n_slots=3,
             hold_days=10,
             run_fn=_swap_accel_run,
@@ -354,7 +317,6 @@ def compute_strategy_performance_yearly(
     )
     rows.extend(_vcp_rows(conn, strategy_id="vcp-pivot-gate", cfg_dict=dict(VCP_PIVOT_GATE)))
     rows.extend(_vcp_rows(conn, strategy_id="vcp-coil-close", cfg_dict=dict(VCP_COIL_CLOSE)))
-    rows.extend(_minervini_rows(conn))
 
     adopted = set(_ADOPTED_STRATEGY_IDS)
     missing = adopted - {r.strategy_id for r in rows}

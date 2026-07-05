@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         conn.close()
 
     if not summary:
-        print("No copytrade_runs row found — run run_00981a_copytrade_backtest.py first", file=sys.stderr)
+        print("No copytrade_runs row found — run copytrade_backtest first", file=sys.stderr)
         return 1
 
     payload = build_summary_payload(

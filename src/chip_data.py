@@ -122,19 +122,19 @@ def parse_daytrade_rows(stock_id: str, raw: list[dict]) -> list[dict]:
         if not trade_date:
             continue
         dt_vol = _float_or_none(
-            item.get("BuyAfterSale")
-            or item.get("buy_after_sale")
-            or item.get("DayTradingVolume")
-            or item.get("day_trading_volume")
+            item.get("DayTradingVolume") or item.get("day_trading_volume")
         )
         total = _float_or_none(
-            item.get("Volume")
-            or item.get("volume")
-            or item.get("Trading_Volume")
+            item.get("Volume") or item.get("volume") or item.get("Trading_Volume")
         )
+        buy_amt = _float_or_none(item.get("BuyAmount") or item.get("buy_amount"))
+        sell_amt = _float_or_none(item.get("SellAmount") or item.get("sell_amount"))
         ratio = None
-        if dt_vol is not None and total and total > 0:
-            ratio = round(dt_vol / total * 100.0, 2)
+        if buy_amt is not None and sell_amt is not None and max(buy_amt, sell_amt) > 0:
+            ratio = round(min(buy_amt, sell_amt) / max(buy_amt, sell_amt) * 100.0, 2)
+        flag = str(item.get("BuyAfterSale") or item.get("buy_after_sale") or "").strip().upper()
+        if ratio is None and flag == "Y":
+            ratio = 100.0
         rows.append(
             {
                 "stock_id": stock_id,

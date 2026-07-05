@@ -105,11 +105,24 @@ else
   log_line "SKIP: Sponsor 分點/鉅額（RUN_SPONSOR_CHIP_SYNC=0）"
 fi
 
-if [[ "${RUN_FACTOR_VALIDATION:-0}" == "1" ]]; then
-  run_step "factor validation (alphalens-style)" \
-    "$PYTHON" "${ROOT}/scripts/run_factor_validation.py" --write-reports --quiet
+if [[ "${RUN_SCREENER_DATA_SYNC:-0}" == "1" ]]; then
+  run_step "screener shareholding (30d)" \
+    "$PYTHON" "${SRC}/sync_stock_shareholding_daily.py" \
+    --sync-db --lookback-days 30 --universe both --quiet
+  run_step "screener dividend (30d)" \
+    "$PYTHON" "${SRC}/sync_fundamentals.py" \
+    --sync-db --dividend-only --lookback-days 800 --universe both --quiet
+  run_step "screener market value (30d)" \
+    "$PYTHON" "${SRC}/sync_stock_market_value_daily.py" \
+    --sync-db --lookback-days 30 --universe both --quiet
+  run_step "screener futures institutional (14d)" \
+    "$PYTHON" "${SRC}/sync_futures_institutional_daily.py" \
+    --sync-db --lookback-days 14 --quiet
+  run_step "screener technical (30d bars)" \
+    "$PYTHON" "${SRC}/sync_stock_technical_daily.py" \
+    --sync-db --lookback-days 30 --universe both --quiet
 else
-  log_line "SKIP: factor validation（RUN_FACTOR_VALIDATION=0）"
+  log_line "SKIP: screener data（RUN_SCREENER_DATA_SYNC=0）"
 fi
 
 if [[ "$WEEKLY_REPORT" -eq 1 ]]; then

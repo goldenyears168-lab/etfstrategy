@@ -1,4 +1,4 @@
-"""stock_context / trade_levels 單元測試。"""
+"""stock_context 單元測試。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from market_labels import (
 )
 from stock_context import classify_chip_resonance, classify_volume, compute_technical
 from stock_db import connect
-from research.archive.trade_levels import TradeLevel
 
 
 class TestClassify(unittest.TestCase):
@@ -70,15 +69,6 @@ class TestTechnical(unittest.TestCase):
             self.assertIsNotNone(tech.dist_ma20_pct)
             self.assertIsNotNone(tech.vol_ratio_5d)
             conn.close()
-
-
-class TestTradeLevels(unittest.TestCase):
-    def test_rr(self) -> None:
-        lv = TradeLevel("2330", 1000, 970, 1100)
-        self.assertTrue(lv.valid)
-        self.assertAlmostEqual(lv.risk_pct, 3.0)
-        self.assertAlmostEqual(lv.reward_pct, 10.0)
-        self.assertAlmostEqual(lv.risk_reward, 10 / 3, places=1)
 
 
 if __name__ == "__main__":

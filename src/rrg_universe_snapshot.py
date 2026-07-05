@@ -33,6 +33,7 @@ from stock_db import (
 )
 
 ScreenKind = Literal["intraday", "close"]
+IntradayPriceMode = Literal["tick", "kbar"]
 
 
 def _close_bars_ready(conn: sqlite3.Connection, as_of: str, *, min_bars: int = 50) -> bool:
@@ -50,6 +51,91 @@ def _close_bars_ready(conn: sqlite3.Connection, as_of: str, *, min_bars: int = 5
 def _intraday_data_baseline(conn: sqlite3.Connection, session_date: str) -> str:
     prev = latest_trading_date(conn, on_or_before=session_date)
     return prev or session_date
+
+
+def _minute_sql(poll_minute: str) -> str:
+    m = poll_minute.strip()
+    if len(m) == 5:
+        return f"{m}:00"
+    return m
+
+
+def kbar_close_at_minute(
+    conn: sqlite3.Connection,
+    stock_id: str,
+    trade_date: str,
+    poll_minute: str,
+) -> float | None:
+    """Latest 1m close at or before poll_minute on trade_date."""
+    row = conn.execute(
+        """
+        SELECT close FROM stock_kbar_1m
+        WHERE stock_id = ? AND trade_date = ? AND minute <= ?
+        ORDER BY minute DESC LIMIT 1
+        """,
+        (stock_id, trade_date, _minute_sql(poll_minute)),
+    ).fetchone()
+    if row and row[0] is not None:
+        return float(row[0])
+    return None
+
+
+def _intraday_stock_prices(
+    conn: sqlite3.Connection,
+    universe: list[str],
+    session_date: str,
+    poll_minute: str,
+    *,
+    price_mode: IntradayPriceMode,
+) -> tuple[dict[str, float], dict[str, bool], int, int]:
+    """Return (prices, kbar_ok_by_id, kbar_n, tick_fallback_n)."""
+    prices: dict[str, float] = {}
+    kbar_ok: dict[str, bool] = {}
+    kbar_n = 0
+    if price_mode == "kbar":
+        for sid in universe:
+            px = kbar_close_at_minute(conn, sid, session_date, poll_minute)
+            if px is not None and px > 0:
+                prices[sid] = px
+                kbar_ok[sid] = True
+                kbar_n += 1
+    missing = [s for s in universe if s not in prices]
+    tick_fallback_n = 0
+    if missing:
+        tick_rows, _ = fetch_tick_snapshots(missing)
+        tick_map = _tick_map(tick_rows or [])
+        for sid in missing:
+            if sid in tick_map:
+                prices[sid] = tick_map[sid]
+                kbar_ok[sid] = False
+                tick_fallback_n += 1
+    if price_mode == "tick":
+        tick_rows, _ = fetch_tick_snapshots(universe)
+        tick_map = _tick_map(tick_rows or [])
+        prices = dict(tick_map)
+        kbar_ok = {sid: False for sid in prices}
+        tick_fallback_n = len(prices)
+    return prices, kbar_ok, kbar_n, tick_fallback_n
+
+
+def _intraday_benchmark_price(
+    conn: sqlite3.Connection,
+    session_date: str,
+    poll_minute: str,
+    *,
+    price_mode: IntradayPriceMode,
+) -> float | None:
+    if price_mode == "kbar":
+        for bid in BENCH_TICK_IDS:
+            px = kbar_close_at_minute(conn, bid, session_date, poll_minute)
+            if px is not None and px > 0:
+                return px
+    bench_rows, _ = fetch_tick_snapshots(list(BENCH_TICK_IDS))
+    bench_ticks = _tick_map(bench_rows or [])
+    for bid in BENCH_TICK_IDS:
+        if bid in bench_ticks:
+            return bench_ticks[bid]
+    return None
 
 
 def build_universe_rows_from_panels(
@@ -150,8 +236,14 @@ def run_intraday_universe_snapshot(
     *,
     session_date: str | None = None,
     etf_codes: tuple[str, ...] | None = None,
-) -> tuple[int, str, int]:
-    """盤中 tick + provisional close → SQLite（screen_kind=intraday）。"""
+    poll_minute: str | None = None,
+    price_mode: IntradayPriceMode = "tick",
+) -> tuple[int, str, int, int]:
+    """盤中 provisional close → SQLite（screen_kind=intraday）。
+
+    price_mode=kbar：以 poll_minute 的 1m K 收盤代入；缺 K 時 fallback tick。
+    回傳 (rows, session, priced_n, kbar_n)。
+    """
     session = session_date or date.today().isoformat()
     codes = etf_codes or _env_csv("RRG_MONO_ETF_CODES", DEFAULT_ETF_CODES)
     baseline = _intraday_data_baseline(conn, session)
@@ -160,17 +252,26 @@ def run_intraday_universe_snapshot(
     bench = load_benchmark_close(conn)
     universe = [w["stock_id"] for w in load_etf_constituent_watchlist(conn, codes)]
 
-    tick_rows, _tick_error = fetch_tick_snapshots(universe)
-    stock_ticks = _tick_map(tick_rows)
-    tick_ok_by_id = {sid: True for sid in stock_ticks}
+    mode: IntradayPriceMode = price_mode
+    minute = poll_minute
+    if mode == "kbar" and not minute:
+        mode = "tick"
 
-    bench_rows, _ = fetch_tick_snapshots(list(BENCH_TICK_IDS))
-    bench_ticks = _tick_map(bench_rows)
-    bench_px = None
-    for bid in BENCH_TICK_IDS:
-        if bid in bench_ticks:
-            bench_px = bench_ticks[bid]
-            break
+    if mode == "kbar":
+        stock_ticks, kbar_ok, kbar_n, _ = _intraday_stock_prices(
+            conn, universe, session, minute or "13:00", price_mode="kbar"
+        )
+        tick_ok_by_id = {sid: kbar_ok.get(sid, False) for sid in stock_ticks}
+        bench_px = _intraday_benchmark_price(
+            conn, session, minute or "13:00", price_mode="kbar"
+        )
+        priced_n = len(stock_ticks)
+    else:
+        stock_ticks, tick_ok_by_id, kbar_n, _ = _intraday_stock_prices(
+            conn, universe, session, "", price_mode="tick"
+        )
+        bench_px = _intraday_benchmark_price(conn, session, "", price_mode="tick")
+        priced_n = len(stock_ticks)
 
     close_prov, bench_prov, tick_n, _uni_n = _build_provisional_panels(
         close, bench, session, stock_ticks, bench_px
@@ -187,7 +288,8 @@ def run_intraday_universe_snapshot(
     n = persist_universe_snapshot(
         conn, session_date=session, screen_kind="intraday", rows=rows
     )
-    return n, session, tick_n
+    _ = tick_n
+    return n, session, priced_n, kbar_n
 
 
 def persist_intraday_universe_from_panels(
@@ -269,10 +371,10 @@ def main(argv: list[str] | None = None) -> int:
     conn = connect()
     try:
         if args.intraday:
-            n, session, tick_n = run_intraday_universe_snapshot(
+            n, session, priced_n, kbar_n = run_intraday_universe_snapshot(
                 conn, session_date=args.as_of
             )
-            print(f"RRG universe intraday: session={session} rows={n} tick={tick_n}")
+            print(f"RRG universe intraday: session={session} rows={n} priced={priced_n} kbar={kbar_n}")
         else:
             n, session = run_close_universe_snapshot(conn, session_date=args.as_of)
             if not session:

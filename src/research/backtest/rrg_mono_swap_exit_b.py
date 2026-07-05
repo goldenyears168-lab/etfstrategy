@@ -18,7 +18,7 @@ from market_benchmark import load_benchmark_close
 from research.backtest.finpilot_local_backtest import load_price_panels, summarize_periods
 from research.backtest.rrg_lens_score_swap import _rebalance_minutes
 from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
-from rrg_mono_daily_brief import HOLD_DAYS, LOOKBACK, MAX_SLOTS, TOP_N, ScanRow, _feat, _mono_tier2
+from rrg_mono_daily_brief import HOLD_DAYS, LENGTH, LOOKBACK, MAX_SLOTS, TOP_N, ScanRow, _feat, _mono_tier2
 from rrg_rotation import compute_rrg_panel
 from stock_db.kbar import load_kbar_day_closes, price_at_or_before_minute
 
@@ -170,9 +170,11 @@ def _fill_empty_slots(
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]],
     kbar_stats: dict[str, int],
     entry_c_config: Any | None = None,
+    n_slots: int | None = None,
 ) -> None:
+    slot_cap = n_slots if n_slots is not None else MAX_SLOTS
     used = {int(p["slot"]) for p in slots}
-    free = [i for i in range(MAX_SLOTS) if i not in used]
+    free = [i for i in range(slot_cap) if i not in used]
     if not free or not fresh_mono:
         return
 
@@ -197,6 +199,7 @@ def _fill_empty_slots(
             config=c0_cfg,
             kbar_cache=kbar_cache,
             kbar_stats=kbar_stats,
+            max_slots=slot_cap,
         )
         for p in tmp["slots"]:
             if str(p["stock_id"]) in before:
@@ -324,6 +327,8 @@ def build_mono_tier2_calendar(
     *,
     close: pd.DataFrame | None = None,
     bench: pd.Series | None = None,
+    rrg_length: int = LENGTH,
+    lookback: int = LOOKBACK,
 ) -> dict[str, list[ScanRow]]:
     """當日 mono_tier2 全池（含非 fresh）· 依 seg_last 排序。"""
     from project_config import DEFAULT_ETF_CODES
@@ -332,7 +337,8 @@ def build_mono_tier2_calendar(
     if close is None or bench is None:
         close, _, _ = load_price_panels(conn)
         bench = load_benchmark_close(conn).reindex(close.index)
-    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=rrg_length)
+    lb = max(2, int(lookback))
     watch = load_etf_constituent_watchlist(conn, DEFAULT_ETF_CODES)
     name_map = {w["stock_id"]: w.get("stock_name", "") for w in watch}
     universe = [w["stock_id"] for w in watch]
@@ -344,7 +350,7 @@ def build_mono_tier2_calendar(
         if as_of not in date_set:
             continue
         si = full_dates.index(as_of)
-        if si < LOOKBACK:
+        if si < lb:
             continue
         pool: list[ScanRow] = []
         for sid in universe:

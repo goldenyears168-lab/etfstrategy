@@ -101,33 +101,46 @@ def cancel_open_buys_for_symbols(
     return out
 
 
+def apply_chase_prices(
+    session: FubonSession,
+    resolved: list[ResolvedOrder],
+    *,
+    acc: Any | None = None,
+) -> list[ResolvedOrder]:
+    """chase_ask / chase_bid → 送單當下限價（盤中零股優先）。"""
+    from .chase_runner import chase_ask_price, chase_bid_price
+
+    out: list[ResolvedOrder] = []
+    for item in resolved:
+        if item.price_type not in ("chase_ask", "chase_bid"):
+            out.append(item)
+            continue
+        market_type = item.market_type
+        if item.quantity_shares < 1000 and market_type in ("odd", "common"):
+            market_type = "intraday_odd"
+        if item.price_type == "chase_ask":
+            px = chase_ask_price(session, item.symbol, acc)
+        else:
+            px = chase_bid_price(session, item.symbol, acc)
+        out.append(
+            replace(
+                item,
+                price=f"{px:.2f}",
+                price_type="limit",
+                market_type=market_type,  # type: ignore[arg-type]
+            )
+        )
+    return out
+
+
 def apply_chase_ask_prices(
     session: FubonSession,
     resolved: list[ResolvedOrder],
     *,
     acc: Any | None = None,
 ) -> list[ResolvedOrder]:
-    """chase_ask → 送單當下賣一限價（盤中零股優先）。"""
-    from .chase_runner import chase_ask_price
-
-    out: list[ResolvedOrder] = []
-    for item in resolved:
-        if item.price_type != "chase_ask":
-            out.append(item)
-            continue
-        ask = chase_ask_price(session, item.symbol, acc)
-        market_type = item.market_type
-        if item.quantity_shares < 1000 and market_type in ("odd", "common"):
-            market_type = "intraday_odd"
-        out.append(
-            replace(
-                item,
-                price=f"{ask:.2f}",
-                price_type="limit",
-                market_type=market_type,  # type: ignore[arg-type]
-            )
-        )
-    return out
+    """Deprecated alias · use apply_chase_prices."""
+    return apply_chase_prices(session, resolved, acc=acc)
 
 
 def resolve_batch_orders(
@@ -139,7 +152,7 @@ def resolve_batch_orders(
     account = acc or session.primary
     holdings = holdings_shares_by_symbol(session, account)
     resolved = resolve_intents(batch, holdings)
-    return apply_chase_ask_prices(session, resolved, acc=account)
+    return apply_chase_prices(session, resolved, acc=account)
 
 
 def _map_bs_action(side: str) -> Any:

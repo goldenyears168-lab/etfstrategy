@@ -41,7 +41,7 @@ class MarketSyncWindowTests(unittest.TestCase):
         )
         self.assertEqual(action, "backfill")
         self.assertEqual(start, date(2024, 1, 1))
-        self.assertEqual(end, date(2024, 6, 8))
+        self.assertEqual(end, date(2024, 5, 31))
 
     def test_incremental_when_missing_recent_data(self) -> None:
         action, start, end = resolve_sync_window(
@@ -79,6 +79,8 @@ class MarketCoverageSummaryTests(unittest.TestCase):
             finally:
                 conn.close()
         self.assertIn("2024-01-01", text)
+        self.assertIn("futures_institutional_daily", text)
+        self.assertIn("stock_technical_daily", text)
 
 
 if __name__ == "__main__":

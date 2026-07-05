@@ -1,7 +1,7 @@
 # Strategy registry — daily close: facts + regime; adopted specs SSOT: config/strategy.yaml
 # enabled: 同一 strategy_id 須與 config/strategy.yaml 一致（registry / launchd gate）
 
-version: strategies-v8
+version: strategies-v9
 primary_strategy: etf-daily
 
 strategies:
@@ -63,11 +63,14 @@ strategies:
     parent_strategy: rrg-mono-hold7
     description: >
       daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 C0/5m poll live screen ·
-      fresh mono 全池 · 四日加速对称换仓（簡化漏斗：不裁 top10 · 買方合併單規則）。
+      fresh∪accel 全池（POOL1 · fresh ∪ mono_tier2∧4d accel>0）·
+      四日加速对称换仓（簡化漏斗：不裁 top10 · 買方合併單規則）·
+      S2 rotation exit（2d weakening + loss≥5% · close 強制平倉 · 2026-07 採納）。
     funnel_summary: >
-      池：mono tier2 + fresh 新进 · 全池 seg_last；
+      池：fresh∪accel（fresh + mono_tier2 四日加速>0）· 全池 seg_last；
       进：C0 盘中 scale · confirm 0|1；
-      换：卖加速<0最弱 · 买 seg_last+0.05 后加速最大 · min5 max10 · 1 swap/日。
+      换：卖加速<0最弱 · 买 seg_last+0.05 后加速最大 · min5 max10 · 1 swap/日；
+      出：S2 quad_force_exit（weakening 2d + unrealized loss≥5%）。
     sources:
       - "{date}_rrg_mono_swap_accel_daily.md"
       - "rrg_mono_swap_accel_daily.md"
@@ -99,11 +102,56 @@ strategies:
       - "vcp_coil_close_daily_brief.md"
 
   minervini-sepa-basket:
-    title: Minervini SEPA Trend Template basket
+    title: Minervini SEPA basket
     layer: strategy
     kind: competition
-    enabled: false
-    model_version: minervini-sepa-basket-v1
-    description: Ad-hoc Stage 2 basket backtest · 非 daily close。
+    enabled: true
+    env_flag: RUN_MINERVINI_SEPA_SCREEN
+    description: >
+      月末 Trend Template 7/7 等權 basket · 獨立 launchd 16:35 · dry-run intent · 寄信。
     sources:
-      - "backtest_summary.json"
+      - "{date}_minervini_sepa_basket_daily.md"
+      - "minervini_sepa_basket_daily.md"
+
+  rrg-mono-swap-accel-extension:
+    title: C18acc Extension overlay
+    layer: strategy
+    kind: competition
+    enabled: true
+    parent_strategy: rrg-mono-swap-accel
+    env_flag: RUN_C18ACC_EXTENSION_SCREEN
+    description: >
+      combo_spike extension research overlay · legacy 1m screen；
+      live advisory 改由 sell-signal-radar（宇宙 extension 純訊號 · 5m · 寄信）。
+    sources:
+      - "{date}_c18acc_extension_daily.md"
+      - "c18acc_extension_daily.md"
+
+  buy-signal-radar:
+    title: Buy signal radar · C0 advisory
+    layer: strategy
+    kind: operational
+    enabled: true
+    parent_strategy: rrg-mono-swap-accel
+    env_flag: RUN_BUY_SIGNAL_RADAR
+    description: >
+      多池買入觀測 · fresh-mono + mono-tier2 寄信（來源池標示 · 同檔合併）·
+      dual-wma-lead-pullback 強勢回踩（預設 · observe-only）·
+      C0 scale 5m · 5m poll 09:00–13:20 · 寄信 RUN_BUY_SIGNAL_EMAIL · 不送單。
+    sources:
+      - "{date}_buy_signal_radar.md"
+      - "buy_signal_radar.md"
+
+  sell-signal-radar:
+    title: Sell signal radar · universe extension
+    layer: strategy
+    kind: operational
+    enabled: true
+    parent_strategy: rrg-mono-swap-accel-extension
+    env_flag: RUN_SELL_SIGNAL_RADAR
+    description: >
+      宇宙 extension combo_spike 純訊號 · 5m poll 09:06–13:20 · 不讀持倉 ·
+      寄信 RUN_SELL_SIGNAL_EMAIL · advisory only。
+    sources:
+      - "{date}_sell_signal_radar.md"
+      - "sell_signal_radar.md"

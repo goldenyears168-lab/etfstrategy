@@ -41,13 +41,12 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | VCP funnel close | ✗ | ✓ | `vcp-pivot-gate` / `vcp-coil-close` |
 | stock_daily_lens → Supabase | ✗ | ✓ | （跨層 publish · 僅 `RUN_STOCK_DAILY_LENS`） |
 
-`minervini-sepa-basket` 維持 `enabled: false`（ad-hoc 回測 · 非 daily）。
-
 ### 日誌目錄
 
 | 路徑 | 用途 |
 |------|------|
-| **`logs/`** | 排程 SSOT：`daily_sync_YYYYMMDD.log` · `launchd_*.log` · `weekly_sync_*.log` |
+| **`logs/intraday/`** | 盤中排程：buy/sell radar · c18 poll · exit gate · digest · 08:50 brief · 13:00 VCP/RRG |
+| **`logs/`** | 收盤／週日等非盤中：`daily_sync_YYYYMMDD.log` · `launchd_evening-holdings.log` · `weekly_sync_*.log` |
 | **`log/`** | 富邦 Neo SDK / 本機 client（`.gitignore`）；**非** daily_sync 主 log |
 
 ## 排程
@@ -56,6 +55,10 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 |---|------|------|------|
 | VCP | Pivot Gate / Coil Close · 盤中 screen+brief | 13:00 | `scripts/launchd/vcp-funnel-specs.command` |
 | VCP′ | Pivot Gate / Coil Close · 收盤 screen+brief | 16:30 | `scripts/daily_sync.sh`（`RUN_VCP_FUNNEL_CLOSE=1`） |
+| `minervini-sepa-basket` | `minervini_sepa_daily` | 16:35 | `scripts/launchd/minervini-sepa-basket.command` |
+| `buy-signal-radar` | C0 買進 advisory | 09:00–13:20 每 5 分 | `scripts/launchd/buy-signal-radar.command` |
+| `sell-signal-radar` | Fubon 持倉 extension 賣出 advisory | 09:06–13:20 每 5 分 | `scripts/launchd/sell-signal-radar.command` |
+| `rrg-mono-swap-accel-extension` | extension overlay（legacy · 手動） | — | `scripts/run_c18acc_extension_screen.py` |
 | ②a | RRG mono 收盤前預警 + universe snapshot | 13:00 | `scripts/launchd/rrg-mono-intraday-watch.command` |
 | ② | 收盤 ETF 日報（含 RRG universe close + mono 槽位 + **stock_daily_lens**） | 16:30 | `scripts/1630收盤雷達.command` |
 | ②b | 安聯台灣科技基金（ACDD04）月報公布偵測 | 16:30 | `scripts/launchd/mutual-fund-disclosure-watch.command` |

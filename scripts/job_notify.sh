@@ -27,9 +27,11 @@ if [[ "${LOG_FILE}" != /* ]]; then
 fi
 
 EXTRA="${JOB_NOTIFY_EXTRA:-}"
-for rel in "${REPORTS[@]}"; do
-  [[ -n "${rel}" && -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
-done
+if ((${#REPORTS[@]})); then
+  for rel in "${REPORTS[@]}"; do
+    [[ -n "${rel}" && -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+fi
 
 ARGS=(
   --subject-prefix="${SUBJECT}"

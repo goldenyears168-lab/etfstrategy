@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.c18acc-extension-overlay</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{EXTENSION_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>c18acc-extension-overlay</string>
+		<key>RUN_C18ACC_EXTENSION_OVERLAY</key>
+		<string>1</string>
+		<key>C18ACC_EXTENSION_DRY_RUN</key>
+		<string>1</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- Mon–Fri 09:06–13:20 每 1 分鐘 -->
+{{EXTENSION_CALENDAR_INTERVALS}}
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_c18acc-extension-overlay.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_c18acc-extension-overlay.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

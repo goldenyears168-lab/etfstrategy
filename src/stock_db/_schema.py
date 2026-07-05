@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS stock_daily_bars (
     close REAL NOT NULL,
     adj_close REAL,
     volume INTEGER,
+    amount REAL,
     source TEXT NOT NULL DEFAULT 'finmind',
     synced_at TEXT NOT NULL,
     PRIMARY KEY (stock_id, trade_date, source)
@@ -233,6 +234,45 @@ CREATE TABLE IF NOT EXISTS stock_institutional_daily (
 
 CREATE INDEX IF NOT EXISTS idx_stock_institutional_date
     ON stock_institutional_daily (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_institutional_side_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    inst_name TEXT NOT NULL,
+    buy REAL,
+    sell REAL,
+    net REAL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, inst_name, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_institutional_side_date
+    ON stock_institutional_side_daily (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS universe_snapshot_meta (
+    universe_id TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    constituent_count INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (universe_id, snapshot_date)
+);
+
+CREATE TABLE IF NOT EXISTS universe_constituents (
+    universe_id TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    stock_name TEXT,
+    rank_no INTEGER,
+    market_value REAL,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (universe_id, snapshot_date, stock_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_universe_constituents_id
+    ON universe_constituents (universe_id, snapshot_date, rank_no);
 
 CREATE TABLE IF NOT EXISTS investment_scores (
     stock_id TEXT NOT NULL,
@@ -916,6 +956,44 @@ CREATE TABLE IF NOT EXISTS stock_kbar_1m (
 CREATE INDEX IF NOT EXISTS idx_stock_kbar_1m_date
     ON stock_kbar_1m (trade_date, stock_id);
 
+CREATE TABLE IF NOT EXISTS order_holdings_snapshot (
+    snapshot_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    stock_name TEXT,
+    shares INTEGER NOT NULL,
+    avg_cost REAL,
+    unrealized_pnl INTEGER,
+    prev_close REAL,
+    bar_date TEXT,
+    rrg_quadrant TEXT,
+    rrg_session TEXT,
+    structure_tier TEXT,
+    gate_2pct REAL,
+    trigger_s1b REAL,
+    extension_spike REAL,
+    notes_json TEXT,
+    source TEXT NOT NULL DEFAULT 'fubon',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (snapshot_date, stock_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_holdings_snapshot_date
+    ON order_holdings_snapshot (snapshot_date DESC);
+
+CREATE TABLE IF NOT EXISTS order_intraday_exit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    stock_id TEXT,
+    event TEXT NOT NULL,
+    detail_json TEXT,
+    dry_run INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_intraday_exit_trade_date
+    ON order_intraday_exit_log (trade_date DESC, checked_at DESC);
+
 CREATE TABLE IF NOT EXISTS lens_daily_alert (
     trade_date TEXT PRIMARY KEY,
     total_count INTEGER NOT NULL DEFAULT 0,
@@ -926,6 +1004,92 @@ CREATE TABLE IF NOT EXISTS lens_daily_alert (
     items_json TEXT NOT NULL DEFAULT '[]',
     computed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS futures_institutional_daily (
+    futures_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    inst_name TEXT NOT NULL,
+    long_oi_vol REAL,
+    short_oi_vol REAL,
+    net_oi_vol REAL,
+    long_deal_vol REAL,
+    short_deal_vol REAL,
+    net_deal_vol REAL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (futures_id, trade_date, inst_name, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_futures_institutional_date
+    ON futures_institutional_daily (trade_date DESC, futures_id);
+
+CREATE TABLE IF NOT EXISTS stock_shareholding_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    foreign_remaining_shares REAL,
+    foreign_remaining_ratio REAL,
+    shares_issued REAL,
+    capital_ntd REAL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_shareholding_date
+    ON stock_shareholding_daily (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_dividend_history (
+    stock_id TEXT NOT NULL,
+    fiscal_year TEXT NOT NULL,
+    ex_cash_date TEXT NOT NULL,
+    cash_dividend REAL,
+    stock_dividend REAL,
+    payment_date TEXT,
+    announcement_date TEXT,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, ex_cash_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_dividend_stock
+    ON stock_dividend_history (stock_id, fiscal_year DESC);
+
+CREATE TABLE IF NOT EXISTS stock_market_value_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    market_value_ntd REAL,
+    mcap_to_revenue_ttm REAL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_market_value_date
+    ON stock_market_value_daily (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_technical_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    ma5 REAL,
+    ma10 REAL,
+    ma20 REAL,
+    ma60 REAL,
+    return_1d_pct REAL,
+    return_5d_pct REAL,
+    vol_avg_5d REAL,
+    vol_ratio_5d REAL,
+    kd_k REAL,
+    kd_d REAL,
+    kd_cross_above_20 INTEGER NOT NULL DEFAULT 0,
+    high_120d REAL,
+    is_120d_high INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'computed',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_technical_date
+    ON stock_technical_daily (trade_date, stock_id);
 """
 
 
@@ -974,6 +1138,11 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "stock_daily_bars",
             "adj_close",
             "ALTER TABLE stock_daily_bars ADD COLUMN adj_close REAL",
+        ),
+        (
+            "stock_daily_bars",
+            "amount",
+            "ALTER TABLE stock_daily_bars ADD COLUMN amount REAL",
         ),
         ("us_daily_bars", "adj_close", "ALTER TABLE us_daily_bars ADD COLUMN adj_close REAL"),
     ]

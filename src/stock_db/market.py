@@ -283,16 +283,27 @@ def upsert_stock_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     synced_at = utc_now_iso()
     sql = """
         INSERT INTO stock_daily_bars (
-            stock_id, trade_date, open, high, low, close, adj_close, volume, source, synced_at
+            stock_id, trade_date, open, high, low, close, adj_close, volume, amount,
+            source, synced_at
         ) VALUES (
-            :stock_id, :trade_date, :open, :high, :low, :close, :adj_close, :volume, :source, :synced_at
+            :stock_id, :trade_date, :open, :high, :low, :close, :adj_close, :volume, :amount,
+            :source, :synced_at
         )
         ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
             close=excluded.close, adj_close=excluded.adj_close, volume=excluded.volume,
+            amount=excluded.amount,
             synced_at=excluded.synced_at
     """
-    payload = [{**r, "adj_close": r.get("adj_close"), "synced_at": synced_at} for r in rows]
+    payload = [
+        {
+            **r,
+            "adj_close": r.get("adj_close"),
+            "amount": r.get("amount"),
+            "synced_at": synced_at,
+        }
+        for r in rows
+    ]
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
@@ -326,12 +337,35 @@ def upsert_stock_institutional_daily(conn: sqlite3.Connection, rows: list[dict])
     return len(payload)
 
 
+def upsert_stock_institutional_side_daily(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_institutional_side_daily (
+            stock_id, trade_date, inst_name, buy, sell, net, source, synced_at
+        ) VALUES (
+            :stock_id, :trade_date, :inst_name, :buy, :sell, :net, :source, :synced_at
+        )
+        ON CONFLICT(stock_id, trade_date, inst_name, source) DO UPDATE SET
+            buy=excluded.buy, sell=excluded.sell, net=excluded.net,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
 @dataclass(frozen=True)
 class StockMarketCoverage:
     stock_id: str
     bar_min: str | None
     bar_max: str | None
     bar_count_window: int
+    adj_min: str | None
+    adj_max: str | None
+    adj_count_window: int
     inst_min: str | None
     inst_max: str | None
     inst_count_window: int
@@ -366,7 +400,13 @@ def load_stock_market_coverage_map(
     params = [source, window_start, window_end, *stock_ids]
     bar_rows = conn.execute(
         f"""
-        SELECT stock_id, MIN(trade_date) AS bar_min, MAX(trade_date) AS bar_max, COUNT(*) AS n
+        SELECT stock_id,
+               MIN(trade_date) AS bar_min,
+               MAX(trade_date) AS bar_max,
+               COUNT(*) AS n,
+               MIN(CASE WHEN adj_close IS NOT NULL THEN trade_date END) AS adj_min,
+               MAX(CASE WHEN adj_close IS NOT NULL THEN trade_date END) AS adj_max,
+               SUM(CASE WHEN adj_close IS NOT NULL THEN 1 ELSE 0 END) AS adj_n
         FROM stock_daily_bars
         WHERE source = ? AND trade_date >= ? AND trade_date <= ?
           AND stock_id IN ({placeholders})
@@ -385,20 +425,31 @@ def load_stock_market_coverage_map(
         params,
     ).fetchall()
     bar_by_id = {
-        r["stock_id"]: (r["bar_min"], r["bar_max"], int(r["n"])) for r in bar_rows
+        r["stock_id"]: (
+            r["bar_min"],
+            r["bar_max"],
+            int(r["n"]),
+            r["adj_min"],
+            r["adj_max"],
+            int(r["adj_n"] or 0),
+        )
+        for r in bar_rows
     }
     inst_by_id = {
         r["stock_id"]: (r["inst_min"], r["inst_max"], int(r["n"])) for r in inst_rows
     }
     out: dict[str, StockMarketCoverage] = {}
     for sid in stock_ids:
-        b = bar_by_id.get(sid, (None, None, 0))
+        b = bar_by_id.get(sid, (None, None, 0, None, None, 0))
         i = inst_by_id.get(sid, (None, None, 0))
         out[sid] = StockMarketCoverage(
             stock_id=sid,
             bar_min=b[0],
             bar_max=b[1],
             bar_count_window=b[2],
+            adj_min=b[3],
+            adj_max=b[4],
+            adj_count_window=b[5],
             inst_min=i[0],
             inst_max=i[1],
             inst_count_window=i[2],
@@ -572,6 +623,83 @@ def market_data_coverage_summary(
         "chip_daytrade": _table_window_stats(
             conn, "stock_daytrade_daily", window_start=window_start, window_end=window_end
         ),
+        "futures_institutional": _futures_window_stats(
+            conn, window_start=window_start, window_end=window_end
+        ),
+        "shareholding": _table_window_stats(
+            conn, "stock_shareholding_daily", window_start=window_start, window_end=window_end
+        ),
+        "dividend_history": _dividend_window_stats(
+            conn, window_start=window_start, window_end=window_end
+        ),
+        "market_value": _table_window_stats(
+            conn, "stock_market_value_daily", window_start=window_start, window_end=window_end
+        ),
+        "technical": _table_window_stats(
+            conn,
+            "stock_technical_daily",
+            window_start=window_start,
+            window_end=window_end,
+            source="computed",
+        ),
+    }
+
+
+def _futures_window_stats(
+    conn: sqlite3.Connection,
+    *,
+    window_start: str,
+    window_end: str,
+) -> dict[str, object]:
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT futures_id) AS stocks, COUNT(*) AS rows,
+                   MIN(trade_date) AS d_min, MAX(trade_date) AS d_max
+            FROM futures_institutional_daily
+            WHERE source = 'finmind'
+              AND trade_date >= ? AND trade_date <= ?
+            """,
+            (window_start, window_end),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return {"stocks": 0, "rows": 0, "min": None, "max": None}
+    if row is None:
+        return {"stocks": 0, "rows": 0, "min": None, "max": None}
+    return {
+        "stocks": int(row["stocks"] or 0),
+        "rows": int(row["rows"] or 0),
+        "min": row["d_min"],
+        "max": row["d_max"],
+    }
+
+
+def _dividend_window_stats(
+    conn: sqlite3.Connection,
+    *,
+    window_start: str,
+    window_end: str,
+) -> dict[str, object]:
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT stock_id) AS stocks, COUNT(*) AS rows,
+                   MIN(ex_cash_date) AS d_min, MAX(ex_cash_date) AS d_max
+            FROM stock_dividend_history
+            WHERE source = 'finmind'
+              AND ex_cash_date >= ? AND ex_cash_date <= ?
+            """,
+            (window_start, window_end),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return {"stocks": 0, "rows": 0, "min": None, "max": None}
+    if row is None:
+        return {"stocks": 0, "rows": 0, "min": None, "max": None}
+    return {
+        "stocks": int(row["stocks"] or 0),
+        "rows": int(row["rows"] or 0),
+        "min": row["d_min"],
+        "max": row["d_max"],
     }
 
 
@@ -587,6 +715,11 @@ def format_market_data_coverage(summary: dict[str, object]) -> str:
         "chip_margin": "stock_margin_daily",
         "chip_lending": "stock_lending_daily",
         "chip_daytrade": "stock_daytrade_daily",
+        "futures_institutional": "futures_institutional_daily",
+        "shareholding": "stock_shareholding_daily",
+        "dividend_history": "stock_dividend_history",
+        "market_value": "stock_market_value_daily",
+        "technical": "stock_technical_daily",
     }
     for key, label in labels.items():
         block = summary.get(key) or {}

@@ -1,6 +1,6 @@
 # Regime 層 · Regime four-axis diagnostic（診斷 · 非 live gate）
 # 術語：docs/terminology.md §2–§3.1
-# 驗證：scripts/run_breadth_impulse_validation.py · reports/research/*_breadth_impulse_validation.md
+# 驗證：Regime 診斷見 market_breadth_impulse · config/regime.yaml
 
 version: regime-v3
 layer: regime
@@ -28,7 +28,7 @@ breadth:
     zweig_thrust_high: 0.58
     deemer_10d_ratio: 2.1
     thrust_hold_days: 42
-  validation_ref: reports/research/20260621_breadth_impulse_validation.md
+  validation_ref: null  # 舊 validation 腳本已刪 · 需時重跑
   tv_script: "Market Breadth Toolkit [LuxAlgo]"
 
 axes:

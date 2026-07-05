@@ -58,11 +58,10 @@ def resolve_sync_window(
 
     if need_old:
         assert earliest_min is not None
-        fetch_end = min(
-            end,
-            date.fromisoformat(earliest_min) + timedelta(days=overlap_days),
-        )
-        return "backfill", start, fetch_end
+        gap_end = date.fromisoformat(earliest_min) - timedelta(days=1)
+        if gap_end < start:
+            gap_end = start
+        return "backfill", start, gap_end
 
     assert latest_max is not None
     fetch_start = max(

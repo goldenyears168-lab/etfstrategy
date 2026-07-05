@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from vcp_funnel_specs_daily import _close_screen_ready, run_close_cycle
+from vcp_funnel_specs_daily import _close_screen_ready, run_close_cycle, run_intraday_cycle
 
 
 class VcpFunnelSpecsDailyTests(unittest.TestCase):
@@ -46,6 +46,28 @@ class VcpFunnelSpecsDailyTests(unittest.TestCase):
         paths, as_of = run_close_cycle(conn, as_of_date="2026-06-22")
         self.assertEqual(paths, [])
         self.assertIsNone(as_of)
+        conn.close()
+
+    @patch("vcp_funnel_specs_daily.run_intraday_funnel_screen")
+    def test_run_intraday_cycle_passes_evals_to_write_spec_briefs(
+        self, mock_screen: MagicMock
+    ) -> None:
+        conn = sqlite3.connect(":memory:")
+        evals: list = []
+        meta = {"screen_as_of": "2026-06-25", "tick_stock_n": 1, "universe_n": 1}
+        mock_screen.return_value = (evals, meta)
+        with patch(
+            "vcp_funnel_specs_daily.write_spec_briefs", return_value=[]
+        ) as mock_write:
+            paths, out_meta = run_intraday_cycle(
+                conn, as_of_date="2026-06-25", persist=False
+            )
+        self.assertEqual(paths, [])
+        self.assertEqual(out_meta, meta)
+        mock_write.assert_called_once()
+        _, kwargs = mock_write.call_args
+        self.assertEqual(kwargs.get("intraday_evals"), evals)
+        self.assertEqual(kwargs.get("intraday_meta"), meta)
         conn.close()
 
 

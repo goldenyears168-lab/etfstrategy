@@ -2,7 +2,7 @@
 """
 成分股日線 + 三大法人（FinMind）→ stock_daily_bars、stock_institutional_daily。
 
-Universe：各 ETF 最新 snapshot 持股聯集（load_etf_constituent_watchlist）。
+Universe：--universe etf_watchlist（預設）或 tw100（ML path · 見 config/universe.yaml）。
 同日重跑：已覆蓋窗內 K 線+法人者跳過 API；僅缺尾端者縮短回溯（增量）。
 """
 
@@ -26,8 +26,11 @@ from stock_db import (
     load_stock_market_coverage_map,
     upsert_stock_daily_bars,
     upsert_stock_institutional_daily,
+    upsert_stock_institutional_side_daily,
 )
+from stock_universe import TW100_UNIVERSE_ID, resolve_universe_watchlist
 from sync_etf_signal import SOURCE, aggregate_institutional, fetch_finmind
+from universe_config import tw100_config
 
 DEFAULT_LOOKBACK_DAYS = 60
 REQUEST_DELAY_SEC = 0.35
@@ -64,7 +67,7 @@ def resolve_fetch_window(
         series: list[tuple[str | None, str | None, int]] = [(None, None, 0), (None, None, 0)]
     else:
         series = [
-            (coverage.bar_min, coverage.bar_max, coverage.bar_count_window),
+            (coverage.adj_min, coverage.adj_max, coverage.adj_count_window),
             (coverage.inst_min, coverage.inst_max, coverage.inst_count_window),
         ]
     return resolve_sync_window(
@@ -76,12 +79,36 @@ def resolve_fetch_window(
     )
 
 
+def build_institutional_side_rows(stock_id: str, inst_rows: list[dict]) -> list[dict]:
+    side: list[dict] = []
+    for row in inst_rows:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        buy = float(row.get("buy") or 0)
+        sell = float(row.get("sell") or 0)
+        side.append(
+            {
+                "stock_id": stock_id,
+                "trade_date": str(row["date"])[:10],
+                "inst_name": name,
+                "buy": buy,
+                "sell": sell,
+                "net": buy - sell,
+                "source": SOURCE,
+            }
+        )
+    return side
+
+
 def build_stock_rows(
     stock_id: str,
     start: date,
     end: date,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     price_rows = fetch_finmind("TaiwanStockPrice", stock_id, start, end)
+    adj_rows = fetch_finmind("TaiwanStockPriceAdj", stock_id, start, end)
+    adj_by_date = {str(row["date"])[:10]: float(row["close"]) for row in adj_rows}
     bars: list[dict] = []
     close_by_date: dict[str, float] = {}
     for row in price_rows:
@@ -96,7 +123,9 @@ def build_stock_rows(
                 "high": _float_or_none(row.get("max")),
                 "low": _float_or_none(row.get("min")),
                 "close": close,
+                "adj_close": adj_by_date.get(trade_date),
                 "volume": _int_or_none(row.get("Trading_Volume") or row.get("volume")),
+                "amount": _float_or_none(row.get("Trading_money")),
                 "source": SOURCE,
             }
         )
@@ -118,7 +147,8 @@ def build_stock_rows(
                 "source": SOURCE,
             }
         )
-    return bars, institutional
+    inst_side = build_institutional_side_rows(stock_id, inst_rows)
+    return bars, institutional, inst_side
 
 
 def sync_stock_market_daily(
@@ -128,6 +158,8 @@ def sync_stock_market_daily(
     window_start: date | None = None,
     window_end: date | None = None,
     stock_ids: list[str] | None = None,
+    universe: str = "etf_watchlist",
+    universe_as_of: date | None = None,
     dry_run: bool = False,
     quiet: bool = False,
     max_stocks: int = 0,
@@ -181,7 +213,24 @@ def sync_stock_market_daily(
                 for sid in stock_ids
             ]
         else:
-            watchlist = load_etf_constituent_watchlist(conn)
+            if universe == TW100_UNIVERSE_ID:
+                watchlist = resolve_universe_watchlist(
+                    conn,
+                    TW100_UNIVERSE_ID,
+                    as_of=universe_as_of or end,
+                    refresh=False,
+                )
+                if not watchlist:
+                    watchlist = resolve_universe_watchlist(
+                        conn,
+                        TW100_UNIVERSE_ID,
+                        as_of=universe_as_of or end,
+                        refresh=True,
+                    )
+            elif universe == "etf_watchlist":
+                watchlist = load_etf_constituent_watchlist(conn)
+            else:
+                raise RuntimeError(f"unknown universe: {universe} (see config/universe.yaml)")
         coverage_stock_ids = [w["stock_id"] for w in watchlist]
         coverage_map = load_stock_market_coverage_map(
             conn,
@@ -193,6 +242,8 @@ def sync_stock_market_daily(
         conn.close()
 
     if not watchlist:
+        if universe == TW100_UNIVERSE_ID:
+            raise RuntimeError("TW100 universe 為空：請確認 FinMind TaiwanStockMarketValue 可存取")
         raise RuntimeError("持股聯集為空：請先跑收盤持股同步寫入 etf_holdings")
 
     if max_stocks > 0:
@@ -202,6 +253,7 @@ def sync_stock_market_daily(
         "stocks": len(watchlist),
         "bars": 0,
         "institutional": 0,
+        "institutional_side": 0,
         "ok": 0,
         "warn": 0,
         "skipped": 0,
@@ -241,7 +293,7 @@ def sync_stock_market_daily(
             stats["full"] += 1
 
         try:
-            bars, institutional = build_stock_rows(stock_id, fetch_start, fetch_end)
+            bars, institutional, inst_side = build_stock_rows(stock_id, fetch_start, fetch_end)
             if not bars and not institutional:
                 stats["warn"] += 1
                 if not quiet:
@@ -253,22 +305,26 @@ def sync_stock_market_daily(
                     tag = "增量" if action == "incremental" else "全量"
                     print(
                         f"  DRY {stock_id} ({tag}): bars={len(bars)} inst={len(institutional)} "
-                        f"({fetch_start}～{fetch_end})"
+                        f"side={len(inst_side)} ({fetch_start}～{fetch_end})"
                     )
                 stats["bars"] += len(bars)
                 stats["institutional"] += len(institutional)
+                stats["institutional_side"] += len(inst_side)
                 continue
             conn = connect(db_path)
             try:
                 stats["bars"] += upsert_stock_daily_bars(conn, bars)
                 stats["institutional"] += upsert_stock_institutional_daily(conn, institutional)
+                stats["institutional_side"] += upsert_stock_institutional_side_daily(
+                    conn, inst_side
+                )
             finally:
                 conn.close()
             if quiet:
                 tag = "Δ" if action == "incremental" else ""
                 print(
                     f"  {stock_id}{tag}: bars={len(bars)} inst={len(institutional)} "
-                    f"({fetch_start}～{fetch_end})"
+                    f"side={len(inst_side)} ({fetch_start}～{fetch_end})"
                 )
         except requests.HTTPError as exc:
             stats["warn"] += 1
@@ -282,9 +338,10 @@ def sync_stock_market_daily(
 
     if not quiet and not dry_run:
         print(
-            f"成分股市場 sync：{stats['ok']}/{stats['stocks']} 檔 OK，"
+            f"成分股市場 sync（{universe}）：{stats['ok']}/{stats['stocks']} 檔 OK，"
             f"跳過 {stats['skipped']} · 增量 {stats['incremental']} · 全量 {stats['full']}，"
-            f"upsert bars={stats['bars']} inst={stats['institutional']}，"
+            f"upsert bars={stats['bars']} inst={stats['institutional']} "
+            f"side={stats['institutional_side']}，"
             f"warn={stats['warn']}（窗 {start}～{end}）"
         )
     return stats
@@ -320,6 +377,27 @@ def main() -> int:
         help="每檔間隔秒數，避免 FinMind 限流",
     )
     parser.add_argument(
+        "--universe",
+        default="etf_watchlist",
+        choices=("etf_watchlist", TW100_UNIVERSE_ID),
+        help="etf_watchlist（預設）或 tw100（ML · config/universe.yaml）",
+    )
+    parser.add_argument(
+        "--universe-as-of",
+        default=None,
+        help="TW100 snapshot 基準日 YYYY-MM-DD（預設 window end）",
+    )
+    parser.add_argument(
+        "--stock-ids",
+        default=None,
+        help="逗號分隔代號（覆寫 universe；backfill 指定檔）",
+    )
+    parser.add_argument(
+        "--refresh-universe",
+        action="store_true",
+        help="TW100：強制重抓 TaiwanStockMarketValue 成分",
+    )
+    parser.add_argument(
         "--force-refresh",
         action="store_true",
         help="強制每檔重抓（忽略 DB 覆蓋；易觸發 FinMind 402）",
@@ -330,12 +408,32 @@ def main() -> int:
         print("ERROR: --start-date 與 --lookback-days 請擇一", file=sys.stderr)
         return 1
 
-    lookback = args.lookback_days if args.lookback_days is not None else DEFAULT_LOOKBACK_DAYS
+    lookback = args.lookback_days
+    if lookback is None and args.universe == TW100_UNIVERSE_ID:
+        lookback = tw100_config()["default_lookback_days"]
+    if lookback is None:
+        lookback = DEFAULT_LOOKBACK_DAYS
     if args.start_date is None and (lookback < 7 or lookback > 730):
         print("lookback-days 建議 30～90（允許 7～730）", file=sys.stderr)
 
     window_start = date.fromisoformat(args.start_date) if args.start_date else None
     window_end = date.fromisoformat(args.end_date) if args.end_date else None
+    universe_as_of = date.fromisoformat(args.universe_as_of) if args.universe_as_of else None
+    stock_ids = (
+        [s.strip() for s in args.stock_ids.split(",") if s.strip()] if args.stock_ids else None
+    )
+
+    if args.refresh_universe and args.universe == TW100_UNIVERSE_ID:
+        conn = connect(args.db)
+        try:
+            resolve_universe_watchlist(
+                conn,
+                TW100_UNIVERSE_ID,
+                as_of=universe_as_of or window_end or date.today(),
+                refresh=True,
+            )
+        finally:
+            conn.close()
 
     dry_run = args.dry_run or not args.sync_db
     try:
@@ -344,6 +442,9 @@ def main() -> int:
             lookback if window_start is None else None,
             window_start=window_start,
             window_end=window_end,
+            stock_ids=stock_ids,
+            universe=args.universe,
+            universe_as_of=universe_as_of,
             dry_run=dry_run,
             quiet=args.quiet,
             max_stocks=args.max_stocks,

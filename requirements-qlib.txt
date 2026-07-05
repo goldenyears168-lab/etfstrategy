@@ -1,0 +1,9 @@
+# TW100 ML · microsoft qlib (Python 3.11 only — use .venv-qlib)
+# Install: python3.11 -m venv .venv-qlib && .venv-qlib/bin/pip install -r requirements-qlib.txt
+pyqlib>=0.9.6,<0.10
+lightgbm>=4.0
+numpy>=1.24
+pandas>=2.0
+cython>=3.0
+scipy>=1.11
+scikit-learn>=1.3

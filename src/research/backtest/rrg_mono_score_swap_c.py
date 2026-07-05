@@ -32,7 +32,7 @@ from research.backtest.rrg_mono_swap_exit_b import (
 from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
 from rrg_mono_daily_brief import HOLD_DAYS, LENGTH, LOOKBACK, MAX_SLOTS, TOP_N, ScanRow
 from rrg_rotation import compute_rrg_panel
-from stock_db.kbar import load_kbar_day_closes, price_at_or_before_minute
+from stock_db.kbar import KbarBar, load_kbar_day_bars, load_kbar_day_closes, price_at_or_before_minute
 
 CandidatePool = Literal["fresh", "mono_tier2", "mono_up", "mono_up_fresh", "fresh_union_accel"]
 StructuralGate = Literal[
@@ -51,8 +51,15 @@ CandidateRankKey = Literal["seg_last", "avg_accel_decel"]
 EntryLeg = Literal["A", "C0"]
 SwapTarget = Literal["worst_held", "each_held"]
 TimingMode = Literal["close", "poll_5m"]
+ExitLoopMode = Literal[
+    "day_first_poll",
+    "intraday_loop",
+    "intraday_loop_full",
+    "intraday_loop_phase3",
+]
 SortKey = Literal["seg_last", "rs_momentum", "seg_step_delta", "accel_decel", "avg_accel_decel"]
 BuySortKey = Literal["seg_last", "rs_momentum", "accel_decel", "avg_accel_decel"]
+FillMode = Literal["legacy_sequential", "batch_topk"]
 AccelMetric = Literal["dot", "avg"]
 BreadthPoolMode = Literal[
     "always_fresh",
@@ -62,6 +69,10 @@ BreadthPoolMode = Literal[
 ]
 BreadthChallengerPoolMode = Literal["entry_day", "swap_day"]
 BreadthSwapZoneDate = Literal["entry_day", "swap_day"]
+QuadForceExitMode = Literal["none", "weakening", "lagging", "weakening_or_lagging"]
+StructForceExitMode = Literal["none", "drs_neg", "spread_lost"]
+EntryGateMode = Literal["none", "omega_kinematic", "hybrid_top_decile", "hybrid_top_k"]
+ChallengerRankBonus = Literal["none", "kin", "hybrid"]
 DEFAULT_BREADTH_HOT_ZONES: tuple[str, ...] = ("strong", "overbought")
 
 
@@ -81,6 +92,7 @@ class ScoreSwapCConfig:
     min_hold_days: int = 2
     max_hold_days: int = HOLD_DAYS
     timing_mode: TimingMode = "close"
+    exit_loop_mode: ExitLoopMode = "day_first_poll"  # phase3=+hard_stop 1m · swap 盤中重排
     poll_interval_min: int = 5
     no_trade_before: str = "09:30"
     swap_target: SwapTarget = "worst_held"
@@ -104,6 +116,40 @@ class ScoreSwapCConfig:
     breadth_challenger_pool_mode: BreadthChallengerPoolMode = "entry_day"
     # swap gate 用哪日 zone：swap_day=as_of（換倉日）；entry_day=held leg signal_date
     breadth_swap_zone_date: BreadthSwapZoneDate = "swap_day"
+    n_slots: int = MAX_SLOTS
+    fill_mode: FillMode = "legacy_sequential"
+    fill_repeat: bool = False  # True → 空槽可重複買同一支（加碼補滿，不留閒置資金）
+    gain_waiver_threshold: float | None = None  # 隔日 close vs entry_px ≥ 此值 → 縮短 min_hold
+    gain_waiver_min_hold: int = 2  # waiver 生效時 effective min_hold（交易日）
+    quad_weakening_sell_days: int | None = None  # 連續 weakening N 日 → 忽略 accel_sell_negative_only
+    quad_lagging_sell_days: int | None = None  # 連續 lagging N 日 → 忽略 accel_sell_negative_only
+    accel_sell_bypass_on_spread_lost: bool = False  # spread_rs≤0 → 正加速 held 亦可賣
+    loss_waiver_threshold: float | None = None  # close vs entry_px ≤ 此值（負）→ 縮短 min_hold
+    loss_waiver_min_hold: int = 2  # loss waiver 生效時 effective min_hold（交易日）
+    swap_margin_relax_neg_accel_days: int | None = None  # worst_held 連續 N 日 avg_accel<0
+    swap_margin_relax_to: float | None = None  # base margin 無 challenger 時降至
+    quad_force_exit_mode: QuadForceExitMode = "none"  # 象限強制平倉（不需 challenger）
+    quad_force_exit_min_days: int = 1  # 連續 N 日於目標象限後可強制平倉
+    quad_force_exit_requires_min_hold: bool = True  # 尊重 min_hold（loss_waiver 仍生效）
+    quad_force_exit_loss_pct: float | None = None  # (close/entry_px-1) ≤ 此值才強制平倉；None=不檢查
+    struct_force_exit_mode: StructForceExitMode = "none"  # drs / extension 結構強制平倉
+    struct_force_exit_min_days: int = 2
+    struct_force_exit_requires_min_hold: bool = True
+    struct_force_exit_loss_pct: float | None = None
+    hard_stop_loss_pct: float | None = None  # (close/entry_px-1) ≤ 此值 → 硬停損；None=關閉
+    hard_stop_requires_min_hold: bool = False  # True → 尊重 min_hold（預設可早於 min_hold 觸發）
+    hard_stop_intraday: bool = False  # True → 1m low 觸及 stop_px（優先於收盤判定）
+    portfolio_loss_cap_pct: float | None = None  # 組合權益 ≤ initial×(1−cap) → 全平並停止新進場
+    quad_force_exit_pause_spread_rs_positive: bool = False  # W5>W20 close → pause quad force-exit
+    quad_force_exit_pause_spread_rs_streak_min: int = 0  # N consecutive spread_rs>0 days → pause
+    entry_gate_mode: EntryGateMode = "none"  # Ω′ / hybrid top-K entry+swap gate (lookup passed at sim)
+    hybrid_top_k: int = 10  # hybrid_top_k gate · top N per day in Ω′
+    intraday_swap_confirm: bool = False  # swap challenger must pass 13:30 imp_extension strict
+    intraday_swap_tiebreak: bool = False  # prefer 13:30 extension among margin-pass challengers
+    challenger_rank_bonus: ChallengerRankBonus = "none"  # soft rank boost · no filter
+    challenger_rank_bonus_weight: float = 0.05  # bonus = weight × normalized score
+    challenger_rank_bonus_margin_only: bool = False  # bonus only within seg_last margin band
+    rrg_length: int = 20  # WMA length for pool calendars (research sweep metadata)
 
     @property
     def effective_margin(self) -> float:
@@ -961,7 +1007,7 @@ C18_BUY_ACCEL_PHASE2_SWEEP: list[ScoreSwapCConfig] = [
     ),
     ScoreSwapCConfig(
         "C18acc",
-        "四日加速 · 卖转弱 · 买转强 · margin=0.05（對照）",
+        "四日加速 · 卖转弱 · 买转强 · margin=0.05 · fresh∪accel",
         entry_leg="C0",
         min_hold_days=5,
         max_hold_days=10,
@@ -970,6 +1016,7 @@ C18_BUY_ACCEL_PHASE2_SWEEP: list[ScoreSwapCConfig] = [
         score_margin=0.05,
         accel_sell_negative_only=True,
         buy_sort_key="avg_accel_decel",
+        candidate_pool="fresh_union_accel",
     ),
     ScoreSwapCConfig(
         "C18acc-vdot",
@@ -1720,6 +1767,33 @@ def _avg_accel_scalar(
     return round(avg_dr + avg_dm, 6)
 
 
+def _neg_avg_accel_streak_days(
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+    lb: int,
+) -> int:
+    """自 as_of 往回 · 連續 avg_accel<0 交易日數（含 as_of）。"""
+    if as_of not in full_dates or entry_date not in full_dates:
+        return 0
+    si = full_dates.index(as_of)
+    ei = full_dates.index(entry_date)
+    streak = 0
+    for j in range(si, ei - 1, -1):
+        scalar = _avg_accel_scalar(
+            rs_ratio, rs_mom, full_dates, full_dates[j], stock_id, lb=lb
+        )
+        if scalar is not None and scalar < 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def _window_avg_accel_trend(
     rs_ratio: pd.DataFrame,
     rs_mom: pd.DataFrame,
@@ -2047,10 +2121,620 @@ def _buy_row_score(
     return float(scalar) if scalar is not None else None
 
 
+def _rank_rows_for_fill(
+    rows: list[ScanRow],
+    config: ScoreSwapCConfig,
+    *,
+    challenger_va_dot: dict[str, float],
+    challenger_avg_accel: dict[str, float],
+) -> list[ScanRow]:
+    """空槽補倉排序 · batch_topk 用 buy_sort_key（預設 avg_accel_decel）。"""
+    buy_key: BuySortKey = config.buy_sort_key or config.sort_key  # type: ignore[assignment]
+    if buy_key in ("accel_decel", "avg_accel_decel"):
+        scored: list[tuple[float, ScanRow]] = []
+        for row in rows:
+            score = _buy_row_score(
+                row,
+                buy_key,
+                challenger_va_dot=challenger_va_dot,
+                challenger_avg_accel=challenger_avg_accel,
+            )
+            if score is not None:
+                scored.append((score, row))
+        scored.sort(key=lambda x: (-x[0], x[1].stock_id))
+        return [row for _, row in scored]
+    return sorted(rows, key=lambda r: (-r.seg_last, r.stock_id))
+
+
 def _trading_days_between(full_dates: list[str], start: str, end: str) -> int:
     if start > end:
         return 0
     return sum(1 for d in full_dates if start < d <= end)
+
+
+def _day1_return(
+    close: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    entry_date: str,
+    entry_px: float,
+    stock_id: str,
+    as_of: str,
+) -> float | None:
+    """進場後第 1 個交易日收盤 vs entry_px · PIT：as_of 須 ≥ day1。"""
+    if entry_date not in full_dates or as_of not in full_dates:
+        return None
+    si = full_dates.index(entry_date)
+    if si + 1 >= len(full_dates):
+        return None
+    day1 = full_dates[si + 1]
+    if as_of < day1:
+        return None
+    if stock_id not in close.columns:
+        return None
+    c = close.at[day1, stock_id]
+    if c != c or entry_px <= 0:
+        return None
+    return float(c) / entry_px - 1.0
+
+
+def _close_return_vs_entry(
+    close: pd.DataFrame,
+    *,
+    entry_date: str,
+    entry_px: float,
+    stock_id: str,
+    as_of: str,
+) -> float | None:
+    """as_of 收盤 vs entry_px · PIT。"""
+    if as_of not in close.index or stock_id not in close.columns:
+        return None
+    c = close.at[as_of, stock_id]
+    if c != c or entry_px <= 0:
+        return None
+    return float(c) / entry_px - 1.0
+
+
+def _effective_min_hold_days(
+    config: ScoreSwapCConfig,
+    close: pd.DataFrame,
+    full_dates: list[str],
+    pos: dict[str, Any],
+    as_of: str,
+) -> int:
+    base = config.min_hold_days
+    th = config.gain_waiver_threshold
+    if th is not None:
+        d1 = _day1_return(
+            close,
+            full_dates,
+            entry_date=str(pos["entry_date"]),
+            entry_px=float(pos["entry_px"]),
+            stock_id=str(pos["stock_id"]),
+            as_of=as_of,
+        )
+        if d1 is not None and d1 >= th:
+            return config.gain_waiver_min_hold
+    lw = config.loss_waiver_threshold
+    if lw is not None:
+        ret = _close_return_vs_entry(
+            close,
+            entry_date=str(pos["entry_date"]),
+            entry_px=float(pos["entry_px"]),
+            stock_id=str(pos["stock_id"]),
+            as_of=as_of,
+        )
+        if ret is not None and ret <= lw:
+            return config.loss_waiver_min_hold
+    return base
+
+
+def _stock_end_q(
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    as_of: str,
+    stock_id: str,
+) -> str | None:
+    from research.backtest.rrg_mono_swap_exit_b import _daily_feat
+
+    feat = _daily_feat(rs_ratio, rs_mom, full_dates, as_of, stock_id)
+    if feat is None:
+        return None
+    q = str(feat.get("end_q") or "").lower()
+    return q or None
+
+
+def _quad_streak_days(
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    as_of: str,
+    stock_id: str,
+    target_quad: str,
+    entry_date: str,
+) -> int:
+    """自 entry 後至 as_of · 連續 target_quad 天數（含 as_of）。"""
+    if as_of not in full_dates or entry_date not in full_dates:
+        return 0
+    streak = 0
+    si = full_dates.index(as_of)
+    ei = full_dates.index(entry_date)
+    for j in range(si, ei - 1, -1):
+        d = full_dates[j]
+        q = _stock_end_q(rs_ratio, rs_mom, full_dates, d, stock_id)
+        if q == target_quad:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _quad_sell_bypass_accel(
+    config: ScoreSwapCConfig,
+    *,
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+) -> bool:
+    if config.quad_weakening_sell_days is not None:
+        ws = _quad_streak_days(
+            rs_ratio,
+            rs_mom,
+            full_dates,
+            as_of=as_of,
+            stock_id=stock_id,
+            target_quad="weakening",
+            entry_date=entry_date,
+        )
+        if ws >= config.quad_weakening_sell_days:
+            return True
+    if config.quad_lagging_sell_days is not None:
+        ls = _quad_streak_days(
+            rs_ratio,
+            rs_mom,
+            full_dates,
+            as_of=as_of,
+            stock_id=stock_id,
+            target_quad="lagging",
+            entry_date=entry_date,
+        )
+        if ls >= config.quad_lagging_sell_days:
+            return True
+    return False
+
+
+def quad_force_exit_streak_days(
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+    mode: QuadForceExitMode,
+) -> int:
+    """自 entry 後至 as_of · 連續符合 force-exit 象限的天數（含 as_of）。"""
+    if mode == "none":
+        return 0
+    if mode in ("weakening", "lagging"):
+        return _quad_streak_days(
+            rs_ratio,
+            rs_mom,
+            full_dates,
+            as_of=as_of,
+            stock_id=stock_id,
+            target_quad=mode,
+            entry_date=entry_date,
+        )
+    if mode == "weakening_or_lagging":
+        if as_of not in full_dates or entry_date not in full_dates:
+            return 0
+        streak = 0
+        si = full_dates.index(as_of)
+        ei = full_dates.index(entry_date)
+        for j in range(si, ei - 1, -1):
+            d = full_dates[j]
+            q = _stock_end_q(rs_ratio, rs_mom, full_dates, d, stock_id)
+            if q in ("weakening", "lagging"):
+                streak += 1
+            else:
+                break
+        return streak
+    return 0
+
+
+def drs_neg_streak_days(
+    rs_ratio: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+) -> int:
+    """連續 drs_rsr_1d ≤ 0 天數（含 as_of）。"""
+    if as_of not in full_dates or entry_date not in full_dates:
+        return 0
+    if stock_id not in rs_ratio.columns:
+        return 0
+    si = full_dates.index(as_of)
+    ei = full_dates.index(entry_date)
+    streak = 0
+    for j in range(si, ei - 1, -1):
+        d = full_dates[j]
+        if j <= 0:
+            break
+        dp = full_dates[j - 1]
+        rv = float(rs_ratio.at[d, stock_id])
+        rv_p = float(rs_ratio.at[dp, stock_id])
+        if pd.notna(rv) and pd.notna(rv_p) and rv - rv_p <= 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def spread_lost_streak_days(
+    spread_rs_panel: pd.DataFrame,
+    full_dates: list[str],
+    *,
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+) -> int:
+    """連續 spread_rs ≤ 0（W5 不再領先 W20）天數（含 as_of）。"""
+    if as_of not in full_dates or entry_date not in full_dates:
+        return 0
+    if stock_id not in spread_rs_panel.columns:
+        return 0
+    si = full_dates.index(as_of)
+    ei = full_dates.index(entry_date)
+    streak = 0
+    for j in range(si, ei - 1, -1):
+        d = full_dates[j]
+        srs = float(spread_rs_panel.at[d, stock_id])
+        if pd.notna(srs) and srs <= 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def struct_force_exit_streak_days(
+    config: ScoreSwapCConfig,
+    *,
+    rs_ratio: pd.DataFrame,
+    spread_rs_panel: pd.DataFrame | None,
+    full_dates: list[str],
+    as_of: str,
+    stock_id: str,
+    entry_date: str,
+) -> int:
+    if config.struct_force_exit_mode == "drs_neg":
+        return drs_neg_streak_days(
+            rs_ratio, full_dates, as_of=as_of, stock_id=stock_id, entry_date=entry_date
+        )
+    if config.struct_force_exit_mode == "spread_lost" and spread_rs_panel is not None:
+        return spread_lost_streak_days(
+            spread_rs_panel,
+            full_dates,
+            as_of=as_of,
+            stock_id=stock_id,
+            entry_date=entry_date,
+        )
+    return 0
+
+
+def struct_force_exit_eligible(
+    config: ScoreSwapCConfig,
+    *,
+    hold_days: int,
+    effective_min_hold: int,
+    streak_days: int,
+    unrealized_ret: float | None = None,
+) -> bool:
+    if config.struct_force_exit_mode == "none":
+        return False
+    req_hold = effective_min_hold if config.struct_force_exit_requires_min_hold else 0
+    if hold_days < req_hold:
+        return False
+    if streak_days < config.struct_force_exit_min_days:
+        return False
+    if config.struct_force_exit_loss_pct is not None:
+        if unrealized_ret is None:
+            return False
+        if unrealized_ret > config.struct_force_exit_loss_pct:
+            return False
+    return True
+
+
+def quad_force_exit_eligible(
+    config: ScoreSwapCConfig,
+    *,
+    hold_days: int,
+    effective_min_hold: int,
+    streak_days: int,
+    unrealized_ret: float | None = None,
+) -> bool:
+    if config.quad_force_exit_mode == "none":
+        return False
+    req_hold = effective_min_hold if config.quad_force_exit_requires_min_hold else 0
+    if hold_days < req_hold:
+        return False
+    if streak_days < config.quad_force_exit_min_days:
+        return False
+    if config.quad_force_exit_loss_pct is not None:
+        if unrealized_ret is None:
+            return False
+        if unrealized_ret > config.quad_force_exit_loss_pct:
+            return False
+    return True
+
+
+def hard_stop_exit_eligible(
+    config: ScoreSwapCConfig,
+    *,
+    hold_days: int,
+    effective_min_hold: int,
+    unrealized_ret: float | None = None,
+) -> bool:
+    if config.hard_stop_loss_pct is None:
+        return False
+    if config.hard_stop_requires_min_hold and hold_days < effective_min_hold:
+        return False
+    if unrealized_ret is None:
+        return False
+    return unrealized_ret <= config.hard_stop_loss_pct
+
+
+def _norm_kbar_minute(minute: str) -> str:
+    parts = str(minute).strip().split(":")
+    if len(parts) >= 2:
+        return f"{int(parts[0]):02d}:{parts[1][:2]}"
+    return str(minute)
+
+
+def intraday_hard_stop_trigger(
+    conn: sqlite3.Connection,
+    *,
+    stock_id: str,
+    trade_date: str,
+    entry_px: float,
+    entry_date: str,
+    entry_minute: str | None,
+    stop_pct: float,
+    bars_cache: dict[tuple[str, str], tuple[KbarBar, ...]],
+) -> tuple[float | None, str | None]:
+    """Scan 1m bars on trade_date · return (exit_px, exit_minute) if low ≤ stop_px."""
+    if entry_px <= 0:
+        return None, None
+    stop_px = entry_px * (1.0 + stop_pct)
+    key = (stock_id, trade_date)
+    if key not in bars_cache:
+        bars_cache[key] = load_kbar_day_bars(conn, stock_id, trade_date)
+    bars = bars_cache[key]
+    if not bars:
+        return None, None
+    is_entry_day = trade_date == entry_date
+    start_min = _norm_kbar_minute(entry_minute) if is_entry_day and entry_minute else "00:00"
+    for bar in bars:
+        if _norm_kbar_minute(bar.minute) < start_min:
+            continue
+        if bar.low <= stop_px:
+            exit_px = stop_px if bar.open >= stop_px else float(bar.open)
+            return exit_px, bar.minute
+    return None, None
+
+
+def _portfolio_equity(
+    book: dict[str, Any],
+    slots: list[dict[str, Any]],
+    close: pd.DataFrame,
+    as_of: str,
+) -> float:
+    equity = float(book["cash"])
+    for pos in slots:
+        alloc = float(pos.get("allocation") or book["slot_cap"])
+        entry_px = float(pos["entry_px"])
+        sid = str(pos["stock_id"])
+        if entry_px <= 0 or as_of not in close.index or sid not in close.columns:
+            equity += alloc
+            continue
+        px = float(close.at[as_of, sid])
+        equity += alloc * (px / entry_px) if px > 0 else alloc
+    return equity
+
+
+def _portfolio_tag_new_entries(book: dict[str, Any], slots: list[dict[str, Any]]) -> None:
+    for pos in slots:
+        if pos.get("_portfolio_booked"):
+            continue
+        alloc = min(float(book["slot_cap"]), float(book["cash"]))
+        if alloc <= 0:
+            continue
+        pos["allocation"] = alloc
+        pos["_portfolio_booked"] = True
+        book["cash"] -= alloc
+
+
+def _portfolio_credit_exit(
+    book: dict[str, Any] | None,
+    pos: dict[str, Any],
+    exit_px: float,
+) -> None:
+    if book is None:
+        return
+    alloc = float(pos.get("allocation") or book["slot_cap"])
+    entry_px = float(pos["entry_px"])
+    if entry_px > 0 and exit_px > 0:
+        book["cash"] += alloc * (exit_px / entry_px)
+
+
+def spread_rs_positive_at(
+    spread_rs_panel: pd.DataFrame | None,
+    *,
+    as_of: str,
+    stock_id: str,
+) -> bool:
+    """Daily close · WMA(5) spread_rs > 0 (W5 leading W20)."""
+    if spread_rs_panel is None or as_of not in spread_rs_panel.index:
+        return False
+    if stock_id not in spread_rs_panel.columns:
+        return False
+    srs = float(spread_rs_panel.at[as_of, stock_id])
+    return pd.notna(srs) and srs > 0
+
+
+def spread_rs_positive_streak_days(
+    spread_rs_panel: pd.DataFrame | None,
+    *,
+    as_of: str,
+    stock_id: str,
+    full_dates: list[str] | None = None,
+) -> int:
+    """Consecutive trading days ending at as_of with spread_rs > 0 (inclusive)."""
+    if spread_rs_panel is None:
+        return 0
+    if full_dates is not None:
+        dates = [d for d in full_dates if d <= as_of]
+    else:
+        dates = [str(d) for d in spread_rs_panel.index if str(d) <= as_of]
+    streak = 0
+    for d in reversed(dates):
+        if spread_rs_positive_at(spread_rs_panel, as_of=d, stock_id=stock_id):
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def quad_force_exit_paused_by_positive_spread(
+    config: ScoreSwapCConfig,
+    *,
+    spread_rs_panel: pd.DataFrame | None,
+    as_of: str,
+    stock_id: str,
+    full_dates: list[str] | None = None,
+) -> bool:
+    """Track 2 · skip quad force-exit when held leg has positive spread_rs streak."""
+    streak_min = int(config.quad_force_exit_pause_spread_rs_streak_min or 0)
+    if streak_min > 0:
+        streak = spread_rs_positive_streak_days(
+            spread_rs_panel,
+            as_of=as_of,
+            stock_id=stock_id,
+            full_dates=full_dates,
+        )
+        return streak >= streak_min
+    if not config.quad_force_exit_pause_spread_rs_positive:
+        return False
+    return spread_rs_positive_at(spread_rs_panel, as_of=as_of, stock_id=stock_id)
+
+
+def filter_scan_rows_by_gate(
+    rows: list[ScanRow],
+    gate_ids: set[str] | None,
+) -> list[ScanRow]:
+    """Intersect candidate shortlist with per-day gate set."""
+    if gate_ids is None:
+        return list(rows)
+    if not gate_ids:
+        return []
+    return [r for r in rows if r.stock_id in gate_ids]
+
+
+def apply_gate_by_date(
+    rows: list[ScanRow],
+    as_of: str,
+    gate_by_date: dict[str, set[str]] | None,
+) -> list[ScanRow]:
+    if gate_by_date is None:
+        return list(rows)
+    return filter_scan_rows_by_gate(rows, gate_by_date.get(as_of, set()))
+
+
+def intraday_swap_confirm_ok(
+    intraday_extension_by_date: dict[str, set[str]] | None,
+    *,
+    as_of: str,
+    stock_id: str,
+) -> bool:
+    """Track 3 · challenger must be in 13:30 imp_extension strict set."""
+    if intraday_extension_by_date is None:
+        return True
+    return stock_id in intraday_extension_by_date.get(as_of, set())
+
+
+def _challenger_rank_bonus_delta(
+    config: ScoreSwapCConfig,
+    row: ScanRow,
+    *,
+    rank_bonus_by_sid: dict[str, float] | None,
+    beats: list[ScanRow],
+) -> float:
+    """Soft rank boost · never filters candidates."""
+    if config.challenger_rank_bonus == "none" or not rank_bonus_by_sid:
+        return 0.0
+    bonus = float(rank_bonus_by_sid.get(row.stock_id, 0.0)) * config.challenger_rank_bonus_weight
+    if config.challenger_rank_bonus_margin_only and beats:
+        max_seg = max(float(r.seg_last) for r in beats)
+        if float(row.seg_last) < max_seg - config.effective_margin:
+            return 0.0
+    return bonus
+
+
+def _pick_best_challenger(
+    beats: list[ScanRow],
+    config: ScoreSwapCConfig,
+    *,
+    buy_key: BuySortKey | None,
+    row_score,
+    challenger_va_dot: dict[str, float],
+    challenger_avg_accel: dict[str, float],
+    rank_bonus_by_sid: dict[str, float] | None,
+    intraday_extension_by_date: dict[str, set[str]] | None,
+    as_of: str | None,
+) -> ScanRow | None:
+    """Pick buy row · optional intraday tiebreak + soft rank bonus."""
+    if not beats:
+        return None
+    pool = list(beats)
+    if config.intraday_swap_tiebreak and intraday_extension_by_date is not None and as_of:
+        ext_ids = intraday_extension_by_date.get(as_of, set())
+        with_ext = [r for r in pool if r.stock_id in ext_ids]
+        if with_ext:
+            pool = with_ext
+    if buy_key is not None:
+        scored: list[tuple[float, ScanRow]] = []
+        for row in pool:
+            base = _buy_row_score(
+                row,
+                buy_key,
+                challenger_va_dot=challenger_va_dot,
+                challenger_avg_accel=challenger_avg_accel,
+            )
+            if base is None:
+                continue
+            scored.append(
+                (
+                    float(base) + _challenger_rank_bonus_delta(
+                        config, row, rank_bonus_by_sid=rank_bonus_by_sid, beats=beats
+                    ),
+                    row,
+                )
+            )
+        return max(scored, key=lambda x: (x[0], x[1].stock_id))[1] if scored else None
+
+    def ranked_score(row: ScanRow) -> float:
+        return float(row_score(row)) + _challenger_rank_bonus_delta(
+            config, row, rank_bonus_by_sid=rank_bonus_by_sid, beats=beats
+        )
+
+    return max(pool, key=lambda r: (ranked_score(r), r.stock_id))
 
 
 def _swap_px(
@@ -2091,6 +2775,7 @@ def _settle_leg(
     exit_reason: str,
     config: ScoreSwapCConfig,
     full_dates: list[str],
+    portfolio_book: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     sid = str(pos["stock_id"])
     entry = str(pos["entry_date"])
@@ -2101,6 +2786,7 @@ def _settle_leg(
     bench = bench_return_entry_to_exit(conn, entry, exit_date, entry_price_mode="close")
     if bench is None:
         return None
+    _portfolio_credit_exit(portfolio_book, pos, exit_px)
     return {
         "stock_id": sid,
         "stock_name": pos.get("stock_name", ""),
@@ -2109,6 +2795,8 @@ def _settle_leg(
         "exit_date": exit_date,
         "entry_px": round(entry_px, 4),
         "exit_px": round(exit_px, 4),
+        "entry_minute": pos.get("entry_minute"),
+        "exit_minute": pos.get("exit_minute"),
         "exit_reason": exit_reason,
         "hold_days": _trading_days_between(full_dates, entry, exit_date),
         "variant_id": config.variant_id,
@@ -2191,13 +2879,19 @@ def _pick_swap_pair(
     challenger_trend: dict[str, str] | None = None,
     challenger_va_dot: dict[str, float] | None = None,
     challenger_avg_accel: dict[str, float] | None = None,
+    held_accel_bypass: set[str] | None = None,
+    as_of: str | None = None,
+    intraday_extension_by_date: dict[str, set[str]] | None = None,
+    challenger_rank_bonus_by_sid: dict[str, float] | None = None,
+    rs_ratio: pd.DataFrame | None = None,
+    rs_mom: pd.DataFrame | None = None,
+    full_dates: list[str] | None = None,
 ) -> tuple[dict[str, Any] | None, ScanRow | None]:
     """回傳 (sell_pos, buy_row) · challenger 須 score > held + margin。"""
     eligible = [r for r in candidates if r.stock_id not in held_ids]
     if not eligible or not slots:
         return None, None
 
-    margin = config.effective_margin
     key = config.sort_key
     today = held_today or {}
     trends = held_trend or {}
@@ -2221,8 +2915,13 @@ def _pick_swap_pair(
     sell_pool = list(slots)
     if config.decel_gate:
         sell_pool = [p for p in sell_pool if today.get(str(p["stock_id"]), 0.0) < 0]
+    bypass = held_accel_bypass or set()
     if config.accel_sell_negative_only and key in ("accel_decel", "avg_accel_decel"):
-        sell_pool = [p for p in sell_pool if held_score(p) < 0]
+        sell_pool = [
+            p
+            for p in sell_pool
+            if held_score(p) < 0 or str(p["stock_id"]) in bypass
+        ]
     if _structural_gate_active(config.structural_gate):
         sell_pool = [p for p in sell_pool if trends.get(str(p["stock_id"])) == "down_left"]
     if not sell_pool:
@@ -2236,42 +2935,61 @@ def _pick_swap_pair(
     buy_key = config.buy_sort_key
 
     def pick_buy(beats: list[ScanRow]) -> ScanRow | None:
-        if not beats:
-            return None
-        if buy_key is not None:
-            scored = [
-                (r, s)
-                for r in beats
-                if (s := _buy_row_score(
-                    r,
-                    buy_key,
-                    challenger_va_dot=va_dots,
-                    challenger_avg_accel=avg_accels,
-                ))
-                is not None
-            ]
-            return max(scored, key=lambda x: x[1])[0] if scored else None
-        return max(beats, key=row_score)
+        return _pick_best_challenger(
+            beats,
+            config,
+            buy_key=buy_key,
+            row_score=row_score,
+            challenger_va_dot=va_dots,
+            challenger_avg_accel=avg_accels,
+            rank_bonus_by_sid=challenger_rank_bonus_by_sid,
+            intraday_extension_by_date=intraday_extension_by_date,
+            as_of=as_of,
+        )
+
+    def try_swap(margin: float, sell: dict[str, Any]) -> ScanRow | None:
+        if buy_key is not None or use_seg_buy:
+            threshold = _buy_threshold_score(sell, key) + margin
+            beats = [r for r in eligible if float(r.seg_last) > threshold]
+        else:
+            threshold = held_score(sell) + margin
+            beats = [r for r in eligible if row_score(r) > threshold]
+        return pick_buy(beats)
 
     if config.swap_target == "worst_held":
         sell = min(sell_pool, key=held_score)
-        if buy_key is not None or use_seg_buy:
-            threshold = _buy_threshold_score(sell, key) + margin
-            beats = [r for r in eligible if float(r.seg_last) > threshold]
-        else:
-            threshold = held_score(sell) + margin
-            beats = [r for r in eligible if row_score(r) > threshold]
-        buy = pick_buy(beats)
-        return (sell, buy) if buy else (None, None)
+        buy = try_swap(config.effective_margin, sell)
+        if buy:
+            return sell, buy
+        relax_days = config.swap_margin_relax_neg_accel_days
+        relax_to = config.swap_margin_relax_to
+        if (
+            buy is None
+            and relax_days is not None
+            and relax_to is not None
+            and relax_to < config.effective_margin
+            and rs_ratio is not None
+            and rs_mom is not None
+            and full_dates is not None
+            and as_of is not None
+        ):
+            streak = _neg_avg_accel_streak_days(
+                rs_ratio,
+                rs_mom,
+                full_dates,
+                as_of=as_of,
+                stock_id=str(sell["stock_id"]),
+                entry_date=str(sell["entry_date"]),
+                lb=config.accel_lookback,
+            )
+            if streak >= relax_days:
+                buy = try_swap(relax_to, sell)
+                if buy:
+                    return sell, buy
+        return None, None
 
     for sell in sorted(sell_pool, key=held_score):
-        if buy_key is not None or use_seg_buy:
-            threshold = _buy_threshold_score(sell, key) + margin
-            beats = [r for r in eligible if float(r.seg_last) > threshold]
-        else:
-            threshold = held_score(sell) + margin
-            beats = [r for r in eligible if row_score(r) > threshold]
-        buy = pick_buy(beats)
+        buy = try_swap(config.effective_margin, sell)
         if buy:
             return sell, buy
     return None, None
@@ -2293,16 +3011,91 @@ def simulate_score_swap_c(
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] | None = None,
     rs_mom: pd.DataFrame | None = None,
     rs_ratio: pd.DataFrame | None = None,
+    spread_rs_panel: pd.DataFrame | None = None,
     zone_filter: str | None = None,
     entry_c_config: Any | None = None,
     slot_snapshots: dict[str, list[dict[str, Any]]] | None = None,
+    swap_block_audit: dict[str, list[dict[str, Any]]] | None = None,
+    entry_gate_by_date: dict[str, set[str]] | None = None,
+    swap_gate_by_date: dict[str, set[str]] | None = None,
+    intraday_extension_by_date: dict[str, set[str]] | None = None,
+    challenger_rank_bonus_by_date: dict[str, dict[str, float]] | None = None,
+    capital_ntd_per_slot: float = 10_000.0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     cache = kbar_cache if kbar_cache is not None else {}
+    bars_cache: dict[tuple[str, str], tuple[KbarBar, ...]] = {}
     kbar_stats = {"hits": 0, "checks": 0}
     slots: list[dict[str, Any]] = []
     periods: list[dict[str, Any]] = []
     swaps = 0
+    force_exits = 0
+    hard_stop_exits = 0
+    quad_force_exit_paused = 0
+    intraday_swap_blocked = 0
     max_hold_exits = 0
+    n_slots = max(1, int(config.n_slots))
+    slot_util_days = 0
+    entry_zone_days = 0
+    pool_shortfall_days = 0
+    fresh_fill_days = 0       # free_k>0 且 fresh 池足夠，不需 tier2 補
+    tier2_supplement_days = 0  # free_k>0 且觸發 tier2 降級補倉
+    fill_repeat_days = 0      # fill_repeat=True 且發生加碼（同一支佔多槽）
+    waiver_eligible_legs = 0  # 隔日漲幅 ≥ gain_waiver_threshold 的 leg 數（去重計一次）
+    day1_observed_legs = 0
+    early_waiver_swaps = 0    # waiver 下 hold < min_hold_days 的換倉
+    early_waiver_excess: list[float] = []
+    total_entries = 0
+    portfolio_book: dict[str, Any] | None = None
+    if config.portfolio_loss_cap_pct is not None:
+        initial = n_slots * float(capital_ntd_per_slot)
+        portfolio_book = {
+            "initial": initial,
+            "cash": initial,
+            "slot_cap": float(capital_ntd_per_slot),
+            "halted": False,
+            "cap_triggers": 0,
+        }
+
+    def _settle(
+        pos: dict[str, Any],
+        *,
+        exit_date: str,
+        exit_px: float,
+        exit_reason: str,
+    ) -> dict[str, Any] | None:
+        return _settle_leg(
+            conn,
+            pos=pos,
+            exit_date=exit_date,
+            exit_px=exit_px,
+            exit_reason=exit_reason,
+            config=config,
+            full_dates=full_dates,
+            portfolio_book=portfolio_book,
+        )
+
+    def _update_gain_waiver_stats(pos: dict[str, Any]) -> None:
+        nonlocal waiver_eligible_legs, day1_observed_legs
+        if config.gain_waiver_threshold is None or pos.get("gain_waiver_checked"):
+            return
+        d1 = _day1_return(
+            close,
+            full_dates,
+            entry_date=str(pos["entry_date"]),
+            entry_px=float(pos["entry_px"]),
+            stock_id=str(pos["stock_id"]),
+            as_of=as_of,
+        )
+        if d1 is None:
+            return
+        pos["gain_waiver_checked"] = True
+        day1_observed_legs += 1
+        pos["day1_return_pct"] = round(d1 * 100.0, 4)
+        if d1 >= config.gain_waiver_threshold:
+            pos["gain_waiver_eligible"] = True
+            waiver_eligible_legs += 1
+        else:
+            pos["gain_waiver_eligible"] = False
 
     # 模式 C 填倉沿用 B 的 entry helper（需 structural gate 無）
     from research.backtest.rrg_mono_swap_exit_b import SwapExitBConfig, _daily_feat
@@ -2314,6 +3107,40 @@ def simulate_score_swap_c(
     )
 
     for as_of in trade_dates:
+        if portfolio_book is not None and config.portfolio_loss_cap_pct is not None:
+            if portfolio_book.get("halted"):
+                continue
+            floor = float(portfolio_book["initial"]) * (1.0 - float(config.portfolio_loss_cap_pct))
+            if _portfolio_equity(portfolio_book, slots, close, as_of) <= floor:
+                for pos in list(slots):
+                    sell_px, sell_min = _swap_px(
+                        conn,
+                        close=close,
+                        stock_id=str(pos["stock_id"]),
+                        trade_date=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                    if sell_px is None:
+                        continue
+                    if sell_min:
+                        pos["exit_minute"] = sell_min
+                    leg = _settle(
+                        pos,
+                        exit_date=as_of,
+                        exit_px=sell_px,
+                        exit_reason="portfolio_loss_cap",
+                    )
+                    if leg is None:
+                        continue
+                    leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
+                    periods.append(leg)
+                    slots.remove(pos)
+                    force_exits += 1
+                portfolio_book["halted"] = True
+                portfolio_book["cap_triggers"] = int(portfolio_book.get("cap_triggers") or 0) + 1
+                continue
+
         fresh_mono = fresh_by_date.get(as_of, [])
         pool_kwargs = dict(
             fresh_mono=fresh_mono,
@@ -2329,6 +3156,8 @@ def simulate_score_swap_c(
         entry_pool_rows = _candidate_pool(as_of, pool_type=entry_pool_type, **pool_kwargs)
         swap_pool_rows = _candidate_pool(as_of, pool_type=swap_pool_type, **pool_kwargs)
         signal_zone = zone_by_date.get(as_of, "unknown")
+        for pos in slots:
+            _update_gain_waiver_stats(pos)
         held_today: dict[str, float] = {}
         held_trend: dict[str, str] = {}
         challenger_trend: dict[str, str] = {}
@@ -2433,18 +3262,39 @@ def simulate_score_swap_c(
             challenger_va_dot=challenger_va_dot,
             challenger_avg_accel=challenger_avg_accel,
         )
+        swap_shortlist = apply_gate_by_date(swap_shortlist, as_of, swap_gate_by_date)
+        entry_shortlist = apply_gate_by_date(entry_shortlist, as_of, entry_gate_by_date)
         swaps_today = 0
 
         for pos in list(slots):
             hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
             if hold_days < config.max_hold_days:
                 continue
-            px, minute = _swap_px(conn, close=close, stock_id=str(pos["stock_id"]), trade_date=as_of, config=config, kbar_cache=cache)
+            if config.exit_loop_mode in ("intraday_loop_full", "intraday_loop_phase3") and config.timing_mode == "poll_5m":
+                from research.backtest.c18acc_intraday_exit_loop import poll_px_last
+
+                px, minute = poll_px_last(
+                    conn,
+                    close=close,
+                    stock_id=str(pos["stock_id"]),
+                    trade_date=as_of,
+                    config=config,
+                    kbar_cache=cache,
+                )
+            else:
+                px, minute = _swap_px(
+                    conn,
+                    close=close,
+                    stock_id=str(pos["stock_id"]),
+                    trade_date=as_of,
+                    config=config,
+                    kbar_cache=cache,
+                )
             if px is None:
                 continue
             if minute:
                 pos["exit_minute"] = minute
-            leg = _settle_leg(conn, pos=pos, exit_date=as_of, exit_px=px, exit_reason="max_hold", config=config, full_dates=full_dates)
+            leg = _settle(pos, exit_date=as_of, exit_px=px, exit_reason="max_hold")
             if leg:
                 leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
                 periods.append(leg)
@@ -2456,40 +3306,182 @@ def simulate_score_swap_c(
             continue
 
         swap_allowed = _breadth_zone_ok(signal_zone, config.breadth_swap_zones)
+        held_accel_bypass: set[str] = set()
+        if (
+            rs_ratio is not None
+            and rs_mom is not None
+            and (config.quad_weakening_sell_days is not None or config.quad_lagging_sell_days is not None)
+        ):
+            for pos in slots:
+                sid = str(pos["stock_id"])
+                if _quad_sell_bypass_accel(
+                    config,
+                    rs_ratio=rs_ratio,
+                    rs_mom=rs_mom,
+                    full_dates=full_dates,
+                    as_of=as_of,
+                    stock_id=sid,
+                    entry_date=str(pos["entry_date"]),
+                ):
+                    held_accel_bypass.add(sid)
+        if config.accel_sell_bypass_on_spread_lost and spread_rs_panel is not None:
+            for pos in slots:
+                sid = str(pos["stock_id"])
+                if not spread_rs_positive_at(spread_rs_panel, as_of=as_of, stock_id=sid):
+                    held_accel_bypass.add(sid)
         while swaps_today < config.max_swaps_per_day:
             held = {str(p["stock_id"]) for p in slots}
-            if len(slots) < MAX_SLOTS:
+            if len(slots) < n_slots:
                 break
-            sell, buy = _pick_swap_pair(
-                slots,
-                swap_shortlist,
-                held_ids=held,
-                config=config,
-                held_today=held_today,
-                held_trend=held_trend,
-                challenger_trend=challenger_trend,
-                challenger_va_dot=challenger_va_dot,
-                challenger_avg_accel=challenger_avg_accel,
-            )
+            sell_px: float | None = None
+            sell_min: str | None = None
+            buy_px: float | None = None
+            buy_min: str | None = None
+            sell: dict[str, Any] | None = None
+            buy: Any = None
+
+            if config.exit_loop_mode == "intraday_loop_phase3" and config.timing_mode == "poll_5m":
+                from research.backtest.c18acc_intraday_exit_loop import try_intraday_swap_repick
+
+                sell, buy, sell_px, sell_min, buy_px, buy_min = try_intraday_swap_repick(
+                    conn,
+                    slots=slots,
+                    swap_shortlist=swap_shortlist,
+                    held_ids=held,
+                    close=close,
+                    as_of=as_of,
+                    config=config,
+                    kbar_cache=cache,
+                    held_accel_bypass=held_accel_bypass,
+                    full_dates=full_dates,
+                )
+                if sell is None or buy is None or sell_px is None or buy_px is None:
+                    break
+            else:
+                sell, buy = _pick_swap_pair(
+                    slots,
+                    swap_shortlist,
+                    held_ids=held,
+                    config=config,
+                    held_today=held_today,
+                    held_trend=held_trend,
+                    challenger_trend=challenger_trend,
+                    challenger_va_dot=challenger_va_dot,
+                    challenger_avg_accel=challenger_avg_accel,
+                    held_accel_bypass=held_accel_bypass,
+                    as_of=as_of,
+                    intraday_extension_by_date=intraday_extension_by_date,
+                    challenger_rank_bonus_by_sid=(
+                        challenger_rank_bonus_by_date.get(as_of) if challenger_rank_bonus_by_date else None
+                    ),
+                    rs_ratio=rs_ratio,
+                    rs_mom=rs_mom,
+                    full_dates=full_dates,
+                )
+                if sell is None or buy is None:
+                    break
+                if (
+                    config.intraday_swap_confirm
+                    and not config.intraday_swap_tiebreak
+                    and not intraday_swap_confirm_ok(
+                        intraday_extension_by_date,
+                        as_of=as_of,
+                        stock_id=buy.stock_id,
+                    )
+                ):
+                    intraday_swap_blocked += 1
+                    break
+                if not _swap_allowed_for_leg(as_of, sell, zone_by_date, config):
+                    break
+                hold_days = _trading_days_between(full_dates, str(sell["entry_date"]), as_of)
+                eff_min_hold = _effective_min_hold_days(config, close, full_dates, sell, as_of)
+                if hold_days < eff_min_hold:
+                    break
+
+                if config.exit_loop_mode in ("intraday_loop_full", "intraday_loop_phase3") and config.timing_mode == "poll_5m":
+                    from research.backtest.c18acc_intraday_exit_loop import try_intraday_score_swap_px
+
+                    sell_px, sell_min, buy_px, buy_min = try_intraday_score_swap_px(
+                        conn,
+                        sell=sell,
+                        buy=buy,
+                        close=close,
+                        as_of=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                    if sell_px is None or buy_px is None:
+                        sell_px, sell_min = _swap_px(
+                            conn,
+                            close=close,
+                            stock_id=str(sell["stock_id"]),
+                            trade_date=as_of,
+                            config=config,
+                            kbar_cache=cache,
+                        )
+                        buy_px, buy_min = _swap_px(
+                            conn,
+                            close=close,
+                            stock_id=buy.stock_id,
+                            trade_date=as_of,
+                            config=config,
+                            kbar_cache=cache,
+                        )
+                else:
+                    sell_px, sell_min = _swap_px(
+                        conn,
+                        close=close,
+                        stock_id=str(sell["stock_id"]),
+                        trade_date=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                    buy_px, buy_min = _swap_px(
+                        conn,
+                        close=close,
+                        stock_id=buy.stock_id,
+                        trade_date=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                if sell_px is None or buy_px is None:
+                    break
+
+            if (
+                config.intraday_swap_confirm
+                and not config.intraday_swap_tiebreak
+                and buy is not None
+                and not intraday_swap_confirm_ok(
+                    intraday_extension_by_date,
+                    as_of=as_of,
+                    stock_id=buy.stock_id,
+                )
+            ):
+                intraday_swap_blocked += 1
+                break
             if sell is None or buy is None:
                 break
             if not _swap_allowed_for_leg(as_of, sell, zone_by_date, config):
                 break
             hold_days = _trading_days_between(full_dates, str(sell["entry_date"]), as_of)
-            if hold_days < config.min_hold_days:
+            eff_min_hold = _effective_min_hold_days(config, close, full_dates, sell, as_of)
+            if hold_days < eff_min_hold:
                 break
-
-            sell_px, _ = _swap_px(conn, close=close, stock_id=str(sell["stock_id"]), trade_date=as_of, config=config, kbar_cache=cache)
-            buy_px, buy_min = _swap_px(conn, close=close, stock_id=buy.stock_id, trade_date=as_of, config=config, kbar_cache=cache)
             if sell_px is None or buy_px is None:
                 break
+            if sell_min:
+                sell["exit_minute"] = sell_min
 
-            leg = _settle_leg(conn, pos=sell, exit_date=as_of, exit_px=sell_px, exit_reason="score_swap", config=config, full_dates=full_dates)
+            leg = _settle(sell, exit_date=as_of, exit_px=sell_px, exit_reason="score_swap")
             if leg is None:
                 break
             leg["breadth_zone_200"] = zone_by_date.get(str(sell.get("signal_date")), "unknown")
             leg["challenger_id"] = buy.stock_id
             leg["challenger_seg_last"] = buy.seg_last
+            if config.gain_waiver_threshold is not None and hold_days < config.min_hold_days:
+                leg["gain_waiver_swap"] = True
+                early_waiver_swaps += 1
+                early_waiver_excess.append(float(leg["excess_pct"]))
             periods.append(leg)
             slots.remove(sell)
             slot_id = sell.get("slot", len(slots))
@@ -2509,37 +3501,364 @@ def simulate_score_swap_c(
                     "entry_leg": config.entry_leg,
                 }
             )
+            total_entries += 1
             swaps += 1
             swaps_today += 1
+            if portfolio_book is not None:
+                _portfolio_tag_new_entries(portfolio_book, slots)
+
+        if (
+            config.quad_force_exit_mode != "none"
+            and rs_ratio is not None
+            and rs_mom is not None
+        ):
+            for pos in list(slots):
+                if swaps_today >= config.max_swaps_per_day:
+                    break
+                hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
+                eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
+                if quad_force_exit_paused_by_positive_spread(
+                    config,
+                    spread_rs_panel=spread_rs_panel,
+                    as_of=as_of,
+                    stock_id=str(pos["stock_id"]),
+                    full_dates=full_dates,
+                ):
+                    quad_force_exit_paused += 1
+                    continue
+                sell_px: float | None = None
+                sell_min: str | None = None
+                if config.exit_loop_mode in ("intraday_loop", "intraday_loop_full", "intraday_loop_phase3") and config.timing_mode == "poll_5m":
+                    from research.backtest.c18acc_intraday_exit_loop import (
+                        try_intraday_quad_force_exit,
+                    )
+
+                    sell_px, sell_min, streak = try_intraday_quad_force_exit(
+                        conn,
+                        close=close,
+                        bench=bench,
+                        full_dates=full_dates,
+                        rs_ratio=rs_ratio,
+                        rs_mom=rs_mom,
+                        spread_rs_panel=spread_rs_panel,
+                        pos=pos,
+                        as_of=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                    if sell_px is None:
+                        continue
+                else:
+                    streak = quad_force_exit_streak_days(
+                        rs_ratio,
+                        rs_mom,
+                        full_dates,
+                        as_of=as_of,
+                        stock_id=str(pos["stock_id"]),
+                        entry_date=str(pos["entry_date"]),
+                        mode=config.quad_force_exit_mode,
+                    )
+                    unrealized_ret: float | None = None
+                    if config.quad_force_exit_loss_pct is not None:
+                        entry_px = float(pos["entry_px"])
+                        if entry_px > 0 and as_of in close.index and str(pos["stock_id"]) in close.columns:
+                            asof_close = float(close.at[as_of, str(pos["stock_id"])])
+                            if asof_close > 0:
+                                unrealized_ret = asof_close / entry_px - 1.0
+                    if not quad_force_exit_eligible(
+                        config,
+                        hold_days=hold_days,
+                        effective_min_hold=eff_min_hold,
+                        streak_days=streak,
+                        unrealized_ret=unrealized_ret,
+                    ):
+                        continue
+                    sell_px, sell_min = _swap_px(
+                        conn,
+                        close=close,
+                        stock_id=str(pos["stock_id"]),
+                        trade_date=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                    if sell_px is None:
+                        continue
+                if sell_min:
+                    pos["exit_minute"] = sell_min
+                leg = _settle(
+                    pos,
+                    exit_date=as_of,
+                    exit_px=sell_px,
+                    exit_reason="quad_force_exit",
+                )
+                if leg is None:
+                    continue
+                leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
+                leg["quad_force_exit_streak"] = streak
+                periods.append(leg)
+                slots.remove(pos)
+                force_exits += 1
+                swaps_today += 1
+
+        if (
+            config.struct_force_exit_mode != "none"
+            and rs_ratio is not None
+            and (config.struct_force_exit_mode != "spread_lost" or spread_rs_panel is not None)
+        ):
+            for pos in list(slots):
+                if swaps_today >= config.max_swaps_per_day:
+                    break
+                hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
+                eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
+                streak = struct_force_exit_streak_days(
+                    config,
+                    rs_ratio=rs_ratio,
+                    spread_rs_panel=spread_rs_panel,
+                    full_dates=full_dates,
+                    as_of=as_of,
+                    stock_id=str(pos["stock_id"]),
+                    entry_date=str(pos["entry_date"]),
+                )
+                unrealized_ret: float | None = None
+                if config.struct_force_exit_loss_pct is not None:
+                    entry_px = float(pos["entry_px"])
+                    if entry_px > 0 and as_of in close.index and str(pos["stock_id"]) in close.columns:
+                        asof_close = float(close.at[as_of, str(pos["stock_id"])])
+                        if asof_close > 0:
+                            unrealized_ret = asof_close / entry_px - 1.0
+                if not struct_force_exit_eligible(
+                    config,
+                    hold_days=hold_days,
+                    effective_min_hold=eff_min_hold,
+                    streak_days=streak,
+                    unrealized_ret=unrealized_ret,
+                ):
+                    continue
+                sell_px, sell_min = _swap_px(
+                    conn,
+                    close=close,
+                    stock_id=str(pos["stock_id"]),
+                    trade_date=as_of,
+                    config=config,
+                    kbar_cache=cache,
+                )
+                if sell_px is None:
+                    continue
+                if sell_min:
+                    pos["exit_minute"] = sell_min
+                leg = _settle(
+                    pos,
+                    exit_date=as_of,
+                    exit_px=sell_px,
+                    exit_reason="struct_force_exit",
+                )
+                if leg is None:
+                    continue
+                leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
+                leg["struct_force_exit_streak"] = streak
+                leg["struct_force_exit_mode"] = config.struct_force_exit_mode
+                periods.append(leg)
+                slots.remove(pos)
+                force_exits += 1
+                swaps_today += 1
+
+        if config.hard_stop_loss_pct is not None:
+            for pos in list(slots):
+                if swaps_today >= config.max_swaps_per_day:
+                    break
+                hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
+                eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
+                entry_px = float(pos["entry_px"])
+                sell_px: float | None = None
+                exit_minute: str | None = None
+                exit_reason = "hard_stop"
+
+                if config.hard_stop_intraday:
+                    if config.hard_stop_requires_min_hold and hold_days < eff_min_hold:
+                        continue
+                    hit_px, hit_min = intraday_hard_stop_trigger(
+                        conn,
+                        stock_id=str(pos["stock_id"]),
+                        trade_date=as_of,
+                        entry_px=entry_px,
+                        entry_date=str(pos["entry_date"]),
+                        entry_minute=pos.get("entry_minute"),
+                        stop_pct=config.hard_stop_loss_pct,
+                        bars_cache=bars_cache,
+                    )
+                    if hit_px is None:
+                        continue
+                    sell_px = hit_px
+                    exit_minute = hit_min
+                    exit_reason = "hard_stop_intraday"
+                else:
+                    unrealized_ret: float | None = None
+                    if entry_px > 0 and as_of in close.index and str(pos["stock_id"]) in close.columns:
+                        asof_close = float(close.at[as_of, str(pos["stock_id"])])
+                        if asof_close > 0:
+                            unrealized_ret = asof_close / entry_px - 1.0
+                    if not hard_stop_exit_eligible(
+                        config,
+                        hold_days=hold_days,
+                        effective_min_hold=eff_min_hold,
+                        unrealized_ret=unrealized_ret,
+                    ):
+                        continue
+                    sell_px, exit_minute = _swap_px(
+                        conn,
+                        close=close,
+                        stock_id=str(pos["stock_id"]),
+                        trade_date=as_of,
+                        config=config,
+                        kbar_cache=cache,
+                    )
+                if sell_px is None:
+                    continue
+                leg = _settle(
+                    pos,
+                    exit_date=as_of,
+                    exit_px=sell_px,
+                    exit_reason=exit_reason,
+                )
+                if leg is None:
+                    continue
+                if exit_minute:
+                    leg["exit_minute"] = exit_minute
+                leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
+                periods.append(leg)
+                slots.remove(pos)
+                hard_stop_exits += 1
+                force_exits += 1
+                swaps_today += 1
+
+        if swap_block_audit is not None and rs_ratio is not None and rs_mom is not None:
+            from research.backtest.c18acc_swap_block_audit import record_swap_block_audit_day
+
+            record_swap_block_audit_day(
+                swap_block_audit,
+                as_of=as_of,
+                slots=slots,
+                swap_shortlist=swap_shortlist,
+                config=config,
+                close=close,
+                full_dates=full_dates,
+                rs_ratio=rs_ratio,
+                rs_mom=rs_mom,
+                held_today=held_today,
+                held_accel_bypass=held_accel_bypass,
+                swaps_today=swaps_today,
+                swap_zone_ok=swap_allowed,
+            )
 
         if _breadth_zone_ok(signal_zone, config.breadth_entry_zones):
+            entry_zone_days += 1
             fill_shortlist = entry_shortlist
-            if not fill_shortlist and config.entry_fallback_pool is not None:
-                fallback_rows = _candidate_pool(
-                    as_of,
-                    pool_type=config.entry_fallback_pool,
-                    **pool_kwargs,
-                )
-                fill_shortlist = _candidate_shortlist(
-                    fallback_rows,
+            free_k = n_slots - len(slots)
+            _used_tier2 = False
+            if config.entry_fallback_pool is not None and free_k > 0:
+                # 部分補滿：fresh 不足 free_k 時，從 fallback 池補足（partial supplement）
+                held_ids_temp = {str(p["stock_id"]) for p in slots}
+                fresh_avail = sum(1 for r in fill_shortlist if r.stock_id not in held_ids_temp)
+                if fresh_avail < free_k:
+                    fallback_rows = _candidate_pool(
+                        as_of,
+                        pool_type=config.entry_fallback_pool,
+                        **pool_kwargs,
+                    )
+                    fallback_shortlist = _candidate_shortlist(
+                        fallback_rows,
+                        config,
+                        challenger_trend=challenger_trend,
+                        challenger_va_dot=challenger_va_dot,
+                        challenger_avg_accel=challenger_avg_accel,
+                    )
+                    fallback_shortlist = apply_gate_by_date(
+                        fallback_shortlist, as_of, entry_gate_by_date
+                    )
+                    fresh_ids = {r.stock_id for r in fill_shortlist}
+                    supplement = [r for r in fallback_shortlist if r.stock_id not in fresh_ids]
+                    if supplement:
+                        fill_shortlist = list(fill_shortlist) + supplement
+                        _used_tier2 = True
+                        tier2_supplement_days += 1
+            if free_k > 0 and fill_shortlist and not _used_tier2:
+                fresh_fill_days += 1
+            fill_pool = fill_shortlist
+            if config.fill_mode == "batch_topk" and free_k > 0 and fill_shortlist:
+                held_ids = {str(p["stock_id"]) for p in slots}
+                ranked = _rank_rows_for_fill(
+                    fill_shortlist,
                     config,
-                    challenger_trend=challenger_trend,
                     challenger_va_dot=challenger_va_dot,
                     challenger_avg_accel=challenger_avg_accel,
                 )
-            _fill_empty_slots(
-                conn,
-                as_of=as_of,
-                fresh_mono=fill_shortlist,
-                slots=slots,
-                close=close,
-                bench=bench,
-                full_dates=full_dates,
-                config=fill_cfg,
-                kbar_cache=cache,
-                kbar_stats=kbar_stats,
-                entry_c_config=entry_c_config,
-            )
+                if config.fill_repeat and ranked:
+                    # 加碼補滿：不限制重複，循環取 top-k 直到填滿所有空槽
+                    fill_pool = [ranked[i % len(ranked)] for i in range(free_k)]
+                else:
+                    fill_pool = [r for r in ranked if r.stock_id not in held_ids][:free_k]
+                    if free_k > len(fill_pool):
+                        pool_shortfall_days += 1
+
+            if config.fill_repeat and fill_pool:
+                # 直接寫入 slots，允許同一 stock_id 佔多個槽位
+                slot_used = {int(p["slot"]) for p in slots}
+                free_slot_ids = [i for i in range(n_slots) if i not in slot_used]
+                _had_repeat = False
+                _newly_added: set[str] = set()
+                for slot_id, row in zip(free_slot_ids, fill_pool):
+                    px = (
+                        float(close.at[as_of, row.stock_id])
+                        if as_of in close.index and row.stock_id in close.columns
+                        else None
+                    )
+                    if px is None or px <= 0:
+                        continue
+                    if row.stock_id in _newly_added:
+                        _had_repeat = True  # 本日已為此股補過一槽，再補屬加碼
+                    _newly_added.add(row.stock_id)
+                    slots.append(
+                        {
+                            "slot": slot_id,
+                            "stock_id": row.stock_id,
+                            "stock_name": row.stock_name,
+                            "signal_date": as_of,
+                            "entry_date": as_of,
+                            "entry_px": px,
+                            "seg_last": round(row.seg_last, 4),
+                            "disp": round(row.disp, 4),
+                            "rs_momentum": float(row.rs_momentum),
+                            "seg_step_delta": _seg_step_delta(row.segs),
+                            "entry_minute": None,
+                            "entry_leg": config.entry_leg,
+                        }
+                    )
+                    total_entries += 1
+                if _had_repeat:
+                    fill_repeat_days += 1
+                if portfolio_book is not None:
+                    _portfolio_tag_new_entries(portfolio_book, slots)
+            else:
+                slots_before = len(slots)
+                _fill_empty_slots(
+                    conn,
+                    as_of=as_of,
+                    fresh_mono=fill_pool,
+                    slots=slots,
+                    close=close,
+                    bench=bench,
+                    full_dates=full_dates,
+                    config=fill_cfg,
+                    kbar_cache=cache,
+                    kbar_stats=kbar_stats,
+                    entry_c_config=entry_c_config,
+                    n_slots=n_slots,
+                )
+                total_entries += len(slots) - slots_before
+            if portfolio_book is not None:
+                _portfolio_tag_new_entries(portfolio_book, slots)
+            if len(slots) >= n_slots:
+                slot_util_days += 1
         for pos in slots:
             if pos.get("rs_momentum") is not None and pos.get("seg_step_delta") is not None:
                 continue
@@ -2558,10 +3877,11 @@ def simulate_score_swap_c(
     if trade_dates:
         last = trade_dates[-1]
         for pos in list(slots):
+            _update_gain_waiver_stats(pos)
             px = _entry_px(close, str(pos["stock_id"]), last)
             if px is None:
                 continue
-            leg = _settle_leg(conn, pos=pos, exit_date=last, exit_px=px, exit_reason="window_end", config=config, full_dates=full_dates)
+            leg = _settle(pos, exit_date=last, exit_px=px, exit_reason="window_end")
             if leg:
                 leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
                 periods.append(leg)
@@ -2605,8 +3925,50 @@ def simulate_score_swap_c(
             "breadth_challenger_pool_mode": config.breadth_challenger_pool_mode,
             "breadth_swap_zone_date": config.breadth_swap_zone_date,
             "swaps_total": swaps,
+            "force_exits": force_exits,
+            "hard_stop_exits": hard_stop_exits,
+            "portfolio_loss_cap_pct": config.portfolio_loss_cap_pct,
+            "portfolio_loss_cap_triggers": (
+                int(portfolio_book.get("cap_triggers") or 0) if portfolio_book else 0
+            ),
+            "portfolio_halted": bool(portfolio_book.get("halted")) if portfolio_book else False,
+            "quad_force_exit_paused": quad_force_exit_paused,
+            "intraday_swap_blocked": intraday_swap_blocked,
+            "quad_force_exit_pause_spread_rs_positive": config.quad_force_exit_pause_spread_rs_positive,
+            "quad_force_exit_pause_spread_rs_streak_min": config.quad_force_exit_pause_spread_rs_streak_min,
+            "entry_gate_mode": config.entry_gate_mode,
+            "intraday_swap_confirm": config.intraday_swap_confirm,
+            "intraday_swap_tiebreak": config.intraday_swap_tiebreak,
+            "challenger_rank_bonus": config.challenger_rank_bonus,
+            "challenger_rank_bonus_weight": config.challenger_rank_bonus_weight,
+            "challenger_rank_bonus_margin_only": config.challenger_rank_bonus_margin_only,
+            "quad_force_exit_mode": config.quad_force_exit_mode,
+            "quad_force_exit_min_days": config.quad_force_exit_min_days,
+            "quad_force_exit_loss_pct": config.quad_force_exit_loss_pct,
             "max_hold_exits": max_hold_exits,
             "n_periods": n,
+            "n_slots": n_slots,
+            "fill_mode": config.fill_mode,
+            "slot_util_pct": round(100.0 * slot_util_days / entry_zone_days, 2) if entry_zone_days else None,
+            "pool_shortfall_days": pool_shortfall_days,
+            "fresh_fill_days": fresh_fill_days,
+            "tier2_supplement_days": tier2_supplement_days,
+            "tier2_supplement_pct": round(100.0 * tier2_supplement_days / entry_zone_days, 2) if entry_zone_days else None,
+            "fill_repeat_days": fill_repeat_days,
+            "fill_repeat": config.fill_repeat,
+            "entry_zone_days": entry_zone_days,
+            "gain_waiver_threshold": config.gain_waiver_threshold,
+            "gain_waiver_min_hold": config.gain_waiver_min_hold,
+            "total_entries": total_entries,
+            "day1_observed_legs": day1_observed_legs,
+            "waiver_eligible_legs": waiver_eligible_legs,
+            "waiver_rate_pct": (
+                round(100.0 * waiver_eligible_legs / day1_observed_legs, 2) if day1_observed_legs else None
+            ),
+            "early_waiver_swaps": early_waiver_swaps,
+            "early_waiver_mean_excess_pct": (
+                round(sum(early_waiver_excess) / len(early_waiver_excess), 4) if early_waiver_excess else None
+            ),
         }
     )
     return periods, summary
@@ -2631,6 +3993,537 @@ def _pooled_by_entry_zone(periods: list[dict[str, Any]]) -> dict[str, dict[str, 
         else:
             out[zone] = {"n_periods": 0, "mean_excess_pct": None}
     return out
+
+
+def _timeline_bundle_from_period(
+    period: dict[str, Any],
+    *,
+    capital_ntd: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Map one settled score-swap period → timeline leg + executed row."""
+    slot_id = int(period.get("slot") or 0)
+    entry = str(period["entry_date"])
+    exit_d = str(period["exit_date"])
+    sid = str(period["stock_id"])
+    ret = float(period["return_pct"])
+    excess = period.get("excess_pct")
+    pnl = capital_ntd * ret / 100.0
+    alpha_ntd = capital_ntd * float(excess) / 100.0 if excess is not None else None
+    leg = {
+        "leg_id": f"{entry}|{sid}|{slot_id}",
+        "signal_date": str(period.get("signal_date") or entry),
+        "stock_id": sid,
+        "stock_name": str(period.get("stock_name") or ""),
+        "action": str(period.get("exit_reason") or "c18acc"),
+        "entry_date": entry,
+        "exit_date": exit_d,
+        "entry_px": period.get("entry_px"),
+        "exit_px": period.get("exit_px"),
+        "allocated_ntd": capital_ntd,
+        "return_pct": ret,
+        "pnl_ntd": pnl,
+        "slot_id": slot_id,
+        "seg_last": period.get("seg_last"),
+        "exit_reason": period.get("exit_reason"),
+    }
+    for key in (
+        "entry_minute",
+        "exit_minute",
+        "orig_exit_date",
+        "orig_exit_px",
+        "orig_return_pct",
+        "save_vs_orig_pct",
+        "ext_exit",
+        "overlay_variant",
+    ):
+        if key in period:
+            leg[key] = period[key]
+    executed = {
+        "signal_date": str(period.get("signal_date") or entry),
+        "entry_date": entry,
+        "exit_date": exit_d,
+        "slot_id": slot_id,
+        "n_legs": 1,
+        "stock_id": sid,
+        "stock_name": str(period.get("stock_name") or ""),
+        "seg_last": period.get("seg_last"),
+        "entry_px": period.get("entry_px"),
+        "exit_px": period.get("exit_px"),
+        "entry_minute": period.get("entry_minute"),
+        "exit_minute": period.get("exit_minute"),
+        "deployed_ntd": capital_ntd,
+        "pnl_ntd": pnl,
+        "return_pct": ret,
+        "bench_return_pct": period.get("bench_return_pct"),
+        "alpha_ntd": alpha_ntd,
+        "exit_reason": period.get("exit_reason"),
+    }
+    return leg, executed
+
+
+def build_c18acc_executed_legs_for_timeline(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    config: ScoreSwapCConfig | None = None,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """C18acc score-swap periods → legs compatible with render_l1h9_slots_timeline_html."""
+    from dataclasses import replace
+
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+
+    if not dates:
+        raise ValueError("dates must not be empty")
+
+    base = close_champion_score_swap_c_config() if use_close_timing else champion_score_swap_c_config()
+    cfg = replace(base, n_slots=max(1, int(n_slots)))
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in dates if d in set(full_dates)]
+    if len(trade_dates) < 2:
+        raise ValueError(f"need ≥2 trade dates in panel, got {len(trade_dates)}")
+
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=trade_dates[0], date_end=trade_dates[-1])
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    slot_snapshots: dict[str, list[dict[str, Any]]] = {}
+
+    periods, summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=cfg,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        slot_snapshots=slot_snapshots,
+    )
+
+    legs_out: list[dict] = []
+    executed_signals: list[dict] = []
+    for period in periods:
+        leg, executed = _timeline_bundle_from_period(period, capital_ntd=capital_ntd)
+        legs_out.append(leg)
+        executed_signals.append(executed)
+
+    peak = max((len(v) for v in slot_snapshots.values()), default=0)
+    n_executed = len(executed_signals)
+    total_capital = cfg.n_slots * capital_ntd
+    meta = {
+        "n_slots": cfg.n_slots,
+        "capital_ntd": capital_ntd,
+        "total_capital_ntd": total_capital,
+        "cost_bps": 0.0,
+        "hold_trading_days": cfg.max_hold_days,
+        "min_hold_days": cfg.min_hold_days,
+        "n_signals": n_executed,
+        "n_executed": n_executed,
+        "n_skipped": 0,
+        "signal_capture_pct": None,
+        "peak_concurrent_slots": peak,
+        "strategy_id": RRG_MONO_SWAP_ACCEL_SLUG,
+        "strategy_title": f"C18acc · {cfg.n_slots}槽 · swap-accel",
+        "strategy_rule": (
+            f"min_hold {cfg.min_hold_days} / max_hold {cfg.max_hold_days} · "
+            f"margin {cfg.effective_margin:g} · "
+            f"{'close' if use_close_timing else cfg.timing_mode} 換倉"
+        ),
+        "strategy_filter": "fresh · 四日加速换仓 · score_swap_c",
+        "display_code": RRG_MONO_SWAP_ACCEL_SHORT,
+        "table_mode": "mono",
+        "entry_price_mode": "close",
+        "swaps_total": summary.get("swaps_total"),
+        "variant_id": cfg.variant_id,
+        "timing_mode": cfg.timing_mode,
+    }
+    return legs_out, executed_signals, [], meta
+
+
+def _finalize_c18acc_s2_timeline_meta(
+    meta: dict,
+    summary: dict[str, Any],
+    cfg: ScoreSwapCConfig,
+) -> dict:
+    meta = dict(meta)
+    meta.update(
+        {
+            "strategy_title": f"C18acc+S2 · {cfg.n_slots}槽 · swap-accel+rotation-exit",
+            "strategy_rule": (
+                f"min_hold {cfg.min_hold_days} / max_hold {cfg.max_hold_days} · "
+                f"S2 weakening {cfg.quad_force_exit_min_days}d + loss≥"
+                f"{abs(cfg.quad_force_exit_loss_pct or 0) * 100:.0f}% · close"
+            ),
+            "strategy_filter": "fresh · 四日加速换仓 · score_swap_c · S2 rotation exit",
+            "display_code": "C18acc+S2",
+            "variant_id": "S2",
+            "parent_variant_id": close_champion_score_swap_c_config().variant_id,
+            "force_exits": summary.get("force_exits"),
+            "mean_excess_pct": summary.get("mean_excess_pct"),
+        }
+    )
+    return meta
+
+
+def build_c18acc_s2_executed_legs_for_timeline(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """C18acc + S2 selective quad force-exit → timeline legs."""
+    from dataclasses import replace
+
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.c18acc_rotation_selective_exit_sweep import (
+        rotation_selective_exit_sweep_configs,
+    )
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+
+    if not dates:
+        raise ValueError("dates must not be empty")
+
+    configs = {c.variant_id: c for c in rotation_selective_exit_sweep_configs()}
+    s2_base = configs["S2"]
+    if not use_close_timing:
+        base = champion_score_swap_c_config()
+        s2_base = replace(
+            s2_base,
+            timing_mode=base.timing_mode,
+            entry_price_mode=base.entry_price_mode,
+            variant_id="S2",
+        )
+    cfg = replace(s2_base, n_slots=max(1, int(n_slots)))
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in dates if d in set(full_dates)]
+    if len(trade_dates) < 2:
+        raise ValueError(f"need ≥2 trade dates in panel, got {len(trade_dates)}")
+
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=trade_dates[0], date_end=trade_dates[-1])
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    slot_snapshots: dict[str, list[dict[str, Any]]] = {}
+
+    periods, summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=cfg,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        slot_snapshots=slot_snapshots,
+    )
+
+    legs_out: list[dict] = []
+    executed_signals: list[dict] = []
+    for period in periods:
+        period = dict(period)
+        period["overlay_variant"] = "S2"
+        leg, executed = _timeline_bundle_from_period(period, capital_ntd=capital_ntd)
+        legs_out.append(leg)
+        executed_signals.append(executed)
+
+    peak = max((len(v) for v in slot_snapshots.values()), default=0)
+    n_executed = len(executed_signals)
+    total_capital = cfg.n_slots * capital_ntd
+    meta = {
+        "n_slots": cfg.n_slots,
+        "capital_ntd": capital_ntd,
+        "total_capital_ntd": total_capital,
+        "cost_bps": 0.0,
+        "hold_trading_days": cfg.max_hold_days,
+        "min_hold_days": cfg.min_hold_days,
+        "n_signals": n_executed,
+        "n_executed": n_executed,
+        "n_skipped": 0,
+        "signal_capture_pct": None,
+        "peak_concurrent_slots": peak,
+        "strategy_id": RRG_MONO_SWAP_ACCEL_SLUG,
+        "table_mode": "mono",
+        "entry_price_mode": "close",
+        "swaps_total": summary.get("swaps_total"),
+        "timing_mode": cfg.timing_mode,
+    }
+    meta = _finalize_c18acc_s2_timeline_meta(meta, summary, cfg)
+    return legs_out, executed_signals, [], meta
+
+
+def _finalize_c18acc_pool1_timeline_meta(
+    meta: dict,
+    summary: dict[str, Any],
+    cfg: ScoreSwapCConfig,
+    *,
+    display_code: str = "POOL1-P5M",
+) -> dict:
+    meta = dict(meta)
+    meta.update(
+        {
+            "strategy_title": f"POOL1 · fresh∪accel + S2 · {cfg.n_slots}槽 · poll_5m",
+            "strategy_rule": (
+                f"min_hold {cfg.min_hold_days} / max_hold {cfg.max_hold_days} · "
+                f"S2 weakening {cfg.quad_force_exit_min_days}d + loss≥"
+                f"{abs(cfg.quad_force_exit_loss_pct or 0) * 100:.0f}% · poll_5m"
+            ),
+            "strategy_filter": "fresh∪accel · 四日加速 · S2 rotation exit · poll_5m",
+            "display_code": display_code,
+            "variant_id": cfg.variant_id,
+            "candidate_pool": cfg.candidate_pool,
+            "parent_variant_id": "S2-P5M",
+            "force_exits": summary.get("force_exits"),
+            "mean_excess_pct": summary.get("mean_excess_pct"),
+        }
+    )
+    return meta
+
+
+def _pool_tag_for_signal(
+    stock_id: str,
+    signal_date: str,
+    fresh_by_date: dict[str, list[ScanRow]],
+) -> str:
+    fresh_ids = {r.stock_id for r in fresh_by_date.get(signal_date, [])}
+    return "fresh" if stock_id in fresh_ids else "accel-only"
+
+
+def build_c18acc_poll5m_s2_timeline_legs(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    candidate_pool: CandidatePool = "fresh_union_accel",
+    variant_id: str = "POOL1-P5M",
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """C18acc poll_5m · S2 exit · fresh or fresh_union_accel pool → timeline legs."""
+    from dataclasses import replace
+
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.c18acc_rotation_selective_exit_sweep import (
+        rotation_selective_exit_sweep_configs,
+    )
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+    from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP
+    from research.backtest.rrg_mono_swap_exit_b import build_mono_tier2_calendar
+
+    if not dates:
+        raise ValueError("dates must not be empty")
+
+    configs = {c.variant_id: c for c in rotation_selective_exit_sweep_configs()}
+    s2_base = configs["S2"]
+    champ = champion_score_swap_c_config()
+    cfg = replace(
+        s2_base,
+        timing_mode=champ.timing_mode,
+        candidate_pool=candidate_pool,
+        variant_id=variant_id,
+        n_slots=max(1, int(n_slots)),
+    )
+    c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in dates if d in set(full_dates)]
+    if len(trade_dates) < 2:
+        raise ValueError(f"need ≥2 trade dates in panel, got {len(trade_dates)}")
+
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    mono_by_date = build_mono_tier2_calendar(conn, trade_dates, close=close, bench=bench)
+    panel = build_breadth_panel(conn, date_start=trade_dates[0], date_end=trade_dates[-1])
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    kbar_cache: dict = {}
+    slot_snapshots: dict[str, list[dict[str, Any]]] = {}
+
+    periods, summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=cfg,
+        mono_by_date=mono_by_date,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        kbar_cache=kbar_cache,
+        entry_c_config=c0_cfg,
+        slot_snapshots=slot_snapshots,
+    )
+
+    legs_out: list[dict] = []
+    executed_signals: list[dict] = []
+    for period in periods:
+        period = dict(period)
+        period["overlay_variant"] = variant_id
+        sig = str(period.get("signal_date") or period["entry_date"])
+        pool_tag = _pool_tag_for_signal(str(period["stock_id"]), sig, fresh_by_date)
+        leg, executed = _timeline_bundle_from_period(period, capital_ntd=capital_ntd)
+        leg["pool_tag"] = pool_tag
+        leg["showcase_variant"] = variant_id
+        executed["pool_tag"] = pool_tag
+        executed["exit_reason"] = period.get("exit_reason")
+        legs_out.append(leg)
+        executed_signals.append(executed)
+
+    peak = max((len(v) for v in slot_snapshots.values()), default=0)
+    n_executed = len(executed_signals)
+    total_capital = cfg.n_slots * capital_ntd
+    meta = {
+        "n_slots": cfg.n_slots,
+        "capital_ntd": capital_ntd,
+        "total_capital_ntd": total_capital,
+        "cost_bps": 0.0,
+        "hold_trading_days": cfg.max_hold_days,
+        "min_hold_days": cfg.min_hold_days,
+        "n_signals": n_executed,
+        "n_executed": n_executed,
+        "n_skipped": 0,
+        "signal_capture_pct": None,
+        "peak_concurrent_slots": peak,
+        "strategy_id": RRG_MONO_SWAP_ACCEL_SLUG,
+        "table_mode": "mono",
+        "entry_price_mode": "intraday_c0",
+        "swaps_total": summary.get("swaps_total"),
+        "timing_mode": cfg.timing_mode,
+    }
+    if variant_id.startswith("POOL1"):
+        meta = _finalize_c18acc_pool1_timeline_meta(meta, summary, cfg, display_code=variant_id)
+    else:
+        meta = _finalize_c18acc_s2_timeline_meta(meta, summary, cfg)
+        meta["display_code"] = variant_id
+        meta["candidate_pool"] = candidate_pool
+    return legs_out, executed_signals, [], meta
+
+
+def build_c18acc_i36_executed_legs_for_timeline(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """C18acc close 進場/換倉 + I36 combo_spike extension 提早出場 → timeline legs。"""
+    from dataclasses import replace
+
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.c18acc_intraday_1m_hold import (
+        _i36_live_config,
+        apply_intraday_1m_hold,
+    )
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+
+    if not dates:
+        raise ValueError("dates must not be empty")
+
+    base = close_champion_score_swap_c_config() if use_close_timing else champion_score_swap_c_config()
+    cfg = replace(base, n_slots=max(1, int(n_slots)))
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in dates if d in set(full_dates)]
+    if len(trade_dates) < 2:
+        raise ValueError(f"need ≥2 trade dates in panel, got {len(trade_dates)}")
+
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=trade_dates[0], date_end=trade_dates[-1])
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    slot_snapshots: dict[str, list[dict[str, Any]]] = {}
+
+    base_periods, base_summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=cfg,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        slot_snapshots=slot_snapshots,
+    )
+
+    i36_cfg = _i36_live_config(
+        "I36",
+        "combo_spike · spike≥4% · fade≥1% · 1m hybrid",
+    )
+    overlay_periods, overlay_summary = apply_intraday_1m_hold(
+        conn,
+        base_periods=base_periods,
+        close=close,
+        full_dates=full_dates,
+        config=i36_cfg,
+    )
+
+    legs_out: list[dict] = []
+    executed_signals: list[dict] = []
+    for period in overlay_periods:
+        period = dict(period)
+        period["overlay_variant"] = "I36"
+        leg, executed = _timeline_bundle_from_period(period, capital_ntd=capital_ntd)
+        legs_out.append(leg)
+        executed_signals.append(executed)
+
+    peak = max((len(v) for v in slot_snapshots.values()), default=0)
+    n_executed = len(executed_signals)
+    total_capital = cfg.n_slots * capital_ntd
+    meta = {
+        "n_slots": cfg.n_slots,
+        "capital_ntd": capital_ntd,
+        "total_capital_ntd": total_capital,
+        "cost_bps": 0.0,
+        "hold_trading_days": cfg.max_hold_days,
+        "min_hold_days": cfg.min_hold_days,
+        "n_signals": n_executed,
+        "n_executed": n_executed,
+        "n_skipped": 0,
+        "signal_capture_pct": None,
+        "peak_concurrent_slots": peak,
+        "strategy_id": RRG_MONO_SWAP_ACCEL_SLUG,
+        "strategy_title": f"C18acc+I36 · {cfg.n_slots}槽 · swap-accel+extension",
+        "strategy_rule": (
+            f"C18acc min_hold {cfg.min_hold_days} / max_hold {cfg.max_hold_days} · "
+            f"I36 combo_spike spike≥4% fade≥1% · 1m"
+        ),
+        "strategy_filter": "fresh · 四日加速换仓 · score_swap_c · extension overlay",
+        "display_code": "C18acc+I36",
+        "table_mode": "mono",
+        "entry_price_mode": "close",
+        "swaps_total": base_summary.get("swaps_total"),
+        "variant_id": "I36",
+        "parent_variant_id": cfg.variant_id,
+        "timing_mode": cfg.timing_mode,
+        "ext_exits": overlay_summary.get("ext_exits"),
+        "ext_unchanged": overlay_summary.get("unchanged_legs"),
+        "median_hold_days": overlay_summary.get("median_hold_days"),
+        "mean_excess_pct": overlay_summary.get("mean_excess_pct"),
+        "mean_save_vs_orig_ext_pct": overlay_summary.get("mean_save_vs_orig_ext_pct"),
+    }
+    return legs_out, executed_signals, [], meta
 
 
 def run_swap_accel_breadth_zone_comparison(
@@ -2991,7 +4884,7 @@ def champion_score_swap_c_config() -> ScoreSwapCConfig:
             return cfg
     return ScoreSwapCConfig(
         CHAMPION_SCORE_SWAP_C_VARIANT_ID,
-        "四日加速 · 卖转弱 · 买转强 · margin=0.05",
+        "四日加速 · 卖转弱 · 买转强 · margin=0.05 · fresh∪accel",
         entry_leg="C0",
         min_hold_days=5,
         max_hold_days=10,
@@ -3001,7 +4894,53 @@ def champion_score_swap_c_config() -> ScoreSwapCConfig:
         accel_sell_negative_only=True,
         buy_sort_key="avg_accel_decel",
         accel_lookback=4,
+        candidate_pool="fresh_union_accel",
     )
+
+
+def build_pit_candidate_pool(
+    *,
+    fresh_mono: list[ScanRow],
+    mono_rows: list[ScanRow],
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    as_of: str,
+    config: ScoreSwapCConfig | None = None,
+) -> list[ScanRow]:
+    """Live / daily brief · PIT candidate pool aligned with backtest candidate_pool."""
+    cfg = config or champion_score_swap_c_config()
+    return _candidate_pool(
+        as_of,
+        fresh_mono=fresh_mono,
+        mono_by_date={as_of: mono_rows},
+        mono_up_by_date=None,
+        mono_up_fresh_by_date=None,
+        config=cfg,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        full_dates=full_dates,
+    )
+
+
+def close_champion_score_swap_c_config() -> ScoreSwapCConfig:
+    """C18acc champion frozen · timing_mode=close（無盤中 RRG poll · 收盤換倉）。"""
+    cfg = champion_score_swap_c_config()
+    fields = cfg.to_dict()
+    fields["variant_id"] = f"{CHAMPION_SCORE_SWAP_C_VARIANT_ID}-close"
+    fields["label"] = f"{cfg.label} · close 換倉"
+    fields["timing_mode"] = "close"
+    return ScoreSwapCConfig(**fields)
+
+
+def pure_fixed_hold_score_swap_c_config() -> ScoreSwapCConfig:
+    """H-PURE SSG：fresh mono · close · max_swaps=0 · 僅 max_hold 到期重填。"""
+    cfg = close_champion_score_swap_c_config()
+    fields = cfg.to_dict()
+    fields["variant_id"] = "C18acc-pure"
+    fields["label"] = f"{cfg.label} · no swap · max_hold only"
+    fields["max_swaps_per_day"] = 0
+    return ScoreSwapCConfig(**fields)
 
 
 def run_score_swap_c_sweep(
@@ -3105,3 +5044,834 @@ def run_score_swap_c_sweep(
         "summaries": summaries,
         "best": ranked[0] if ranked else None,
     }
+
+
+C18ACC_SLOT_GRID: tuple[int, ...] = (3, 5, 7, 9)
+
+
+def c18acc_slot_config(n_slots: int, *, fill_mode: FillMode = "batch_topk") -> ScoreSwapCConfig:
+    """C18acc 槽位矩陣 variant · 凍結 champion 規則 · 僅掃 n_slots / fill_mode。"""
+    from dataclasses import replace
+
+    base = champion_score_swap_c_config()
+    return replace(
+        base,
+        variant_id=f"C18acc-S{n_slots}",
+        label=f"C18acc · {n_slots}槽 · {fill_mode}",
+        n_slots=n_slots,
+        fill_mode=fill_mode,
+    )
+
+
+def _year_slices(trade_dates: list[str]) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for d in trade_dates:
+        out.setdefault(d[:4], []).append(d)
+    return out
+
+
+def _summarize_period_subset(periods: list[dict[str, Any]]) -> dict[str, Any]:
+    s = summarize_periods(periods)
+    n = len(periods)
+    if n:
+        s["n_periods"] = n
+        s["mean_excess_pct"] = round(sum(p["excess_pct"] for p in periods) / n, 4)
+    else:
+        s["n_periods"] = 0
+        s["mean_excess_pct"] = None
+    return s
+
+
+def run_c18acc_slot_matrix(
+    conn: sqlite3.Connection,
+    *,
+    date_start: str = "2024-01-01",
+    date_end: str = "2026-06-22",
+    slot_grid: tuple[int, ...] = C18ACC_SLOT_GRID,
+    comparison_notional_ntd: float = 100_000.0,
+) -> dict[str, Any]:
+    """C18acc 槽位矩陣 · batch_topk 補滿 · Research topic rrg-mono-swap-accel-slots。"""
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.finpilot_local_backtest import load_price_panels
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar, simulate_mono_hold7
+    from research.backtest.slot_portfolio_metrics import portfolio_metrics_for_periods
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if date_start <= d <= date_end]
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=date_start, date_end=date_end)
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] = {}
+    from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP
+
+    c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
+    entry_c_config = c0_cfg
+
+    rows: list[dict[str, Any]] = []
+    hold7_refs: list[dict[str, Any]] = []
+
+    for n in slot_grid:
+        print(f"C18acc slot matrix · S{n} batch_topk ...", flush=True)
+        cfg = c18acc_slot_config(n, fill_mode="batch_topk")
+        periods, summary = simulate_score_swap_c(
+            conn,
+            trade_dates=trade_dates,
+            full_dates=full_dates,
+            close=close,
+            bench=bench,
+            fresh_by_date=fresh_by_date,
+            zone_by_date=zone_by_date,
+            config=cfg,
+            kbar_cache=kbar_cache,
+            rs_mom=rs_mom,
+            rs_ratio=rs_ratio,
+            entry_c_config=entry_c_config,
+        )
+        port = portfolio_metrics_for_periods(
+            conn,
+            periods,
+            trade_dates,
+            total_capital=comparison_notional_ntd,
+            n_slots=n,
+            close=close,
+        )
+        summary["interval_excess_pct"] = port.get("interval_excess_pct")
+        summary["total_return_pct"] = port.get("total_return_pct")
+        summary["sharpe_ratio"] = port.get("sharpe_ratio")
+        summary["max_drawdown_pct"] = port.get("max_drawdown_pct")
+        summary["capital_per_slot_ntd"] = round(comparison_notional_ntd / n, 2)
+        by_year = {y: _summarize_period_subset([p for p in periods if str(p.get("entry_date", "")).startswith(y)]) for y in sorted(_year_slices(trade_dates))}
+        summary["by_year"] = by_year
+        rows.append(summary)
+        print(
+            f"  S{n}: mean_excess={summary.get('mean_excess_pct')}% "
+            f"swaps={summary.get('swaps_total')} util={summary.get('slot_util_pct')}% "
+            f"shortfall_days={summary.get('pool_shortfall_days')}",
+            flush=True,
+        )
+
+        _, h7 = simulate_mono_hold7(
+            conn,
+            trade_dates=trade_dates,
+            full_dates=full_dates,
+            close=close,
+            zone_by_date=zone_by_date,
+            fresh_by_date=fresh_by_date,
+            n_slots=n,
+        )
+        hold7_refs.append(
+            {
+                "variant_id": f"rrg-mono-hold7-S{n}",
+                "n_slots": n,
+                "mean_excess_pct": h7.get("mean_excess_pct"),
+                "n_periods": h7.get("n_periods"),
+            }
+        )
+
+    # Drift check: S3 legacy vs champion
+    print("C18acc slot matrix · S3 legacy_sequential (drift check) ...", flush=True)
+    legacy_cfg = c18acc_slot_config(3, fill_mode="legacy_sequential")
+    _, legacy_summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=legacy_cfg,
+        kbar_cache=kbar_cache,
+        rs_mom=rs_mom,
+        rs_ratio=rs_ratio,
+        entry_c_config=entry_c_config,
+    )
+
+    champion_ref = champion_score_swap_c_config()
+    _, champ_summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=champion_ref,
+        kbar_cache=kbar_cache,
+        rs_mom=rs_mom,
+        rs_ratio=rs_ratio,
+        entry_c_config=entry_c_config,
+    )
+
+    ranked = sorted(rows, key=lambda s: (-(s.get("mean_excess_pct") or -999.0), -(s.get("n_periods") or 0)))
+    s3 = next((r for r in rows if r.get("n_slots") == 3), None)
+    return {
+        "topic": "rrg-mono-swap-accel-slots",
+        "slug": RRG_MONO_SWAP_ACCEL_SLUG,
+        "short_name": RRG_MONO_SWAP_ACCEL_SHORT,
+        "date_start": date_start,
+        "date_end": date_end,
+        "comparison_notional_ntd": comparison_notional_ntd,
+        "fill_mode_primary": "batch_topk",
+        "slot_grid": list(slot_grid),
+        "summaries": rows,
+        "best": ranked[0] if ranked else None,
+        "hold7_reference": hold7_refs,
+        "drift_check": {
+            "champion_C18acc": {
+                "mean_excess_pct": champ_summary.get("mean_excess_pct"),
+                "swaps_total": champ_summary.get("swaps_total"),
+                "n_periods": champ_summary.get("n_periods"),
+            },
+            "S3_legacy_sequential": {
+                "mean_excess_pct": legacy_summary.get("mean_excess_pct"),
+                "swaps_total": legacy_summary.get("swaps_total"),
+                "n_periods": legacy_summary.get("n_periods"),
+            },
+            "S3_batch_topk": {
+                "mean_excess_pct": (s3 or {}).get("mean_excess_pct"),
+                "swaps_total": (s3 or {}).get("swaps_total"),
+                "n_periods": (s3 or {}).get("n_periods"),
+            },
+        },
+        "hypotheses_note": "H-SLOT-1..5 · see config/research.yaml rrg-mono-swap-accel-slots",
+    }
+
+
+def render_c18acc_slot_matrix_md(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# C18acc 槽位矩陣 · {payload.get('date_start')} ~ {payload.get('date_end')}",
+        "",
+        f"- fill_mode：**{payload.get('fill_mode_primary')}** · notional **{payload.get('comparison_notional_ntd'):,.0f}** NTD",
+        "",
+        "## 主表",
+        "",
+        "| variant | n_slots | 成交笔 | swaps | 均超额% | interval_excess% | 胜率% | slot_util% | pool_shortfall_days | Sharpe | MaxDD% |",
+        "|---------|---------|--------|-------|---------|------------------|-------|------------|---------------------|--------|--------|",
+    ]
+    for s in payload.get("summaries") or []:
+        lines.append(
+            f"| {s.get('variant_id')} | {s.get('n_slots')} | {s.get('n_periods')} | {s.get('swaps_total')} | "
+            f"{s.get('mean_excess_pct')} | {s.get('interval_excess_pct')} | {s.get('win_rate_vs_bench_pct')} | "
+            f"{s.get('slot_util_pct')} | {s.get('pool_shortfall_days')} | {s.get('sharpe_ratio')} | {s.get('max_drawdown_pct')} |"
+        )
+    lines.extend(["", "## hold7 對照（同槽位 · 無換倉）", ""])
+    lines.append("| variant | n_slots | 成交笔 | 均超额% |")
+    lines.append("|---------|---------|--------|---------|")
+    for h in payload.get("hold7_reference") or []:
+        lines.append(
+            f"| {h.get('variant_id')} | {h.get('n_slots')} | {h.get('n_periods')} | {h.get('mean_excess_pct')} |"
+        )
+    dc = payload.get("drift_check") or {}
+    lines.extend(["", "## Drift check（S3 對照 champion）", ""])
+    for key, val in dc.items():
+        lines.append(f"- **{key}**：均超额 {val.get('mean_excess_pct')}% · swaps {val.get('swaps_total')} · n={val.get('n_periods')}")
+    best = payload.get("best") or {}
+    lines.extend(["", f"**Research champion（本 sweep）**：{best.get('variant_id')} · 均超额 **{best.get('mean_excess_pct')}%**", ""])
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# C18acc 全槽率研究 · rrg-mono-swap-accel-fullslot
+# ---------------------------------------------------------------------------
+
+FillPolicy = Literal["fresh_only", "fresh_then_tier2", "tier2_all"]
+C18ACC_FULLSLOT_GRID: tuple[int, ...] = (3, 5, 7, 9)
+
+
+def c18acc_fullslot_config(
+    n_slots: int,
+    fill_policy: FillPolicy = "fresh_then_tier2",
+) -> ScoreSwapCConfig:
+    """C18acc 全槽率研究 variant · 凍結換倉規則 · 掃 n_slots × fill_policy。"""
+    from dataclasses import replace
+
+    base = champion_score_swap_c_config()
+    if fill_policy == "fresh_only":
+        cfg = replace(
+            base,
+            variant_id=f"C18acc-S{n_slots}-fresh",
+            label=f"C18acc · {n_slots}槽 · fresh_only",
+            n_slots=n_slots,
+            fill_mode="batch_topk",
+            entry_pool="fresh",
+            entry_fallback_pool=None,
+        )
+    elif fill_policy == "fresh_then_tier2":
+        cfg = replace(
+            base,
+            variant_id=f"C18acc-S{n_slots}-tier2sup",
+            label=f"C18acc · {n_slots}槽 · fresh→tier2 補",
+            n_slots=n_slots,
+            fill_mode="batch_topk",
+            entry_pool="fresh",
+            entry_fallback_pool="mono_tier2",
+        )
+    else:  # tier2_all
+        cfg = replace(
+            base,
+            variant_id=f"C18acc-S{n_slots}-tier2all",
+            label=f"C18acc · {n_slots}槽 · tier2_all",
+            n_slots=n_slots,
+            fill_mode="batch_topk",
+            candidate_pool="mono_tier2",
+            entry_pool=None,
+            entry_fallback_pool=None,
+        )
+    return cfg
+
+
+def run_c18acc_fullslot_matrix(
+    conn: sqlite3.Connection,
+    *,
+    date_start: str = "2024-01-01",
+    date_end: str = "2026-06-22",
+    slot_grid: tuple[int, ...] = C18ACC_FULLSLOT_GRID,
+    comparison_notional_ntd: float = 100_000.0,
+) -> dict[str, Any]:
+    """C18acc 全槽率研究 · 3 種 fill policy × 4 槽位 · Research topic rrg-mono-swap-accel-fullslot。"""
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.finpilot_local_backtest import load_price_panels
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar, simulate_mono_hold7
+    from research.backtest.slot_portfolio_metrics import portfolio_metrics_for_periods
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if date_start <= d <= date_end]
+
+    # 預建 calendars
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    mono_by_date = build_mono_tier2_calendar(conn, trade_dates, close=close, bench=bench)
+    panel = build_breadth_panel(conn, date_start=date_start, date_end=date_end)
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] = {}
+    from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP
+
+    c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
+    entry_c_config = c0_cfg
+
+    policies: list[FillPolicy] = ["fresh_only", "fresh_then_tier2", "tier2_all"]
+    rows: list[dict[str, Any]] = []
+
+    for policy in policies:
+        for n in slot_grid:
+            # fresh_only S3/S5 作為對照錨（其餘可略跑，保留給拒絕登錄用）
+            label_tag = f"S{n}-{policy}"
+            print(f"C18acc fullslot · {label_tag} ...", flush=True)
+            cfg = c18acc_fullslot_config(n, fill_policy=policy)
+            periods, summary = simulate_score_swap_c(
+                conn,
+                trade_dates=trade_dates,
+                full_dates=full_dates,
+                close=close,
+                bench=bench,
+                fresh_by_date=fresh_by_date,
+                mono_by_date=mono_by_date,
+                zone_by_date=zone_by_date,
+                config=cfg,
+                kbar_cache=kbar_cache,
+                rs_mom=rs_mom,
+                rs_ratio=rs_ratio,
+                entry_c_config=entry_c_config,
+            )
+            port = portfolio_metrics_for_periods(
+                conn,
+                periods,
+                trade_dates,
+                total_capital=comparison_notional_ntd,
+                n_slots=n,
+                close=close,
+            )
+            summary["interval_excess_pct"] = port.get("interval_excess_pct")
+            summary["total_return_pct"] = port.get("total_return_pct")
+            summary["sharpe_ratio"] = port.get("sharpe_ratio")
+            summary["max_drawdown_pct"] = port.get("max_drawdown_pct")
+            summary["capital_per_slot_ntd"] = round(comparison_notional_ntd / n, 2)
+            summary["fill_policy"] = policy
+            by_year = {
+                y: _summarize_period_subset([p for p in periods if str(p.get("entry_date", "")).startswith(y)])
+                for y in sorted(_year_slices(trade_dates))
+            }
+            summary["by_year"] = by_year
+            rows.append(summary)
+            print(
+                f"  {label_tag}: mean_excess={summary.get('mean_excess_pct')}% "
+                f"swaps={summary.get('swaps_total')} util={summary.get('slot_util_pct')}% "
+                f"tier2_sup={summary.get('tier2_supplement_days')} "
+                f"shortfall={summary.get('pool_shortfall_days')}",
+                flush=True,
+            )
+
+    # hold7 靜態對照（fresh_only · S5/S7 補充）
+    hold7_refs: list[dict[str, Any]] = []
+    for n in slot_grid:
+        _, h7 = simulate_mono_hold7(
+            conn,
+            trade_dates=trade_dates,
+            full_dates=full_dates,
+            close=close,
+            zone_by_date=zone_by_date,
+            fresh_by_date=fresh_by_date,
+            n_slots=n,
+        )
+        hold7_refs.append(
+            {
+                "variant_id": f"rrg-mono-hold7-S{n}",
+                "n_slots": n,
+                "mean_excess_pct": h7.get("mean_excess_pct"),
+                "n_periods": h7.get("n_periods"),
+            }
+        )
+
+    # Drift check：S3-fresh_only 須對齊 Phase 1 champion
+    drift_cfg = c18acc_fullslot_config(3, fill_policy="fresh_only")
+    s3_fresh = next((r for r in rows if r.get("variant_id") == drift_cfg.variant_id), None)
+    champion_ref = champion_score_swap_c_config()
+    _, champ_summary = simulate_score_swap_c(
+        conn,
+        trade_dates=trade_dates,
+        full_dates=full_dates,
+        close=close,
+        bench=bench,
+        fresh_by_date=fresh_by_date,
+        zone_by_date=zone_by_date,
+        config=champion_ref,
+        kbar_cache=kbar_cache,
+        rs_mom=rs_mom,
+        rs_ratio=rs_ratio,
+        entry_c_config=entry_c_config,
+    )
+
+    ranked = sorted(rows, key=lambda s: (-(s.get("mean_excess_pct") or -999.0), -(s.get("n_periods") or 0)))
+    return {
+        "topic": "rrg-mono-swap-accel-fullslot",
+        "slug": RRG_MONO_SWAP_ACCEL_SLUG,
+        "short_name": RRG_MONO_SWAP_ACCEL_SHORT,
+        "date_start": date_start,
+        "date_end": date_end,
+        "comparison_notional_ntd": comparison_notional_ntd,
+        "slot_grid": list(slot_grid),
+        "fill_policies": policies,
+        "summaries": rows,
+        "best": ranked[0] if ranked else None,
+        "hold7_reference": hold7_refs,
+        "drift_check": {
+            "champion_C18acc": {
+                "mean_excess_pct": champ_summary.get("mean_excess_pct"),
+                "swaps_total": champ_summary.get("swaps_total"),
+                "n_periods": champ_summary.get("n_periods"),
+            },
+            "S3_fresh_only": {
+                "mean_excess_pct": (s3_fresh or {}).get("mean_excess_pct"),
+                "swaps_total": (s3_fresh or {}).get("swaps_total"),
+                "n_periods": (s3_fresh or {}).get("n_periods"),
+                "slot_util_pct": (s3_fresh or {}).get("slot_util_pct"),
+                "tier2_supplement_days": (s3_fresh or {}).get("tier2_supplement_days"),
+            },
+        },
+        "hypotheses_note": "H-FULL-1..5 · see config/research.yaml rrg-mono-swap-accel-fullslot",
+    }
+
+
+def render_c18acc_fullslot_matrix_md(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# C18acc 全槽率矩陣 · {payload.get('date_start')} ~ {payload.get('date_end')}",
+        "",
+        f"- notional **{payload.get('comparison_notional_ntd'):,.0f}** NTD · policies: {', '.join(payload.get('fill_policies') or [])}",
+        "",
+        "## 主表",
+        "",
+        "| variant | n_slots | fill_policy | 成交笔 | swaps | 均超额% | 胜率% | slot_util% | tier2_sup天 | tier2_sup% | shortfall天 | Sharpe | MaxDD% |",
+        "|---------|---------|-------------|--------|-------|---------|-------|------------|------------|------------|------------|--------|--------|",
+    ]
+    for s in payload.get("summaries") or []:
+        lines.append(
+            f"| {s.get('variant_id')} | {s.get('n_slots')} | {s.get('fill_policy')} "
+            f"| {s.get('n_periods')} | {s.get('swaps_total')} "
+            f"| {s.get('mean_excess_pct')} | {s.get('win_rate_vs_bench_pct')} "
+            f"| {s.get('slot_util_pct')} | {s.get('tier2_supplement_days')} "
+            f"| {s.get('tier2_supplement_pct')} | {s.get('pool_shortfall_days')} "
+            f"| {s.get('sharpe_ratio')} | {s.get('max_drawdown_pct')} |"
+        )
+    lines.extend(["", "## hold7 對照（fresh_only · 無換倉）", ""])
+    lines.append("| variant | n_slots | 成交笔 | 均超额% |")
+    lines.append("|---------|---------|--------|---------|")
+    for h in payload.get("hold7_reference") or []:
+        lines.append(
+            f"| {h.get('variant_id')} | {h.get('n_slots')} | {h.get('n_periods')} | {h.get('mean_excess_pct')} |"
+        )
+    dc = payload.get("drift_check") or {}
+    lines.extend(["", "## Drift check（S3-fresh_only 對照 champion）", ""])
+    for key, val in dc.items():
+        lines.append(
+            f"- **{key}**：均超额 {val.get('mean_excess_pct')}% · swaps {val.get('swaps_total')} "
+            f"· n={val.get('n_periods')} · util={val.get('slot_util_pct')}% · tier2_sup={val.get('tier2_supplement_days')}"
+        )
+    best = payload.get("best") or {}
+    lines.extend(["", f"**Research champion（本 sweep）**：{best.get('variant_id')} · fill_policy={best.get('fill_policy')} · 均超额 **{best.get('mean_excess_pct')}%**", ""])
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# C18acc 加碼補滿研究 · rrg-mono-swap-accel-repeat
+# ---------------------------------------------------------------------------
+
+C18ACC_REPEAT_SLOT_GRID: tuple[int, ...] = (3, 5, 7)
+
+
+def c18acc_repeat_config(n_slots: int, *, fill_repeat: bool = True) -> ScoreSwapCConfig:
+    """C18acc 加碼補滿 variant：空槽可重複買同一支直到填滿，不留閒置資金。"""
+    from dataclasses import replace
+
+    base = champion_score_swap_c_config()
+    tag = "repeat" if fill_repeat else "fresh"
+    return replace(
+        base,
+        variant_id=f"C18acc-S{n_slots}-{tag}",
+        label=f"C18acc · {n_slots}槽 · {'加碼補滿' if fill_repeat else 'fresh_only'}",
+        n_slots=n_slots,
+        fill_mode="batch_topk",
+        fill_repeat=fill_repeat,
+        entry_pool="fresh",
+        entry_fallback_pool=None,
+    )
+
+
+def run_c18acc_repeat_matrix(
+    conn: sqlite3.Connection,
+    *,
+    date_start: str = "2024-01-01",
+    date_end: str = "2026-06-22",
+    slot_grid: tuple[int, ...] = C18ACC_REPEAT_SLOT_GRID,
+    comparison_notional_ntd: float = 100_000.0,
+) -> dict[str, Any]:
+    """C18acc 加碼補滿研究 · repeat vs no-repeat × 3/5/7 槽 · topic rrg-mono-swap-accel-repeat。"""
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.finpilot_local_backtest import load_price_panels
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+    from research.backtest.slot_portfolio_metrics import portfolio_metrics_for_periods
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if date_start <= d <= date_end]
+
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=date_start, date_end=date_end)
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] = {}
+    from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP
+
+    c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
+    entry_c_config = c0_cfg
+
+    rows: list[dict[str, Any]] = []
+
+    for n in slot_grid:
+        for repeat in (False, True):
+            tag = "repeat" if repeat else "fresh"
+            print(f"C18acc repeat · S{n}-{tag} ...", flush=True)
+            cfg = c18acc_repeat_config(n, fill_repeat=repeat)
+            periods, summary = simulate_score_swap_c(
+                conn,
+                trade_dates=trade_dates,
+                full_dates=full_dates,
+                close=close,
+                bench=bench,
+                fresh_by_date=fresh_by_date,
+                zone_by_date=zone_by_date,
+                config=cfg,
+                kbar_cache=kbar_cache,
+                rs_mom=rs_mom,
+                rs_ratio=rs_ratio,
+                entry_c_config=entry_c_config,
+            )
+            port = portfolio_metrics_for_periods(
+                conn,
+                periods,
+                trade_dates,
+                total_capital=comparison_notional_ntd,
+                n_slots=n,
+                close=close,
+            )
+            summary["interval_excess_pct"] = port.get("interval_excess_pct")
+            summary["total_return_pct"] = port.get("total_return_pct")
+            summary["sharpe_ratio"] = port.get("sharpe_ratio")
+            summary["max_drawdown_pct"] = port.get("max_drawdown_pct")
+            summary["capital_per_slot_ntd"] = round(comparison_notional_ntd / n, 2)
+            by_year = {
+                y: _summarize_period_subset([p for p in periods if str(p.get("entry_date", "")).startswith(y)])
+                for y in sorted(_year_slices(trade_dates))
+            }
+            summary["by_year"] = by_year
+            rows.append(summary)
+            print(
+                f"  S{n}-{tag}: mean_excess={summary.get('mean_excess_pct')}% "
+                f"swaps={summary.get('swaps_total')} util={summary.get('slot_util_pct')}% "
+                f"repeat_days={summary.get('fill_repeat_days')} "
+                f"shortfall={summary.get('pool_shortfall_days')}",
+                flush=True,
+            )
+
+    ranked = sorted(rows, key=lambda s: (-(s.get("mean_excess_pct") or -999.0), -(s.get("n_periods") or 0)))
+    s3_fresh = next((r for r in rows if r.get("n_slots") == 3 and not r.get("fill_repeat")), None)
+    s3_repeat = next((r for r in rows if r.get("n_slots") == 3 and r.get("fill_repeat")), None)
+    return {
+        "topic": "rrg-mono-swap-accel-repeat",
+        "slug": RRG_MONO_SWAP_ACCEL_SLUG,
+        "short_name": RRG_MONO_SWAP_ACCEL_SHORT,
+        "date_start": date_start,
+        "date_end": date_end,
+        "comparison_notional_ntd": comparison_notional_ntd,
+        "slot_grid": list(slot_grid),
+        "summaries": rows,
+        "best": ranked[0] if ranked else None,
+        "comparison": {
+            "S3_fresh": {
+                "mean_excess_pct": (s3_fresh or {}).get("mean_excess_pct"),
+                "sharpe_ratio": (s3_fresh or {}).get("sharpe_ratio"),
+                "slot_util_pct": (s3_fresh or {}).get("slot_util_pct"),
+                "pool_shortfall_days": (s3_fresh or {}).get("pool_shortfall_days"),
+            },
+            "S3_repeat": {
+                "mean_excess_pct": (s3_repeat or {}).get("mean_excess_pct"),
+                "sharpe_ratio": (s3_repeat or {}).get("sharpe_ratio"),
+                "slot_util_pct": (s3_repeat or {}).get("slot_util_pct"),
+                "fill_repeat_days": (s3_repeat or {}).get("fill_repeat_days"),
+            },
+        },
+        "hypotheses_note": "H-REP-1..4 · see config/research.yaml rrg-mono-swap-accel-repeat",
+    }
+
+
+def render_c18acc_repeat_matrix_md(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# C18acc 加碼補滿研究 · {payload.get('date_start')} ~ {payload.get('date_end')}",
+        "",
+        f"- notional **{payload.get('comparison_notional_ntd'):,.0f}** NTD · repeat=True → 空槽加碼同一支直到填滿",
+        "",
+        "## 主表",
+        "",
+        "| variant | n_slots | fill_repeat | 成交笔 | swaps | 均超额% | 胜率% | slot_util% | 加碼天數 | shortfall天 | Sharpe | MaxDD% |",
+        "|---------|---------|-------------|--------|-------|---------|-------|------------|---------|------------|--------|--------|",
+    ]
+    for s in payload.get("summaries") or []:
+        lines.append(
+            f"| {s.get('variant_id')} | {s.get('n_slots')} | {s.get('fill_repeat')} "
+            f"| {s.get('n_periods')} | {s.get('swaps_total')} "
+            f"| {s.get('mean_excess_pct')} | {s.get('win_rate_vs_bench_pct')} "
+            f"| {s.get('slot_util_pct')} | {s.get('fill_repeat_days')} "
+            f"| {s.get('pool_shortfall_days')} "
+            f"| {s.get('sharpe_ratio')} | {s.get('max_drawdown_pct')} |"
+        )
+    cmp = payload.get("comparison") or {}
+    lines.extend(["", "## S3 對照（fresh vs repeat）", ""])
+    for key, val in cmp.items():
+        lines.append(
+            f"- **{key}**：均超额 {val.get('mean_excess_pct')}% · Sharpe {val.get('sharpe_ratio')} "
+            f"· util={val.get('slot_util_pct')}%"
+        )
+    best = payload.get("best") or {}
+    lines.extend(["", f"**Research champion（本 sweep）**：{best.get('variant_id')} · 均超额 **{best.get('mean_excess_pct')}%**", ""])
+    return "\n".join(lines) + "\n"
+
+
+# C18acc · 隔日漲幅豁免 min_hold · diagnostic sweep
+C18ACC_GAIN_WAIVER_DIAG: list[ScoreSwapCConfig] = [
+    champion_score_swap_c_config(),
+    ScoreSwapCConfig(
+        "C18acc-g6-d2",
+        "隔日≥6% · waiver min_hold=2",
+        gain_waiver_threshold=0.06,
+        gain_waiver_min_hold=2,
+        **_champion_accel_fields(),
+    ),
+    ScoreSwapCConfig(
+        "C18acc-g6-d1",
+        "隔日≥6% · waiver min_hold=1",
+        gain_waiver_threshold=0.06,
+        gain_waiver_min_hold=1,
+        **_champion_accel_fields(),
+    ),
+    ScoreSwapCConfig(
+        "C18acc-g5-d2",
+        "隔日≥5% · waiver min_hold=2",
+        gain_waiver_threshold=0.05,
+        gain_waiver_min_hold=2,
+        **_champion_accel_fields(),
+    ),
+    ScoreSwapCConfig(
+        "C18acc-mh4-05",
+        "無條件 min_hold=4（機械對照）",
+        **({**_champion_accel_fields(), "min_hold_days": 4}),
+    ),
+]
+
+
+def _day1_stats_from_periods(
+    close: pd.DataFrame,
+    full_dates: list[str],
+    periods: list[dict[str, Any]],
+    *,
+    threshold: float = 0.06,
+) -> dict[str, Any]:
+    """Baseline 進場 leg · 隔日漲幅分布（PIT · close vs entry_px）。"""
+    rets: list[float] = []
+    for p in periods:
+        d1 = _day1_return(
+            close,
+            full_dates,
+            entry_date=str(p["entry_date"]),
+            entry_px=float(p["entry_px"]),
+            stock_id=str(p["stock_id"]),
+            as_of=str(p["exit_date"]),
+        )
+        if d1 is None:
+            continue
+        rets.append(d1)
+    if not rets:
+        return {"n": 0, "pct_ge_threshold": None, "mean_day1_pct": None, "median_day1_pct": None}
+    ge = sum(1 for r in rets if r >= threshold)
+    sorted_rets = sorted(rets)
+    mid = len(sorted_rets) // 2
+    median = sorted_rets[mid] if len(sorted_rets) % 2 else (sorted_rets[mid - 1] + sorted_rets[mid]) / 2
+    return {
+        "n": len(rets),
+        "pct_ge_threshold": round(100.0 * ge / len(rets), 2),
+        "count_ge_threshold": ge,
+        "mean_day1_pct": round(sum(rets) / len(rets) * 100.0, 4),
+        "median_day1_pct": round(median * 100.0, 4),
+        "threshold_pct": round(threshold * 100.0, 2),
+    }
+
+
+def run_c18acc_gain_waiver_diagnostic(
+    conn: sqlite3.Connection,
+    *,
+    date_start: str = "2026-01-01",
+    date_end: str = "2026-06-22",
+    comparison_notional_ntd: float = 60_000.0,
+    configs: list[ScoreSwapCConfig] | None = None,
+) -> dict[str, Any]:
+    """C18acc 隔日漲幅豁免 min_hold · Research diagnostic。"""
+    from market_breadth_ma import build_breadth_panel
+    from research.backtest.finpilot_local_backtest import load_price_panels
+    from research.backtest.rrg_mono_backtest import build_fresh_mono_calendar
+    from research.backtest.slot_portfolio_metrics import portfolio_metrics_for_periods
+
+    close, _, _ = load_price_panels(conn)
+    bench = load_benchmark_close(conn).reindex(close.index)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=LENGTH)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if date_start <= d <= date_end]
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    panel = build_breadth_panel(conn, date_start=date_start, date_end=date_end)
+    zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
+    kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] = {}
+    from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP
+
+    c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
+    grid = configs or C18ACC_GAIN_WAIVER_DIAG
+    rows: list[dict[str, Any]] = []
+    baseline_periods: list[dict[str, Any]] = []
+
+    for cfg in grid:
+        print(f"C18acc gain waiver · {cfg.variant_id} ...", flush=True)
+        periods, summary = simulate_score_swap_c(
+            conn,
+            trade_dates=trade_dates,
+            full_dates=full_dates,
+            close=close,
+            bench=bench,
+            fresh_by_date=fresh_by_date,
+            zone_by_date=zone_by_date,
+            config=cfg,
+            kbar_cache=kbar_cache,
+            rs_mom=rs_mom,
+            rs_ratio=rs_ratio,
+            entry_c_config=c0_cfg,
+        )
+        if cfg.variant_id == CHAMPION_SCORE_SWAP_C_VARIANT_ID:
+            baseline_periods = periods
+        port = portfolio_metrics_for_periods(
+            conn,
+            periods,
+            trade_dates,
+            total_capital=comparison_notional_ntd,
+            n_slots=3,
+            close=close,
+        )
+        summary["sharpe_ratio"] = port.get("sharpe_ratio")
+        summary["max_drawdown_pct"] = port.get("max_drawdown_pct")
+        summary["interval_excess_pct"] = port.get("interval_excess_pct")
+        rows.append(summary)
+        print(
+            f"  {cfg.variant_id}: mean_excess={summary.get('mean_excess_pct')}% "
+            f"swaps={summary.get('swaps_total')} hold={summary.get('mean_hold_days')} "
+            f"early_swaps={summary.get('early_waiver_swaps')}",
+            flush=True,
+        )
+
+    baseline = next((r for r in rows if r.get("variant_id") == CHAMPION_SCORE_SWAP_C_VARIANT_ID), {})
+    day1_stats = _day1_stats_from_periods(close, full_dates, baseline_periods, threshold=0.06)
+    comparisons: list[dict[str, Any]] = []
+    base_ex = baseline.get("mean_excess_pct")
+    for r in rows:
+        ex = r.get("mean_excess_pct")
+        comparisons.append(
+            {
+                "variant_id": r.get("variant_id"),
+                "delta_mean_excess_pp": round(float(ex) - float(base_ex), 4) if ex is not None and base_ex is not None else None,
+                "delta_swaps": (r.get("swaps_total") or 0) - (baseline.get("swaps_total") or 0),
+            }
+        )
+
+    return {
+        "topic": "rrg-mono-swap-accel-gain-waiver",
+        "diagnostic": True,
+        "date_start": date_start,
+        "date_end": date_end,
+        "comparison_notional_ntd": comparison_notional_ntd,
+        "baseline_variant": CHAMPION_SCORE_SWAP_C_VARIANT_ID,
+        "day1_stats_baseline": day1_stats,
+        "summaries": rows,
+        "vs_baseline": comparisons,
+        "note": "隔日漲幅 = 進場後第1交易日收盤 vs entry_px · waiver 自 day2 起生效",
+    }
+
+
+def render_c18acc_gain_waiver_diagnostic_md(payload: dict[str, Any]) -> str:
+    d1 = payload.get("day1_stats_baseline") or {}
+    lines = [
+        f"# C18acc 隔日漲幅豁免 min_hold · Diagnostic · {payload.get('date_start')} ~ {payload.get('date_end')}",
+        "",
+        "## Baseline 隔日分布（C18acc 進場 leg）",
+        "",
+        f"- 可觀測 leg **{d1.get('n')}** · 隔日 ≥ **{d1.get('threshold_pct')}%** 占比 **{d1.get('pct_ge_threshold')}%** "
+        f"（{d1.get('count_ge_threshold')} 筆）",
+        f"- 隔日均漲 **{d1.get('mean_day1_pct')}%** · 中位 **{d1.get('median_day1_pct')}%**",
+        "",
+        "## 變體對照",
+        "",
+        "| variant | 均超額% | Δ vs C18acc | swaps | early_swaps | mean_hold | waiver_rate% | Sharpe |",
+        "|---------|---------|-------------|-------|-------------|-----------|--------------|--------|",
+    ]
+    base_ex = next(
+        (s.get("mean_excess_pct") for s in payload.get("summaries") or [] if s.get("variant_id") == CHAMPION_SCORE_SWAP_C_VARIANT_ID),
+        None,
+    )
+    for s in payload.get("summaries") or []:
+        ex = s.get("mean_excess_pct")
+        delta = round(float(ex) - float(base_ex), 4) if ex is not None and base_ex is not None else None
+        lines.append(
+            f"| {s.get('variant_id')} | {ex} | {delta} | {s.get('swaps_total')} "
+            f"| {s.get('early_waiver_swaps')} | {s.get('mean_hold_days')} "
+            f"| {s.get('waiver_rate_pct')} | {s.get('sharpe_ratio')} |"
+        )
+    lines.extend(["", "_Research diagnostic · 非 Strategy SSOT · 未 preregister OOS gate_", ""])
+    return "\n".join(lines) + "\n"

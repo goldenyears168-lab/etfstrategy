@@ -6,9 +6,8 @@
 	<string>com.jackm4.etf.evening-holdings</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gj</string>
-		<string>{{PROJECT_ROOT}}/scripts/launchd/evening-holdings.command</string>
+		<string>/bin/bash</string>
+		<string>{{EVENING_HOLDINGS_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -19,6 +18,8 @@
 		<key>RUN_STOCK_DAILY_LENS</key>
 		<string>1</string>
 		<key>RUN_SUPABASE_LENS_SYNC</key>
+		<string>1</string>
+		<key>RUN_SCREENER_DATA_SYNC</key>
 		<string>1</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>

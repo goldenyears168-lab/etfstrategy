@@ -1,0 +1,111 @@
+# 買入觀測板 SSOT · 多池盤中 C0 scale · 對齊 strategy / research 軌
+# 術語：docs/terminology.md · 採納軌 notify=true 才觸發寄信去重
+
+version: buy-observation-v1
+layer: operational
+
+defaults:
+  top_n: 5
+  confirm_bars: 1
+  entry: c0_scale_5m
+  notify: false
+
+# 寄信：notify=true 的池 · 去重 key = pool_id + symbol（分軌記帳）
+# 寄信／報告：同檔多軌合併一行 · 標示來源池
+# 買入訊號不篩持倉／槽位（會員持倉各異 · 只報訊號）
+
+pools:
+  - id: rrg-fresh-mono
+    title: RRG fresh mono
+    role: adopted
+    source: rrg_fresh_mono
+    strategy_ref: buy-signal-radar
+    notify: true
+    top_n: 5
+
+  - id: rrg-mono-tier2
+    title: RRG mono tier2
+    role: research
+    source: rrg_mono_tier2
+    notify: true
+    top_n: 5
+
+  - id: rrg-mono-up-fresh
+    title: RRG mono_up fresh
+    role: research
+    source: rrg_mono_up_fresh
+    notify: false
+    top_n: 5
+
+  - id: dual-wma-lead-pullback
+    title: Dual WMA 強勢回踩
+    role: research
+    source: dual_wma_lead_pullback
+    strategy_ref: buy-signal-radar
+    notify: true
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-watch-setup
+    title: RRG Improving 蓄力 watch
+    role: research
+    source: rrg_improving_watch_setup
+    notify: false
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-s3-rv
+    title: RRG Improving S3 RV98-99
+    role: research
+    source: rrg_improving_s3_rv
+    notify: false
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-s3-exec
+    title: RRG Improving S3 可執行 tier
+    role: research
+    source: rrg_improving_s3_exec
+    notify: false
+    observe_only: true
+    top_n: 5
+
+  - id: rrg-improving-s3-burst
+    title: RRG Improving S3 burst
+    role: research
+    source: rrg_improving_s3_burst
+    notify: false
+    observe_only: true
+    top_n: 10
+
+  - id: rrg-improving-rule-b
+    title: RRG Improving Rule B
+    role: research
+    source: rrg_improving_rule_b
+    notify: false
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-arch-a
+    title: RRG Improving 原型 A 蓄力簧
+    role: research
+    source: rrg_improving_arch_a
+    notify: false
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-arch-b
+    title: RRG Improving 原型 B 貼 Leading
+    role: research
+    source: rrg_improving_arch_b
+    notify: false
+    observe_only: true
+    top_n: 8
+
+  - id: rrg-improving-arch-c
+    title: RRG Improving 原型 C 預追價
+    role: research
+    source: rrg_improving_arch_c
+    notify: false
+    observe_only: true
+    top_n: 8

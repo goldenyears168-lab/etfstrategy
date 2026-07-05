@@ -6,9 +6,8 @@
 	<string>com.jackm4.etf.weekly-deep</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gj</string>
-		<string>{{PROJECT_ROOT}}/scripts/launchd/weekly-deep.command</string>
+		<string>/bin/bash</string>
+		<string>{{WEEKLY_DEEP_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -21,11 +20,7 @@
 	</dict>
 	<key>StartCalendarInterval</key>
 	<array>
-		<dict>
-			<key>Weekday</key><integer>0</integer>
-			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>0</integer>
-		</dict>
+		<dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
 	<string>{{PROJECT_ROOT}}/logs/launchd_weekly-deep.log</string>

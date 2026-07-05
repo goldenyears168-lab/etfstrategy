@@ -2,77 +2,45 @@
 page_id: strategy_minervini_sepa_basket
 layer_id: strategy
 strategy_id: minervini-sepa-basket
-title: Minervini SEPA 趨勢籃
+title: Minervini SEPA basket
 tab_label_zh: Minervini SEPA
 tab_label_en: Minervini SEPA
-sort_order: 15
-role: 已採納凍結規格 · 持倉籃
+sort_order: 20
+role: 已採納凍結規格 · 月末等權 basket
 web_v1: 策略獨立頁
-icon: ri-stock-line
-description_short: Minervini Trend Template 月頻 Stage 2 強勢籃 · 不是每天都有新候選
-research_page_id: research_case_minervini_sepa
-brief_types: []
+icon: ri-line-chart-line
+description_short: Trend Template 7/7 · 月末等權 · 獨立 16:35 launchd
+brief_types:
+  - minervini_sepa_basket_daily
 ---
 
-# Minervini SEPA 趨勢籃
+# Minervini SEPA basket
 
-← [策略目錄](strategy_catalog) · [Minervini 研究案例](research_case_minervini_sepa)
+← [策略目錄](strategy_catalog)
 
-**節奏** · 月末再平衡
+**節奏** · 週一至五 **16:35** 獨立 launchd · 僅 **月末交易日** 產調倉 intent
 
 ## 策略定義
 
-月末等權 **Stage 2上升（Stage 2）** 籃 · **趨勢模板（Trend Template）** 7/8 條件 · 無合格標的則持現金 · 基準 **台指** · 月頻再平衡。
-
-## 採納理由
-
-1. 趨勢模板 + Stage 2結構篩選。  
-2. **廣度動量對照實驗** 中長窗超額／Sharpe 具採納依據。  
-3. 月頻持倉型 · 與日內槽位三軌資金契約不同。
-
-## 規格狀態
-
-- 回測窗口 2024-01～2026-06
-- 廣度濾網定義見 [研究案例](research_case_minervini_sepa)
-
-## 規則摘要
+月末等權持有 **Minervini Trend Template 7/7**（bulk 掃描不含 RS）的 Stage 2 個股；無合格標則空倉。
 
 | 項目 | 值 |
 |------|-----|
-| 再平衡 | 月末 |
-| 篩選 | 趨勢模板 ≥ 7/8 · Stage 2 |
-| 權重 | 成分股等權 |
-| 空倉 | 無合格標的 → 現金 |
+| 宇宙 | ETF 成分股 `stock_daily_bars`（約 133 檔） |
+| 調倉 | 月末最後交易日 · 等權 |
+| 門檻 | Trend Template ≥ 7/8（RS 省略） |
+| 下單 | **dry-run intent** · 人工確認後 `submit_intents.py` |
+| 通知 | 組合變動時 `RUN_MINERVINI_SEPA_EMAIL=1` 寄信 |
 
-## 績效與風險
+## 與其他策略
 
-### 分年績效（連續淨值 · 月末等權籃）
+- 與 **VCP funnel**（突破池）互補，非 ensemble。
+- 與 **RRG / Copytrade** 無共用槽位。
 
-| 年份 | 窗口 | 組合總報酬% | 年化報酬率% | 勝率% | Sharpe | 樣本 |
-|------|------|------------|------------|---------|--------|------|
-| **2025** | 2025-01-01～12-31 | **+69.0** | **+72.3** | 52.7 | **1.80** | 243 交易日 |
-| **2026** | 2026-01-01～06-18 | **+122.0** | **+531.9** | 62.4 | **4.70** | 109 交易日 |
+## 手動
 
-### 全窗口（2024-01-01～2026-06-18）
-
-| 指標 | 值 |
-|------|-----|
-| 總報酬率% | **477.27** |
-| 區間超額報酬% | **318.13** |
-| Sharpe | **2.51** |
-| 最大回撤% | **−28.61** |
-
-2026 年化為部分年度外推 · [績效對照](strategy_catalog#績效對照)
-
-## 凍結規格
-
-| 項目 | 值 |
-|------|-----|
-| 趨勢模板門檻 | 7／8 條 |
-| 再平衡 | 每月 |
-| 廣度濾網 | 50MA 上方 ≥55% 且 200MA 上方 ≥45% |
-| 資產 | 成分股等權 |
-
-## 研究出處
-
-[Minervini 研究案例](research_case_minervini_sepa)
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_minervini_sepa_daily_brief.py
+.venv-fubon/bin/python scripts/order/submit_intents.py \
+  reports/order/intents/minervini-sepa-basket_<date>.json --dry-run
+```

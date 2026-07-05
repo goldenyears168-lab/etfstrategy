@@ -12,6 +12,7 @@ import pandas as pd
 from rrg_universe_snapshot import (
     _close_bars_ready,
     build_universe_rows_from_panels,
+    kbar_close_at_minute,
     run_close_universe_snapshot,
 )
 from stock_db.rrg import load_rrg_universe_scores, replace_rrg_universe_scores
@@ -145,6 +146,38 @@ class RrgUniverseSnapshotTests(unittest.TestCase):
         )
         conn.commit()
         self.assertTrue(_close_bars_ready(conn, "2026-06-22", min_bars=50))
+        conn.close()
+
+    def test_kbar_close_at_minute(self) -> None:
+        conn = _memory_conn()
+        conn.executescript(
+            """
+            CREATE TABLE stock_kbar_1m (
+                stock_id TEXT, trade_date TEXT, minute TEXT, close REAL
+            );
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO stock_kbar_1m (stock_id, trade_date, minute, close)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                ("2330", "2026-07-03", "10:59:00", 2400.0),
+                ("2330", "2026-07-03", "11:00:00", 2410.0),
+                ("2330", "2026-07-03", "11:01:00", 2420.0),
+            ],
+        )
+        conn.commit()
+        self.assertAlmostEqual(
+            kbar_close_at_minute(conn, "2330", "2026-07-03", "11:00"),
+            2410.0,
+        )
+        self.assertAlmostEqual(
+            kbar_close_at_minute(conn, "2330", "2026-07-03", "10:59"),
+            2400.0,
+        )
+        self.assertIsNone(kbar_close_at_minute(conn, "2317", "2026-07-03", "11:00"))
         conn.close()
 
     @patch("rrg_universe_snapshot.load_price_panels")

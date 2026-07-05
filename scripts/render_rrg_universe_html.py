@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import math
 import os
@@ -48,10 +49,47 @@ TRAJ_CHART_MARGIN = {"l": 64, "r": 32, "t": 44, "b": 56}
 # Interactive timeline: compact canvas, bounds from highlight positions.
 TIMELINE_CHART_W = 900
 TIMELINE_CHART_H = 720
+UNIVERSE_TIMELINE_CHART_W = 1200
+UNIVERSE_TIMELINE_CHART_H = 780
+UNIVERSE_TIMELINE_AXIS_MIN = 80.0
+UNIVERSE_TIMELINE_AXIS_MAX = 120.0
+UNIVERSE_TIMELINE_AXIS_WMA5_MIN = 90.0
+UNIVERSE_TIMELINE_AXIS_WMA5_MAX = 110.0
+UNIVERSE_TIMELINE_TAIL_DAYS_WMA5 = 5
+UNIVERSE_TIMELINE_TAIL_MIN_DISP_WMA5 = 0.0
+UNIVERSE_INTRADAY_TAIL_FRAMES = 5
+UNIVERSE_INTRADAY_PLAY_MS = 450
+
+SPREAD_CLASS_COLORS = {
+    "pullback": "#4A90D9",
+    "aligned": "#AAAAAA",
+    "extension": "#E8A040",
+    "mixed": "#888888",
+}
+SPREAD_CLASS_LABEL_ZH = {
+    "pullback": "Pullback 回落",
+    "aligned": "Aligned 一致",
+    "extension": "Extension 超前",
+    "mixed": "Mixed 混合",
+}
+STALE_OPACITY = 0.35
+
+TRADE_SIGNAL_COLORS = {
+    "imp_extension": "#7EB8DA",
+    "imp_early_long": "#52A882",
+    "lead_pullback_buy": "#1F8A65",
+    "lead_deep_pullback_wait": "#E8A040",
+}
+TRADE_SIGNAL_ORDER = (
+    "lead_pullback_buy",
+    "imp_early_long",
+    "imp_extension",
+    "lead_deep_pullback_wait",
+)
 TIMELINE_CHART_MARGIN = {"l": 56, "r": 24, "t": 36, "b": 52}
 TIMELINE_QUAD_OPACITY = 0.08
 
-TIMELINE_TAIL_DAYS = 4
+TIMELINE_TAIL_DAYS = 30
 TIMELINE_TAIL_MIN_DISP = 3.0
 TIMELINE_VISIBLE_DAYS = 10
 
@@ -77,6 +115,45 @@ def _short_label(stock_id: str, stock_name: str, *, max_name: int = 8) -> str:
     if len(name) > max_name:
         name = name[: max_name - 1] + "…"
     return f"{stock_id} {name}".strip()
+
+
+def _format_trade_px(px: float | None) -> str:
+    if px is None or px != px:
+        return "—"
+    return f"{float(px):.2f}"
+
+
+def _format_intraday_time(
+    trade_date: str | None,
+    minute: str | None,
+    *,
+    poll_fallback: bool = False,
+) -> str:
+    if not trade_date:
+        return "—"
+    d = trade_date[5:] if len(trade_date) >= 10 else trade_date
+    if minute:
+        return f"{d} {minute}"
+    if poll_fallback:
+        return f"{d} 收盤"
+    return f"{d} 收盤"
+
+
+EXIT_REASON_ZH: dict[str, str] = {
+    "max_hold": "持有到期",
+    "score_swap": "評分換倉",
+    "quad_force_exit": "象限強制出場",
+    "window_end": "窗口結束",
+    "struct_force_exit": "結構強制出場",
+    "hard_stop": "硬停損",
+    "hard_stop_intraday": "盤中硬停損",
+}
+
+
+def _format_exit_reason_zh(reason: str | None) -> str:
+    if not reason:
+        return "—"
+    return EXIT_REASON_ZH.get(str(reason), str(reason))
 
 
 def _format_daily_pct(pct: float | None) -> str:
@@ -476,6 +553,35 @@ def _svg_chart(points: list[dict], *, as_of: str, length: int) -> str:
 </svg>"""
 
 
+def _percentile(values: list[float], p: float) -> float:
+    if not values:
+        return 100.0
+    s = sorted(values)
+    k = (len(s) - 1) * p / 100.0
+    lo_i = int(math.floor(k))
+    hi_i = int(math.ceil(k))
+    if lo_i == hi_i:
+        return float(s[lo_i])
+    return float(s[lo_i] * (hi_i - k) + s[hi_i] * (k - lo_i))
+
+
+def _majority_centered_bounds(
+    xs: list[float],
+    ys: list[float],
+    *,
+    low_pct: float = 5.0,
+    high_pct: float = 95.0,
+    pad: float = 0.5,
+    min_half_span: float = 5.0,
+) -> tuple[float, float, float, float]:
+    """Symmetric axis limits around (100,100) from majority percentile band."""
+    lo_x, hi_x = _percentile(xs, low_pct), _percentile(xs, high_pct)
+    lo_y, hi_y = _percentile(ys, low_pct), _percentile(ys, high_pct)
+    half = max(100.0 - lo_x, hi_x - 100.0, 100.0 - lo_y, hi_y - 100.0, min_half_span)
+    half = math.ceil(half)
+    return 100.0 - half - pad, 100.0 + half + pad, 100.0 - half - pad, 100.0 + half + pad
+
+
 def _chart_projection(
     values: list[tuple[float, float]],
     *,
@@ -483,16 +589,24 @@ def _chart_projection(
     h: int = 720,
     pad: float = 1.5,
     margin: dict[str, int] | None = None,
+    majority_centered: bool = False,
+    fixed_bounds: tuple[float, float] | None = None,
 ) -> dict:
     margin = margin or {"l": 56, "r": 24, "t": 36, "b": 52}
     plot_w = w - margin["l"] - margin["r"]
     plot_h = h - margin["t"] - margin["b"]
     xs = [v[0] for v in values]
     ys = [v[1] for v in values]
-    xmin = min(min(xs), 100.0) - pad
-    xmax = max(max(xs), 100.0) + pad
-    ymin = min(min(ys), 100.0) - pad
-    ymax = max(max(ys), 100.0) + pad
+    if fixed_bounds is not None:
+        xmin, xmax = fixed_bounds
+        ymin, ymax = fixed_bounds
+    elif majority_centered:
+        xmin, xmax, ymin, ymax = _majority_centered_bounds(xs, ys, pad=pad)
+    else:
+        xmin = min(min(xs), 100.0) - pad
+        xmax = max(max(xs), 100.0) + pad
+        ymin = min(min(ys), 100.0) - pad
+        ymax = max(max(ys), 100.0) + pad
 
     def sx(v: float) -> float:
         return margin["l"] + (v - xmin) / (xmax - xmin) * plot_w
@@ -540,7 +654,7 @@ def _quad_background_svg(proj: dict, *, opacity: float = 0.12) -> str:
     return "".join(rects)
 
 
-def _axis_ticks_svg(proj: dict) -> str:
+def _axis_ticks_svg(proj: dict, *, tick_font_size: int = 11) -> str:
     margin, h, plot_w, plot_h = proj["margin"], proj["h"], proj["plot_w"], proj["plot_h"]
     sx, sy = proj["sx"], proj["sy"]
     xmin, xmax, ymin, ymax = proj["xmin"], proj["xmax"], proj["ymin"], proj["ymax"]
@@ -552,7 +666,7 @@ def _axis_ticks_svg(proj: dict) -> str:
             f'stroke="#333" stroke-dasharray="3,4"/>'
         )
         ticks.append(
-            f'<text x="{x:.1f}" y="{h - 14}" text-anchor="middle" fill="#888" font-size="11">{v:.0f}</text>'
+            f'<text x="{x:.1f}" y="{h - 14}" text-anchor="middle" fill="#888" font-size="{tick_font_size}">{v:.0f}</text>'
         )
     for v in _nice_ticks(ymin, ymax):
         y = sy(v)
@@ -561,7 +675,7 @@ def _axis_ticks_svg(proj: dict) -> str:
             f'stroke="#333" stroke-dasharray="3,4"/>'
         )
         ticks.append(
-            f'<text x="{margin["l"] - 8}" y="{y + 4:.1f}" text-anchor="end" fill="#888" font-size="11">{v:.0f}</text>'
+            f'<text x="{margin["l"] - 8}" y="{y + 4:.1f}" text-anchor="end" fill="#888" font-size="{tick_font_size}">{v:.0f}</text>'
         )
     return "".join(ticks)
 
@@ -1234,6 +1348,11 @@ def render_holdings_change_html(
 def _timeline_projection(
     all_trajectories: list[dict],
     highlight_ids: set[str],
+    *,
+    w: int = TIMELINE_CHART_W,
+    h: int = TIMELINE_CHART_H,
+    majority_centered: bool = False,
+    fixed_bounds: tuple[float, float] | None = None,
 ) -> dict:
     """Axis bounds from highlight/active stocks so trajectories fill the plot."""
     hi = [t for t in all_trajectories if t["stock_id"] in highlight_ids]
@@ -1243,9 +1362,35 @@ def _timeline_projection(
         flat = [(100.0, 100.0)]
     return _chart_projection(
         flat,
-        w=TIMELINE_CHART_W,
-        h=TIMELINE_CHART_H,
+        w=w,
+        h=h,
         margin=TIMELINE_CHART_MARGIN,
+        majority_centered=majority_centered,
+        fixed_bounds=fixed_bounds,
+    )
+
+
+def _dual_timeline_projection(
+    all_trajectories: list[dict],
+    *,
+    w: int = UNIVERSE_TIMELINE_CHART_W,
+    h: int = UNIVERSE_TIMELINE_CHART_H,
+    fixed_bounds: tuple[float, float] | None = None,
+) -> dict:
+    flat: list[tuple[float, float]] = []
+    for t in all_trajectories:
+        for p in t["points"]:
+            for leg in ("w5", "w20"):
+                g = p[leg]
+                flat.append((g["rs_ratio"], g["rs_momentum"]))
+    if not flat:
+        flat = [(100.0, 100.0)]
+    return _chart_projection(
+        flat,
+        w=w,
+        h=h,
+        margin=TIMELINE_CHART_MARGIN,
+        fixed_bounds=fixed_bounds,
     )
 
 
@@ -1272,6 +1417,8 @@ def _svg_timeline_background(
     title: str,
     subtitle: str,
     quad_opacity: float = TIMELINE_QUAD_OPACITY,
+    large_ui: bool = False,
+    clip_dynamic: bool = False,
 ) -> str:
     w, h = proj["w"], proj["h"]
     margin = proj["margin"]
@@ -1279,6 +1426,23 @@ def _svg_timeline_background(
     x100, y100 = proj["x100"], proj["y100"]
     sx, sy = proj["sx"], proj["sy"]
     xmin, xmax, ymin, ymax = proj["xmin"], proj["xmax"], proj["ymin"], proj["ymax"]
+    zone_fs = 14 if large_ui else 11
+    axis_fs = 13 if large_ui else 11
+    title_fs = 15 if large_ui else 13
+    frame_fs = 13 if large_ui else 11
+    bench_fs = 12 if large_ui else 10
+    bench_r = 4 if large_ui else 3
+    tick_fs = 12 if large_ui else 11
+
+    clip_defs = ""
+    dynamic_layer_open = '<g id="dynamic-layer"></g>'
+    if clip_dynamic:
+        clip_defs = (
+            f'<defs><clipPath id="plot-clip">'
+            f'<rect x="{margin["l"]}" y="{margin["t"]}" width="{plot_w}" height="{plot_h}"/>'
+            f"</clipPath></defs>"
+        )
+        dynamic_layer_open = '<g id="dynamic-layer" clip-path="url(#plot-clip)"></g>'
 
     quad_tags = [
         (sx((xmin + 100) / 2), sy((100 + ymax) / 2), "improving", "Improving"),
@@ -1290,28 +1454,1173 @@ def _svg_timeline_background(
     for x, y, quad, text in quad_tags:
         zone_labels.append(
             f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="middle" fill="{QUADRANT_COLORS[quad]}" '
-            f'font-size="11" opacity="0.5">{text}</text>'
+            f'font-size="{zone_fs}" opacity="0.5">{text}</text>'
         )
 
     return f"""
 <svg id="rrg-timeline-chart" viewBox="0 0 {w} {h}" width="{w}" height="{h}" style="display:block;width:100%;max-width:{w}px;height:auto">
   <rect width="{w}" height="{h}" fill="#141414"/>
+  {clip_defs}
   <g id="chart-bg">
   {_quad_background_svg(proj, opacity=quad_opacity)}
-  {_axis_ticks_svg(proj)}
+  {_axis_ticks_svg(proj, tick_font_size=tick_fs)}
   <line x1="{margin['l']}" y1="{y100:.1f}" x2="{margin['l'] + plot_w}" y2="{y100:.1f}" stroke="#666" stroke-width="1"/>
   <line x1="{x100:.1f}" y1="{margin['t']}" x2="{x100:.1f}" y2="{margin['t'] + plot_h}" stroke="#666" stroke-width="1"/>
-  <circle cx="{x100:.1f}" cy="{y100:.1f}" r="3" fill="#fff" stroke="#666"/>
-  <text x="{x100:.1f}" y="{y100 - 10:.1f}" text-anchor="middle" fill="#aaa" font-size="10">IX0001</text>
+  <circle cx="{x100:.1f}" cy="{y100:.1f}" r="{bench_r}" fill="#fff" stroke="#666"/>
+  <text x="{x100:.1f}" y="{y100 - 10:.1f}" text-anchor="middle" fill="#aaa" font-size="{bench_fs}">IX0001</text>
   {''.join(zone_labels)}
   </g>
-  <g id="dynamic-layer"></g>
-  <text x="{margin['l'] + plot_w / 2:.1f}" y="{h - 2}" text-anchor="middle" fill="#bbb" font-size="11">JdK RS-Ratio →</text>
-  <text x="14" y="{margin['t'] + plot_h / 2:.1f}" text-anchor="middle" fill="#bbb" font-size="11"
+  {dynamic_layer_open}
+  <text x="{margin['l'] + plot_w / 2:.1f}" y="{h - 2}" text-anchor="middle" fill="#bbb" font-size="{axis_fs}">JdK RS-Ratio →</text>
+  <text x="14" y="{margin['t'] + plot_h / 2:.1f}" text-anchor="middle" fill="#bbb" font-size="{axis_fs}"
         transform="rotate(-90 14 {margin['t'] + plot_h / 2:.1f})">JdK RS-Momentum ↑</text>
-  <text id="chart-title" x="{margin['l']}" y="28" fill="#ddd" font-size="13" font-weight="600">{_xml_escape(title)}</text>
-  <text id="frame-label" x="{margin['l'] + plot_w}" y="28" text-anchor="end" fill="#888" font-size="11">{_xml_escape(subtitle)}</text>
+  <text id="chart-title" x="{margin['l']}" y="28" fill="#ddd" font-size="{title_fs}" font-weight="600">{_xml_escape(title)}</text>
+  <text id="frame-label" x="{margin['l'] + plot_w}" y="28" text-anchor="end" fill="#888" font-size="{frame_fs}">{_xml_escape(subtitle)}</text>
 </svg>"""
+
+
+def render_universe_timeline_html(
+    *,
+    dates: list[str],
+    trajectories: list[dict],
+    length: int,
+    etf_codes: tuple[str, ...],
+) -> str:
+    """Interactive RRG: every universe stock with rolling tail (not highlight-only)."""
+    date_label = f"{dates[0]} → {dates[-1]}"
+    date_short = f"{dates[0][5:]} → {dates[-1][5:]}"
+    end_counts = {
+        q: sum(1 for t in trajectories if t.get("end_quadrant") == q) for q in QUADRANT_COLORS
+    }
+    legend = "".join(
+        f'<span class="legend-item"><i style="background:{QUADRANT_COLORS[q]}"></i>'
+        f'{QUADRANT_LABEL_ZH[q]} ({end_counts[q]})</span>'
+        for q in ("leading", "weakening", "lagging", "improving")
+    )
+    if length == 5:
+        axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_WMA5_MIN, UNIVERSE_TIMELINE_AXIS_WMA5_MAX
+    else:
+        axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_MIN, UNIVERSE_TIMELINE_AXIS_MAX
+    axis_label = f"{int(axis_lo)}–{int(axis_hi)}"
+    if length == 5:
+        tail_days = UNIVERSE_TIMELINE_TAIL_DAYS_WMA5
+        tail_min_disp = UNIVERSE_TIMELINE_TAIL_MIN_DISP_WMA5
+    else:
+        tail_days = TIMELINE_TAIL_DAYS
+        tail_min_disp = 1.0
+    tail_note = (
+        f"每檔 tail <b>{tail_days}</b> 交易日"
+        if tail_min_disp <= 0
+        else f"每檔 tail 最多 <b>{tail_days}</b> 交易日 · 位移 ≤{tail_min_disp:g} 不畫線"
+    )
+    proj = _timeline_projection(
+        trajectories,
+        set(),
+        w=UNIVERSE_TIMELINE_CHART_W,
+        h=UNIVERSE_TIMELINE_CHART_H,
+        fixed_bounds=(axis_lo, axis_hi),
+    )
+    title = f"RRG Universe 全檔 · WMA({length}) · {len(trajectories)} 檔 · {date_short}"
+    svg = _svg_timeline_background(
+        proj, title=title, subtitle=dates[0], large_ui=True, clip_dynamic=True
+    )
+    table = _trajectory_table_html(trajectories)
+
+    payload = json.dumps(trajectories, ensure_ascii=False)
+    dates_json = json.dumps(dates, ensure_ascii=False)
+    proj_json = json.dumps(_projection_meta(proj))
+    quad_colors_json = json.dumps(QUADRANT_COLORS)
+    quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"/>
+  <title>RRG Universe 全檔時間軸 · WMA({length}) · {date_label}</title>
+  <style>
+    body {{ margin:0; background:#141414; color:#e4e4e4; font-family:-apple-system,sans-serif; padding:20px; }}
+    .wrap {{ max-width:{UNIVERSE_TIMELINE_CHART_W + 80}px; margin:0 auto; }}
+    h1 {{ font-size:18px; margin:0 0 6px; }}
+    h2 {{ font-size:15px; margin:18px 0 8px; color:#ddd; }}
+    .sub {{ color:#999; font-size:13px; margin-bottom:16px; line-height:1.5; }}
+    .panel {{ background:#181818; border:1px solid #333; border-radius:8px; padding:12px; margin-bottom:16px; }}
+    .panel.chart-panel {{ overflow:visible; padding:8px; }}
+    .legend {{ display:flex; flex-wrap:wrap; gap:12px 18px; margin:8px 0 12px; font-size:13px; }}
+    .legend-item i {{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
+    .timeline-controls {{
+      display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:12px 0 8px; font-size:13px;
+    }}
+    .timeline-controls input[type=range] {{ flex:1; min-width:180px; accent-color:#888; }}
+    .timeline-controls button {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:5px 12px; cursor:pointer; font-size:12px;
+    }}
+    .timeline-controls button:hover {{ background:#2a2a2a; color:#fff; }}
+    .timeline-controls input[type=text] {{
+      background:#222; color:#eee; border:1px solid #444; border-radius:4px; padding:4px 8px; font-size:12px; width:96px;
+    }}
+    #frame-date {{ font-weight:600; color:#ddd; min-width:88px; }}
+    .chart-layout {{ display:flex; flex-direction:column; gap:12px; }}
+    .frame-insight {{
+      background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:14px 16px; font-size:13px; line-height:1.5;
+      display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,1fr) minmax(220px,1.2fr); gap:16px 24px;
+    }}
+    .frame-insight .filters {{ grid-column:1 / -1; margin-bottom:0; }}
+    .frame-insight h3 {{ margin:0 0 8px; font-size:14px; color:#ddd; }}
+    .filters {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }}
+    .filters button {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:4px 10px; cursor:pointer; font-size:12px;
+    }}
+    .filters button.active {{ background:#333; color:#fff; border-color:#666; }}
+    .quad-bars {{ display:flex; flex-direction:column; gap:5px; }}
+    .quad-bar-row {{ display:grid; grid-template-columns:52px 1fr 28px; gap:6px; align-items:center; font-size:12px; }}
+    .quad-bar {{ height:8px; background:#2a2a2a; border-radius:3px; overflow:hidden; }}
+    .quad-bar i {{ display:block; height:100%; border-radius:3px; }}
+    @media (max-width:900px) {{
+      .frame-insight {{ grid-template-columns:1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>RRG Universe 全檔互動時間軸 · WMA({length})</h1>
+    <p class="sub">
+      期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
+      Universe：ETF 持股聯集（{','.join(etf_codes)}）· <b>{len(trajectories)}</b> 檔 ·
+      {tail_note}
+    </p>
+    <div class="legend">{legend}</div>
+    <div class="panel">
+      <div class="timeline-controls">
+        <button type="button" id="btn-prev">◀</button>
+        <button type="button" id="btn-play">▶ 逐步</button>
+        <button type="button" id="btn-next">▶</button>
+        <input type="range" id="frame-slider" min="0" max="{len(dates) - 1}" value="0" step="1"/>
+        <span id="frame-date">{dates[0][5:]}</span>
+        <input type="text" id="stock-search" placeholder="代號篩選…"/>
+      </div>
+      <div class="chart-layout">
+        <div class="panel chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
+        <aside class="frame-insight">
+          <div class="filters" id="quad-filters">
+            <button class="active" data-quad="all">全部</button>
+            <button data-quad="leading">Leading</button>
+            <button data-quad="weakening">Weakening</button>
+            <button data-quad="lagging">Lagging</button>
+            <button data-quad="improving">Improving</button>
+          </div>
+          <div>
+            <h3>當日摘要</h3>
+            <div id="insight-stats">—</div>
+          </div>
+          <div>
+            <h3>象限分布</h3>
+            <div class="quad-bars" id="insight-quads"></div>
+          </div>
+          <div>
+            <h3>位移 Top 8</h3>
+            <div id="insight-movers">—</div>
+          </div>
+        </aside>
+      </div>
+      <p class="note" style="font-size:12px;color:#777;margin:8px 0 0">
+        全檔同時顯示；終點色=當日象限 · 刻度固定 {axis_label} 置中 · 超出裁切 · 點擊表格列聚焦單檔 · Esc 取消
+      </p>
+    </div>
+    <h2>軌跡一覽</h2>
+    <div class="panel">{table}</div>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const DATES = {dates_json};
+    const TRAJECTORIES = {payload};
+    let PROJ = {proj_json};
+    const QUAD_COLORS = {quad_colors_json};
+    const QUAD_LABEL_ZH = {quad_labels_json};
+    const TAIL_DAYS = {tail_days};
+    const TAIL_MIN_DISP = {tail_min_disp};
+
+    const layer = document.getElementById('dynamic-layer');
+    const slider = document.getElementById('frame-slider');
+    const frameDate = document.getElementById('frame-date');
+    const frameLabel = document.getElementById('frame-label');
+    const tooltip = document.getElementById('tooltip');
+    const stockSearch = document.getElementById('stock-search');
+    let frameIdx = 0;
+    let playing = false;
+    let playTimer = null;
+    let focusId = null;
+    let quadFilter = 'all';
+
+    function sx(v) {{
+      const {{ margin, plot_w, xmin, xmax }} = PROJ;
+      return margin.l + (v - xmin) / (xmax - xmin) * plot_w;
+    }}
+    function sy(v) {{
+      const {{ margin, plot_h, ymin, ymax }} = PROJ;
+      return margin.t + plot_h - (v - ymin) / (ymax - ymin) * plot_h;
+    }}
+    function tailStart(idx, tailLen) {{
+      return Math.max(0, idx - tailLen + 1);
+    }}
+    function pointAt(t, idx) {{
+      const d = DATES[idx];
+      if (!d) return null;
+      for (const p of t.points) {{
+        if (p.date === d) return p;
+      }}
+      return null;
+    }}
+    function tailPoints(t, idx) {{
+      const t0 = tailStart(idx, TAIL_DAYS);
+      const out = [];
+      for (let i = t0; i <= idx; i++) {{
+        const p = pointAt(t, i);
+        if (p) out.push(p);
+      }}
+      return out;
+    }}
+    function tailDisplacement(pts) {{
+      if (pts.length < 2) return 0;
+      const p0 = pts[0], p1 = pts[pts.length - 1];
+      return Math.hypot(p1.rs_ratio - p0.rs_ratio, p1.rs_momentum - p0.rs_momentum);
+    }}
+    function shortLabel(id, name) {{
+      let n = (name || '').trim();
+      if (n.length > 8) n = n.slice(0, 7) + '…';
+      return (id + ' ' + n).trim();
+    }}
+    function visibleTrajectories(idx) {{
+      const q = stockSearch.value.trim();
+      return TRAJECTORIES.filter(t => {{
+        if (focusId && t.stock_id !== focusId) return false;
+        if (quadFilter !== 'all' && (pointAt(t, idx)?.quadrant || '') !== quadFilter) return false;
+        if (q && !t.stock_id.includes(q)) return false;
+        return true;
+      }});
+    }}
+    function updateInsight(idx) {{
+      const d = DATES[idx];
+      const visible = visibleTrajectories(idx);
+      const quadCounts = {{ leading:0, weakening:0, lagging:0, improving:0 }};
+      const movers = [];
+      for (const t of visible) {{
+        const p = pointAt(t, idx);
+        if (!p) continue;
+        const q = p.quadrant;
+        if (q && quadCounts[q] !== undefined) quadCounts[q] += 1;
+        const pts = tailPoints(t, idx);
+        movers.push({{ t, disp: tailDisplacement(pts) }});
+      }}
+      movers.sort((a, b) => b.disp - a.disp);
+      document.getElementById('insight-stats').innerHTML =
+        `<b>${{d}}</b> · 第 ${{idx + 1}}/${{DATES.length}} 日<br/>` +
+        `可見 <b>${{visible.length}}</b> / ${{TRAJECTORIES.length}} 檔`;
+      const maxQ = Math.max(1, ...Object.values(quadCounts));
+      document.getElementById('insight-quads').innerHTML =
+        ['leading','weakening','lagging','improving'].map(q => {{
+          const n = quadCounts[q];
+          const w = (100 * n / maxQ).toFixed(0);
+          return `<div class="quad-bar-row"><span>${{(QUAD_LABEL_ZH[q]||q).split(' ')[0]}}</span>` +
+            `<div class="quad-bar"><i style="width:${{w}}%;background:${{QUAD_COLORS[q]}}"></i></div>` +
+            `<span>${{n}}</span></div>`;
+        }}).join('');
+      document.getElementById('insight-movers').innerHTML = movers.slice(0, 8).map(({{ t, disp }}) => {{
+        const p = pointAt(t, idx);
+        if (!p) return '';
+        return `<div style="margin:2px 0;cursor:pointer" data-id="${{t.stock_id}}">` +
+          `<b>${{t.stock_id}}</b> Δ${{disp.toFixed(1)}} · ${{p.quadrant}}</div>`;
+      }}).join('') || '<span style="color:#666">—</span>';
+      document.querySelectorAll('#insight-movers [data-id]').forEach(el => {{
+        el.addEventListener('click', () => {{
+          focusId = el.dataset.id;
+          renderFrame(idx);
+        }});
+      }});
+    }}
+    function renderFrame(idx) {{
+      frameIdx = idx;
+      slider.value = String(idx);
+      const d = DATES[idx];
+      frameDate.textContent = d.slice(5);
+      if (frameLabel) frameLabel.textContent = d + ' · frame ' + (idx + 1) + '/' + DATES.length;
+      updateInsight(idx);
+      const parts = [];
+      const ordered = visibleTrajectories(idx).slice().sort((a, b) => a.stock_id.localeCompare(b.stock_id));
+      for (const t of ordered) {{
+        const pts = tailPoints(t, idx);
+        if (!pts.length) continue;
+        const endQuad = pts[pts.length - 1].quadrant || 'lagging';
+        const color = QUAD_COLORS[endQuad] || '#888';
+        const showTail = pts.length >= 2 && (TAIL_MIN_DISP <= 0 || tailDisplacement(pts) > TAIL_MIN_DISP);
+        const dim = focusId && t.stock_id !== focusId;
+        const lineOp = dim ? 0.12 : (focusId ? 0.65 : 0.35);
+        const dotOp = dim ? 0.15 : (focusId ? 1.0 : 0.82);
+        if (showTail) {{
+          for (let i = 0; i < pts.length - 1; i++) {{
+            const p1 = pts[i], p2 = pts[i + 1];
+            const opacity = lineOp * (0.45 + 0.55 * (i / Math.max(pts.length - 1, 1)));
+            parts.push(
+              `<line x1="${{sx(p1.rs_ratio).toFixed(1)}}" y1="${{sy(p1.rs_momentum).toFixed(1)}}" ` +
+              `x2="${{sx(p2.rs_ratio).toFixed(1)}}" y2="${{sy(p2.rs_momentum).toFixed(1)}}" ` +
+              `stroke="${{color}}" stroke-width="${{focusId === t.stock_id ? 2.4 : 1.5}}" ` +
+              `opacity="${{opacity.toFixed(2)}}" stroke-linecap="round"/>`
+            );
+          }}
+        }}
+        const cur = pts[pts.length - 1];
+        const cx = sx(cur.rs_ratio), cy = sy(cur.rs_momentum);
+        const r = focusId === t.stock_id ? 7 : 5;
+        const hitR = 14;
+        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · RS ${{cur.rs_ratio}} · Mom ${{cur.rs_momentum}}`;
+        parts.push(
+          `<circle class="uni-dot-hit" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{hitR}}" ` +
+          `fill="transparent" stroke="none" data-id="${{t.stock_id}}" data-label="${{label}}"/>` +
+          `<circle class="uni-dot" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{r}}" ` +
+          `fill="${{color}}" stroke="#111" stroke-width="1" opacity="${{dotOp}}" pointer-events="none"/>`
+        );
+        if (focusId === t.stock_id) {{
+          parts.push(
+            `<text x="${{(cx + r + 4).toFixed(1)}}" y="${{(cy + 4).toFixed(1)}}" fill="#ddd" font-size="13" font-weight="600">${{shortLabel(t.stock_id, t.stock_name)}}</text>`
+          );
+        }}
+      }}
+      layer.innerHTML = parts.join('');
+      layer.querySelectorAll('circle.uni-dot-hit').forEach(el => {{
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {{
+          focusId = focusId === el.dataset.id ? null : el.dataset.id;
+          renderFrame(idx);
+        }});
+        el.addEventListener('mouseenter', ev => {{
+          tooltip.innerHTML = `<b>${{el.dataset.id}}</b><br/>${{el.dataset.label || ''}}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mousemove', ev => {{
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mouseleave', () => {{ tooltip.style.display = 'none'; }});
+      }});
+    }}
+    function stopPlay() {{
+      playing = false;
+      if (playTimer) {{ clearInterval(playTimer); playTimer = null; }}
+      document.getElementById('btn-play').textContent = '▶ 逐步';
+    }}
+    slider.addEventListener('input', () => {{ stopPlay(); renderFrame(parseInt(slider.value, 10)); }});
+    document.getElementById('btn-prev').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.max(0, frameIdx - 1));
+    }});
+    document.getElementById('btn-next').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.min(DATES.length - 1, frameIdx + 1));
+    }});
+    document.getElementById('btn-play').addEventListener('click', () => {{
+      if (playing) {{ stopPlay(); return; }}
+      if (frameIdx >= DATES.length - 1) renderFrame(0);
+      playing = true;
+      document.getElementById('btn-play').textContent = '⏸ 暫停';
+      playTimer = setInterval(() => {{
+        if (frameIdx >= DATES.length - 1) {{ stopPlay(); return; }}
+        renderFrame(frameIdx + 1);
+      }}, 700);
+    }});
+    document.querySelectorAll('#quad-filters button').forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        document.querySelectorAll('#quad-filters button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        quadFilter = btn.dataset.quad;
+        renderFrame(frameIdx);
+      }});
+    }});
+    stockSearch.addEventListener('input', () => renderFrame(frameIdx));
+    document.addEventListener('keydown', ev => {{
+      if (ev.target.tagName === 'INPUT') return;
+      if (ev.key === 'ArrowLeft') {{ stopPlay(); renderFrame(Math.max(0, frameIdx - 1)); }}
+      if (ev.key === 'ArrowRight') {{ stopPlay(); renderFrame(Math.min(DATES.length - 1, frameIdx + 1)); }}
+      if (ev.key === 'Escape') {{ focusId = null; renderFrame(frameIdx); }}
+    }});
+    document.querySelectorAll('#rrg-traj-table tbody tr').forEach(tr => {{
+      tr.addEventListener('click', () => {{
+        const id = tr.cells[1]?.textContent?.trim();
+        if (!id) return;
+        focusId = id;
+        renderFrame(frameIdx);
+      }});
+    }});
+    renderFrame(0);
+  </script>
+</body>
+</html>"""
+
+
+def render_universe_intraday_timeline_html(
+    *,
+    frames: list[dict[str, str]],
+    trajectories: list[dict],
+    length: int,
+    etf_codes: tuple[str, ...],
+    meta: dict | None = None,
+) -> str:
+    """Interactive RRG Universe · 盤中 30m poll · WMA(length)。"""
+    dates = sorted({f["date"] for f in frames})
+    date_label = f"{dates[0]} → {dates[-1]}"
+    date_short = f"{dates[0][5:]} → {dates[-1][5:]}"
+    avg_priced = (meta or {}).get("avg_priced_per_frame", "—")
+    end_counts = {
+        q: sum(1 for t in trajectories if t.get("end_quadrant") == q) for q in QUADRANT_COLORS
+    }
+    legend = "".join(
+        f'<span class="legend-item"><i style="background:{QUADRANT_COLORS[q]}"></i>'
+        f'{QUADRANT_LABEL_ZH[q]} ({end_counts[q]})</span>'
+        for q in ("leading", "weakening", "lagging", "improving")
+    )
+    axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_WMA5_MIN, UNIVERSE_TIMELINE_AXIS_WMA5_MAX
+    axis_label = f"{int(axis_lo)}–{int(axis_hi)}"
+    tail_frames = UNIVERSE_INTRADAY_TAIL_FRAMES
+    proj = _timeline_projection(
+        trajectories,
+        set(),
+        w=UNIVERSE_TIMELINE_CHART_W,
+        h=UNIVERSE_TIMELINE_CHART_H,
+        fixed_bounds=(axis_lo, axis_hi),
+    )
+    title = f"RRG Universe 盤中 · WMA({length}) · {len(trajectories)} 檔 · {date_short}"
+    svg = _svg_timeline_background(
+        proj, title=title, subtitle=frames[0]["label"], large_ui=True, clip_dynamic=True
+    )
+
+    payload = json.dumps(trajectories, ensure_ascii=False)
+    frames_json = json.dumps(frames, ensure_ascii=False)
+    proj_json = json.dumps(_projection_meta(proj))
+    quad_colors_json = json.dumps(QUADRANT_COLORS)
+    quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"/>
+  <title>RRG Universe 盤中時間軸 · WMA({length}) · {date_label}</title>
+  <style>
+    body {{ margin:0; background:#141414; color:#e4e4e4; font-family:-apple-system,sans-serif; padding:20px; }}
+    .wrap {{ max-width:{UNIVERSE_TIMELINE_CHART_W + 80}px; margin:0 auto; }}
+    h1 {{ font-size:18px; margin:0 0 6px; }}
+    h2 {{ font-size:15px; margin:18px 0 8px; color:#ddd; }}
+    .sub {{ color:#999; font-size:13px; margin-bottom:16px; line-height:1.5; }}
+    .panel {{ background:#181818; border:1px solid #333; border-radius:8px; padding:12px; margin-bottom:16px; }}
+    .panel.chart-panel {{ overflow:visible; padding:8px; }}
+    .legend {{ display:flex; flex-wrap:wrap; gap:12px 18px; margin:8px 0 12px; font-size:13px; }}
+    .legend-item i {{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
+    .timeline-controls {{
+      display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:12px 0 8px; font-size:13px;
+    }}
+    .timeline-controls input[type=range] {{ flex:1; min-width:180px; accent-color:#888; }}
+    .timeline-controls button {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:5px 12px; cursor:pointer; font-size:12px;
+    }}
+    .timeline-controls button:hover {{ background:#2a2a2a; color:#fff; }}
+    .timeline-controls input[type=text] {{
+      background:#222; color:#eee; border:1px solid #444; border-radius:4px; padding:4px 8px; font-size:12px; width:96px;
+    }}
+    #frame-date {{ font-weight:600; color:#ddd; min-width:110px; }}
+    .chart-layout {{ display:flex; flex-direction:column; gap:12px; }}
+    .frame-insight {{
+      background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:14px 16px; font-size:13px; line-height:1.5;
+      display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,1fr) minmax(220px,1.2fr); gap:16px 24px;
+    }}
+    .frame-insight .filters {{ grid-column:1 / -1; margin-bottom:0; }}
+    .frame-insight h3 {{ margin:0 0 8px; font-size:14px; color:#ddd; }}
+    .filters {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }}
+    .filters button {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:4px 10px; cursor:pointer; font-size:12px;
+    }}
+    .filters button.active {{ background:#333; color:#fff; border-color:#666; }}
+    .quad-bars {{ display:flex; flex-direction:column; gap:5px; }}
+    .quad-bar-row {{ display:grid; grid-template-columns:52px 1fr 28px; gap:6px; align-items:center; font-size:12px; }}
+    .quad-bar {{ height:8px; background:#2a2a2a; border-radius:3px; overflow:hidden; }}
+    .quad-bar i {{ display:block; height:100%; border-radius:3px; }}
+    @media (max-width:900px) {{ .frame-insight {{ grid-template-columns:1fr; }} }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>RRG Universe 盤中互動時間軸 · WMA({length}) · 30m</h1>
+    <p class="sub">
+      期間 <b>{date_label}</b>（{len(dates)} 交易日 · <b>{len(frames)}</b> 盤中幀）· 基準 <b>IX0001</b> · poll <b>09:00–13:30</b> 每 30 分<br/>
+      Universe：ETF 持股聯集（{','.join(etf_codes)}）· <b>{len(trajectories)}</b> 檔 ·
+      每檔 tail <b>{tail_frames}</b> 幀 · 平均每幀有 K 線 <b>{avg_priced}</b> 檔
+    </p>
+    <div class="legend">{legend}</div>
+    <div class="panel">
+      <div class="timeline-controls">
+        <button type="button" id="btn-prev">◀</button>
+        <button type="button" id="btn-play">▶ 逐步</button>
+        <button type="button" id="btn-next">▶</button>
+        <input type="range" id="frame-slider" min="0" max="{len(frames) - 1}" value="0" step="1"/>
+        <span id="frame-date">{frames[0]["label"]}</span>
+        <input type="text" id="stock-search" placeholder="代號篩選…"/>
+      </div>
+      <div class="chart-layout">
+        <div class="panel chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
+        <aside class="frame-insight">
+          <div class="filters" id="quad-filters">
+            <button class="active" data-quad="all">全部</button>
+            <button data-quad="leading">Leading</button>
+            <button data-quad="weakening">Weakening</button>
+            <button data-quad="lagging">Lagging</button>
+            <button data-quad="improving">Improving</button>
+          </div>
+          <div>
+            <h3>當幀摘要</h3>
+            <div id="insight-stats">—</div>
+          </div>
+          <div>
+            <h3>象限分布</h3>
+            <div class="quad-bars" id="insight-quads"></div>
+          </div>
+          <div>
+            <h3>位移 Top 8</h3>
+            <div id="insight-movers">—</div>
+          </div>
+        </aside>
+      </div>
+      <p class="note" style="font-size:12px;color:#777;margin:8px 0 0">
+        盤中價覆寫當日 close 後重算 RRG · 刻度 {axis_label} · tail 固定 {tail_frames} 幀 · 缺 1m K 沿用上一盤中點 · Esc 取消聚焦
+      </p>
+    </div>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const FRAMES = {frames_json};
+    const TRAJECTORIES = {payload};
+    let PROJ = {proj_json};
+    const QUAD_COLORS = {quad_colors_json};
+    const QUAD_LABEL_ZH = {quad_labels_json};
+    const TAIL_FRAMES = {tail_frames};
+    const PLAY_MS = {UNIVERSE_INTRADAY_PLAY_MS};
+    const FRAME_INDEX = Object.fromEntries(FRAMES.map((f, i) => [f.id, i]));
+    TRAJECTORIES.forEach(t => {{
+      t._byFrame = Object.fromEntries(t.points.map(p => [p.frame_id, p]));
+    }});
+
+    const layer = document.getElementById('dynamic-layer');
+    const slider = document.getElementById('frame-slider');
+    const frameDate = document.getElementById('frame-date');
+    const frameLabel = document.getElementById('frame-label');
+    const tooltip = document.getElementById('tooltip');
+    const stockSearch = document.getElementById('stock-search');
+    let frameIdx = 0;
+    let playing = false;
+    let playTimer = null;
+    let focusId = null;
+    let quadFilter = 'all';
+
+    function sx(v) {{
+      const {{ margin, plot_w, xmin, xmax }} = PROJ;
+      return margin.l + (v - xmin) / (xmax - xmin) * plot_w;
+    }}
+    function sy(v) {{
+      const {{ margin, plot_h, ymin, ymax }} = PROJ;
+      return margin.t + plot_h - (v - ymin) / (ymax - ymin) * plot_h;
+    }}
+    function pointAt(t, idx) {{
+      const fid = FRAMES[idx]?.id;
+      return fid ? t._byFrame[fid] : null;
+    }}
+    function tailPoints(t, idx) {{
+      const out = [];
+      for (const p of t.points) {{
+        const pi = FRAME_INDEX[p.frame_id];
+        if (pi !== undefined && pi <= idx) out.push(p);
+      }}
+      return out.slice(-TAIL_FRAMES);
+    }}
+    function tailDisplacement(pts) {{
+      if (pts.length < 2) return 0;
+      const p0 = pts[0], p1 = pts[pts.length - 1];
+      return Math.hypot(p1.rs_ratio - p0.rs_ratio, p1.rs_momentum - p0.rs_momentum);
+    }}
+    function shortLabel(id, name) {{
+      let n = (name || '').trim();
+      if (n.length > 8) n = n.slice(0, 7) + '…';
+      return (id + ' ' + n).trim();
+    }}
+    function visibleTrajectories(idx) {{
+      const q = stockSearch.value.trim();
+      return TRAJECTORIES.filter(t => {{
+        if (focusId && t.stock_id !== focusId) return false;
+        if (quadFilter !== 'all' && (pointAt(t, idx)?.quadrant || '') !== quadFilter) return false;
+        if (q && !t.stock_id.includes(q)) return false;
+        return pointAt(t, idx) != null;
+      }});
+    }}
+    function updateInsight(idx) {{
+      const fr = FRAMES[idx];
+      const visible = visibleTrajectories(idx);
+      const quadCounts = {{ leading:0, weakening:0, lagging:0, improving:0 }};
+      const movers = [];
+      for (const t of visible) {{
+        const p = pointAt(t, idx);
+        if (!p) continue;
+        const q = p.quadrant;
+        if (q && quadCounts[q] !== undefined) quadCounts[q] += 1;
+        movers.push({{ t, disp: tailDisplacement(tailPoints(t, idx)) }});
+      }}
+      movers.sort((a, b) => b.disp - a.disp);
+      document.getElementById('insight-stats').innerHTML =
+        `<b>${{fr.date}}</b> ${{fr.minute}} · 第 ${{idx + 1}}/${{FRAMES.length}} 幀<br/>` +
+        `可見 <b>${{visible.length}}</b> / ${{TRAJECTORIES.length}} 檔`;
+      const maxQ = Math.max(1, ...Object.values(quadCounts));
+      document.getElementById('insight-quads').innerHTML =
+        ['leading','weakening','lagging','improving'].map(q => {{
+          const n = quadCounts[q];
+          const w = (100 * n / maxQ).toFixed(0);
+          return `<div class="quad-bar-row"><span>${{(QUAD_LABEL_ZH[q]||q).split(' ')[0]}}</span>` +
+            `<div class="quad-bar"><i style="width:${{w}}%;background:${{QUAD_COLORS[q]}}"></i></div>` +
+            `<span>${{n}}</span></div>`;
+        }}).join('');
+      document.getElementById('insight-movers').innerHTML = movers.slice(0, 8).map(({{ t, disp }}) => {{
+        const p = pointAt(t, idx);
+        if (!p) return '';
+        return `<div style="margin:2px 0;cursor:pointer" data-id="${{t.stock_id}}">` +
+          `<b>${{t.stock_id}}</b> Δ${{disp.toFixed(1)}} · ${{p.quadrant}}</div>`;
+      }}).join('') || '<span style="color:#666">—</span>';
+      document.querySelectorAll('#insight-movers [data-id]').forEach(el => {{
+        el.addEventListener('click', () => {{ focusId = el.dataset.id; renderFrame(idx); }});
+      }});
+    }}
+    function renderFrame(idx) {{
+      frameIdx = idx;
+      slider.value = String(idx);
+      const fr = FRAMES[idx];
+      frameDate.textContent = fr.label;
+      if (frameLabel) frameLabel.textContent = fr.date + ' ' + fr.minute + ' · frame ' + (idx + 1) + '/' + FRAMES.length;
+      updateInsight(idx);
+      const parts = [];
+      const ordered = visibleTrajectories(idx).slice().sort((a, b) => a.stock_id.localeCompare(b.stock_id));
+      for (const t of ordered) {{
+        const pts = tailPoints(t, idx);
+        if (!pts.length) continue;
+        const endQuad = pts[pts.length - 1].quadrant || 'lagging';
+        const color = QUAD_COLORS[endQuad] || '#888';
+        const dim = focusId && t.stock_id !== focusId;
+        const lineOp = dim ? 0.12 : (focusId ? 0.65 : 0.35);
+        const dotOp = dim ? 0.15 : (focusId ? 1.0 : 0.82);
+        if (pts.length >= 2) {{
+          for (let i = 0; i < pts.length - 1; i++) {{
+            const p1 = pts[i], p2 = pts[i + 1];
+            const same = p1.rs_ratio === p2.rs_ratio && p1.rs_momentum === p2.rs_momentum;
+            const opacity = lineOp * (0.45 + 0.55 * (i / Math.max(pts.length - 1, 1)));
+            parts.push(
+              `<line x1="${{sx(p1.rs_ratio).toFixed(1)}}" y1="${{sy(p1.rs_momentum).toFixed(1)}}" ` +
+              `x2="${{sx(p2.rs_ratio).toFixed(1)}}" y2="${{sy(p2.rs_momentum).toFixed(1)}}" ` +
+              `stroke="${{color}}" stroke-width="${{focusId === t.stock_id ? 2.4 : 1.5}}" ` +
+              `opacity="${{opacity.toFixed(2)}}" stroke-linecap="round"` +
+              `${{same ? ' stroke-dasharray="3,3"' : ''}}/>`
+            );
+          }}
+        }}
+        const cur = pts[pts.length - 1];
+        const cx = sx(cur.rs_ratio), cy = sy(cur.rs_momentum);
+        const r = focusId === t.stock_id ? 7 : 5;
+        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · RS ${{cur.rs_ratio}} · Mom ${{cur.rs_momentum}}`;
+        parts.push(
+          `<circle class="uni-dot-hit" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="14" ` +
+          `fill="transparent" stroke="none" data-id="${{t.stock_id}}" data-label="${{label}}"/>` +
+          `<circle class="uni-dot" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{r}}" ` +
+          `fill="${{color}}" stroke="#111" stroke-width="1" opacity="${{dotOp}}" pointer-events="none"/>`
+        );
+        if (focusId === t.stock_id) {{
+          parts.push(
+            `<text x="${{(cx + r + 4).toFixed(1)}}" y="${{(cy + 4).toFixed(1)}}" fill="#ddd" font-size="13" font-weight="600">${{shortLabel(t.stock_id, t.stock_name)}}</text>`
+          );
+        }}
+      }}
+      layer.innerHTML = parts.join('');
+      layer.querySelectorAll('circle.uni-dot-hit').forEach(el => {{
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {{
+          focusId = focusId === el.dataset.id ? null : el.dataset.id;
+          renderFrame(idx);
+        }});
+        el.addEventListener('mouseenter', ev => {{
+          tooltip.innerHTML = `<b>${{el.dataset.id}}</b><br/>${{el.dataset.label || ''}}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mousemove', ev => {{
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mouseleave', () => {{ tooltip.style.display = 'none'; }});
+      }});
+    }}
+    function stopPlay() {{
+      playing = false;
+      if (playTimer) {{ clearInterval(playTimer); playTimer = null; }}
+      document.getElementById('btn-play').textContent = '▶ 逐步';
+    }}
+    slider.addEventListener('input', () => {{ stopPlay(); renderFrame(parseInt(slider.value, 10)); }});
+    document.getElementById('btn-prev').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.max(0, frameIdx - 1));
+    }});
+    document.getElementById('btn-next').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.min(FRAMES.length - 1, frameIdx + 1));
+    }});
+    document.getElementById('btn-play').addEventListener('click', () => {{
+      if (playing) {{ stopPlay(); return; }}
+      if (frameIdx >= FRAMES.length - 1) renderFrame(0);
+      playing = true;
+      document.getElementById('btn-play').textContent = '⏸ 暫停';
+      playTimer = setInterval(() => {{
+        if (frameIdx >= FRAMES.length - 1) {{ stopPlay(); return; }}
+        renderFrame(frameIdx + 1);
+      }}, PLAY_MS);
+    }});
+    document.querySelectorAll('#quad-filters button').forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        document.querySelectorAll('#quad-filters button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        quadFilter = btn.dataset.quad;
+        renderFrame(frameIdx);
+      }});
+    }});
+    stockSearch.addEventListener('input', () => renderFrame(frameIdx));
+    document.addEventListener('keydown', ev => {{
+      if (ev.target.tagName === 'INPUT') return;
+      if (ev.key === 'ArrowLeft') {{ stopPlay(); renderFrame(Math.max(0, frameIdx - 1)); }}
+      if (ev.key === 'ArrowRight') {{ stopPlay(); renderFrame(Math.min(FRAMES.length - 1, frameIdx + 1)); }}
+      if (ev.key === 'Escape') {{ focusId = null; renderFrame(frameIdx); }}
+    }});
+    document.querySelectorAll('#rrg-traj-table tbody tr').forEach(tr => {{
+      tr.addEventListener('click', () => {{
+        const id = tr.cells[1]?.textContent?.trim();
+        if (!id) return;
+        focusId = id;
+        renderFrame(frameIdx);
+      }});
+    }});
+    renderFrame(0);
+  </script>
+</body>
+</html>"""
+
+
+def render_universe_dual_wma_intraday_timeline_html(
+    *,
+    frames: list[dict[str, str]],
+    trajectories: list[dict],
+    etf_codes: tuple[str, ...],
+    meta: dict | None = None,
+    short_length: int = 5,
+    long_length: int = 20,
+) -> str:
+    """Interactive dual-WMA intraday RRG · WMA(5) dot + WMA(20) ring · spread colors."""
+    dates = sorted({f["date"] for f in frames})
+    date_label = f"{dates[0]} → {dates[-1]}"
+    date_short = f"{dates[0][5:]} → {dates[-1][5:]}"
+    avg_priced = (meta or {}).get("avg_priced_per_frame", "—")
+    axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_WMA5_MIN, UNIVERSE_TIMELINE_AXIS_WMA5_MAX
+    axis_label = f"{int(axis_lo)}–{int(axis_hi)}"
+    tail_frames = UNIVERSE_INTRADAY_TAIL_FRAMES
+    stale_op = STALE_OPACITY
+
+    spread_counts = {k: 0 for k in SPREAD_CLASS_COLORS}
+    for t in trajectories:
+        if not t["points"]:
+            continue
+        last = t["points"][-1]
+        if last.get("fresh"):
+            cls = last.get("spread_class", "mixed")
+            if cls in spread_counts:
+                spread_counts[cls] += 1
+
+    spread_legend = "".join(
+        f'<span class="legend-item"><i style="background:{SPREAD_CLASS_COLORS[k]}"></i>'
+        f'{SPREAD_CLASS_LABEL_ZH[k]} ({spread_counts[k]})</span>'
+        for k in ("pullback", "aligned", "extension", "mixed")
+    )
+    shape_legend = (
+        '<span class="legend-item"><i class="ring-icon"></i>WMA(20) 趨勢錨點</span>'
+        '<span class="legend-item"><i style="background:#ccc"></i>WMA(5) 短線衛星</span>'
+        '<span class="legend-item" style="color:#888">連線 = W5 相對 W20 向量</span>'
+    )
+
+    proj = _dual_timeline_projection(
+        trajectories,
+        fixed_bounds=(axis_lo, axis_hi),
+    )
+    title = (
+        f"RRG Universe 盤中 · WMA({short_length})+WMA({long_length}) · "
+        f"{len(trajectories)} 檔 · {date_short}"
+    )
+    svg = _svg_timeline_background(
+        proj, title=title, subtitle=frames[0]["label"], large_ui=True, clip_dynamic=False
+    )
+
+    payload = json.dumps(trajectories, ensure_ascii=False)
+    frames_json = json.dumps(frames, ensure_ascii=False)
+    proj_json = json.dumps(_projection_meta(proj))
+    spread_colors_json = json.dumps(SPREAD_CLASS_COLORS)
+    spread_labels_json = json.dumps(SPREAD_CLASS_LABEL_ZH, ensure_ascii=False)
+    quad_colors_json = json.dumps(QUADRANT_COLORS)
+    quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"/>
+  <title>RRG Universe 雙 WMA 盤中 · {date_label}</title>
+  <style>
+    body {{ margin:0; background:#141414; color:#e4e4e4; font-family:-apple-system,sans-serif; padding:20px; }}
+    .wrap {{ max-width:{UNIVERSE_TIMELINE_CHART_W + 80}px; margin:0 auto; }}
+    h1 {{ font-size:18px; margin:0 0 6px; }}
+    .sub {{ color:#999; font-size:13px; margin-bottom:16px; line-height:1.5; }}
+    .panel {{ background:#181818; border:1px solid #333; border-radius:8px; padding:12px; margin-bottom:16px; }}
+    .panel.chart-panel {{ overflow:visible; padding:8px; position:relative; z-index:2; }}
+    .chart-hint {{ font-size:12px; color:#888; margin:0 0 10px; }}
+    #btn-universe-focus {{ display:none; border-color:#4A90D9; color:#9ec5f0; }}
+    #btn-universe-focus:hover {{ background:#1a2a3a; color:#fff; }}
+    #rrg-timeline-chart {{ position:relative; z-index:2; overflow:visible; }}
+    #dynamic-layer {{ pointer-events:auto; }}
+    .legend {{ display:flex; flex-wrap:wrap; gap:12px 18px; margin:8px 0 12px; font-size:13px; }}
+    .legend-item i {{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
+    .legend-item i.ring-icon {{
+      width:11px; height:11px; border-radius:50%; background:transparent;
+      border:2px solid #ccc; box-sizing:border-box;
+    }}
+    .timeline-controls {{
+      display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:12px 0 8px; font-size:13px;
+    }}
+    .timeline-controls input[type=range] {{ flex:1; min-width:180px; accent-color:#888; }}
+    .timeline-controls button, .timeline-controls label.chk {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:5px 12px; cursor:pointer; font-size:12px;
+    }}
+    .timeline-controls button:hover {{ background:#2a2a2a; color:#fff; }}
+    .timeline-controls input[type=text] {{
+      background:#222; color:#eee; border:1px solid #444; border-radius:4px; padding:4px 8px; font-size:12px; width:96px;
+    }}
+    .timeline-controls label.chk {{ display:flex; align-items:center; gap:6px; }}
+    .timeline-controls label.chk input {{ accent-color:#888; }}
+    #frame-date {{ font-weight:600; color:#ddd; min-width:110px; }}
+    .chart-layout {{ display:flex; flex-direction:column; gap:12px; }}
+    .frame-insight {{
+      background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:14px 16px; font-size:13px; line-height:1.5;
+      display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,1fr) minmax(220px,1.2fr); gap:16px 24px;
+    }}
+    .frame-insight .filters {{ grid-column:1 / -1; margin-bottom:0; }}
+    .frame-insight h3 {{ margin:0 0 8px; font-size:14px; color:#ddd; }}
+    .filters {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }}
+    .filters button {{
+      background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:4px 10px; cursor:pointer; font-size:12px;
+    }}
+    .filters button.active {{ background:#333; color:#fff; border-color:#666; }}
+    .quad-bars {{ display:flex; flex-direction:column; gap:5px; }}
+    .quad-bar-row {{ display:grid; grid-template-columns:72px 1fr 28px; gap:6px; align-items:center; font-size:12px; }}
+    .quad-bar {{ height:8px; background:#2a2a2a; border-radius:3px; overflow:hidden; }}
+    .quad-bar i {{ display:block; height:100%; border-radius:3px; }}
+    @media (max-width:900px) {{ .frame-insight {{ grid-template-columns:1fr; }} }}
+    #tooltip {{
+      display:none; position:fixed; z-index:99; background:#222; border:1px solid #555;
+      border-radius:6px; padding:8px 10px; font-size:12px; color:#eee; pointer-events:none;
+      max-width:280px; line-height:1.4;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>RRG Universe 盤中 · 雙 WMA({short_length}/{long_length}) · spread 色標</h1>
+    <p class="sub">
+      期間 <b>{date_label}</b>（{len(dates)} 交易日 · <b>{len(frames)}</b> 盤中幀）· 基準 <b>IX0001</b> · poll <b>09:00–13:30</b> 每 30 分<br/>
+      Universe（{','.join(etf_codes)}）· <b>{len(trajectories)}</b> 檔 · 刻度 <b>{axis_label}</b>（出框點仍顯示）·
+      WMA({long_length}) tail <b>{tail_frames}</b> 幀 · 平均每幀有 K <b>{avg_priced}</b> 檔<br/>
+      <b>WMA(20)</b> = 結構錨點（空心 ring）· <b>WMA(5)</b> = 短線衛星（實心點）· 兩者距離通常 &lt;3，spread 色 = 相對方向
+    </p>
+    <div class="legend">{shape_legend}{spread_legend}</div>
+    <div class="panel">
+      <p class="chart-hint">點擊圖上標的聚焦個股 · 檢視 WMA(20) 趨勢與 WMA(5) 衛星向量 · Esc 或「返回 Universe」回到全檔</p>
+      <div class="timeline-controls">
+        <button type="button" id="btn-prev">◀</button>
+        <button type="button" id="btn-play">▶ 逐步</button>
+        <button type="button" id="btn-next">▶</button>
+        <button type="button" id="btn-universe-focus">← 返回 Universe</button>
+        <input type="range" id="frame-slider" min="0" max="{len(frames) - 1}" value="0" step="1"/>
+        <span id="frame-date">{frames[0]["label"]}</span>
+        <input type="text" id="stock-search" placeholder="代號篩選…"/>
+        <label class="chk"><input type="checkbox" id="fresh-only"/> 僅 fresh K</label>
+      </div>
+      <div class="chart-layout">
+        <div class="panel chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
+        <aside class="frame-insight">
+          <div class="filters" id="spread-filters">
+            <button class="active" data-spread="all">全部</button>
+            <button data-spread="pullback">Pullback</button>
+            <button data-spread="extension">Extension</button>
+            <button data-spread="aligned">Aligned</button>
+            <button data-spread="mixed">Mixed</button>
+          </div>
+          <div>
+            <h3>當幀摘要</h3>
+            <div id="insight-stats">—</div>
+          </div>
+          <div>
+            <h3>WMA(20) 象限</h3>
+            <div class="quad-bars" id="insight-quads"></div>
+          </div>
+          <div>
+            <h3>Pullback 候選 Top 8</h3>
+            <div id="insight-pullbacks">—</div>
+          </div>
+        </aside>
+      </div>
+      <p class="note" style="font-size:12px;color:#777;margin:8px 0 0">
+        Pullback = W5 在 W20 左下且 spread≥2 · Extension = 右上 · Aligned = spread≤1.5 · stale 透明度 {stale_op}
+      </p>
+    </div>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const FRAMES = {frames_json};
+    const TRAJECTORIES = {payload};
+    let PROJ = {proj_json};
+    const SPREAD_COLORS = {spread_colors_json};
+    const SPREAD_LABELS = {spread_labels_json};
+    const QUAD_COLORS = {quad_colors_json};
+    const QUAD_LABEL_ZH = {quad_labels_json};
+    const TAIL_FRAMES = {tail_frames};
+    const PLAY_MS = {UNIVERSE_INTRADAY_PLAY_MS};
+    const STALE_OPACITY = {stale_op};
+    const FRAME_INDEX = Object.fromEntries(FRAMES.map((f, i) => [f.id, i]));
+    TRAJECTORIES.forEach(t => {{
+      t._byFrame = Object.fromEntries(t.points.map(p => [p.frame_id, p]));
+    }});
+
+    const layer = document.getElementById('dynamic-layer');
+    const slider = document.getElementById('frame-slider');
+    const frameDate = document.getElementById('frame-date');
+    const frameLabel = document.getElementById('frame-label');
+    const tooltip = document.getElementById('tooltip');
+    const stockSearch = document.getElementById('stock-search');
+    const freshOnly = document.getElementById('fresh-only');
+    let frameIdx = 0;
+    let playing = false;
+    let playTimer = null;
+    let focusId = null;
+    let spreadFilter = 'all';
+
+    function updateFocusUI() {{
+      const btn = document.getElementById('btn-universe-focus');
+      if (btn) btn.style.display = focusId ? 'inline-block' : 'none';
+    }}
+    function clearFocus() {{
+      focusId = null;
+      updateFocusUI();
+      renderFrame(frameIdx);
+    }}
+
+    function sx(v) {{
+      const {{ margin, plot_w, xmin, xmax }} = PROJ;
+      return margin.l + (v - xmin) / (xmax - xmin) * plot_w;
+    }}
+    function sy(v) {{
+      const {{ margin, plot_h, ymin, ymax }} = PROJ;
+      return margin.t + plot_h - (v - ymin) / (ymax - ymin) * plot_h;
+    }}
+    function pointAt(t, idx) {{
+      const fid = FRAMES[idx]?.id;
+      return fid ? t._byFrame[fid] : null;
+    }}
+    function tailPointsW20(t, idx) {{
+      const out = [];
+      for (const p of t.points) {{
+        const pi = FRAME_INDEX[p.frame_id];
+        if (pi !== undefined && pi <= idx) out.push(p);
+      }}
+      return out.slice(-TAIL_FRAMES);
+    }}
+    function spreadColor(p) {{
+      if (!p.fresh) return '#666666';
+      return SPREAD_COLORS[p.spread_class] || '#888888';
+    }}
+    function pointOpacity(p, dim) {{
+      const base = dim ? 0.15 : (focusId ? 1.0 : 0.88);
+      return p.fresh ? base : base * STALE_OPACITY;
+    }}
+    function shortLabel(id, name) {{
+      let n = (name || '').trim();
+      if (n.length > 8) n = n.slice(0, 7) + '…';
+      return (id + ' ' + n).trim();
+    }}
+    function visibleTrajectories(idx) {{
+      const q = stockSearch.value.trim();
+      return TRAJECTORIES.filter(t => {{
+        if (focusId && t.stock_id !== focusId) return false;
+        const p = pointAt(t, idx);
+        if (!p) return false;
+        if (freshOnly.checked && !p.fresh) return false;
+        if (spreadFilter !== 'all' && p.spread_class !== spreadFilter) return false;
+        if (q && !t.stock_id.includes(q)) return false;
+        return true;
+      }});
+    }}
+    function updateInsight(idx) {{
+      const fr = FRAMES[idx];
+      const visible = visibleTrajectories(idx);
+      const quadCounts = {{ leading:0, weakening:0, lagging:0, improving:0 }};
+      const pullbacks = [];
+      for (const t of visible) {{
+        const p = pointAt(t, idx);
+        if (!p) continue;
+        const q20 = p.w20?.quadrant;
+        if (q20 && quadCounts[q20] !== undefined) quadCounts[q20] += 1;
+        if (p.fresh && p.spread_class === 'pullback') {{
+          pullbacks.push({{ t, p }});
+        }}
+      }}
+      pullbacks.sort((a, b) => b.p.spread_dist - a.p.spread_dist);
+      const freshN = visible.filter(t => pointAt(t, idx)?.fresh).length;
+      document.getElementById('insight-stats').innerHTML =
+        `<b>${{fr.date}}</b> ${{fr.minute}} · 第 ${{idx + 1}}/${{FRAMES.length}} 幀<br/>` +
+        `可見 <b>${{visible.length}}</b> 檔 · fresh <b>${{freshN}}</b>`;
+      const maxQ = Math.max(1, ...Object.values(quadCounts));
+      document.getElementById('insight-quads').innerHTML =
+        ['leading','weakening','lagging','improving'].map(q => {{
+          const n = quadCounts[q];
+          const w = (100 * n / maxQ).toFixed(0);
+          return `<div class="quad-bar-row"><span>${{(QUAD_LABEL_ZH[q]||q).split(' ')[0]}}</span>` +
+            `<div class="quad-bar"><i style="width:${{w}}%;background:${{QUAD_COLORS[q]}}"></i></div>` +
+            `<span>${{n}}</span></div>`;
+        }}).join('');
+      document.getElementById('insight-pullbacks').innerHTML = pullbacks.slice(0, 8).map(({{ t, p }}) =>
+        `<div style="margin:2px 0;cursor:pointer" data-id="${{t.stock_id}}">` +
+        `<b>${{t.stock_id}}</b> Δ${{p.spread_dist.toFixed(1)}} · W20 ${{p.w20.quadrant}}</div>`
+      ).join('') || '<span style="color:#666">—</span>';
+      document.querySelectorAll('#insight-pullbacks [data-id]').forEach(el => {{
+        el.addEventListener('click', () => {{ focusId = el.dataset.id; updateFocusUI(); renderFrame(idx); }});
+      }});
+    }}
+    function renderFrame(idx) {{
+      frameIdx = idx;
+      slider.value = String(idx);
+      const fr = FRAMES[idx];
+      frameDate.textContent = fr.label;
+      if (frameLabel) frameLabel.textContent = fr.date + ' ' + fr.minute + ' · frame ' + (idx + 1) + '/' + FRAMES.length;
+      updateInsight(idx);
+      const parts = [];
+      const ordered = visibleTrajectories(idx).slice().sort((a, b) => a.stock_id.localeCompare(b.stock_id));
+      for (const t of ordered) {{
+        const p = pointAt(t, idx);
+        if (!p || !p.w5 || !p.w20) continue;
+        const color = spreadColor(p);
+        const dim = focusId && t.stock_id !== focusId;
+        const op = pointOpacity(p, dim);
+        const tailOp = dim ? 0.1 : (focusId ? 0.5 : 0.28);
+        const tailPts = tailPointsW20(t, idx);
+        if (tailPts.length >= 2) {{
+          for (let i = 0; i < tailPts.length - 1; i++) {{
+            const a = tailPts[i].w20, b = tailPts[i + 1].w20;
+            const staleSeg = !tailPts[i].fresh || !tailPts[i + 1].fresh;
+            const segOp = tailOp * (0.45 + 0.55 * (i / Math.max(tailPts.length - 1, 1)));
+            parts.push(
+              `<line x1="${{sx(a.rs_ratio).toFixed(1)}}" y1="${{sy(a.rs_momentum).toFixed(1)}}" ` +
+              `x2="${{sx(b.rs_ratio).toFixed(1)}}" y2="${{sy(b.rs_momentum).toFixed(1)}}" ` +
+              `stroke="#888" stroke-width="${{focusId === t.stock_id ? 2.0 : 1.3}}" ` +
+              `opacity="${{segOp.toFixed(2)}}" stroke-linecap="round"` +
+              `${{staleSeg ? ' stroke-dasharray="4,3"' : ''}}/>`
+            );
+          }}
+        }}
+        const w20 = p.w20, w5 = p.w5;
+        const x20 = sx(w20.rs_ratio), y20 = sy(w20.rs_momentum);
+        const x5 = sx(w5.rs_ratio), y5 = sy(w5.rs_momentum);
+        parts.push(
+          `<line x1="${{x20.toFixed(1)}}" y1="${{y20.toFixed(1)}}" x2="${{x5.toFixed(1)}}" y2="${{y5.toFixed(1)}}" ` +
+          `stroke="${{color}}" stroke-width="1.2" opacity="${{(op * 0.45).toFixed(2)}}" stroke-linecap="round"/>`
+        );
+        const r20 = focusId === t.stock_id ? 8 : 6;
+        const r5 = focusId === t.stock_id ? 5 : 4;
+        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · W5 RS ${{w5.rs_ratio}} · W20 RS ${{w20.rs_ratio}} · ${{SPREAD_LABELS[p.spread_class] || p.spread_class}}${{p.fresh ? '' : ' · stale'}}`;
+        parts.push(
+          `<circle class="uni-dot-hit" cx="${{x5.toFixed(1)}}" cy="${{y5.toFixed(1)}}" r="14" ` +
+          `fill="transparent" stroke="none" data-id="${{t.stock_id}}" data-label="${{label}}"/>` +
+          `<circle cx="${{x20.toFixed(1)}}" cy="${{y20.toFixed(1)}}" r="${{r20}}" ` +
+          `fill="none" stroke="${{color}}" stroke-width="2" opacity="${{op.toFixed(2)}}" pointer-events="none"/>` +
+          `<circle class="uni-dot" cx="${{x5.toFixed(1)}}" cy="${{y5.toFixed(1)}}" r="${{r5}}" ` +
+          `fill="${{color}}" stroke="#111" stroke-width="1" opacity="${{op.toFixed(2)}}" pointer-events="none"/>`
+        );
+        if (focusId === t.stock_id) {{
+          parts.push(
+            `<text x="${{(x5 + r5 + 4).toFixed(1)}}" y="${{(y5 + 4).toFixed(1)}}" fill="#ddd" font-size="13" font-weight="600">${{shortLabel(t.stock_id, t.stock_name)}}</text>`
+          );
+        }}
+      }}
+      layer.innerHTML = parts.join('');
+      layer.querySelectorAll('circle.uni-dot-hit').forEach(el => {{
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {{
+          focusId = focusId === el.dataset.id ? null : el.dataset.id;
+          updateFocusUI();
+          renderFrame(idx);
+        }});
+        el.addEventListener('mouseenter', ev => {{
+          tooltip.innerHTML = `<b>${{el.dataset.id}}</b><br/>${{el.dataset.label || ''}}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mousemove', ev => {{
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mouseleave', () => {{ tooltip.style.display = 'none'; }});
+      }});
+      updateFocusUI();
+    }}
+    function stopPlay() {{
+      playing = false;
+      if (playTimer) {{ clearInterval(playTimer); playTimer = null; }}
+      document.getElementById('btn-play').textContent = '▶ 逐步';
+    }}
+    slider.addEventListener('input', () => {{ stopPlay(); renderFrame(parseInt(slider.value, 10)); }});
+    document.getElementById('btn-prev').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.max(0, frameIdx - 1));
+    }});
+    document.getElementById('btn-next').addEventListener('click', () => {{
+      stopPlay(); renderFrame(Math.min(FRAMES.length - 1, frameIdx + 1));
+    }});
+    document.getElementById('btn-play').addEventListener('click', () => {{
+      if (playing) {{ stopPlay(); return; }}
+      if (frameIdx >= FRAMES.length - 1) renderFrame(0);
+      playing = true;
+      document.getElementById('btn-play').textContent = '⏸ 暫停';
+      playTimer = setInterval(() => {{
+        if (frameIdx >= FRAMES.length - 1) {{ stopPlay(); return; }}
+        renderFrame(frameIdx + 1);
+      }}, PLAY_MS);
+    }});
+    document.querySelectorAll('#spread-filters button').forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        document.querySelectorAll('#spread-filters button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        spreadFilter = btn.dataset.spread;
+        renderFrame(frameIdx);
+      }});
+    }});
+    freshOnly.addEventListener('change', () => renderFrame(frameIdx));
+    stockSearch.addEventListener('input', () => renderFrame(frameIdx));
+    document.getElementById('btn-universe-focus').addEventListener('click', clearFocus);
+    document.addEventListener('keydown', ev => {{
+      if (ev.target.tagName === 'INPUT') return;
+      if (ev.key === 'ArrowLeft') {{ stopPlay(); renderFrame(Math.max(0, frameIdx - 1)); }}
+      if (ev.key === 'ArrowRight') {{ stopPlay(); renderFrame(Math.min(FRAMES.length - 1, frameIdx + 1)); }}
+      if (ev.key === 'Escape') {{ focusId = null; updateFocusUI(); renderFrame(frameIdx); }}
+    }});
+    renderFrame(0);
+  </script>
+</body>
+</html>"""
 
 
 def render_holdings_change_timeline_html(
@@ -2322,6 +3631,88 @@ def _build_rrg_mono_executed_legs(
     return legs_out, executed_signals, skipped_signals, meta
 
 
+def _build_c18acc_executed_legs(
+    conn,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    from research.backtest.rrg_mono_score_swap_c import build_c18acc_executed_legs_for_timeline
+
+    legs, executed, skipped, meta = build_c18acc_executed_legs_for_timeline(
+        conn,
+        dates,
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+        use_close_timing=use_close_timing,
+    )
+    _enrich_legs_bench(conn, legs, entry_price_mode="close")
+    return legs, executed, skipped, meta
+
+
+def _build_c18acc_s2_executed_legs(
+    conn,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    from research.backtest.rrg_mono_score_swap_c import build_c18acc_s2_executed_legs_for_timeline
+
+    legs, executed, skipped, meta = build_c18acc_s2_executed_legs_for_timeline(
+        conn,
+        dates,
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+        use_close_timing=use_close_timing,
+    )
+    _enrich_legs_bench(conn, legs, entry_price_mode="close")
+    return legs, executed, skipped, meta
+
+
+def _build_c18acc_i36_executed_legs(
+    conn,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+    use_close_timing: bool = True,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    from research.backtest.rrg_mono_score_swap_c import build_c18acc_i36_executed_legs_for_timeline
+
+    legs, executed, skipped, meta = build_c18acc_i36_executed_legs_for_timeline(
+        conn,
+        dates,
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+        use_close_timing=use_close_timing,
+    )
+    _enrich_legs_bench(conn, legs, entry_price_mode="close")
+    return legs, executed, skipped, meta
+
+
+def _build_lead_pullback_executed_legs(
+    conn,
+    dates: list[str],
+    *,
+    n_slots: int = 3,
+    capital_ntd: float = 10_000.0,
+) -> tuple[list[dict], list[dict], list[dict], dict]:
+    from research.backtest.dual_wma_signal_backtest import (
+        build_lead_pullback_executed_legs_for_timeline,
+    )
+
+    return build_lead_pullback_executed_legs_for_timeline(
+        conn,
+        dates,
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+    )
+
+
 def _load_bench_closes_for_dates(conn, dates: list[str]) -> list[float | None]:
     from research.backtest.copytrade_backtest import _bench_close
 
@@ -2416,6 +3807,10 @@ def _l1h9_signals_table_html(
 def _mono_signals_table_html(
     executed: list[dict],
     skipped: list[dict],
+    *,
+    show_intraday: bool = False,
+    showcase_labels: bool = False,
+    show_exit_reason: bool = False,
 ) -> str:
     rows: list[str] = []
     idx = 1
@@ -2429,17 +3824,43 @@ def _mono_signals_table_html(
         seg = sig.get("seg_last")
         seg_txt = f"{seg:.3f}" if seg is not None and seg == seg else "—"
         exit_d = sig.get("exit_date") or ""
+        px_cols = ""
+        date_cols = ""
+        if show_intraday:
+            px_cols = (
+                f"<td>{_format_trade_px(sig.get('entry_px'))}</td>"
+                f"<td>{_format_trade_px(sig.get('exit_px'))}</td>"
+                f"<td>{_format_intraday_time(sig.get('entry_date'), sig.get('entry_minute'))}</td>"
+                f"<td>{_format_intraday_time(exit_d or None, sig.get('exit_minute'), poll_fallback=True)}</td>"
+            )
+        else:
+            date_cols = (
+                f"<td>{sig['entry_date'][5:]}</td>"
+                f"<td>{exit_d[5:] if exit_d else '—'}</td>"
+            )
+        exit_reason_col = ""
+        if show_exit_reason:
+            exit_reason_col = (
+                f"<td>{html.escape(_format_exit_reason_zh(sig.get('exit_reason')))}</td>"
+            )
+        row_cls = "hi-row exec-row"
+        if sig.get("showcase_tag") == "pool1_only":
+            row_cls += " pool1-only-row"
+        alpha_col_html = (
+            "" if showcase_labels else f"<td style='color:{alpha_col}'>{alpha_txt}</td>"
+        )
         rows.append(
-            f"<tr class='hi-row exec-row' data-signal='{sig['signal_date']}' "
+            f"<tr class='{row_cls}' data-signal='{sig['signal_date']}' "
             f"data-entry='{sig['entry_date']}'>"
             f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
             f"<td>{sig['stock_id']}</td><td>{_xml_escape(sig.get('stock_name') or '')}</td>"
             f"<td>{seg_txt}</td>"
-            f"<td>{sig['entry_date'][5:]}</td>"
-            f"<td>{exit_d[5:] if exit_d else '—'}</td>"
+            f"{px_cols}"
+            f"{date_cols}"
             f"<td>槽{sig['slot_id'] + 1}</td>"
             f"<td style='color:{ret_col}'>{ret_txt}</td>"
-            f"<td style='color:{alpha_col}'>{alpha_txt}</td>"
+            f"{alpha_col_html}"
+            f"{exit_reason_col}"
             f"<td style='color:#6BCB94'>執行</td></tr>"
         )
         idx += 1
@@ -2447,22 +3868,127 @@ def _mono_signals_table_html(
         seg = sig.get("seg_last")
         seg_txt = f"{seg:.3f}" if seg is not None and seg == seg else "—"
         exit_d = sig.get("exit_date") or ""
+        px_cols = ""
+        date_cols = ""
+        if show_intraday:
+            px_cols = "<td>—</td><td>—</td><td>—</td><td>—</td>"
+        else:
+            date_cols = (
+                f"<td>{sig['entry_date'][5:]}</td>"
+                f"<td>{exit_d[5:] if exit_d else '—'}</td>"
+            )
+        exit_reason_col = "<td>—</td>" if show_exit_reason else ""
+        alpha_col_html = "" if showcase_labels else "<td>—</td>"
         rows.append(
             f"<tr class='skip-row' data-signal='{sig['signal_date']}'>"
             f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
             f"<td>{sig.get('stock_id', '—')}</td><td>{_xml_escape(sig.get('stock_name') or '')}</td>"
             f"<td>{seg_txt}</td>"
+            f"{px_cols}"
+            f"{date_cols}"
+            f"<td>—</td><td>—</td>"
+            f"{alpha_col_html}"
+            f"{exit_reason_col}"
+            f"<td style='color:#888'>略過</td></tr>"
+        )
+        idx += 1
+    intraday_head = ""
+    if show_intraday:
+        intraday_head = (
+            "<th>入場價</th><th>出場價</th><th>入場時間</th><th>出場時間</th>"
+        )
+    exit_reason_head = "<th>出場原因</th>" if show_exit_reason else ""
+    date_head = "" if show_intraday else "<th>進場</th><th>出場</th>"
+    if showcase_labels:
+        headers = (
+            "<th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>RRG 評分</th>"
+            f"{intraday_head}"
+            f"{date_head}"
+            "<th>槽位</th><th>單筆報酬</th>"
+            f"{exit_reason_head}<th>狀態</th>"
+        )
+    else:
+        alpha_head = "<th>α NTD</th>"
+        headers = (
+            "<th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>seg_last</th>"
+            f"{intraday_head}"
+            f"{date_head}"
+            f"<th>槽位</th><th>leg 報酬</th>{alpha_head}"
+            f"{exit_reason_head}<th>狀態</th>"
+        )
+    return f"""
+<table id="l1h9-signals-table">
+  <thead><tr>
+    {headers}
+  </tr></thead>
+  <tbody>{''.join(rows)}</tbody>
+</table>"""
+
+
+def _lead_pullback_signals_table_html(
+    executed: list[dict],
+    skipped: list[dict],
+    *,
+    total_capital: float,
+) -> str:
+    rows: list[str] = []
+    idx = 1
+    cum_pnl = 0.0
+    for sig in executed:
+        ret = sig["return_pct"]
+        ret_txt = _format_daily_pct(ret)
+        ret_col = _daily_pct_color(ret)
+        alpha = sig.get("alpha_ntd")
+        alpha_txt = f"{alpha:+,.0f}" if alpha is not None and alpha == alpha else "—"
+        alpha_col = _daily_pct_color(alpha) if alpha is not None else "#888"
+        seg = sig.get("seg_last")
+        seg_txt = f"{seg:.1f}" if seg is not None and seg == seg else "—"
+        exit_d = sig.get("exit_date") or ""
+        entry_px = sig.get("entry_px")
+        exit_px = sig.get("exit_px")
+        px_in = f"{entry_px:.2f}" if entry_px is not None else "—"
+        px_out = f"{exit_px:.2f}" if exit_px is not None else "—"
+        cum_pnl += float(sig.get("pnl_ntd") or 0)
+        cum_pct = cum_pnl / total_capital * 100.0 if total_capital > 0 else 0.0
+        cum_txt = _format_daily_pct(cum_pct)
+        cum_col = _daily_pct_color(cum_pct)
+        rows.append(
+            f"<tr class='hi-row exec-row' data-signal='{sig['signal_date']}' "
+            f"data-entry='{sig['entry_date']}'>"
+            f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
+            f"<td>{sig['stock_id']}</td><td>{_xml_escape(sig.get('stock_name') or '')}</td>"
+            f"<td>{seg_txt}</td>"
+            f"<td>{px_in}</td><td>{px_out}</td>"
             f"<td>{sig['entry_date'][5:]}</td>"
             f"<td>{exit_d[5:] if exit_d else '—'}</td>"
-            f"<td>—</td><td>—</td><td>—</td>"
+            f"<td>槽{sig['slot_id'] + 1}</td>"
+            f"<td style='color:{ret_col}'>{ret_txt}</td>"
+            f"<td style='color:{alpha_col}'>{alpha_txt}</td>"
+            f"<td style='color:{cum_col}'>{cum_txt}</td>"
+            f"<td style='color:#6BCB94'>執行</td></tr>"
+        )
+        idx += 1
+    for sig in skipped:
+        seg = sig.get("seg_last")
+        seg_txt = f"{seg:.1f}" if seg is not None and seg == seg else "—"
+        exit_d = sig.get("exit_date") or ""
+        rows.append(
+            f"<tr class='skip-row' data-signal='{sig['signal_date']}'>"
+            f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
+            f"<td>{sig.get('stock_id', '—')}</td><td>{_xml_escape(sig.get('stock_name') or '')}</td>"
+            f"<td>{seg_txt}</td><td>—</td><td>—</td>"
+            f"<td>{sig['entry_date'][5:]}</td>"
+            f"<td>{exit_d[5:] if exit_d else '—'}</td>"
+            f"<td>—</td><td>—</td><td>—</td><td>—</td>"
             f"<td style='color:#888'>略過</td></tr>"
         )
         idx += 1
     return f"""
 <table id="l1h9-signals-table">
   <thead><tr>
-    <th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>seg_last</th>
-    <th>進場</th><th>出場</th><th>槽位</th><th>H7 報酬</th><th>α NTD</th><th>狀態</th>
+    <th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>spread</th>
+    <th>進場價</th><th>出場價</th><th>進場</th><th>出場</th><th>槽位</th>
+    <th>leg 報酬</th><th>α NTD</th><th>累計%</th><th>狀態</th>
   </tr></thead>
   <tbody>{''.join(rows)}</tbody>
 </table>"""
@@ -2474,9 +4000,35 @@ def _slots_timeline_annotations(
     n_slots: int,
     capital_ntd: float,
     hold_h: int,
+    timing_mode: str | None = None,
 ) -> dict[str, str]:
     cap = f"{capital_ntd:,.0f}"
+    if table_mode == "lead_pullback":
+        return {
+            "slot_help": (
+                f"{n_slots} 個獨立資金池，每則強勢回踩訊號占 1 槽"
+                f"（1 檔 1 leg，每槽 {cap} NTD）。出場 poll 後釋放。"
+            ),
+            "hold_help": (
+                "leg=單一標的一檔持倉（盤中 poll 進、poll 出）；"
+                f"預設 hold_{hold_h}d → 13:30。"
+            ),
+            "skip_reason": "（槽滿／重複標的／無報價）",
+            "read_guide": f"""
+        <li><b>高亮標的</b>：僅在<b>已執行訊號</b>的進場日～出場日（H{hold_h}）內顯示 RRG 軌跡。</li>
+        <li><b>進／出場價</b>：盤中 poll 1m close（非日收盤）；表格<b>累計%</b>=已結算 leg PnL ÷ 總本金。</li>
+        <li><b>Σ / Δ</b>：Σ=自進場<b>收盤價</b>累計（圖側欄）；<b>Δ</b>=較前一交易日的 leg 損益變化。</li>
+        <li><b>組合總累計報酬</b>：3 槽組合 NAV 含持倉 MTM · 與 C18acc timeline 同口徑。</li>
+        <li><b>vs IX0001 超額 α</b>：各 leg 同期若買加權指數之損益差（日收盤口徑）。</li>
+        <li><b>操作</b>：←→ 換日 · [ ] 跳進場 · {{}} 跳出場 · 點表格列跳進場日。</li>""",
+        }
     if table_mode == "mono":
+        intraday_note = ""
+        if timing_mode == "poll_5m":
+            intraday_note = """
+        <li><b>入場時間</b>：C0 逐 5 分 poll 掃描（confirm=1）；多數在首根 bar <b>09:30</b> 進場。</li>
+        <li><b>出場時間</b>：S2／max_hold 等條件在<b>日切</b>判定；成交價取<b>出場日第一個</b> poll bar（通常 09:30），<b>非</b>盤中每 5 分掃描觸發。</li>
+        <li><b>入／出場價</b>：對應上述 bar 的 1m close（無 1m bar 時 fallback 收盤價）。</li>"""
         return {
             "slot_help": (
                 f"{n_slots} 個獨立資金池，每則 fresh mono 訊號占 1 槽"
@@ -2488,7 +4040,7 @@ def _slots_timeline_annotations(
             ),
             "skip_reason": "（槽滿／重複標的）",
             "read_guide": f"""
-        <li><b>高亮標的</b>：僅在<b>已執行訊號</b>的進場日～出場日（H{hold_h}）內顯示軌跡。</li>
+        <li><b>高亮標的</b>：僅在<b>已執行訊號</b>的進場日～出場日（H{hold_h}）內顯示軌跡。</li>{intraday_note}
         <li><b>Σ / Δ</b>：Σ=自進場<b>收盤價</b>累計；<b>Δ</b>=較前一交易日的 leg 損益變化。</li>
         <li><b>今日報酬變動</b>：組合總 PnL 的日環差（已實現結算 + 持倉 MTM 變動）。</li>
         <li><b>vs IX0001 超額 α</b>：各 leg 同期部署資金若買加權指數之損益差；口徑=<b>D4 收盤進、D11 收盤出</b>（hold{hold_h}）。</li>
@@ -2550,12 +4102,27 @@ def render_l1h9_slots_timeline_html(
     strategy_rule = str(meta.get("strategy_rule") or "")
     strategy_filter = str(meta.get("strategy_filter") or "")
     table_mode = str(meta.get("table_mode") or "copytrade")
+    timing_mode = str(meta.get("timing_mode") or "")
     ann = _slots_timeline_annotations(
         table_mode=table_mode,
         n_slots=n_slots,
         capital_ntd=capital_ntd,
         hold_h=hold_h,
+        timing_mode=timing_mode or None,
     )
+    ext_exits = meta.get("ext_exits")
+    ext_line = (
+        f"<br/>I36 extension 提早出場 <b>{ext_exits}</b> / {meta['n_executed']} leg"
+        if ext_exits is not None
+        else ""
+    )
+    force_exits = meta.get("force_exits")
+    force_line = (
+        f"<br/>S2 quad force-exit <b>{force_exits}</b> / {meta['n_executed']} leg"
+        if force_exits is not None
+        else ""
+    )
+    overlay_line = ext_line or force_line
 
     flat = [(p["rs_ratio"], p["rs_momentum"]) for t in all_trajectories for p in t["points"]]
     proj = _timeline_projection(all_trajectories, highlight_ids)
@@ -2564,8 +4131,18 @@ def render_l1h9_slots_timeline_html(
         f"{meta['n_executed']}/{meta['n_signals']} 訊號 · {date_short}"
     )
     svg = _svg_timeline_background(proj, title=title, subtitle=dates[0])
-    if table_mode == "mono":
-        table = _mono_signals_table_html(executed_signals, skipped_signals)
+    if table_mode == "lead_pullback":
+        table = _lead_pullback_signals_table_html(
+            executed_signals, skipped_signals, total_capital=total_capital
+        )
+    elif table_mode == "mono":
+        table = _mono_signals_table_html(
+            executed_signals,
+            skipped_signals,
+            show_intraday=timing_mode == "poll_5m",
+            showcase_labels=bool(meta.get("showcase_mode")),
+            show_exit_reason=bool(meta.get("show_exit_reason")),
+        )
     else:
         table = _l1h9_signals_table_html(
             executed_signals, skipped_signals, show_leg_stocks=True
@@ -2602,6 +4179,8 @@ def render_l1h9_slots_timeline_html(
     bench_close_json = json.dumps(bench_closes)
     quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
     meta_json = json.dumps(meta, ensure_ascii=False)
+    read_guide_open = " open" if meta.get("read_guide_open") else ""
+    signals_table_prefix = str(meta.get("signals_table_prefix") or "")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -2745,8 +4324,9 @@ def render_l1h9_slots_timeline_html(
       策略 <b>{strategy_filter}</b> · {strategy_rule}<br/>
       <b>{n_slots}</b> 槽 × {capital_ntd:,.0f} NTD = {total_capital:,.0f} NTD 總本金 · 持有 <b>{hold_h}</b> 交易日<br/>
       期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
+      軌跡 tail 最多 <b>{TIMELINE_TAIL_DAYS}</b> 交易日 · 位移 ≤{TIMELINE_TAIL_MIN_DISP:g} 不畫線<br/>
       訊號 <b>{meta['n_signals']}</b> · 執行 <b>{meta['n_executed']}</b> · 略過 <b>{meta['n_skipped']}</b>
-      {ann['skip_reason']} · 捕捉率 <b>{meta.get('signal_capture_pct') or '—'}%</b>
+      {ann['skip_reason']} · 捕捉率 <b>{meta.get('signal_capture_pct') or '—'}%</b>{overlay_line}
     </p>
     <div class="kpi-banner" id="kpi-banner">
       <div class="kpi-block highlight">
@@ -2796,7 +4376,7 @@ def render_l1h9_slots_timeline_html(
         <span id="today-events-summary">—</span>
       </div>
     </div>
-    <details class="read-guide">
+    <details class="read-guide"{read_guide_open}>
       <summary>如何閱讀（{strategy_title}）</summary>
       <ul>{ann['read_guide']}
       </ul>
@@ -2834,6 +4414,7 @@ def render_l1h9_slots_timeline_html(
       <p class="note">進場／出場日圖表邊框短暫閃爍（藍／金）。預設隱藏 Universe 背景。</p>
     </div>
     <h2>訊號執行明細（{display_code}）</h2>
+    {signals_table_prefix}
     <div class="panel">{table}</div>
   </div>
   <div id="tooltip"></div>
@@ -2854,6 +4435,7 @@ def render_l1h9_slots_timeline_html(
     const TOTAL_CAPITAL = {total_capital};
     const N_SLOTS = {n_slots};
     const HOLD_DAYS = {hold_h};
+    const TAIL_DAYS = {TIMELINE_TAIL_DAYS};
     const TAIL_MIN_DISP = {TIMELINE_TAIL_MIN_DISP};
     const QUAD_OPACITY = {TIMELINE_QUAD_OPACITY};
 
@@ -2930,7 +4512,8 @@ def render_l1h9_slots_timeline_html(
     function collectFramePoints(idx) {{
       const pairs = [];
       const addTraj = (t, ei) => {{
-        for (let i = ei; i <= idx && i < t.points.length; i++) {{
+        const t0 = Math.max(ei, tailStart(idx, TAIL_DAYS));
+        for (let i = t0; i <= idx && i < t.points.length; i++) {{
           const p = t.points[i];
           if (p.rs_ratio != null && p.rs_momentum != null) pairs.push([p.rs_ratio, p.rs_momentum]);
         }}
@@ -3189,6 +4772,10 @@ def render_l1h9_slots_timeline_html(
       if (pts.length < 2) return 0;
       const p0 = pts[0], p1 = pts[pts.length - 1];
       return Math.hypot(p1.rs_ratio - p0.rs_ratio, p1.rs_momentum - p0.rs_momentum);
+    }}
+
+    function tailStart(idx, tailLen) {{
+      return Math.max(0, idx - tailLen + 1);
     }}
 
     function flashChartIfNeeded(idx) {{
@@ -3512,7 +5099,8 @@ def render_l1h9_slots_timeline_html(
 
         const plg = primaryLegForStock(t.stock_id, idx);
         const ei = plg ? entryIdxForLeg(plg) : idx;
-        const pts = t.points.slice(ei, idx + 1);
+        const t0 = Math.max(ei, tailStart(idx, TAIL_DAYS));
+        const pts = t.points.slice(t0, idx + 1);
         const endQuad = t.points[idx].quadrant || 'lagging';
         const color = QUAD_COLORS[endQuad] || '#888';
         const showTail = pts.length >= 2 && tailDisplacement(pts) > TAIL_MIN_DISP;
@@ -3530,7 +5118,7 @@ def render_l1h9_slots_timeline_html(
             }}
           }}
           pts.forEach((p, i) => {{
-            const globalStep = ei + i;
+            const globalStep = t0 + i;
             const isCurrent = globalStep === idx;
             if (!isCurrent && !showTail) return;
             const cx = sx(p.rs_ratio), cy = sy(p.rs_momentum);
@@ -3694,6 +5282,11 @@ def main() -> int:
         help="輸出右上/左下趨勢分面軌跡圖（含名稱標籤）",
     )
     parser.add_argument(
+        "--universe-timeline",
+        action="store_true",
+        help="輸出 Universe 全檔互動 RRG 時間軸（每檔 rolling tail）",
+    )
+    parser.add_argument(
         "--holdings-changes",
         action="store_true",
         help="輸出指定 ETF 期間持股變動標的 RRG 軌跡",
@@ -3712,6 +5305,26 @@ def main() -> int:
         "--rrg-mono-slots-timeline",
         action="store_true",
         help="輸出 RRG mono + seg_last + 3槽 hold7 策略 RRG 互動時間軸",
+    )
+    parser.add_argument(
+        "--c18acc-slots-timeline",
+        action="store_true",
+        help="輸出 C18acc swap-accel 策略 RRG 互動時間軸（close 換倉 · 對齊日 K）",
+    )
+    parser.add_argument(
+        "--c18acc-i36-slots-timeline",
+        action="store_true",
+        help="輸出 C18acc+I36 combo_spike extension overlay RRG 互動時間軸（close 換倉 + 1m 提早出場）",
+    )
+    parser.add_argument(
+        "--c18acc-s2-slots-timeline",
+        action="store_true",
+        help="輸出 C18acc+S2 rotation exit overlay RRG 互動時間軸（2d weakening + loss≥5%% 強制平倉）",
+    )
+    parser.add_argument(
+        "--c18acc-intraday",
+        action="store_true",
+        help="--c18acc-slots-timeline 時使用 champion C0/5m 規則（預設 close 版）",
     )
     parser.add_argument(
         "--chunge-funnel-slots-timeline",
@@ -3773,7 +5386,7 @@ def main() -> int:
     etf_codes = parse_etf_codes(args.etf_codes)
     conn = connect(args.db)
     try:
-        if args.holdings_changes or args.holdings_timeline or args.l1h9_slots_timeline or args.rrg_mono_slots_timeline or args.chunge_funnel_slots_timeline or args.trajectory or args.trajectory_split:
+        if args.holdings_changes or args.holdings_timeline or args.l1h9_slots_timeline or args.rrg_mono_slots_timeline or args.c18acc_slots_timeline or args.c18acc_i36_slots_timeline or args.c18acc_s2_slots_timeline or args.chunge_funnel_slots_timeline or args.universe_timeline or args.trajectory or args.trajectory_split:
             if args.date_from:
                 dates = _load_trading_dates_range(
                     conn, date_from=args.date_from, date_to=args.date_to
@@ -3783,7 +5396,7 @@ def main() -> int:
             if len(dates) < 2:
                 print("軌跡模式至少需要 2 個訊號日", file=sys.stderr)
                 return 1
-            if args.holdings_changes or args.holdings_timeline or args.l1h9_slots_timeline or args.rrg_mono_slots_timeline or args.chunge_funnel_slots_timeline:
+            if args.holdings_changes or args.holdings_timeline or args.l1h9_slots_timeline or args.rrg_mono_slots_timeline or args.c18acc_slots_timeline or args.c18acc_i36_slots_timeline or args.c18acc_s2_slots_timeline or args.chunge_funnel_slots_timeline:
                 if args.chunge_funnel_slots_timeline:
                     from research.backtest.chunge_funnel_backtest import (
                         VCP_COIL_CLOSE,
@@ -3879,6 +5492,40 @@ def main() -> int:
                     if not legs:
                         print(
                             f"RRG mono 在 {dates[0]}→{dates[-1]} 無可執行 leg",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    bench_closes = _load_bench_closes_for_dates(conn, dates)
+                    stock_ids = {lg["stock_id"] for lg in legs}
+                    all_trajectories = _load_rrg_trajectories(
+                        conn,
+                        dates=dates,
+                        etf_codes=etf_codes,
+                        length=args.length,
+                        with_close=True,
+                    )
+                elif args.c18acc_slots_timeline or args.c18acc_i36_slots_timeline or args.c18acc_s2_slots_timeline:
+                    events = []
+                    c18_slots = 3 if args.n_slots == 9 else args.n_slots
+                    if args.c18acc_i36_slots_timeline:
+                        build_fn = _build_c18acc_i36_executed_legs
+                        label = "C18acc+I36"
+                    elif args.c18acc_s2_slots_timeline:
+                        build_fn = _build_c18acc_s2_executed_legs
+                        label = "C18acc+S2"
+                    else:
+                        build_fn = _build_c18acc_executed_legs
+                        label = "C18acc"
+                    legs, executed, skipped, meta = build_fn(
+                        conn,
+                        dates,
+                        n_slots=c18_slots,
+                        capital_ntd=args.capital_ntd,
+                        use_close_timing=not args.c18acc_intraday,
+                    )
+                    if not legs:
+                        print(
+                            f"{label} 在 {dates[0]}→{dates[-1]} 無可執行 leg",
                             file=sys.stderr,
                         )
                         return 1
@@ -4016,6 +5663,51 @@ def main() -> int:
         )
         return 0
 
+    if args.c18acc_slots_timeline or args.c18acc_i36_slots_timeline or args.c18acc_s2_slots_timeline:
+        stamp = date.today().strftime("%Y%m%d")
+        year_tag = _timeline_year_tag(args.date_from, args.date_to)
+        if args.c18acc_i36_slots_timeline:
+            base = f"{stamp}_c18acc_i36_slots_rrg_timeline"
+            display_code = "C18acc+I36"
+        elif args.c18acc_s2_slots_timeline:
+            base = f"{stamp}_c18acc_s2_slots_rrg_timeline"
+            display_code = "C18acc+S2"
+        else:
+            base = f"{stamp}_c18acc_slots_rrg_timeline"
+            display_code = "C18acc"
+        fname = f"{base}_{year_tag}.html" if year_tag else f"{base}.html"
+        out = args.output or research_html_path("rrg", fname)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            render_l1h9_slots_timeline_html(
+                etf_code=display_code,
+                dates=dates,
+                legs=legs,
+                executed_signals=executed,
+                skipped_signals=skipped,
+                all_trajectories=all_trajectories,
+                meta=meta,
+                bench_closes=bench_closes,
+                length=args.length,
+            ),
+            encoding="utf-8",
+        )
+        swaps = meta.get("swaps_total")
+        ext = meta.get("ext_exits")
+        force = meta.get("force_exits")
+        if ext is not None:
+            extra = f", ext_exits={ext}"
+        elif force is not None:
+            extra = f", force_exits={force}"
+        else:
+            extra = ""
+        print(
+            f"Wrote {out} (legs={len(legs)}, executed={meta['n_executed']}, "
+            f"swaps={swaps}{extra}, slots={meta['n_slots']}, "
+            f"{len(dates)} frames, {dates[0]} → {dates[-1]})"
+        )
+        return 0
+
     if args.l1h9_slots_timeline:
         stamp = date.today().strftime("%Y%m%d")
         slug = args.etf_code.lower()
@@ -4098,6 +5790,31 @@ def main() -> int:
         print(
             f"Wrote {out} ({len(events)} changes, highlight={len(stock_ids)}, "
             f"universe={len(all_trajectories)}, {dates[0]} → {dates[-1]})"
+        )
+        return 0
+
+    if args.universe_timeline:
+        if not trajectories:
+            print("無有效 RRG 軌跡", file=sys.stderr)
+            return 1
+        stamp = date.today().strftime("%Y%m%d")
+        year_tag = _timeline_year_tag(args.date_from, args.date_to)
+        base = f"{stamp}_rrg_universe_timeline"
+        fname = f"{base}_{year_tag}.html" if year_tag else f"{base}.html"
+        out = args.output or research_html_path("rrg", fname)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            render_universe_timeline_html(
+                dates=dates,
+                trajectories=trajectories,
+                length=args.length,
+                etf_codes=etf_codes,
+            ),
+            encoding="utf-8",
+        )
+        print(
+            f"Wrote {out} ({len(trajectories)} stocks, "
+            f"{len(dates)} frames, {dates[0]} → {dates[-1]})"
         )
         return 0
 

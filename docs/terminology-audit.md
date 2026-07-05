@@ -59,7 +59,7 @@ rg -n '甜蜜点|甜蜜點|Regime 分层|research_digest\.md' \
   --glob '!docs/terminology*.md' --glob '!reports/**' .
 
 PYTHONPATH=src .venv/bin/python -m unittest \
-  tests.test_research_config tests.test_copytrade_regime_horizon -v
+  tests.test_research_config tests.test_sweep_runner -v
 
 PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \
   --analyze-regime-horizon --write-report

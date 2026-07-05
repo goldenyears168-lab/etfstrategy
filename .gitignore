@@ -1,4 +1,5 @@
 .venv/
+.venv-qlib/
 __pycache__/
 *.pyc
 .DS_Store

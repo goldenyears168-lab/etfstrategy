@@ -13,7 +13,6 @@ except ImportError:  # pragma: no cover
 from stock_db import DATA_DIR, PROJECT_ROOT
 
 DEFAULT_POLICY_PATH = DATA_DIR / "investment_policy.yaml"
-EXAMPLE_POLICY_PATH = PROJECT_ROOT / "config" / "investment_policy.example.yaml"
 
 DEFAULTS: dict = {
     "version": "ips-v2-research",
@@ -60,9 +59,4 @@ def load_investment_policy(path: Path | None = None) -> InvestmentPolicy:
         )
     if p.exists():
         return InvestmentPolicy.from_dict(_load_yaml_dict(p), source_path=str(p))
-    if EXAMPLE_POLICY_PATH.exists():
-        return InvestmentPolicy.from_dict(
-            _load_yaml_dict(EXAMPLE_POLICY_PATH),
-            source_path=f"{EXAMPLE_POLICY_PATH} (fallback)",
-        )
     return InvestmentPolicy.from_dict(DEFAULTS, source_path="built-in defaults")

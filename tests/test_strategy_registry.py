@@ -37,7 +37,7 @@ class StrategyRegistryTests(unittest.TestCase):
             "rrg-mono-hold7",
             "rrg-mono-swap-accel",
             "vcp-pivot-gate",
-            "minervini-sepa-basket",
+            "vcp-coil-close",
         ):
             spec = reg.get(sid)
             assert spec is not None, sid

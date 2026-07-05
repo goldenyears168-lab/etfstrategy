@@ -9,7 +9,8 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+export ROOT
 cd "$ROOT"
 
 PYTHON="${ROOT}/.venv/bin/python"
@@ -46,8 +47,8 @@ for arg in "$@"; do
   esac
 done
 
-PYTHON_QUIET=()
-[[ "$QUIET" -eq 1 ]] && PYTHON_QUIET=(--quiet)
+PYTHON_QUIET_FLAG=""
+[[ "$QUIET" -eq 1 ]] && PYTHON_QUIET_FLAG="--quiet"
 
 _report_to_terminal() {
   [[ "$SHOW_REPORT" -eq 1 ]]
@@ -72,6 +73,8 @@ _apply_sync_profile() {
       export RUN_RRG_UNIVERSE_CLOSE=0
       export RUN_RRG_MONO_DAILY=0
       export RUN_RRG_MONO_SWAP_ACCEL_DAILY=0
+      export RUN_RRG_IMPROVING_WATCH=0
+      export RUN_RRG_UNIVERSE_TIMELINE=0
       export RUN_VCP_FUNNEL_CLOSE=0
       export RUN_STOCK_DAILY_LENS=0
       export RUN_SUPABASE_RESEARCH_SYNC=0
@@ -82,6 +85,9 @@ _apply_sync_profile() {
       ;;
     full)
       log_line "SYNC_PROFILE=full（沿用 .env RUN_* 預設）"
+      ;;
+    evening-holdings)
+      log_line "SYNC_PROFILE=evening-holdings（16:30 收盤管線）"
       ;;
     "" ) ;;
     * )
@@ -349,7 +355,7 @@ fi
 if [[ "$MARKET" -eq 1 ]]; then
   run_step_optional "core market (6 ETFs + benchmarks, TEJ)" \
     "$PYTHON" "${SRC}/query_stock_prices.py" \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --sync-db --sync-mode hybrid \
     --benchmark-codes "$BENCHMARK_CODES" \
     --etf-codes "$ETF_CODES" \
@@ -358,7 +364,7 @@ if [[ "$MARKET" -eq 1 ]]; then
   if [[ "${ENABLE_FINMIND_SIGNAL:-0}" == "1" ]]; then
     run_step_optional "ETF signal snapshot (FinMind)" \
       "$PYTHON" "${SRC}/sync_etf_signal.py" \
-      "${PYTHON_QUIET[@]}" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
       --etf-codes "$ETF_CODES" --lookback-days 14
   else
     log_line "--- ETF signal snapshot (FinMind) ---"
@@ -368,12 +374,12 @@ if [[ "$MARKET" -eq 1 ]]; then
 
   run_step_optional "tech risk context (TSM/SOX/TX gap)" \
     "$PYTHON" "${SRC}/sync_tech_risk_context.py" \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --sync-db --history-days 90
 
   run_step_optional "morning futures snapshot (TX/TE live gap)" \
     "$PYTHON" "${SRC}/sync_morning_futures.py" \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --sync-db
 fi
 
@@ -381,7 +387,7 @@ fi
 if [[ "$HOLDINGS" -eq 1 && "$MARKET" -eq 0 ]]; then
   run_step_optional "core market (TEJ close refresh)" \
     "$PYTHON" "${SRC}/query_stock_prices.py" \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --sync-db --sync-mode hybrid \
     --benchmark-codes "$BENCHMARK_CODES" \
     --etf-codes "$ETF_CODES" \
@@ -391,27 +397,27 @@ fi
 if [[ "$HOLDINGS" -eq 1 ]]; then
   run_step "ETF holdings EZMoney (2)" \
     "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --etf-codes "$ETF_CODES_EZMONEY" --source ezmoney
 
   run_step "ETF holdings KGIFund (2)" \
     "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --etf-codes "$ETF_CODES_KGIFUND" --source kgifund
 
   run_step "ETF holdings CapitalFund (2)" \
     "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --etf-codes "$ETF_CODES_CAPITALFUND" --source capitalfund
 
   run_step "ETF holdings Nomura (1)" \
     "$PYTHON" "${SRC}/sync_etf_holdings.py" --no-auto-changes \
-    "${PYTHON_QUIET[@]}" \
+    ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} \
     --etf-codes "$ETF_CODES_NOMURA" --source nomura
 
   if [[ "${RUN_STOCK_MARKET_SYNC:-0}" == "1" ]]; then
     STOCK_MKT_ARGS=(
-      "${PYTHON_QUIET[@]}"
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG}
       --sync-db
       --lookback-days "${STOCK_MARKET_LOOKBACK_DAYS:-60}"
     )
@@ -448,9 +454,30 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_RRG_MONO_SWAP_ACCEL_DAILY=0）"
   fi
 
+  if [[ "${RUN_RRG_IMPROVING_WATCH:-1}" != "0" ]]; then
+    run_step_if_pipeline_enabled "rrg_improving_watch_daily" \
+      "RRG Improving lifecycle watch daily brief" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_improving_watch_daily.py" || true
+  else
+    log_line "--- RRG Improving lifecycle watch daily brief ---"
+    log_line "  SKIP（RUN_RRG_IMPROVING_WATCH=0）"
+  fi
+
+  if [[ "${RUN_RRG_UNIVERSE_TIMELINE:-1}" != "0" ]]; then
+    run_step_if_pipeline_enabled "rrg_universe_timeline_daily" \
+      "RRG Universe 全檔互動時間軸 HTML (WMA20)" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_universe_timeline_daily.py" || true
+    run_step_if_pipeline_enabled "rrg_universe_timeline_daily" \
+      "RRG Universe 全檔互動時間軸 HTML (WMA5)" \
+      "$PYTHON" "${ROOT}/scripts/run_rrg_universe_timeline_daily.py" --length 5 || true
+  else
+    log_line "--- RRG Universe 全檔互動時間軸 HTML ---"
+    log_line "  SKIP（RUN_RRG_UNIVERSE_TIMELINE=0）"
+  fi
+
   if [[ "${RUN_CHIP_SYNC:-0}" == "1" ]]; then
     CHIP_ARGS=(
-      "${PYTHON_QUIET[@]}"
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG}
       --sync-db
       --lookback-days "${CHIP_LOOKBACK_DAYS:-14}"
     )
@@ -459,6 +486,31 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
   else
     log_line "--- constituent chip extended (FinMind) ---"
     log_line "  SKIP（RUN_CHIP_SYNC=0；設 1 啟用融資融券/借券/當沖）"
+  fi
+
+  if [[ "${RUN_SCREENER_DATA_SYNC:-0}" == "1" ]]; then
+    run_step_optional "screener shareholding (30d)" \
+      "$PYTHON" "${SRC}/sync_stock_shareholding_daily.py" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} --sync-db --universe both \
+      --lookback-days "${SCREENER_SHAREHOLDING_LOOKBACK_DAYS:-30}"
+    run_step_optional "screener dividend (800d)" \
+      "$PYTHON" "${SRC}/sync_fundamentals.py" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} --sync-db --universe both \
+      --dividend-only --lookback-days "${SCREENER_DIVIDEND_LOOKBACK_DAYS:-800}"
+    run_step_optional "screener market value (30d)" \
+      "$PYTHON" "${SRC}/sync_stock_market_value_daily.py" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} --sync-db --universe both \
+      --lookback-days "${SCREENER_MARKET_VALUE_LOOKBACK_DAYS:-30}"
+    run_step_optional "screener futures institutional (14d)" \
+      "$PYTHON" "${SRC}/sync_futures_institutional_daily.py" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} --sync-db --lookback-days "${SCREENER_FUTURES_LOOKBACK_DAYS:-14}"
+    run_step_optional "screener technical (30d bars)" \
+      "$PYTHON" "${SRC}/sync_stock_technical_daily.py" \
+      ${PYTHON_QUIET_FLAG:+$PYTHON_QUIET_FLAG} --sync-db --universe both \
+      --lookback-days "${SCREENER_TECHNICAL_LOOKBACK_DAYS:-30}"
+  else
+    log_line "--- screener / backtest data (shareholding · dividend · mcap · futures · technical) ---"
+    log_line "  SKIP（RUN_SCREENER_DATA_SYNC=0；設 1 啟用 screener 增量同步）"
   fi
 
   CHANGES_CMD=(
@@ -515,6 +567,22 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_VCP_FUNNEL_CLOSE=0）"
   fi
 
+  if [[ "${RUN_PROBE_KBAR_BACKFILL:-1}" != "0" ]]; then
+    run_step_optional "probe kbar backfill (recent 35d)" \
+      "$PYTHON" "${ROOT}/scripts/backfill_probe_kbar.py" --recent-days 35 --quiet || true
+  else
+    log_line "--- probe kbar backfill ---"
+    log_line "  SKIP（RUN_PROBE_KBAR_BACKFILL=0）"
+  fi
+
+  if [[ "${RUN_MARKET_PROBE_RADAR:-1}" != "0" ]]; then
+    run_step_optional "market probe radar" \
+      "$PYTHON" "${ROOT}/scripts/run_market_probe_radar.py" || true
+  else
+    log_line "--- market probe radar ---"
+    log_line "  SKIP（RUN_MARKET_PROBE_RADAR=0）"
+  fi
+
   if [[ "${RUN_STOCK_DAILY_LENS:-1}" != "0" ]]; then
     run_step_optional "stock_daily_lens + lens_daily_alert" \
       "$PYTHON" "${ROOT}/scripts/run_stock_daily_lens.py" || true
@@ -525,9 +593,9 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
 
   if [[ "${RUN_SUPABASE_RESEARCH_SYNC:-0}" == "1" ]]; then
     run_step_optional "Supabase research sync (1300 briefs · VCP close)" \
-      "${ROOT}/scripts/research_supabase_sync.sh" 1300 || true
+      "$PYTHON" "${ROOT}/scripts/sync_research_to_supabase.py" --slot 1300 || true
     run_step_optional "Supabase research sync (1630 briefs)" \
-      "${ROOT}/scripts/research_supabase_sync.sh" 1630 || true
+      "$PYTHON" "${ROOT}/scripts/sync_research_to_supabase.py" --slot 1630 || true
   else
     log_line "--- Supabase research sync (1300 / 1630) ---"
     log_line "  SKIP（RUN_SUPABASE_RESEARCH_SYNC=0）"

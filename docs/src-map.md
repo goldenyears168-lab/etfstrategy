@@ -50,7 +50,7 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 | 路徑 | 模組 |
 |------|------|
 | `research/backtest/` | copytrade、RRG、VCP funnel、`slot_backtest_summary` |
-| `research/archive/` | VCP 校準、一次性 migration |
+| `research/backtest/` | 採納策略回測引擎 · unified 比較層 |
 | `src/{name}.py` shim | → `research.backtest.*`（flat import 相容） |
 
 ## Platform
@@ -84,7 +84,7 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 
 ## 已封存（不在主線）
 
-`research/archive/` 含 VCP 校準整包、etf flow 因子檢定、一次性 migration。  
+`research/backtest/` 為回測引擎；探索 sweep 用 `run_research_sweep.py` + `sweep_runner`。  
 Ops 工具：`backfill_market_data` · `etfedge_*`
 
 **已移除**：`pipeline_evening`, `research_os`, `evening_digest`, `track_evaluation`, `signal_review`（頂層模組）

@@ -1,0 +1,1158 @@
+"""持倉即時脈動 · 富邦 snapshot + 現價 + RRG 收盤 vs 盤中 + exit playbook 觸發距離。"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from dataclasses import dataclass, field, replace
+from datetime import datetime, time
+from pathlib import Path
+from typing import Any, Literal
+
+from stock_db import PROJECT_ROOT
+
+from .morning_holdings_brief import (
+    CORE4,
+    HoldingBriefRow,
+    _gate_2330,
+    _load_morning_risk,
+    _pit_bar_date,
+    _pit_rrg_session,
+    enrich_holdings,
+    fetch_fubon_snapshot,
+    structure_tier,
+    try_refresh_morning_risk,
+)
+
+_TZ = __import__("zoneinfo").ZoneInfo("Asia/Taipei")
+_STRUCTURAL_MIN_MINUTE = "09:05"
+_TREND_ARROW = {
+    "up_right": "↗",
+    "down_right": "↘",
+    "up_left": "↖",
+    "down_left": "↙",
+}
+MarketPhase = Literal["pre_open", "observe", "gate", "active", "late", "after_close"]
+
+
+@dataclass(frozen=True)
+class RrgPoint:
+    session_date: str | None
+    quadrant: str | None
+    rs_ratio: float | None
+    rs_momentum: float | None
+    seg_last: float | None
+    trend: str | None
+    tick_ok: bool | None = None
+
+
+@dataclass(frozen=True)
+class HoldingPulseRow:
+    base: HoldingBriefRow
+    current_price: float | None
+    price_source: str
+    daily_pct: float | None
+    pnl_pct: float | None
+    market_value: float | None
+    weight_pct: float | None
+    rrg_close: RrgPoint
+    rrg_intraday: RrgPoint
+    rrg_quad_delta: str | None
+    rrg_seg_delta: float | None
+    dist_gate_2pct_pct: float | None
+    dist_s1b_pct: float | None
+    dist_extension_pct: float | None
+    vcp_composite: float | None
+    vcp_state: str | None
+    hold_days: int | None
+    structural_flags: tuple[str, ...] = field(default_factory=tuple)
+    exit_log_today: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class HoldingsPulse:
+    generated_at: str
+    session_date: str
+    poll_minute: str
+    market_phase: MarketPhase
+    account_label: str
+    cash_available: int | None
+    total_market_value: float | None
+    total_unrealized_pnl: int
+    bar_as_of: str | None
+    rrg_close_as_of: str | None
+    rrg_intraday_as_of: str | None
+    tx_gap_pct: float | None
+    tx_price: float | None
+    tw_spot_prev_close: float | None
+    te_gap_pct: float | None
+    morning_risk_note: str | None
+    gate_2330_995: float | None
+    gate_2330_price: float | None
+    gate_2330_hit: bool | None
+    core4_gate_hits: int
+    portfolio_exit_preview: bool | None
+    portfolio_exit_mode: bool | None
+    portfolio_gate_ran: bool
+    holdings_stress: bool
+    holdings_stress_count: int
+    rrg_intraday_tick_n: int | None
+    rrg_intraday_kbar_n: int | None
+    rrg_intraday_price_mode: str | None
+    rrg_intraday_error: str | None
+    holdings: tuple[HoldingPulseRow, ...]
+    fubon_error: str | None = None
+    price_errors: tuple[str, ...] = field(default_factory=tuple)
+    session_note: str | None = None
+
+
+def trend_arrow(trend: str | None) -> str:
+    if not trend:
+        return "—"
+    return _TREND_ARROW.get(trend, trend)
+
+
+def market_phase(now: datetime | None = None) -> MarketPhase:
+    dt = now or datetime.now(_TZ)
+    t = dt.time()
+    if t < time(9, 0):
+        return "pre_open"
+    if t < time(9, 5):
+        return "observe"
+    if t < time(9, 6):
+        return "gate"
+    if t < time(13, 20):
+        return "active"
+    if t < time(13, 30):
+        return "late"
+    return "after_close"
+
+
+def market_phase_note(phase: MarketPhase) -> str:
+    notes = {
+        "pre_open": "開盤前 · 現價可能為試撮或昨收",
+        "observe": "09:00–09:04 只觀察、不賣",
+        "gate": "09:05 組合閘門時段",
+        "active": "09:06–13:20 盤中監控",
+        "late": "13:20–13:30 停止自動減碼區",
+        "after_close": "收盤後 · 現價 fallback 昨收",
+    }
+    return notes.get(phase, "")
+
+
+def _fmt_pct(val: float | None, *, signed: bool = True) -> str:
+    if val is None:
+        return "—"
+    if signed:
+        return f"{val:+.2f}%"
+    return f"{val:.2f}%"
+
+
+def _fmt_px(val: float | None) -> str:
+    if val is None:
+        return "—"
+    return f"{val:.2f}"
+
+
+def _load_rrg_point(
+    conn: sqlite3.Connection,
+    stock_id: str,
+    *,
+    screen_kind: str,
+    on_or_before: str,
+    exact_date: str | None = None,
+) -> RrgPoint:
+    if exact_date:
+        row = conn.execute(
+            """
+            SELECT session_date, quadrant, rs_ratio, rs_momentum, seg_last, trend, tick_ok
+            FROM rrg_universe_scores
+            WHERE stock_id = ? AND screen_kind = ? AND session_date = ?
+            LIMIT 1
+            """,
+            (stock_id, screen_kind, exact_date),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT session_date, quadrant, rs_ratio, rs_momentum, seg_last, trend, tick_ok
+            FROM rrg_universe_scores
+            WHERE stock_id = ? AND screen_kind = ? AND session_date <= ?
+            ORDER BY session_date DESC LIMIT 1
+            """,
+            (stock_id, screen_kind, on_or_before),
+        ).fetchone()
+    if not row:
+        return RrgPoint(None, None, None, None, None, None, None)
+    tick_ok = None
+    if row[6] is not None:
+        tick_ok = bool(int(row[6]))
+    return RrgPoint(
+        str(row[0]) if row[0] else None,
+        str(row[1]) if row[1] else None,
+        float(row[2]) if row[2] is not None else None,
+        float(row[3]) if row[3] is not None else None,
+        float(row[4]) if row[4] is not None else None,
+        str(row[5]) if row[5] else None,
+        tick_ok,
+    )
+
+
+def _load_vcp(conn: sqlite3.Connection, stock_id: str, *, as_of_session: str) -> tuple[float | None, str | None]:
+    row = conn.execute(
+        """
+        SELECT composite_score, execution_state FROM vcp_screen_scores_v2
+        WHERE stock_id = ? AND as_of_date < ? AND composite_score IS NOT NULL
+        ORDER BY as_of_date DESC LIMIT 1
+        """,
+        (stock_id, as_of_session),
+    ).fetchone()
+    if not row:
+        return None, None
+    comp = float(row[0]) if row[0] is not None else None
+    state = str(row[1]) if row[1] else None
+    return comp, state
+
+
+def _load_position_meta() -> dict[str, dict[str, Any]]:
+    path = PROJECT_ROOT / "data" / "fubon_position_meta.json"
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    positions = raw.get("positions") if isinstance(raw.get("positions"), dict) else raw
+    if not isinstance(positions, dict):
+        return {}
+    return {str(k): v for k, v in positions.items() if isinstance(v, dict)}
+
+
+def _hold_days(entry_date: str | None, session_date: str) -> int | None:
+    if not entry_date:
+        return None
+    try:
+        start = datetime.fromisoformat(entry_date).date()
+        end = datetime.fromisoformat(session_date).date()
+        return max(0, (end - start).days)
+    except ValueError:
+        return None
+
+
+def _load_exit_log_today(
+    conn: sqlite3.Connection,
+    trade_date: str,
+    stock_id: str,
+) -> tuple[str, ...]:
+    rows = conn.execute(
+        """
+        SELECT event, phase FROM order_intraday_exit_log
+        WHERE trade_date = ? AND stock_id = ?
+        ORDER BY checked_at DESC LIMIT 3
+        """,
+        (trade_date, stock_id),
+    ).fetchall()
+    return tuple(f"{r[1]}:{r[0]}" for r in rows if r[0])
+
+
+def _distance_pct(current: float | None, gate: float | None, prev_close: float | None) -> float | None:
+    if current is None or gate is None or prev_close is None or prev_close <= 0:
+        return None
+    return (current - gate) / prev_close * 100.0
+
+
+def _minute_ge(a: str, b: str) -> bool:
+    am = a[:5] if len(a) >= 5 else a
+    bm = b[:5] if len(b) >= 5 else b
+    return am >= bm
+
+
+def _structural_flags(
+    row: HoldingBriefRow,
+    *,
+    current_price: float | None,
+    poll_minute: str,
+    portfolio_exit_mode: bool | None,
+) -> tuple[str, ...]:
+    if current_price is None or row.prev_close is None:
+        return ()
+    if not _minute_ge(poll_minute, _STRUCTURAL_MIN_MINUTE):
+        return ("09:05前",)
+
+    flags: list[str] = []
+    if row.gate_2pct is not None and current_price <= row.gate_2pct:
+        flags.append("≤-2%gate")
+    if row.trigger_s1b is not None and current_price <= row.trigger_s1b:
+        flags.append("S1b")
+    if row.extension_spike is not None and current_price >= row.extension_spike:
+        flags.append("ext≥4%")
+    if row.structure_tier == "weak" and portfolio_exit_mode:
+        s2 = row.trigger_s1b or round(row.prev_close * 0.97, 2)
+        if current_price <= s2:
+            flags.append("S2")
+    elif row.structure_tier != "weak":
+        s2lite = round(row.prev_close * 0.97, 2)
+        if current_price <= s2lite:
+            flags.append("S2-lite?")
+    return tuple(flags)
+
+
+def fetch_live_prices(
+    symbols: list[str],
+    *,
+    prev_close_by_symbol: dict[str, float | None],
+    use_fubon: bool = True,
+) -> tuple[dict[str, float], dict[str, str], list[str]]:
+    """Return (prices, sources, errors)."""
+    prices: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    errors: list[str] = []
+
+    if use_fubon and symbols:
+        try:
+            from fubon_neo.constant import MarketType
+
+            from order.fubon_orders import _result_ok
+            from order.fubon_session import connect_fubon
+
+            session = connect_fubon(realtime=True)
+            account = session.primary
+            for sym in symbols:
+                if sym in prices:
+                    continue
+                got: float | None = None
+                for mt in (MarketType.Common, MarketType.IntradayOdd):
+                    res = session.sdk.stock.query_symbol_quote(account, sym, mt)
+                    if not _result_ok(res) or res.data is None:
+                        continue
+                    d = res.data
+                    for key in ("last_price", "open_price", "ask_price"):
+                        val = getattr(d, key, None)
+                        if val is not None and float(val) > 0:
+                            got = float(val)
+                            break
+                    if got is not None:
+                        break
+                if got is not None:
+                    prices[sym] = got
+                    sources[sym] = "fubon"
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"富邦報價：{exc}")
+
+    missing = [s for s in symbols if s not in prices]
+    if missing:
+        try:
+            from finmind_client import fetch_tick_snapshots
+            from rrg_mono_intraday_watch import _tick_map
+
+            tick_rows, tick_err = fetch_tick_snapshots(missing)
+            tick_map = _tick_map(tick_rows or [])
+            for sym in missing:
+                if sym in tick_map:
+                    prices[sym] = tick_map[sym]
+                    sources[sym] = "finmind_tick"
+            if tick_err and not tick_map:
+                errors.append(f"FinMind tick：{tick_err}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"FinMind tick：{exc}")
+
+    for sym in symbols:
+        if sym in prices:
+            continue
+        pc = prev_close_by_symbol.get(sym)
+        if pc is not None and pc > 0:
+            prices[sym] = pc
+            sources[sym] = "prev_close"
+
+    return prices, sources, errors
+
+
+def _holdings_pulse_rrg_kbar_enabled() -> bool:
+    return os.environ.get("HOLDINGS_PULSE_RRG_KBAR", "1").strip() not in ("0", "false", "False")
+
+
+def sync_intraday_rrg(
+    conn: sqlite3.Connection,
+    *,
+    session_date: str,
+    poll_minute: str,
+    holding_ids: list[str] | None = None,
+) -> tuple[int, int, int, str | None]:
+    try:
+        from rrg_mono_swap_accel_screen import sync_watchlist_kbar
+        from rrg_universe_snapshot import run_intraday_universe_snapshot
+
+        price_mode = "kbar" if _holdings_pulse_rrg_kbar_enabled() else "tick"
+        if price_mode == "kbar" and holding_ids:
+            sync_ids = sorted({str(s) for s in holding_ids if s} | {"2330"})
+            sync_watchlist_kbar(
+                conn,
+                sync_ids,
+                session_date,
+                env_key="HOLDINGS_PULSE_KBAR_SYNC",
+            )
+
+        n, _, priced_n, kbar_n = run_intraday_universe_snapshot(
+            conn,
+            session_date=session_date,
+            poll_minute=poll_minute,
+            price_mode=price_mode,
+        )
+        return n, priced_n, kbar_n, None
+    except Exception as exc:  # noqa: BLE001
+        return 0, 0, 0, str(exc)
+
+
+def _rrg_intraday_source_note(pulse: HoldingsPulse) -> str:
+    if pulse.rrg_intraday_as_of is None:
+        return "—"
+    if pulse.rrg_intraday_price_mode == "kbar":
+        kbar_n = pulse.rrg_intraday_kbar_n or 0
+        priced_n = pulse.rrg_intraday_tick_n or 0
+        fallback = max(0, priced_n - kbar_n)
+        base = f"1m K @{pulse.poll_minute}（{kbar_n} 檔"
+        if fallback:
+            return f"{base} · tick fallback {fallback}）"
+        return f"{base}）"
+    return "FinMind tick"
+
+
+def _load_portfolio_exit_state(
+    conn: sqlite3.Connection,
+    trade_date: str,
+) -> tuple[bool | None, bool]:
+    try:
+        from order.intraday_structural_exit import load_portfolio_exit_mode
+
+        return load_portfolio_exit_mode(conn, trade_date)
+    except Exception:  # noqa: BLE001
+        return None, False
+
+
+def _load_holdings_stress(
+    conn: sqlite3.Connection,
+    *,
+    session_date: str,
+    poll_minute: str,
+    holdings: dict[str, int],
+    snapshot_rows: list[HoldingBriefRow],
+    prices: dict[str, float],
+) -> tuple[bool, int]:
+    if not holdings or not _minute_ge(poll_minute, _STRUCTURAL_MIN_MINUTE):
+        return False, 0
+    count = 0
+    for row in snapshot_rows:
+        qty = holdings.get(row.stock_id, 0)
+        if qty <= 0 or row.prev_close is None:
+            continue
+        px = prices.get(row.stock_id)
+        if px is None:
+            continue
+        if px <= round(row.prev_close * 0.98, 2):
+            count += 1
+    return count >= 3, count
+
+
+def build_holdings_pulse(
+    conn: sqlite3.Connection,
+    *,
+    session_date: str | None = None,
+    use_fubon: bool = True,
+    sync_rrg_intraday: bool = False,
+    refresh_morning_risk: bool = True,
+) -> HoldingsPulse:
+    now = datetime.now(_TZ).replace(microsecond=0)
+    today = session_date or now.date().isoformat()
+    poll_minute = now.strftime("%H:%M")
+    phase = market_phase(now)
+    generated_at = now.isoformat()
+
+    fubon_snap: dict[str, Any] | None = None
+    fubon_error: str | None = None
+    if use_fubon:
+        fubon_snap, fubon_error = fetch_fubon_snapshot()
+
+    holdings_raw: list[dict[str, Any]] = []
+    cash_available: int | None = None
+    account_label = "—"
+    pnl_map: dict[str, tuple[int, float | None]] = {}
+    if fubon_snap:
+        account_label = str(fubon_snap.get("_account_label") or "—")
+        cash = fubon_snap.get("cash") or {}
+        cash_available = int(cash.get("available_balance", 0) or 0)
+        holdings_raw = list(fubon_snap.get("holdings") or [])
+        pnl_map = {
+            str(item.get("stock_no", "") or ""): (
+                int(item.get("unrealized_profit", 0) or 0)
+                - int(item.get("unrealized_loss", 0) or 0),
+                float(item.get("cost_price", 0) or 0) or None,
+            )
+            for item in (fubon_snap.get("unrealized_pnl") or [])
+            if item.get("stock_no")
+        }
+
+    base_rows = enrich_holdings(
+        conn,
+        holdings_raw,
+        as_of_session=today,
+        pnl_by_symbol=pnl_map,
+    )
+    prev_close_map = {r.stock_id: r.prev_close for r in base_rows}
+    symbols = [r.stock_id for r in base_rows]
+    if "2330" not in symbols:
+        row = conn.execute(
+            """
+            SELECT close FROM stock_daily_bars
+            WHERE stock_id = '2330' AND trade_date < ?
+            ORDER BY trade_date DESC LIMIT 1
+            """,
+            (today,),
+        ).fetchone()
+        symbols.append("2330")
+        prev_close_map["2330"] = float(row[0]) if row and row[0] is not None else None
+
+    prices, price_sources, price_errors = fetch_live_prices(
+        symbols,
+        prev_close_by_symbol=prev_close_map,
+        use_fubon=use_fubon,
+    )
+
+    rrg_intraday_tick_n: int | None = None
+    rrg_intraday_kbar_n: int | None = None
+    rrg_intraday_price_mode: str | None = None
+    rrg_intraday_error: str | None = None
+    if sync_rrg_intraday and phase in ("observe", "gate", "active", "late"):
+        _, priced_n, kbar_n, rrg_intraday_error = sync_intraday_rrg(
+            conn,
+            session_date=today,
+            poll_minute=poll_minute,
+            holding_ids=symbols,
+        )
+        rrg_intraday_tick_n = priced_n
+        rrg_intraday_kbar_n = kbar_n
+        rrg_intraday_price_mode = "kbar" if _holdings_pulse_rrg_kbar_enabled() else "tick"
+
+    rrg_close_as_of = _pit_rrg_session(conn, today)
+    rrg_intraday_as_of = today if phase != "after_close" else None
+
+    meta = _load_position_meta()
+    portfolio_exit_mode, portfolio_gate_ran = _load_portfolio_exit_state(conn, today)
+    holdings_qty = {r.stock_id: r.shares for r in base_rows}
+
+    pulse_rows: list[HoldingPulseRow] = []
+    total_mv = 0.0
+    total_pnl = 0
+
+    for base in base_rows:
+        px = prices.get(base.stock_id)
+        src = price_sources.get(base.stock_id, "—")
+        daily_pct = None
+        if px is not None and base.prev_close and base.prev_close > 0:
+            daily_pct = (px - base.prev_close) / base.prev_close * 100.0
+        pnl_pct = None
+        if px is not None and base.cost_price and base.cost_price > 0:
+            pnl_pct = (px - base.cost_price) / base.cost_price * 100.0
+        mv = (px * base.shares) if px is not None else None
+        if mv is not None:
+            total_mv += mv
+        total_pnl += base.unrealized_pnl
+
+        rrg_close = _load_rrg_point(
+            conn,
+            base.stock_id,
+            screen_kind="close",
+            on_or_before=rrg_close_as_of or today,
+        )
+        rrg_intra = _load_rrg_point(
+            conn,
+            base.stock_id,
+            screen_kind="intraday",
+            on_or_before=today,
+            exact_date=today if rrg_intraday_as_of else None,
+        )
+        quad_delta = None
+        if rrg_close.quadrant and rrg_intra.quadrant and rrg_close.quadrant != rrg_intra.quadrant:
+            quad_delta = f"{rrg_close.quadrant}→{rrg_intra.quadrant}"
+        seg_delta = None
+        if rrg_close.seg_last is not None and rrg_intra.seg_last is not None:
+            seg_delta = rrg_intra.seg_last - rrg_close.seg_last
+
+        vcp_comp, vcp_state = _load_vcp(conn, base.stock_id, as_of_session=today)
+        tier = structure_tier(rrg_intra.quadrant or rrg_close.quadrant, vcp_state=vcp_state)
+        base_with_tier = HoldingBriefRow(
+            stock_id=base.stock_id,
+            stock_name=base.stock_name,
+            shares=base.shares,
+            cost_price=base.cost_price,
+            unrealized_pnl=base.unrealized_pnl,
+            prev_close=base.prev_close,
+            bar_date=base.bar_date,
+            rrg_quadrant=rrg_intra.quadrant or base.rrg_quadrant,
+            rrg_seg=rrg_intra.seg_last if rrg_intra.seg_last is not None else base.rrg_seg,
+            rrg_session=rrg_intra.session_date or base.rrg_session,
+            structure_tier=tier,
+            gate_2pct=base.gate_2pct,
+            trigger_s1b=base.trigger_s1b if tier == "weak" else None,
+            extension_spike=base.extension_spike,
+            notes=base.notes,
+        )
+
+        pulse_rows.append(
+            HoldingPulseRow(
+                base=base_with_tier,
+                current_price=px,
+                price_source=src,
+                daily_pct=daily_pct,
+                pnl_pct=pnl_pct,
+                market_value=mv,
+                weight_pct=None,
+                rrg_close=rrg_close,
+                rrg_intraday=rrg_intra,
+                rrg_quad_delta=quad_delta,
+                rrg_seg_delta=seg_delta,
+                dist_gate_2pct_pct=_distance_pct(px, base.gate_2pct, base.prev_close),
+                dist_s1b_pct=_distance_pct(px, base_with_tier.trigger_s1b, base.prev_close),
+                dist_extension_pct=_distance_pct(px, base.extension_spike, base.prev_close)
+                if base.extension_spike and px is not None
+                else None,
+                vcp_composite=vcp_comp,
+                vcp_state=vcp_state,
+                hold_days=_hold_days(str((meta.get(base.stock_id) or {}).get("entry_date") or ""), today),
+                structural_flags=_structural_flags(
+                    base_with_tier,
+                    current_price=px,
+                    poll_minute=poll_minute,
+                    portfolio_exit_mode=portfolio_exit_mode,
+                ),
+                exit_log_today=_load_exit_log_today(conn, today, base.stock_id),
+            )
+        )
+
+    if total_mv > 0:
+        pulse_rows = [
+            replace(
+                row,
+                weight_pct=(row.market_value / total_mv * 100.0)
+                if row.market_value is not None
+                else None,
+            )
+            for row in pulse_rows
+        ]
+
+    pulse_rows.sort(
+        key=lambda r: (
+            r.base.structure_tier != "weak",
+            -(r.weight_pct or 0),
+            r.base.unrealized_pnl,
+            r.base.stock_id,
+        )
+    )
+
+    gate_2330 = _gate_2330(conn, as_of_session=today)
+    gate_2330_px = prices.get("2330")
+    gate_2330_hit = None
+    if gate_2330 is not None and gate_2330_px is not None:
+        gate_2330_hit = gate_2330_px <= gate_2330
+
+    core4_hits = sum(
+        1
+        for r in pulse_rows
+        if r.base.stock_id in CORE4
+        and r.current_price is not None
+        and r.base.gate_2pct is not None
+        and r.current_price <= r.base.gate_2pct
+    )
+    portfolio_preview: bool | None = None
+    if gate_2330_hit is not None:
+        portfolio_preview = core4_hits >= 2 and gate_2330_hit
+
+    stress_on, stress_n = _load_holdings_stress(
+        conn,
+        session_date=today,
+        poll_minute=poll_minute,
+        holdings=holdings_qty,
+        snapshot_rows=[r.base for r in pulse_rows],
+        prices=prices,
+    )
+
+    morning_row: dict[str, Any] | None = None
+    morning_risk_note: str | None = None
+    if refresh_morning_risk:
+        morning_row, morning_risk_note = try_refresh_morning_risk(
+            conn, trade_date=today, sync=False, dry_run=True
+        )
+    if morning_row is None:
+        morning_row, morning_risk_note = _load_morning_risk(conn, today)
+
+    return HoldingsPulse(
+        generated_at=generated_at,
+        session_date=today,
+        poll_minute=poll_minute,
+        market_phase=phase,
+        account_label=account_label,
+        cash_available=cash_available,
+        total_market_value=total_mv if total_mv > 0 else None,
+        total_unrealized_pnl=total_pnl,
+        bar_as_of=_pit_bar_date(conn, today),
+        rrg_close_as_of=rrg_close_as_of,
+        rrg_intraday_as_of=rrg_intraday_as_of,
+        tx_gap_pct=float(morning_row["tx_gap_live_pct"])
+        if morning_row and morning_row.get("tx_gap_live_pct") is not None
+        else None,
+        tx_price=float(morning_row["tx_price"])
+        if morning_row and morning_row.get("tx_price") is not None
+        else None,
+        tw_spot_prev_close=float(morning_row["tw_spot_prev_close"])
+        if morning_row and morning_row.get("tw_spot_prev_close") is not None
+        else None,
+        te_gap_pct=float(morning_row["te_gap_live_pct"])
+        if morning_row and morning_row.get("te_gap_live_pct") is not None
+        else None,
+        morning_risk_note=morning_risk_note,
+        gate_2330_995=gate_2330,
+        gate_2330_price=gate_2330_px,
+        gate_2330_hit=gate_2330_hit,
+        core4_gate_hits=core4_hits,
+        portfolio_exit_preview=portfolio_preview,
+        portfolio_exit_mode=portfolio_exit_mode,
+        portfolio_gate_ran=portfolio_gate_ran,
+        holdings_stress=stress_on,
+        holdings_stress_count=stress_n,
+        rrg_intraday_tick_n=rrg_intraday_tick_n,
+        rrg_intraday_kbar_n=rrg_intraday_kbar_n,
+        rrg_intraday_price_mode=rrg_intraday_price_mode,
+        rrg_intraday_error=rrg_intraday_error,
+        holdings=tuple(pulse_rows),
+        fubon_error=fubon_error,
+        price_errors=tuple(price_errors),
+        session_note=market_phase_note(phase),
+    )
+
+
+def _rrg_cell(point: RrgPoint) -> str:
+    if not point.quadrant:
+        return "—"
+    seg = f"{point.seg_last:.3f}" if point.seg_last is not None else "—"
+    rv = f"{point.rs_ratio:.1f}" if point.rs_ratio is not None else "—"
+    mv = f"{point.rs_momentum:.1f}" if point.rs_momentum is not None else "—"
+    arrow = trend_arrow(point.trend)
+    tick = "K" if point.tick_ok else ("t" if point.tick_ok is False else "")
+    return f"{point.quadrant} · seg {seg} · RV {rv} · MV {mv} · {arrow}{tick}"
+
+
+def _weak_reason(row: HoldingPulseRow) -> str:
+    reasons: list[str] = []
+    if row.vcp_state and "Overextended" in str(row.vcp_state):
+        reasons.append("VCP Overextended")
+    quad = row.rrg_intraday.quadrant or row.rrg_close.quadrant or row.base.rrg_quadrant
+    if quad in ("weakening", "lagging"):
+        reasons.append(f"RRG {quad}")
+    return " · ".join(reasons) if reasons else "tier=weak"
+
+
+def _flag_action_hint(
+    flag: str,
+    *,
+    tier: str,
+    portfolio_exit_mode: bool | None,
+) -> str:
+    hints: dict[str, str] = {
+        "≤-2%gate": "跌逾 2% 觀測線（v2 已停用機械 -2% 賣）",
+        "ext≥4%": "漲逾 4% · 留意守利／回落（非弱勢出清）",
+        "S1b": "結構停損 S1b 觸發 · 建議檢視",
+        "S2": "弱檔 -3% 環境減碼 · 建議檢視",
+        "S2-lite?": "組合壓力下強/中檔 -3% · 建議檢視",
+        "09:05前": "09:05 前不判賣出旗標",
+    }
+    hint = hints.get(flag, flag)
+    if flag == "≤-2%gate" and tier == "strong":
+        hint += "；strong 個股不適用 S1b/S2"
+    elif flag == "≤-2%gate" and tier == "weak":
+        hint += "；弱檔賣出需至 -3%（S1b/S2）"
+        if portfolio_exit_mode is False:
+            hint += "，S2 另須 portfolio_exit_mode=ON"
+    return hint
+
+
+def format_holdings_pulse_digest(pulse: HoldingsPulse) -> str:
+    """Plain-text holdings section for intraday digest emails."""
+    lines: list[str] = [
+        "■ 持倉即時脈動（advisory · 非出清指令）",
+        "",
+        f"  輪詢 {pulse.poll_minute} · 現價：富邦即時 → FinMind tick → 昨收",
+        "  量測：現價＝即時報價；RRG 盤中＝"
+        f"{_rrg_intraday_source_note(pulse)}",
+    ]
+    if pulse.cash_available is not None and pulse.total_market_value is not None:
+        lines.append(
+            f"  可用 NT$ {pulse.cash_available:,} · 持倉市值 NT$ {pulse.total_market_value:,.0f} "
+            f"· 未實現 {pulse.total_unrealized_pnl:+,}"
+        )
+    if pulse.fubon_error:
+        lines.append(f"  ⚠ 富邦：{pulse.fubon_error}")
+    for err in pulse.price_errors:
+        lines.append(f"  ⚠ 報價：{err}")
+
+    gate_hit = (
+        "觸發"
+        if pulse.gate_2330_hit
+        else ("未觸發" if pulse.gate_2330_hit is False else "—")
+    )
+    preview = pulse.portfolio_exit_preview
+    preview_txt = (
+        "ON"
+        if preview is True
+        else ("OFF" if preview is False else "—")
+    )
+    mode_txt = "—"
+    if pulse.portfolio_gate_ran:
+        mode = pulse.portfolio_exit_mode
+        mode_txt = "ON" if mode else ("OFF" if mode is False else "skip")
+    lines.extend(
+        [
+            "",
+            "  組合閘門（09:05 判定 · 本輪為即時預覽）",
+            f"  · 2330 {_fmt_px(pulse.gate_2330_price)} ≤ {pulse.gate_2330_995 or '—'} → {gate_hit}",
+            f"  · CORE4 ≤昨收×0.98：{pulse.core4_gate_hits}/4 · 預判 {preview_txt} · 今日 gate {mode_txt}",
+        ]
+    )
+    if pulse.holdings_stress:
+        lines.append(
+            f"  · holdings_stress：{pulse.holdings_stress_count} 檔 ≤昨收×0.98"
+        )
+
+    weak = [r for r in pulse.holdings if r.base.structure_tier == "weak"]
+    flagged = [
+        r
+        for r in pulse.holdings
+        if r.structural_flags and r.structural_flags != ("09:05前",)
+    ]
+    big_loss = sorted(
+        [r for r in pulse.holdings if r.base.unrealized_pnl < -1500],
+        key=lambda r: r.base.unrealized_pnl,
+    )
+
+    if weak or flagged or big_loss:
+        lines.extend(["", "  優先盯（提醒 · 非出清）"])
+    if weak:
+        lines.append("  · 結構弱：")
+        for r in weak:
+            name = r.base.stock_name or "—"
+            px = _fmt_px(r.current_price)
+            daily = _fmt_pct(r.daily_pct)
+            lines.append(
+                f"    {r.base.stock_id} {name} · {px} {daily} · {_weak_reason(r)}"
+            )
+    if flagged:
+        lines.append("  · 觸發／接近：")
+        for r in flagged:
+            name = r.base.stock_name or "—"
+            flag_bits = ", ".join(r.structural_flags)
+            hint = "；".join(
+                _flag_action_hint(
+                    f,
+                    tier=r.base.structure_tier,
+                    portfolio_exit_mode=pulse.portfolio_exit_mode,
+                )
+                for f in r.structural_flags
+            )
+            lines.append(
+                f"    {r.base.stock_id} {name} · tier={r.base.structure_tier} "
+                f"[{flag_bits}] — {hint}"
+            )
+    if big_loss:
+        lines.append("  · 帳面大虧（帳面提醒 · 非賣出規則）：")
+        for r in big_loss:
+            name = r.base.stock_name or "—"
+            lines.append(
+                f"    {r.base.stock_id} {name} · {r.base.unrealized_pnl:+,} "
+                f"（{_fmt_pct(r.pnl_pct)}）"
+            )
+    if not weak and not flagged and not big_loss:
+        lines.extend(["", "  優先盯：無結構弱、價格旗標或帳面大虧提醒"])
+
+    stamp = pulse.session_date.replace("-", "")
+    lines.extend(
+        [
+            "",
+            f"  完整表格：reports/order/snapshots/holdings_pulse_{stamp}.md",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _format_priority_watch(pulse: HoldingsPulse) -> list[str]:
+    lines: list[str] = [
+        "## 優先盯",
+        "",
+        "> **提醒**：下列為盤中 **人工決策提醒**，**不等於出清指令**。",
+        "> 正式賣出 advisory 由 **sell-signal-radar**（09:06–13:20）掃描後寄信；本報告不送單。",
+        "",
+    ]
+    if pulse.market_phase == "after_close":
+        lines.append(
+            "> 收盤後執行：現價多為昨收 fallback，旗標僅供隔日參考，"
+            "不宜作當日減碼依據。"
+        )
+        lines.append("")
+
+    weak = [r for r in pulse.holdings if r.base.structure_tier == "weak"]
+    flagged = [
+        r
+        for r in pulse.holdings
+        if r.structural_flags and r.structural_flags != ("09:05前",)
+    ]
+    big_loss = sorted(
+        [r for r in pulse.holdings if r.base.unrealized_pnl < -1500],
+        key=lambda r: r.base.unrealized_pnl,
+    )
+
+    if weak:
+        lines.extend(
+            [
+                "### 結構弱（tier=weak）",
+                "- **意思**：昨收 RRG 偏弱或 VCP Overextended；若盤中再跌，"
+                "較易觸發 playbook S1b/S2。**不等於現在要賣。**",
+                "",
+            ]
+        )
+        for r in weak:
+            name = r.base.stock_name or "—"
+            reason = _weak_reason(r)
+            lines.append(f"- **{r.base.stock_id}** {name} — {reason}")
+        lines.append("")
+
+    if flagged:
+        lines.extend(
+            [
+                "### 觸發／接近（價格旗標）",
+                "- **意思**：現價已碰或接近技術參考線；請對照 tier 與組合閘門判斷。",
+                "",
+            ]
+        )
+        for r in flagged:
+            name = r.base.stock_name or "—"
+            flag_bits = ", ".join(r.structural_flags)
+            hints = "；".join(
+                _flag_action_hint(
+                    f,
+                    tier=r.base.structure_tier,
+                    portfolio_exit_mode=pulse.portfolio_exit_mode,
+                )
+                for f in r.structural_flags
+            )
+            lines.append(
+                f"- **{r.base.stock_id}** {name} · tier={r.base.structure_tier} "
+                f"· [{flag_bits}] — {hints}"
+            )
+        lines.append("")
+
+    if big_loss:
+        lines.extend(
+            [
+                "### 帳面大虧",
+                "- **意思**：富邦未實現損益 < NT$1,500；帳面壓力提醒，"
+                "**非** playbook 賣出規則。",
+                "",
+            ]
+        )
+        for r in big_loss:
+            name = r.base.stock_name or "—"
+            pnl_pct = _fmt_pct(r.pnl_pct) if r.pnl_pct is not None else "—"
+            lines.append(
+                f"- **{r.base.stock_id}** {name} · {r.base.unrealized_pnl:+,} "
+                f"（損益% {pnl_pct}）"
+            )
+        lines.append("")
+
+    if not weak and not flagged and not big_loss:
+        lines.append("- 無結構弱、價格旗標或帳面大虧提醒。")
+
+    return lines
+
+
+def format_holdings_pulse(pulse: HoldingsPulse) -> str:
+    lines: list[str] = [
+        f"# 持倉即時脈動 · {pulse.session_date}",
+        "",
+        f"產生時間：{pulse.generated_at} · 輪詢 {pulse.poll_minute} · **{pulse.market_phase}**",
+    ]
+    if pulse.session_note:
+        lines.append(f"時段：{pulse.session_note}")
+    lines.append(f"帳戶：{pulse.account_label}")
+    if pulse.cash_available is not None:
+        lines.append(f"可用餘額：NT$ {pulse.cash_available:,}")
+    if pulse.total_market_value is not None:
+        lines.append(
+            f"持倉市值：NT$ {pulse.total_market_value:,.0f} · "
+            f"未實現 **{pulse.total_unrealized_pnl:+,}**"
+        )
+    lines.append(
+        "> **性質**：advisory 儀表板 · 人工確認後下單 · "
+        "「優先盯」≠ 出清指令"
+    )
+    if pulse.fubon_error:
+        lines.append(f"富邦：⚠ {pulse.fubon_error}")
+    for err in pulse.price_errors:
+        lines.append(f"報價：⚠ {err}")
+
+    lines.extend(
+        [
+            "",
+            "## 資料來源",
+            f"- 持倉／損益：**fubon**（live snapshot）",
+            f"- 現價：fubon → FinMind tick → 昨收 fallback（即時報價）",
+            f"- 結構／昨收：PIT · bar {pulse.bar_as_of or '—'}",
+            f"- RRG 收盤：{pulse.rrg_close_as_of or '—'} · "
+            f"RRG 盤中：{pulse.rrg_intraday_as_of or '—'} · "
+            f"{_rrg_intraday_source_note(pulse)}",
+            "",
+        ]
+    )
+
+    if pulse.rrg_intraday_error:
+        lines.append(f"- RRG 盤中同步：⚠ {pulse.rrg_intraday_error}")
+    elif pulse.rrg_intraday_tick_n is not None:
+        if pulse.rrg_intraday_price_mode == "kbar":
+            lines.append(
+                f"- RRG 盤中覆蓋：**{pulse.rrg_intraday_tick_n}** 檔 "
+                f"（1m K **{pulse.rrg_intraday_kbar_n or 0}** · "
+                f"tick fallback **{max(0, (pulse.rrg_intraday_tick_n or 0) - (pulse.rrg_intraday_kbar_n or 0))}**）"
+            )
+        else:
+            lines.append(f"- RRG 盤中 tick 覆蓋：**{pulse.rrg_intraday_tick_n}** 檔")
+
+    lines.append("")
+    lines.append("## 台指 gap")
+    if pulse.morning_risk_note:
+        lines.append(f"- _{pulse.morning_risk_note}_")
+    if pulse.tx_gap_pct is not None:
+        lines.append(
+            f"- TX gap **{pulse.tx_gap_pct:+.2f}%** @ {pulse.tx_price or '—'}"
+            f" · 前日加權 {pulse.tw_spot_prev_close or '—'}"
+        )
+        if pulse.te_gap_pct is not None:
+            lines.append(f"- TE gap **{pulse.te_gap_pct:+.2f}%**")
+    else:
+        lines.append("- 無 morning_risk 資料")
+
+    lines.extend(["", "## 組合閘門（intraday-exit-playbook v2）"])
+    lines.append(
+        "- **09:05 判定一次**：`portfolio_exit_mode=ON` 需 **CORE4≥2 檔 ≤昨收×0.98** "
+        "且 **2330 ≤昨收×0.995**"
+    )
+    gate_px = _fmt_px(pulse.gate_2330_price)
+    gate_hit = (
+        "✓ 觸發"
+        if pulse.gate_2330_hit
+        else ("未觸發" if pulse.gate_2330_hit is False else "—")
+    )
+    lines.append(
+        f"- 2330 現價 {gate_px} · 09:05 ≤ **{pulse.gate_2330_995 or '—'}** → {gate_hit}"
+    )
+    lines.append(f"- CORE4 ≤ 昨收×0.98：**{pulse.core4_gate_hits}** / 4 檔")
+    preview = pulse.portfolio_exit_preview
+    if preview is True:
+        lines.append("- **portfolio_exit_mode 預判：ON**（CORE4≥2 且 2330 觸發）")
+        lines.append("  - ON 時：弱檔 S2（-3%）可啟用；S1 結構停損仍有效")
+    elif preview is False:
+        lines.append("- portfolio_exit_mode 預判：**OFF**")
+        lines.append(
+            "  - OFF 時：**S2（-3% 環境減碼）不啟用**；S1a/S1b 結構停損仍有效；"
+            "v2 已停用機械 -2% 賣（S3/S4）"
+        )
+    if pulse.portfolio_gate_ran:
+        mode = pulse.portfolio_exit_mode
+        lines.append(
+            f"- 今日 09:05 gate 已跑：{'ON' if mode else 'OFF' if mode is False else 'skip'}"
+        )
+    if pulse.holdings_stress:
+        lines.append(
+            f"- **holdings_stress**：{pulse.holdings_stress_count} 檔 ≤ 昨收×0.98"
+        )
+        lines.append("  - ≥3 檔觸 -2% 時標記組合壓力（可啟用 S2-lite 觀測）")
+    lines.append("")
+
+    lines.append("## 持倉明細")
+    lines.append("")
+    lines.append(
+        "_tier：weak=RRG 偏弱或 VCP Overextended；strong=leading/improving 且非 Overextended。"
+        "距-2%=距昨收×0.98；S1b=弱檔 -3%；ext=昨收×1.04。"
+        "RRG盤中 K=1m K · t=tick fallback。旗標為觀測線，非自動賣出。_"
+    )
+    lines.append("")
+    lines.append(
+        "| 代號 | 名稱 | 股數 | 成本 | 現價 | 昨收 | 今日% | 損益 | 損益% | 佔比 | "
+        "RRG收盤 | RRG盤中 | Δ象限 | tier | 距-2% | S1b | ext | VCP | 持有 | 旗標 |"
+    )
+    lines.append(
+        "|------|------|-----:|-----:|-----:|-----:|------:|-----:|------:|-----:|"
+        "--------|--------|------|------|-------|-----|-----|-----|------|------|"
+    )
+
+    for r in pulse.holdings:
+        b = r.base
+        name = b.stock_name or "—"
+        cost = _fmt_px(b.cost_price)
+        px = _fmt_px(r.current_price)
+        if r.price_source not in ("fubon", "finmind_tick"):
+            px = f"{px}*"
+        pnl = f"{b.unrealized_pnl:+,}"
+        wt = _fmt_pct(r.weight_pct, signed=False) if r.weight_pct is not None else "—"
+        close_cell = _rrg_cell(r.rrg_close)
+        intra_cell = _rrg_cell(r.rrg_intraday)
+        delta_q = r.rrg_quad_delta or "—"
+        if r.rrg_seg_delta is not None:
+            delta_q = f"{delta_q} · Δseg {r.rrg_seg_delta:+.3f}" if delta_q != "—" else f"Δseg {r.rrg_seg_delta:+.3f}"
+        vcp = "—"
+        if r.vcp_composite is not None:
+            vcp = f"{r.vcp_composite:.0f}"
+            if r.vcp_state:
+                vcp += f" · {r.vcp_state}"
+        hold = str(r.hold_days) if r.hold_days is not None else "—"
+        flags = " · ".join(
+            [*r.structural_flags, *r.exit_log_today, *b.notes]
+        ) or "—"
+        lines.append(
+            f"| {b.stock_id} | {name} | {b.shares} | {cost} | {px} | "
+            f"{_fmt_px(b.prev_close)} | {_fmt_pct(r.daily_pct)} | {pnl} | "
+            f"{_fmt_pct(r.pnl_pct)} | {wt} | {close_cell} | {intra_cell} | {delta_q} | "
+            f"{b.structure_tier} | {_fmt_pct(r.dist_gate_2pct_pct)} | "
+            f"{_fmt_pct(r.dist_s1b_pct)} | {_fmt_pct(r.dist_extension_pct)} | "
+            f"{vcp} | {hold} | {flags} |"
+        )
+
+    lines.extend([""])
+    lines.extend(_format_priority_watch(pulse))
+
+    uses_fallback = pulse.market_phase == "after_close" or any(
+        r.price_source == "prev_close" for r in pulse.holdings
+    )
+    lines.extend(
+        [
+            "",
+            "## 紀律",
+            "- 09:00–09:04 只觀察、不賣",
+            "- 09:05 判斷組合閘門；09:06 起 sell-signal-radar（持倉交集才寄信）",
+            "- 13:20 後停止自動減碼",
+            "- 本報告 advisory · 人工確認後下單",
+            "- 建議盤中 09:10–13:20 執行以取得 live 現價與 RRG 盤中",
+        ]
+    )
+    if uses_fallback:
+        lines.append("")
+        lines.append("_＊部分或全部現價為昨收 fallback（標 *）；旗標僅供參考_")
+    return "\n".join(lines)
+
+
+def default_report_path(session_date: str) -> Path:
+    stamp = session_date.replace("-", "")
+    return PROJECT_ROOT / "reports" / "order" / "snapshots" / f"holdings_pulse_{stamp}.md"
+
+
+def write_holdings_pulse(pulse: HoldingsPulse, path: Path | None = None) -> Path:
+    out = path or default_report_path(pulse.session_date)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(format_holdings_pulse(pulse), encoding="utf-8")
+    return out

@@ -1,6 +1,6 @@
 """RRG mono swap-accel（C18acc）· 16:30 收盤診斷 brief（Scheme A · 不下單）。
 
-PIT as_of = 當日收盤；鎖定隔日盤中候選池（fresh mono 全池 · 依 seg_last 排序）。
+PIT as_of = 當日收盤；鎖定隔日盤中候選池（fresh∪accel 全池 · 依 seg_last 排序）。
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from research.backtest.rrg_mono_score_swap_c import (
     _buy_threshold_score,
     _trading_days_between,
     candidate_shortlist_is_passthrough,
+    build_pit_candidate_pool,
     champion_score_swap_c_config,
 )
 from rrg_mono_daily_brief import (
@@ -78,12 +79,26 @@ def _tomorrow_pool(
     close,
     bench,
     *,
+    config: ScoreSwapCConfig | None = None,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
 ) -> tuple[list[ScanRow], int]:
-    _all_mono, fresh_mono = scan_rows_from_panels(
+    cfg = config or champion_score_swap_c_config()
+    all_mono, fresh_mono = scan_rows_from_panels(
         conn, as_of, close, bench, etf_codes=etf_codes
     )
-    ranked = sorted(fresh_mono, key=lambda r: (-r.seg_last, r.stock_id))
+    if cfg.candidate_pool == "fresh":
+        ranked = sorted(fresh_mono, key=lambda r: (-r.seg_last, r.stock_id))
+        return ranked, len(fresh_mono)
+    close_sig, bench_sig, rs_ratio, rs_mom, full_dates = _signal_rrg_panels(close, bench, as_of)
+    ranked = build_pit_candidate_pool(
+        fresh_mono=fresh_mono,
+        mono_rows=all_mono,
+        rs_ratio=rs_ratio,
+        rs_mom=rs_mom,
+        full_dates=full_dates,
+        as_of=as_of,
+        config=cfg,
+    )
     return ranked, len(fresh_mono)
 
 
@@ -161,7 +176,7 @@ def build_payload(
     cfg = config or champion_score_swap_c_config()
     close, _, _ = load_price_panels(conn)
     bench = load_benchmark_close(conn).reindex(close.index)
-    pool, fresh_n = _tomorrow_pool(conn, as_of, close, bench, etf_codes=etf_codes)
+    pool, fresh_n = _tomorrow_pool(conn, as_of, close, bench, config=cfg, etf_codes=etf_codes)
     state = load_slot_state()
     slots = list(state.get("slots") or [])
 
@@ -245,7 +260,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "",
         f"> **Scheme A** · 收盤後 PIT · 隔日候選池 · **不下單** · variant `{cfg.variant_id}`",
         "",
-        "## 隔日候選池（fresh mono · 依軌跡排序 · 全池）",
+        "## 隔日候選池（fresh∪accel · 依軌跡排序 · 全池）",
         "",
         f"信號日 **{as_of}** · 池內 fresh **{payload['pool_fresh_n']}** 檔 · "
         f"隔日盤中 screen 鎖定下列全池（不裁 top10）。",

@@ -182,8 +182,6 @@ supabase.schema('stock_research')
 | `intraday` | 13:00 | 上一交易日收盤 K |
 | `close` | 16:30 | 當日收盤 K |
 
-**未納入日報**：`minervini-sepa-basket` 為 **月頻** ad-hoc 回測，無每日 screen。
-
 ### `snapshot_json` 路由契約
 
 策略篩選 brief 帶：

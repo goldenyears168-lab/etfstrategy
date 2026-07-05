@@ -18,6 +18,44 @@ class _OpenPos:
     exit_date: str
     entry_px: float
     allocation: float
+    source_priority: int = 99
+    entry_idx: int = 0
+
+
+def _exit_px_on_date(
+    conn: sqlite3.Connection,
+    close: pd.DataFrame,
+    stock_id: str,
+    d: str,
+) -> float | None:
+    exit_px = None
+    if stock_id in close.columns and d in close.index:
+        v = close.at[d, stock_id]
+        if v is not None and float(v) > 0:
+            exit_px = float(v)
+    if exit_px is None:
+        exit_px = stock_close(conn, stock_id, d)
+    return float(exit_px) if exit_px is not None and exit_px > 0 else None
+
+
+def _close_position_cash(
+    conn: sqlite3.Connection,
+    close: pd.DataFrame,
+    pos: _OpenPos,
+    d: str,
+    *,
+    cost_model: dict | None,
+) -> float:
+    exit_px = _exit_px_on_date(conn, close, pos.stock_id, d)
+    if exit_px is None:
+        return pos.allocation
+    return _apply_exit_proceeds(pos.allocation, pos.entry_px, exit_px, cost_model=cost_model)
+
+
+def _pick_eviction_victim(open_pos: list[_OpenPos], *, eviction: str) -> _OpenPos:
+    if eviction == "lowest_priority":
+        return max(open_pos, key=lambda p: (p.source_priority, p.entry_date, p.entry_idx))
+    return min(open_pos, key=lambda p: (p.entry_date, p.entry_idx))
 
 
 def _resolve_entry_px(
@@ -38,6 +76,28 @@ def _resolve_entry_px(
     return float(px) if px is not None and px > 0 else None
 
 
+def _apply_exit_proceeds(
+    allocation: float,
+    entry_px: float,
+    exit_px: float,
+    *,
+    cost_model: dict | None,
+) -> float:
+    proceeds = allocation * (exit_px / entry_px)
+    if not cost_model:
+        return proceeds
+    sell_cost_pct = float(cost_model.get("sell_fee_pct", 0)) + float(
+        cost_model.get("sell_tax_pct", 0)
+    )
+    return proceeds * (1.0 - sell_cost_pct / 100.0)
+
+
+def _entry_cost(allocation: float, *, cost_model: dict | None) -> float:
+    if not cost_model:
+        return 0.0
+    return allocation * float(cost_model.get("buy_fee_pct", 0)) / 100.0
+
+
 def simulate_slot_portfolio(
     conn: sqlite3.Connection,
     close: pd.DataFrame,
@@ -46,6 +106,8 @@ def simulate_slot_portfolio(
     *,
     total_capital: float = 50_000.0,
     n_slots: int,
+    cost_model: dict | None = None,
+    return_daily: bool = False,
 ) -> dict:
     """
     Equal-capital slot book: deploy total_capital / n_slots per position.
@@ -68,6 +130,7 @@ def simulate_slot_portfolio(
 
     daily_returns: list[float] = []
     equities: list[float] = []
+    daily_nav_rows: list[dict] = []
     util_samples: list[float] = []
     prev_equity = total_capital
     deployed_sum = 0.0
@@ -91,7 +154,9 @@ def simulate_slot_portfolio(
             if exit_px is None or exit_px <= 0:
                 cash += pos.allocation
             else:
-                cash += pos.allocation * (exit_px / pos.entry_px)
+                cash += _apply_exit_proceeds(
+                    pos.allocation, pos.entry_px, exit_px, cost_model=cost_model
+                )
             open_pos.remove(pos)
 
         held_ids = {p.stock_id for p in open_pos}
@@ -104,10 +169,11 @@ def simulate_slot_portfolio(
             entry_px = _resolve_entry_px(conn, close, sid, d, p)
             if entry_px is None:
                 continue
-            alloc = min(slot_cap, cash)
+            entry_fee = _entry_cost(slot_cap, cost_model=cost_model)
+            alloc = min(slot_cap, cash - entry_fee)
             if alloc <= 0:
                 break
-            cash -= alloc
+            cash -= alloc + entry_fee
             ex = str(p["exit_date"])
             open_pos.append(
                 _OpenPos(
@@ -139,6 +205,16 @@ def simulate_slot_portfolio(
         equities.append(equity)
         deployed = sum(p.allocation for p in open_pos)
         util_samples.append(deployed / total_capital * 100.0 if total_capital > 0 else 0.0)
+        if return_daily:
+            cash_pct = (cash / equity * 100.0) if equity > 0 else 100.0
+            daily_nav_rows.append(
+                {
+                    "date": d,
+                    "equity_ntd": round(equity, 2),
+                    "in_market_flag": 1 if deployed > 0 else 0,
+                    "cash_pct": round(cash_pct, 2),
+                }
+            )
         if prev_equity > 0:
             daily_returns.append((equity / prev_equity - 1.0) * 100.0)
         prev_equity = equity
@@ -154,13 +230,15 @@ def simulate_slot_portfolio(
         if exit_px is None:
             exit_px = stock_close(conn, sid, last)
         if exit_px is not None and exit_px > 0:
-            cash += pos.allocation * (exit_px / pos.entry_px)
+            cash += _apply_exit_proceeds(
+                pos.allocation, pos.entry_px, exit_px, cost_model=cost_model
+            )
         else:
             cash += pos.allocation
         open_pos.remove(pos)
 
     final_equity = cash
-    return _metrics_from_series(
+    out = _metrics_from_series(
         total_capital=total_capital,
         final_equity=final_equity,
         daily_returns=daily_returns,
@@ -172,6 +250,181 @@ def simulate_slot_portfolio(
         hold_days_sum=hold_days_sum,
         calendar_days=len(trade_dates),
     )
+    out["max_drawdown_pct"] = _max_drawdown_pct(equities, total_capital)
+    if return_daily and daily_nav_rows:
+        out["daily_nav"] = daily_nav_rows
+    return out
+
+
+def simulate_slot_portfolio_yield_new(
+    conn: sqlite3.Connection,
+    close: pd.DataFrame,
+    trade_dates: list[str],
+    periods: list[dict],
+    *,
+    total_capital: float = 50_000.0,
+    n_slots: int,
+    cost_model: dict | None = None,
+    max_hold_days: int | None = None,
+    eviction: str = "oldest",
+    preempt_only_if_higher_priority: bool = False,
+    return_daily: bool = False,
+) -> dict:
+    """
+    Slot book that yields to new signals: when full, evict an open leg at the same close
+    before entering. Optional max_hold_days forces earlier exits.
+    If preempt_only_if_higher_priority, new signal must beat victim's source_priority.
+    """
+    if not trade_dates:
+        return _empty_metrics(total_capital)
+
+    slot_cap = total_capital / n_slots
+    cash = float(total_capital)
+    open_pos: list[_OpenPos] = []
+
+    entries_by_date: dict[str, list[dict]] = {}
+    for p in periods:
+        ed = str(p.get("entry_date") or "")
+        ex = str(p.get("exit_date") or "")
+        if not ed or not ex or ed > ex:
+            continue
+        entries_by_date.setdefault(ed, []).append(p)
+
+    daily_returns: list[float] = []
+    equities: list[float] = []
+    daily_nav_rows: list[dict] = []
+    util_samples: list[float] = []
+    prev_equity = total_capital
+    deployed_sum = 0.0
+    n_entries = 0
+    n_preemptions = 0
+    hold_days_sum = 0
+
+    date_idx = {d: i for i, d in enumerate(trade_dates)}
+
+    def _remove(pos: _OpenPos, d: str, *, counted_hold: bool) -> None:
+        nonlocal cash, hold_days_sum
+        cash += _close_position_cash(conn, close, pos, d, cost_model=cost_model)
+        open_pos.remove(pos)
+        if counted_hold:
+            ei = date_idx.get(pos.entry_date)
+            di = date_idx.get(d)
+            if ei is not None and di is not None:
+                hold_days_sum += max(0, di - ei)
+
+    for d in trade_dates:
+        di = date_idx[d]
+        for pos in list(open_pos):
+            if pos.exit_date == d:
+                _remove(pos, d, counted_hold=True)
+                continue
+            if max_hold_days is not None:
+                held = di - pos.entry_idx
+                if held >= max_hold_days:
+                    _remove(pos, d, counted_hold=True)
+
+        held_ids = {p.stock_id for p in open_pos}
+        for p in entries_by_date.get(d, []):
+            sid = str(p["stock_id"])
+            if sid in held_ids:
+                continue
+            entry_px = _resolve_entry_px(conn, close, sid, d, p)
+            if entry_px is None:
+                continue
+
+            while len(open_pos) >= n_slots:
+                victim = _pick_eviction_victim(open_pos, eviction=eviction)
+                new_prio = int(p.get("_priority", 99))
+                if preempt_only_if_higher_priority and new_prio >= victim.source_priority:
+                    break
+                _remove(victim, d, counted_hold=True)
+                n_preemptions += 1
+                held_ids = {x.stock_id for x in open_pos}
+
+            if len(open_pos) >= n_slots:
+                continue
+            entry_fee = _entry_cost(slot_cap, cost_model=cost_model)
+            alloc = min(slot_cap, cash - entry_fee)
+            if alloc <= 0:
+                break
+            cash -= alloc + entry_fee
+            ex = str(p["exit_date"])
+            open_pos.append(
+                _OpenPos(
+                    stock_id=sid,
+                    entry_date=d,
+                    exit_date=ex,
+                    entry_px=entry_px,
+                    allocation=alloc,
+                    source_priority=int(p.get("_priority", 99)),
+                    entry_idx=di,
+                )
+            )
+            held_ids.add(sid)
+            deployed_sum += alloc
+            n_entries += 1
+
+        pos_val = 0.0
+        for pos in open_pos:
+            if d < pos.entry_date:
+                continue
+            if pos.stock_id in close.columns and d in close.index:
+                px = close.at[d, pos.stock_id]
+                if px is not None and float(px) > 0:
+                    pos_val += pos.allocation * (float(px) / pos.entry_px)
+
+        equity = cash + pos_val
+        equities.append(equity)
+        deployed = sum(p.allocation for p in open_pos)
+        util_samples.append(deployed / total_capital * 100.0 if total_capital > 0 else 0.0)
+        if return_daily:
+            cash_pct = (cash / equity * 100.0) if equity > 0 else 100.0
+            daily_nav_rows.append(
+                {
+                    "date": d,
+                    "equity_ntd": round(equity, 2),
+                    "in_market_flag": 1 if deployed > 0 else 0,
+                    "cash_pct": round(cash_pct, 2),
+                }
+            )
+        if prev_equity > 0:
+            daily_returns.append((equity / prev_equity - 1.0) * 100.0)
+        prev_equity = equity
+
+    last = trade_dates[-1]
+    for pos in list(open_pos):
+        _remove(pos, last, counted_hold=True)
+
+    final_equity = cash
+    out = _metrics_from_series(
+        total_capital=total_capital,
+        final_equity=final_equity,
+        daily_returns=daily_returns,
+        equities=equities,
+        util_samples=util_samples,
+        n_slots=n_slots,
+        n_entries=n_entries,
+        deployed_sum=deployed_sum,
+        hold_days_sum=hold_days_sum,
+        calendar_days=len(trade_dates),
+    )
+    out["max_drawdown_pct"] = _max_drawdown_pct(equities, total_capital)
+    out["n_preemptions"] = n_preemptions
+    if return_daily and daily_nav_rows:
+        out["daily_nav"] = daily_nav_rows
+    return out
+
+
+def _max_drawdown_pct(equities: list[float], initial: float) -> float | None:
+    if not equities:
+        return None
+    peak = float(initial)
+    max_dd = 0.0
+    for eq in equities:
+        peak = max(peak, eq)
+        if peak > 0:
+            max_dd = max(max_dd, (peak - eq) / peak)
+    return round(max_dd * 100.0, 4)
 
 
 def _empty_metrics(total_capital: float) -> dict:
@@ -516,6 +769,8 @@ def portfolio_metrics_for_periods(
     total_capital: float = 50_000.0,
     n_slots: int,
     close: pd.DataFrame | None = None,
+    cost_model: dict | None = None,
+    return_daily: bool = False,
 ) -> dict:
     if close is None:
         from .finpilot_local_backtest import load_price_panels
@@ -528,4 +783,6 @@ def portfolio_metrics_for_periods(
         periods,
         total_capital=total_capital,
         n_slots=n_slots,
+        cost_model=cost_model,
+        return_daily=return_daily,
     )

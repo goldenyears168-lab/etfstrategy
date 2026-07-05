@@ -1,0 +1,236 @@
+# 跨軌比較層 SSOT — docs/unified-backtest-standard.md
+# 不取代 config/strategy.yaml 契約版回測規格
+
+version: backtest-standard-v2
+benchmark: IX0001
+
+# 比較層唯一 notional：全軌等比例 deploy · 排名只看 % 指標
+comparison_notional_ntd: 100000
+
+nav_engine: slot_portfolio_metrics.simulate_slot_portfolio
+
+track_adapters:
+  00981a-l1h9:
+    source: copytrade_legs
+    n_slots: 9
+    earliest_data: "2025-05-28"
+  rrg-mono-hold7:
+    source: slot_periods_native
+    n_slots: 3
+  rrg-mono-swap-accel:
+    source: slot_periods_native
+    n_slots: 3
+  vcp-pivot-gate:
+    source: slot_periods_native
+    n_slots: 5
+  vcp-coil-close:
+    source: slot_periods_native
+    n_slots: 5
+
+  # FinMind 市集（research 層 · 比較層 adapter）
+  finmind-low-ps-growth:
+    source: finmind_marketplace
+    n_slots: 5
+    earliest_data: "2020-12-01"
+  finmind-tx-foreign-net-long-3d:
+    source: finmind_marketplace
+    n_slots: 1
+    earliest_data: "2018-06-05"
+  finmind-ma20-breakout-volume:
+    source: finmind_marketplace
+    n_slots: 5
+    earliest_data: "2015-01-01"
+
+# 跨原生 + 市集編隊（比較層 · 共用 comparison_notional_ntd / cost_model / IX0001）
+ensemble_teams:
+  team_native_super:
+    label: 原生強者編隊 · swap+hold7+vcp
+    window_id: cmp_max_common
+    n_slots: 5
+    pool_mode: shared_pool_yield_priority
+    members:
+      - strategy_id: rrg-mono-swap-accel
+        priority: 0
+      - strategy_id: rrg-mono-hold7
+        priority: 1
+      - strategy_id: vcp-coil-close
+        priority: 2
+      - strategy_id: vcp-pivot-gate
+        priority: 3
+
+  team_native_finmind:
+    label: 原生+市集 · swap+TX+低P/S
+    window_id: cmp_max_common
+    n_slots: 5
+    pool_mode: shared_pool_yield_priority
+    members:
+      - strategy_id: rrg-mono-swap-accel
+        priority: 0
+      - strategy_id: finmind-tx-foreign-net-long-3d
+        priority: 1
+      - strategy_id: finmind-low-ps-growth
+        priority: 2
+      - strategy_id: vcp-pivot-gate
+        priority: 3
+
+  team_finmind_tri:
+    label: 市集主力三角 · S2+S3+S4
+    window_id: cmp_finmind_native_intersect
+    n_slots: 5
+    pool_mode: shared_pool_yield_priority
+    members:
+      - strategy_id: finmind-tx-foreign-net-long-3d
+        priority: 0
+      - strategy_id: finmind-low-ps-growth
+        priority: 1
+      - strategy_id: finmind-ma20-breakout-volume
+        priority: 2
+
+windows:
+  cmp_max_common:
+    label: 原生五軌資料交集最長窗
+    date_start: "2025-05-28"
+    date_end: null
+    primary: true
+  cmp_finmind_native_intersect:
+    label: 原生+市集交集窗（copytrade 起點）
+    date_start: "2025-05-28"
+    date_end: null
+  cmp_rolling_252d:
+    label: 最近 252 個交易日滾動
+    lookback_trading_days: 252
+  cmp_2025_full:
+    label: 2025 全年對照
+    date_start: "2025-01-01"
+    date_end: "2025-12-31"
+  cmp_2026_ytd:
+    label: 2026 年初至今對照
+    date_start: "2026-01-01"
+    date_end: null
+  cmp_native_rrg_vcp_2024:
+    label: 原生四軌長窗（不含 copytrade · 2024 起）
+    date_start: "2024-01-01"
+    date_end: null
+
+min_trading_days_for_annualization: 120
+
+cost_model:
+  enabled: true
+  buy_fee_pct: 0.1425
+  sell_fee_pct: 0.1425
+  sell_tax_pct: 0.3
+
+excess_definition: interval_excess_pct
+
+significance:
+  enabled: false
+  bootstrap_resamples: 1000
+  ci_level_pct: 95
+  min_n_for_ci_required: 30
+
+output:
+  nav_csv_dir: reports/research/_unified/
+  league_table_json: reports/research/_unified/league_table_{window_id}.json
+  league_table_md: reports/research/_unified/league_table_{window_id}.md
+  probe_radar_dir: reports/daily/regime/
+
+# 市場探針雷達 · T-1 收盤後評分 → T 日策略路由（research / meta 層）
+# 定位：氣象站（非選股器）· 低門檻寬觸發 · 大樣本聚合 · 不看 structure stop
+probe_radar:
+  benchmark: IX0001
+  zscore_lookback_days: 20
+  universe: etf_constituent_watchlist_intraday
+  min_bars_per_day: 30
+  min_n_signals: 50
+  min_n_for_zscore: 30
+  probe_exit: same_day_close
+  probe_use_stop: false
+  vol_state:
+    method: holmberg_abs_return_decile
+    rank_lookback_days: 252
+    n_deciles: 10
+    high_decile_min: 7
+    low_decile_max: 3
+  axes:
+    - axis_id: momentum
+      label: 動能
+      probe_modes: [orb_probe]
+    - axis_id: mean_reversion
+      label: 均值回歸
+      probe_modes: [vwap_reclaim_probe, vwap_bounce_probe]
+    - axis_id: trend_pullback
+      label: 趨勢回踩
+      probe_modes: [bone_zone_probe]
+    - axis_id: structure
+      label: 結構廣度
+      probe_modes: [session_momentum_probe]
+    - axis_id: volatility
+      label: 波動狀態
+      source: vol_state
+
+meta_router:
+  version: meta-router-v2
+  default_team_id: team_native_super
+  quartile_min_history: 20
+  walk_forward_train_end: "2025-06-30"
+  market_types:
+    - type_id: momentum_day
+      label: 動能日
+      rules:
+        momentum_z_min: 0.75
+        vol_decile_min: 7
+      priority_boost:
+        rrg-mono-swap-accel: 0
+        finmind-ma20-breakout-volume: 2
+        vcp-pivot-gate: 3
+    - type_id: mean_reversion_day
+      label: 均值回歸日
+      rules:
+        mean_reversion_z_min: 0.75
+        momentum_z_max: -0.25
+      priority_boost:
+        finmind-low-ps-growth: 1
+        vcp-coil-close: 2
+    - type_id: no_edge_day
+      label: 無優勢日
+      rules:
+        all_axes_z_max: -0.5
+      priority_boost:
+        rrg-mono-swap-accel: 0
+      slot_cap_scale: 0.6
+    - type_id: mom_q4_day
+      label: 動能Q4
+      rules:
+        momentum_quartile_min: 4
+        vol_decile_min: 6
+      priority_boost:
+        finmind-ma20-breakout-volume: 1
+        rrg-mono-swap-accel: 2
+    - type_id: mrev_q4_day
+      label: 均值回歸Q4
+      rules:
+        mean_reversion_quartile_min: 4
+        momentum_quartile_max: 2
+      priority_boost:
+        finmind-low-ps-growth: 1
+        vcp-coil-close: 2
+    - type_id: pullback_q4_day
+      label: 回踩Q4
+      rules:
+        trend_pullback_quartile_min: 4
+        momentum_quartile_max: 3
+      priority_boost:
+        rrg-mono-hold7: 1
+        vcp-pivot-gate: 2
+    - type_id: breadth_q4_day
+      label: 廣度Q4
+      rules:
+        structure_quartile_min: 4
+        mean_reversion_quartile_max: 2
+      priority_boost:
+        rrg-mono-swap-accel: 0
+        finmind-tx-foreign-net-long-3d: 2
+    - type_id: neutral
+      label: 中性
+      rules: {}
+      priority_boost: {}

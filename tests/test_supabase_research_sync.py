@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import unittest
 from datetime import date
 from pathlib import Path
@@ -245,6 +246,28 @@ class TestBriefCatalog(unittest.TestCase):
         self.assertEqual(result.uploaded, [])
         self.assertTrue(any("non-trading-day" in s for s in result.skipped))
         self.assertEqual(result.errors, [])
+
+    @patch("supabase_research_sync._today_tpe", return_value=date(2026, 6, 25))
+    @patch("supabase_research_sync.supabase_configured", return_value=True)
+    @patch("supabase_research_sync.load_brief", return_value=None)
+    def test_sync_slot_1300_allows_weekday_before_tej_close(
+        self,
+        _mock_load: object,
+        _mock_cfg: object,
+        _mock_today: object,
+    ) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE daily_bars (code TEXT, source TEXT, date TEXT, close REAL)"
+        )
+        conn.execute(
+            "INSERT INTO daily_bars VALUES ('IX0001', 'tej', '2026-06-24', 1.0)"
+        )
+        with patch("supabase_research_sync.connect", return_value=conn):
+            result = sync_slot("1300")
+        self.assertFalse(any("non-trading-day" in s for s in result.skipped))
+        conn.close()
 
     @patch("supabase_research_sync.supabase_configured", return_value=True)
     @patch("supabase_research_sync.allow_scheduled_supabase_push", return_value=False)

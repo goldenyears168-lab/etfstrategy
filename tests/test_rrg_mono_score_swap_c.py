@@ -8,6 +8,7 @@ from research.backtest.rrg_mono_score_swap_c import (
     ScoreSwapCConfig,
     _last_step_trend,
     _pick_swap_pair,
+    _timeline_bundle_from_period,
 )
 from rrg_mono_daily_brief import ScanRow
 
@@ -594,6 +595,56 @@ class TestEntryFallbackPool(unittest.TestCase):
     def test_to_dict_none_when_not_set(self) -> None:
         cfg = ScoreSwapCConfig()
         self.assertIsNone(cfg.to_dict()["entry_fallback_pool"])
+
+    def test_c18acc_slot_config(self) -> None:
+        from research.backtest.rrg_mono_score_swap_c import c18acc_slot_config
+
+        cfg = c18acc_slot_config(7, fill_mode="batch_topk")
+        self.assertEqual(cfg.variant_id, "C18acc-S7")
+        self.assertEqual(cfg.n_slots, 7)
+        self.assertEqual(cfg.fill_mode, "batch_topk")
+        self.assertEqual(cfg.score_margin, 0.05)
+        self.assertTrue(cfg.accel_sell_negative_only)
+
+    def test_rank_rows_for_fill_buy_accel(self) -> None:
+        from research.backtest.rrg_mono_score_swap_c import _rank_rows_for_fill
+
+        rows = [_row("2330", 1.0), _row("2454", 2.0), _row("3008", 3.0)]
+        cfg = ScoreSwapCConfig(buy_sort_key="avg_accel_decel")
+        accel = {"2330": 0.1, "2454": 0.5, "3008": 0.3}
+        ranked = _rank_rows_for_fill(rows, cfg, challenger_va_dot={}, challenger_avg_accel=accel)
+        self.assertEqual([r.stock_id for r in ranked], ["2454", "3008", "2330"])
+
+    def test_pure_fixed_hold_config(self) -> None:
+        from research.backtest.rrg_mono_score_swap_c import pure_fixed_hold_score_swap_c_config
+
+        cfg = pure_fixed_hold_score_swap_c_config()
+        self.assertEqual(cfg.variant_id, "C18acc-pure")
+        self.assertEqual(cfg.timing_mode, "close")
+        self.assertEqual(cfg.max_swaps_per_day, 0)
+
+    def test_timeline_bundle_from_period(self) -> None:
+        period = {
+            "stock_id": "2330",
+            "stock_name": "台積電",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-02",
+            "exit_date": "2026-01-10",
+            "entry_px": 1000.0,
+            "exit_px": 1050.0,
+            "exit_reason": "score_swap",
+            "return_pct": 5.0,
+            "bench_return_pct": 2.0,
+            "excess_pct": 3.0,
+            "seg_last": 1.234,
+            "slot": 1,
+        }
+        leg, executed = _timeline_bundle_from_period(period, capital_ntd=10_000.0)
+        self.assertEqual(leg["leg_id"], "2026-01-02|2330|1")
+        self.assertEqual(leg["slot_id"], 1)
+        self.assertEqual(leg["action"], "score_swap")
+        self.assertEqual(executed["alpha_ntd"], 300.0)
+        self.assertEqual(executed["return_pct"], 5.0)
 
 
 if __name__ == "__main__":

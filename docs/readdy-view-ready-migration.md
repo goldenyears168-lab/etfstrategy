@@ -246,7 +246,7 @@ flowchart TB
 
 **前端可刪**：`lib/strategyScreenStatus.ts` 大部分（保留型別或併入 `briefSnapshots.ts`）
 
-**風險**：中 · 需覆蓋五軌策略 + minervini 月頻特例
+**風險**：中 · 需覆蓋五軌策略 screen 契約
 
 ---
 

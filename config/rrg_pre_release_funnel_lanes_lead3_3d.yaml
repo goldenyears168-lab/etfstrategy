@@ -1,0 +1,166 @@
+version: rrg-pre-release-funnel-lead3-3d-v4
+model_id: rrg-pre-release-funnel-lead3-3d
+layer: research
+description: lead3 sub-pool · mean_3d≥3% · ortho micro-lanes · archetype registry
+universe:
+  parent: pre-release pool (rrg_pre_release_funnel_lanes_3d)
+  sub_pool_filter: lead3 = improving ∧ RV∈[98,100) ∧ improve_streak≥4
+  sub_pool_late: lead3_late = lead3 ∧ improve_streak≥7 (st7p)
+  outcome: ret_3d
+  auxiliary_outcome: flip_leading_3d
+  pit: true
+  hold_days: 3
+  pass_threshold:
+    mean_3d_min: 3.0
+    win_3d_min: 0.58
+    n_min: 8
+    jaccard_max: 0.32
+    loss5_rate_max: 0.15
+discovery:
+  enabled: false
+  rediscover_strict: true
+  ortho_only: true
+  coverage_ortho_only: false
+  max_strict: 10
+  max_coverage: 8
+  strict_win_min: 0.58
+  strict_mean_min: 3.0
+  strict_n_min: 8
+  max_loss5_rate: 0.15
+  coverage_win_min: 0.55
+  coverage_mean_min: 3.0
+  coverage_mean_max: 8.0
+  coverage_n_min: 15
+  jaccard_max: 0.32
+  jaccard_max_coverage: 0.45
+hypothesis:
+  register_passing: true
+  h1a_force_atoms:
+  - plag
+  h2a_combo:
+  - lead3
+  - b1
+  - disp
+  - hist
+  - q35
+  h3a_force_atoms:
+  - st7p
+  h3a_target_archetypes:
+  - late_streak
+  - st7p_coil
+  h4a_st7p_coil:
+  - lead3
+  - st7p
+  - disp
+  - flat
+  h4b_high_ret_lift:
+  - lead3
+  - disp
+  - hist
+  - q35
+atoms:
+  lead3:
+    label: Improving RV98–100 · streak≥4
+    en: end_q=improving ∧ rv∈[98,100) ∧ improve_streak≥4
+  lead3_late:
+    label: lead3 late · streak≥7
+    en: lead3 ∧ improve_streak≥7 (st7p)
+  b2:
+    label: 台指當日 ≥+2%
+  b1:
+    label: 台指當日 ≥+1%
+  b0:
+    label: 台指當日 ≥0%
+  disp:
+    label: 離散度收斂
+  base:
+    label: Base setup
+  st46:
+    label: Improving streak 4–6 天
+  st7p:
+    label: Improving streak ≥7
+  hist:
+    label: 個股 pre-release 3日史績正向
+  plag:
+    label: 前日 Lagging
+  dip:
+    label: 微幅回檔
+  flat:
+    label: 平盤帶
+  q35:
+    label: 準 burst 3–5%
+  q45:
+    label: 準 burst 4–5%
+  ex:
+    label: 落後大盤蓄力
+  gap1:
+    label: 連續交易日
+  no23:
+    label: 排除 streak 2–3
+  s2:
+    label: S2 setup core
+lanes:
+  strict:
+  - id: L01
+    tier: strict
+    rule_atoms:
+    - lead3
+    - b2
+    - disp
+    - hist
+    - q35
+    - st46
+    label: lead3+b2+disp+hist+q35+st46
+    description: 強台指×disp↓×hist+×準burst×中streak · sweep 最佳
+    regime_tag: lead3_flip
+    archetype_tag: b2_burst
+  - id: L02
+    tier: strict
+    rule_atoms:
+    - lead3
+    - base
+    - disp
+    - gap1
+    - hist
+    - q35
+    label: lead3+base+disp+gap1+hist+q35
+    description: base 路徑（非 b2）· 台指非強勢日可復刻
+    regime_tag: lead3_flip
+    archetype_tag: base_coil
+  - id: L03
+    tier: strict
+    rule_atoms:
+    - lead3
+    - b2
+    - dip
+    - hist
+    - s2
+    label: lead3+b2+dip+hist+s2
+    description: S2 蓄力×dip · mean≥3% · flip 率低
+    regime_tag: s2_core
+    archetype_tag: s2_dip
+  coverage:
+  - id: LC01
+    tier: coverage
+    rule_atoms:
+    - lead3
+    - b2
+    - disp
+    - hist
+    - q35
+    label: lead3+b2+disp+hist+q35
+    description: b2 路徑寬口 · n=33 · mean≥3%
+    regime_tag: lead3_flip
+    archetype_tag: b2_burst
+  - id: LC02
+    tier: coverage
+    rule_atoms:
+    - lead3
+    - base
+    - disp
+    - q35
+    - st46
+    label: lead3+base+disp+q35+st46
+    description: base 路徑寬口 · 非強台指環境
+    regime_tag: lead3_flip
+    archetype_tag: base_coil

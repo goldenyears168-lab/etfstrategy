@@ -61,6 +61,54 @@ scripts:
     launchd: scripts/launchd/mutual-fund-disclosure-watch.command
     module: src/mutual_fund_disclosure_watch.py
 
+  run_minervini_sepa_daily_brief:
+    path: scripts/run_minervini_sepa_daily_brief.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/minervini-sepa-basket.command
+    module: src/minervini_sepa_daily.py
+    strategy_id: minervini-sepa-basket
+
+  run_rrg_improving_watch_daily:
+    path: scripts/run_rrg_improving_watch_daily.py
+    layer: pipeline
+    pipeline: daily_close
+    node: rrg_improving_watch_daily
+    module: src/rrg_improving_watch.py
+    env_flag: RUN_RRG_IMPROVING_WATCH
+
+  run_rrg_universe_timeline_daily:
+    path: scripts/run_rrg_universe_timeline_daily.py
+    layer: pipeline
+    pipeline: daily_close
+    node: rrg_universe_timeline_daily
+    module: scripts/run_rrg_universe_timeline_daily.py
+    env_flag: RUN_RRG_UNIVERSE_TIMELINE
+
+  run_c18acc_extension_screen:
+    path: scripts/run_c18acc_extension_screen.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/c18acc-extension-overlay.command
+    module: src/c18acc_extension_screen.py
+    strategy_id: rrg-mono-swap-accel-extension
+
+  run_buy_signal_radar:
+    path: scripts/run_buy_signal_radar.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/buy-signal-radar.command
+    module: src/strategy_signal_radar.py
+    strategy_id: buy-signal-radar
+
+  run_sell_signal_radar:
+    path: scripts/run_sell_signal_radar.py
+    layer: pipeline
+    pipeline: launchd
+    launchd: scripts/launchd/sell-signal-radar.command
+    module: src/strategy_signal_radar.py
+    strategy_id: sell-signal-radar
+
   run_sync_mutual_fund_holdings:
     path: scripts/run_sync_mutual_fund_holdings.py
     layer: pipeline
@@ -72,3 +120,45 @@ scripts:
     layer: regime
     purpose: Breadth zone standalone HTML · 非 daily close
     report_dir: reports/research/breadth
+
+  run_unified_backtest_comparison:
+    path: scripts/run_unified_backtest_comparison.py
+    layer: research
+    purpose: 跨軌比較層 league table · docs/unified-backtest-standard.md
+    report_dir: reports/research/_unified
+
+  run_cross_strategy_ensemble:
+    path: scripts/run_cross_strategy_ensemble.py
+    layer: research
+    purpose: 原生+市集編隊 · config/backtest_standard.yaml ensemble_teams
+    report_dir: reports/research/_unified
+
+  run_market_probe_radar:
+    path: scripts/run_market_probe_radar.py
+    layer: research
+    purpose: T-1 探針雷達 · Holmberg vol + meta_router Phase 1
+    report_dir: reports/daily/regime
+
+  backfill_probe_kbar:
+    path: scripts/backfill_probe_kbar.py
+    layer: research
+    purpose: 探針 universe 1m kbar 回灌
+    report_dir: reports/research/market-probe
+
+  backfill_c18acc_kbar:
+    path: scripts/backfill_c18acc_kbar.py
+    layer: research
+    purpose: C18acc mono shortlist 精準 1m kbar（P0 · FinMind quota-aware）
+    report_dir: reports/research/rrg
+
+  run_market_probe_strategy_research:
+    path: scripts/run_market_probe_strategy_research.py
+    layer: research
+    purpose: 探針穩定性 · 日型分類 · 全策略相關/互補
+    report_dir: reports/research/market-probe
+
+  run_research_sweep:
+    path: scripts/run_research_sweep.py
+    layer: research
+    purpose: Preregistered sweep grid · sweep_runner trial registry
+    schema: config/sweep_trial_registry.example.yaml

@@ -87,7 +87,6 @@ def build_backtest_reference(
             "date_end": bt.params.get("date_end", "2026-12-31"),
             "n_slots": bt.params.get("n_slots") or spec.n_slots or 3,
             "hold_days": bt.params.get("hold_days") or spec.hold_days or 7,
-            "capital_ntd": bt.params.get("capital_ntd", 10_000.0),
             "entry_price_mode": bt.params.get("entry_price_mode", "close"),
             "source_summary": bt.params.get("source_summary"),
             "strategy_id": bt.params.get("strategy_id") or spec.strategy_code,

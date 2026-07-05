@@ -48,13 +48,25 @@ reports/research/**/{track}_slot_backtest_*.json
 
 | Track ID | Run script | Summary JSON |
 |----------|------------|--------------|
-| `00981a-l1h9` | `scripts/run_00981a_copytrade_backtest.py` · `write_copytrade_slot_summary.py` | `reports/research/00981a-copytrade/l1h9_slot_backtest_2026.json` |
-| `rrg-mono-hold7` | `scripts/run_rrg_mono_breadth_backtest.py` | `reports/research/rrg/rrg_mono_hold7_slot_backtest_2026.json` |
-| `vcp-pivot-gate` | `scripts/run_chunge_funnel_backtest.py` | `reports/research/vcp/vcp_pivot_gate_slot_backtest_2026.json` |
-| `vcp-coil-close` | `scripts/run_chunge_funnel_backtest.py` | `reports/research/vcp/vcp_coil_close_slot_backtest_2026.json` |
-| `minervini-sepa-basket` | `scripts/run_broad_momentum_tv_backtest.py` | `reports/minervini-sepa-basket/backtest_summary.json` |
+| `00981a-l1h9` | `src/research/backtest/copytrade_backtest.py` · `write_copytrade_slot_summary.py` | `reports/research/00981a-copytrade/l1h9_slot_backtest_2026.json`（需重跑） |
+| `rrg-mono-hold7` | `src/research/backtest/rrg_mono_backtest.py` | `reports/research/rrg/rrg_mono_hold7_slot_backtest_2026.json`（需重跑） |
+| `vcp-pivot-gate` | `src/research/backtest/chunge_funnel_backtest.py` | `reports/research/vcp/vcp_pivot_gate_slot_backtest_2026.json`（需重跑） |
+| `vcp-coil-close` | `src/research/backtest/chunge_funnel_backtest.py` | `reports/research/vcp/vcp_coil_close_slot_backtest_2026.json`（需重跑） |
 
-共用模組：`research.backtest.slot_backtest_summary`（`SlotBacktestConfig` · `build_summary_payload` · `write_slot_backtest_summary`）。
+共用模組：`research.backtest.slot_backtest_summary`（`SlotBacktestConfig` · `build_summary_payload` · schema **`config/slot_backtest_summary.schema.yaml`** v2）。
+
+**Summary JSON v2 要點**
+
+| 欄位 | 用途 |
+|------|------|
+| `total_capital_ntd` | 寫入時 = `comparison_notional_ntd`（100k SSOT） |
+| `notional_ssot` | `config/backtest_standard.yaml#comparison_notional_ntd` |
+| `capital_per_slot_ntd` | `total / n_slots` |
+| `summary.*` | 契約指標 · **以 % 為主**（`mean_excess_pct` 等） |
+| `portfolio_metrics.*` | 可選 · `total_return_pct` · `interval_excess_pct` |
+| `ranking_metrics` | 契約 vs 跨軌比較層分工說明 |
+
+跨軌排名：**只用** `config/backtest_standard.yaml` 比較層 · `interval_excess_pct`。
 
 ---
 
@@ -86,11 +98,7 @@ reports/research/**/{track}_slot_backtest_*.json
 | Alpha type | VCP funnel |
 | Slots / hold | 5 slots · hold20 |
 | Module | `chunge_funnel_backtest` |
-| Sweep | `scripts/run_chunge_funnel_sweep.py` |
-
-### `minervini-sepa-basket` · `stock_basket_backtest`
-
-Ad-hoc Stage 2 basket · 見 `config/broad_momentum_tv.yaml`。
+| Sweep | `scripts/run_research_sweep.py` |
 
 ---
 
@@ -102,6 +110,7 @@ Ad-hoc Stage 2 basket · 見 `config/broad_momentum_tv.yaml`。
 | `track_evaluation.py` | 跨軌 summary markdown |
 | `evaluation_contract.yaml` | 併入 `strategy.yaml` |
 | `00981a-v9-hybrid` · `qlib-tw-factor` | 見 PRD §10 |
+| `broad_momentum_tv` 多策略比較殼 | 僅保留 `minervini-sepa-basket` 採納軌 |
 
 ---
 
@@ -114,6 +123,4 @@ Ad-hoc Stage 2 basket · 見 `config/broad_momentum_tv.yaml`。
 | `src/research/backtest/slot_backtest_summary.py` | Slot JSON schema + writers |
 | `src/research/backtest/copytrade_backtest.py` | L1H9 回測 |
 | `src/research/backtest/chunge_funnel_backtest.py` | VCP funnel 回測 |
-| `src/factor_validation.py` | Alphalens-style factor IC（Phase 2 · 獨立） |
-
 營運：[daily-operations.md](./daily-operations.md)

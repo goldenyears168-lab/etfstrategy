@@ -7,7 +7,6 @@ line-length = 120
 target-version = "py312"
 src = ["src", "tests"]
 extend-exclude = [
-    "src/research/archive",
     "src/research/backtest",
 ]
 
@@ -17,7 +16,6 @@ select = ["E9", "F63", "F7", "F82"]
 [tool.coverage.run]
 source = ["src"]
 omit = [
-    "src/research/archive/*",
     "src/research/backtest/*",
     # CLI sync / backfill entry points (daily_sync.sh; not unit-tested)
     "src/sync_*.py",

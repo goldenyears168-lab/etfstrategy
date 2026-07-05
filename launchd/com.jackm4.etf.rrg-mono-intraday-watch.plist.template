@@ -6,9 +6,8 @@
 	<string>com.jackm4.etf.rrg-mono-intraday-watch</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gj</string>
-		<string>{{PROJECT_ROOT}}/scripts/launchd/rrg-mono-intraday-watch.command</string>
+		<string>/bin/bash</string>
+		<string>{{RRG_MONO_INTRADAY_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -48,9 +47,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-mono-intraday-watch.log</string>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-mono-intraday-watch.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-mono-intraday-watch.err.log</string>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-mono-intraday-watch.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

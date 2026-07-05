@@ -97,6 +97,25 @@ def is_trading_date(
     return row is not None
 
 
+def is_trading_session_day(
+    conn: sqlite3.Connection,
+    day: date,
+    *,
+    code: str = "IX0001",
+    max_gap_days: int = 4,
+) -> bool:
+    """TEJ 日線已落庫，或週一～五盤中（上一 TEJ 交易日距今 ≤ max_gap_days 曆日）。"""
+    if is_trading_date(conn, day, code=code):
+        return True
+    if day.weekday() >= 5:
+        return False
+    prev = latest_trading_date(conn, on_or_before=day - timedelta(days=1), code=code)
+    if not prev:
+        return False
+    gap = (day - date.fromisoformat(prev)).days
+    return 1 <= gap <= max_gap_days
+
+
 def previous_trading_date(
     conn: sqlite3.Connection,
     trade_date: str | date,

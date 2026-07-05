@@ -1,0 +1,602 @@
+version: rrg-pre-release-funnel-3d-v1
+model_id: rrg-pre-release-funnel-3d
+layer: research
+description: Pre-release funnel lanes · 3-day hold (D→D+3). Strict R01–R30 re-evaluated
+  on ret_3d; coverage C01–Cxx discovered separately.
+universe:
+  source: build_lifecycle_events + enrich_lifecycle_events
+  pool_filter: '(end_q ∈ {improving, lagging}) ∧ sig_ret < 5% ∧ (end_q=improving ∨
+    (end_q=lagging ∧ (disp_contract ∨ sig_ret>0.5%)))
+
+    '
+  outcome: ret_3d
+  pit: true
+  hold_days: 3
+discovery:
+  enabled: true
+  max_lanes: 30
+  win_min: 0.52
+  mean_min: 3.0
+  mean_max: 7.0
+  n_min: 20
+  n_min_extended: 15
+  mean_min_extended: 0.8
+  jaccard_max: 0.32
+  target_union_days_per_year:
+  - 50
+  - 80
+  search_atoms:
+  - b0
+  - b1
+  - b2
+  - disp
+  - base
+  - st46
+  - st13
+  - st1
+  - st7p
+  - hist
+  - plag
+  - elag
+  - dip
+  - flat
+  - q35
+  - q45
+  - ex
+  - s2
+  - rv98
+  - no23
+  - gap1
+  - s0
+  - imp
+  - dip_deep
+  - rv98100
+  min_combo_size: 2
+  max_combo_size: 6
+  jaccard_max_vs_coverage: 0.45
+atoms:
+  b2:
+    label: 台指當日 ≥+2%
+    en: bench_today_ret ≥ 2%
+  b1:
+    label: 台指當日 ≥+1%
+    en: bench_today_ret ≥ 1%
+  b0:
+    label: 台指當日 ≥0%
+    en: bench_today_ret ≥ 0%
+  disp:
+    label: 離散度收斂
+    en: disp_contract (Δdisp < −0.1)
+  base:
+    label: Base setup
+    en: base_setup (up_right · 4d improving · disp band)
+  st46:
+    label: Improving streak 4–6 天
+    en: improve_streak ∈ [4, 6]
+  st13:
+    label: Improving streak 1–3 天
+    en: improve_streak ∈ [1, 3]
+  st1:
+    label: Improving streak = 1
+    en: improve_streak == 1
+  st7p:
+    label: Improving streak ≥7
+    en: improve_streak ≥ 7
+  hist:
+    label: 個股 pre-release 3日史績正向
+    en: sid_hist_ok (≥3 prior pre-release · positive avg ret_3d)
+  plag:
+    label: 前日 Lagging
+    en: prev_end_q == lagging
+  elag:
+    label: 當日 Lagging pre-flip
+    en: end_q == lagging
+  dip:
+    label: 微幅回檔
+    en: sig_ret ∈ [−2%, 0%]
+  dip_deep:
+    label: 深 dip
+    en: sig_ret ∈ [−4%, −1%)
+  flat:
+    label: 平盤帶
+    en: sig_ret ∈ [−1%, +1%]
+  q35:
+    label: 準 burst 3–5%
+    en: sig_ret ∈ [3%, 5%)
+  q45:
+    label: 準 burst 4–5%
+    en: sig_ret ∈ [4%, 5%)
+  ex:
+    label: 落後大盤蓄力
+    en: excess ∈ [−2%, −0.3%]
+  s2:
+    label: S2 setup core
+    en: s2_setup_core
+  rv98:
+    label: RS-Ratio 98–99
+    en: s4_rv_98_99
+  rv98100:
+    label: RS-Ratio 98–100
+    en: rv ∈ [98, 100)
+  no23:
+    label: 排除 streak 2–3
+    en: NOT improve_streak ∈ {2, 3}
+  gap1:
+    label: 連續交易日
+    en: session_gap_days == 1
+  s0:
+    label: Fresh flip Improving
+    en: s0_fresh_flip
+  imp:
+    label: 當日 Improving
+    en: end_q == improving
+lanes:
+  strict:
+  - id: R01
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - hist
+    - dip
+    - ex
+    - gap1
+    label: b2+disp+hist+dip+ex+gap1
+    description: Strong bench · disp↓ · hist+ · dip · excess band · gap1
+    regime_tag: bench_strong
+  - id: R02
+    tier: strict
+    rule_atoms:
+    - b2
+    - elag
+    - dip
+    - rv98
+    - gap1
+    label: b2+elag+dip+rv98+gap1
+    description: Lagging pre-flip · RV98 · dip · strong bench
+    regime_tag: lagging_pre_flip
+  - id: R03
+    tier: strict
+    rule_atoms:
+    - b2
+    - st1
+    - q45
+    - gap1
+    label: b2+st1+q45+gap1
+    description: Day-1 improving · quasi-burst · strong bench
+    regime_tag: early_improving
+  - id: R04
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - base
+    - st46
+    - hist
+    - gap1
+    label: b2+disp+base+st46+hist+gap1
+    description: Base setup mid-streak · disp↓ · hist+
+    regime_tag: base_coil
+  - id: R05
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - base
+    - st46
+    - rv98
+    - gap1
+    label: b2+disp+base+st46+rv98+gap1
+    description: Base setup · RV98 edge · disp↓
+    regime_tag: base_rv98
+  - id: R06
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - hist
+    - plag
+    - dip
+    - gap1
+    label: b2+disp+hist+plag+dip+gap1
+    description: From lagging · hist+ · dip · disp↓
+    regime_tag: plag_recovery
+  - id: R07
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - plag
+    - ex
+    - rv98
+    label: b2+disp+plag+ex+rv98
+    description: Lagging origin · excess band · RV98
+    regime_tag: plag_rv98
+  - id: R08
+    tier: strict
+    rule_atoms:
+    - b1
+    - st1
+    - hist
+    - q45
+    - gap1
+    label: b1+st1+hist+q45+gap1
+    description: Day-1 · hist+ · quasi-burst 4–5%
+    regime_tag: early_quasi
+  - id: R09
+    tier: strict
+    rule_atoms:
+    - b2
+    - st13
+    - hist
+    - plag
+    - q35
+    - gap1
+    label: b2+st13+hist+plag+q35+gap1
+    description: Early streak · plag · quasi 3–5%
+    regime_tag: early_plag
+  - id: R10
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - st46
+    - hist
+    - rv98
+    - gap1
+    label: b2+disp+st46+hist+rv98+gap1
+    description: Mid streak · disp↓ · RV98 · hist+
+    regime_tag: mid_streak_rv98
+  - id: R11
+    tier: strict
+    rule_atoms:
+    - b0
+    - disp
+    - st1
+    - hist
+    - q35
+    - gap1
+    label: b0+disp+st1+hist+q35+gap1
+    description: Neutral bench · day-1 · quasi 3–5%
+    regime_tag: neutral_bench
+  - id: R12
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - base
+    - st46
+    - dip
+    label: b2+disp+base+st46+dip
+    description: Base coil · dip · no gap1 requirement
+    regime_tag: base_dip
+  - id: R13
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - hist
+    - plag
+    - flat
+    - rv98
+    label: b2+disp+hist+plag+flat+rv98
+    description: Flat sig · plag · RV98 · hist+
+    regime_tag: flat_plag
+  - id: R14
+    tier: strict
+    rule_atoms:
+    - b2
+    - st13
+    - hist
+    - ex
+    label: b2+st13+hist+ex
+    description: Early streak · excess band · hist+
+    regime_tag: early_excess
+  - id: R15
+    tier: strict
+    rule_atoms:
+    - b2
+    - dip
+    - flat
+    - ex
+    - rv98
+    - gap1
+    label: b2+dip+flat+ex+rv98+gap1
+    description: Flat dip · excess · RV98
+    regime_tag: flat_excess
+  - id: R16
+    tier: strict
+    rule_atoms:
+    - b2
+    - st13
+    - hist
+    - q45
+    - gap1
+    label: b2+st13+hist+q45+gap1
+    description: Early streak · quasi 4–5% · hist+
+    regime_tag: early_q45
+  - id: R17
+    tier: strict
+    rule_atoms:
+    - b0
+    - disp
+    - base
+    - st46
+    - q35
+    - gap1
+    label: b0+disp+base+st46+q35+gap1
+    description: Base · quasi 3–5% · neutral bench
+    regime_tag: base_quasi
+  - id: R18
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - base
+    - st46
+    label: b2+disp+base+st46
+    description: Broad base coil · high n
+    regime_tag: base_broad
+  - id: R19
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - hist
+    - plag
+    - flat
+    - gap1
+    label: b2+disp+hist+plag+flat+gap1
+    description: Plag flat · hist+ · disp↓
+    regime_tag: plag_flat
+  - id: R20
+    tier: strict
+    rule_atoms:
+    - b1
+    - st46
+    - hist
+    - ex
+    - rv98
+    - gap1
+    label: b1+st46+hist+ex+rv98+gap1
+    description: Mid streak · excess · RV98
+    regime_tag: mid_excess
+  - id: R21
+    tier: strict
+    rule_atoms:
+    - b2
+    - plag
+    - elag
+    - dip
+    - flat
+    - gap1
+    label: b2+plag+elag+dip+flat+gap1
+    description: Lagging track · dip flat
+    regime_tag: lagging_flat
+  - id: R22
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - st46
+    - hist
+    - gap1
+    label: b2+disp+st46+hist+gap1
+    description: Mid streak · disp↓ · hist+
+    regime_tag: mid_hist
+  - id: R23
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - st1
+    - hist
+    label: b2+disp+st1+hist
+    description: Day-1 · disp↓ · hist+
+    regime_tag: day1_hist
+  - id: R24
+    tier: strict
+    rule_atoms:
+    - b2
+    - hist
+    - dip
+    - ex
+    - rv98
+    label: b2+hist+dip+ex+rv98
+    description: Dip · excess · RV98 · hist+
+    regime_tag: dip_rv98
+  - id: R25
+    tier: strict
+    rule_atoms:
+    - b2
+    - st46
+    - hist
+    - flat
+    - gap1
+    label: b2+st46+hist+flat+gap1
+    description: Mid streak flat · hist+
+    regime_tag: mid_flat
+  - id: R26
+    tier: strict
+    rule_atoms:
+    - b2
+    - disp
+    - base
+    - flat
+    - rv98
+    label: b2+disp+base+flat+rv98
+    description: Base flat · RV98
+    regime_tag: base_flat
+  - id: R27
+    tier: strict
+    rule_atoms:
+    - b0
+    - q35
+    - ex
+    - no23
+    label: b0+q35+ex+no23
+    description: Quasi 3–5% · excess · skip st23
+    regime_tag: quasi_excess
+  - id: R28
+    tier: strict
+    rule_atoms:
+    - b1
+    - st13
+    - hist
+    - plag
+    - ex
+    - gap1
+    label: b1+st13+hist+plag+ex+gap1
+    description: Early plag · excess band
+    regime_tag: early_plag_ex
+  - id: R29
+    tier: strict
+    rule_atoms:
+    - b2
+    - hist
+    - ex
+    - gap1
+    label: b2+hist+ex+gap1
+    description: Excess band · hist+ · broad
+    regime_tag: excess_broad
+  - id: R30
+    tier: strict
+    rule_atoms:
+    - b1
+    - disp
+    - base
+    - st46
+    - hist
+    - gap1
+    label: b1+disp+base+st46+hist+gap1
+    description: Base mid-streak · moderate bench
+    regime_tag: base_moderate
+  coverage:
+  - id: C01
+    tier: coverage
+    rule_atoms:
+    - b0
+    - disp
+    - hist
+    - q35
+    - rv98
+    - st7p
+    label: b0+disp+hist+q35+rv98+st7p
+    description: Coverage (extended) · 3d hold · b0+disp+hist+q35+rv98+st7p
+    regime_tag: late_streak
+  - id: C02
+    tier: coverage
+    rule_atoms:
+    - b1
+    - dip
+    - flat
+    - hist
+    - plag
+    - st13
+    label: b1+dip+flat+hist+plag+st13
+    description: Coverage (extended) · 3d hold · b1+dip+flat+hist+plag+st13
+    regime_tag: lagging_track
+  - id: C03
+    tier: coverage
+    rule_atoms:
+    - b0
+    - disp
+    - q45
+    - rv98
+    - st7p
+    label: b0+disp+q45+rv98+st7p
+    description: Coverage (extended) · 3d hold · b0+disp+q45+rv98+st7p
+    regime_tag: late_streak
+  - id: C04
+    tier: coverage
+    rule_atoms:
+    - disp
+    - q35
+    - rv98
+    - st46
+    label: disp+q35+rv98+st46
+    description: Coverage (extended) · 3d hold · disp+q35+rv98+st46
+    regime_tag: rv98_edge
+  - id: C05
+    tier: coverage
+    rule_atoms:
+    - base
+    - gap1
+    - hist
+    - q35
+    - rv98
+    label: base+gap1+hist+q35+rv98
+    description: Coverage (extended) · 3d hold · base+gap1+hist+q35+rv98
+    regime_tag: rv98_edge
+  - id: C06
+    tier: coverage
+    rule_atoms:
+    - b1
+    - disp
+    - gap1
+    - hist
+    - q35
+    - st46
+    label: b1+disp+gap1+hist+q35+st46
+    description: Coverage (extended) · 3d hold · b1+disp+gap1+hist+q35+st46
+    regime_tag: quasi_burst
+  - id: C07
+    tier: coverage
+    rule_atoms:
+    - b1
+    - gap1
+    - hist
+    - q35
+    - rv98
+    - st46
+    label: b1+gap1+hist+q35+rv98+st46
+    description: Coverage (extended) · 3d hold · b1+gap1+hist+q35+rv98+st46
+    regime_tag: rv98_edge
+  - id: C08
+    tier: coverage
+    rule_atoms:
+    - b2
+    - disp
+    - hist
+    - no23
+    - q45
+    - rv98
+    label: b2+disp+hist+no23+q45+rv98
+    description: Coverage (extended) · 3d hold · b2+disp+hist+no23+q45+rv98
+    regime_tag: rv98_edge
+  - id: G01
+    tier: coverage
+    rule_atoms:
+    - b2
+    - elag
+    - plag
+    - dip_deep
+    - ex
+    - rv98100
+    - gap1
+    label: b2+elag+plag+dip_deep+ex+rv98100+gap1
+    description: Discovery H1c · LagV 深 dip · excess 蓄力 · RV 98–100 · mean_3d≈+4.6%
+    regime_tag: lagv_deep_dip
+    source: rrg-lane-discovery-loop · greedy G01 · 2026-07-01
+  - id: G02
+    tier: coverage
+    rule_atoms:
+    - b2
+    - elag
+    - dip
+    - rv98
+    - gap1
+    label: b2+elag+dip+rv98+gap1
+    description: Discovery SW03-R02 · Lagging pre-flip RV98 dip · mean_3d≈+3.6%（同 R02 規格）
+    regime_tag: lagging_pre_flip
+    source: rrg-lane-discovery-loop · greedy G02 · 2026-07-01
+tier_thresholds:
+  strict:
+    win_3d_min: 0.58
+    mean_3d_min: 2.0
+    n_min: 15
+  coverage:
+    win_3d_min: 0.52
+    mean_3d_min: 3.0
+    mean_3d_max: 7.0
+    n_min: 20

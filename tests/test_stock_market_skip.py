@@ -20,6 +20,9 @@ class TestResolveFetchWindow(unittest.TestCase):
             bar_min="2026-04-05",
             bar_max="2026-06-04",
             bar_count_window=40,
+            adj_min="2026-04-05",
+            adj_max="2026-06-04",
+            adj_count_window=40,
             inst_min="2026-04-05",
             inst_max="2026-06-04",
             inst_count_window=40,
@@ -36,6 +39,9 @@ class TestResolveFetchWindow(unittest.TestCase):
             bar_min="2026-04-05",
             bar_max="2026-06-01",
             bar_count_window=40,
+            adj_min="2026-04-05",
+            adj_max="2026-06-01",
+            adj_count_window=40,
             inst_min="2026-04-05",
             inst_max="2026-06-01",
             inst_count_window=40,
@@ -54,6 +60,9 @@ class TestResolveFetchWindow(unittest.TestCase):
             bar_min="2026-05-01",
             bar_max="2026-06-04",
             bar_count_window=25,
+            adj_min="2026-05-01",
+            adj_max="2026-06-04",
+            adj_count_window=25,
             inst_min="2026-05-01",
             inst_max="2026-06-04",
             inst_count_window=25,
@@ -72,6 +81,9 @@ class TestResolveFetchWindow(unittest.TestCase):
             bar_min="2026-04-05",
             bar_max="2026-06-04",
             bar_count_window=40,
+            adj_min="2026-04-05",
+            adj_max="2026-06-04",
+            adj_count_window=40,
             inst_min="2026-04-05",
             inst_max="2026-06-04",
             inst_count_window=40,
@@ -82,6 +94,24 @@ class TestResolveFetchWindow(unittest.TestCase):
         self.assertEqual(action, "full")
         self.assertEqual(fs, self.start)
         self.assertEqual(fe, self.end)
+
+    def test_full_when_bars_without_adj(self) -> None:
+        cov = StockMarketCoverage(
+            stock_id="2330",
+            bar_min="2015-01-05",
+            bar_max="2026-06-26",
+            bar_count_window=2796,
+            adj_min="2024-01-01",
+            adj_max="2026-06-26",
+            adj_count_window=272,
+            inst_min="2015-01-05",
+            inst_max="2026-06-26",
+            inst_count_window=2065,
+        )
+        action, _, _ = resolve_fetch_window(
+            cov, date(2015, 1, 1), date(2026, 6, 26), 4000, force_refresh=False
+        )
+        self.assertEqual(action, "full")
 
 
 if __name__ == "__main__":

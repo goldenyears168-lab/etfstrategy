@@ -63,10 +63,11 @@ def build_fresh_mono_calendar(
     *,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
     lookback: int = LOOKBACK,
+    rrg_length: int = 20,
 ) -> dict[str, list[ScanRow]]:
     close, _, _ = load_price_panels(conn)
     bench = load_benchmark_close(conn).reindex(close.index)
-    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=20)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=rrg_length)
     daily_pct = close.pct_change(fill_method=None) * 100.0
     full_dates = close.index.astype(str).tolist()
     watch = load_etf_constituent_watchlist(conn, etf_codes)
@@ -115,11 +116,12 @@ def build_mono_all_calendar(
     *,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
     lookback: int = LOOKBACK,
+    rrg_length: int = 20,
 ) -> dict[str, list[ScanRow]]:
     """當日 mono_tier2 全池（含非 fresh）· 依 seg_last 排序。"""
     close, _, _ = load_price_panels(conn)
     bench = load_benchmark_close(conn).reindex(close.index)
-    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=20)
+    rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=rrg_length)
     daily_pct = close.pct_change(fill_method=None) * 100.0
     full_dates = close.index.astype(str).tolist()
     watch = load_etf_constituent_watchlist(conn, etf_codes)
@@ -271,10 +273,13 @@ def build_mono_up_fresh_calendar(
     *,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
     lookback: int = LOOKBACK,
+    close: pd.DataFrame | None = None,
+    bench: pd.Series | None = None,
 ) -> dict[str, list[ScanRow]]:
     """up_right + mono_up + disp∈[1,2) · 今日新進（昨日未過）· 不要求 leading。"""
-    close, _, _ = load_price_panels(conn)
-    bench = load_benchmark_close(conn).reindex(close.index)
+    if close is None or bench is None:
+        close, _, _ = load_price_panels(conn)
+        bench = load_benchmark_close(conn).reindex(close.index)
     rs_ratio, rs_mom, _ = compute_rrg_panel(close, bench, length=20)
     daily_pct = close.pct_change(fill_method=None) * 100.0
     full_dates = close.index.astype(str).tolist()
@@ -704,15 +709,17 @@ def _apply_entries_timed(
     *,
     full_dates: list[str] | None = None,
     entry_price_mode: EntryPriceMode = "close",
+    n_slots: int | None = None,
 ) -> list[dict[str, Any]]:
     """空槽依 seg_last 填入 fresh 訊號；可選隔日開盤進場。"""
+    slot_cap = n_slots if n_slots is not None else MAX_SLOTS
     entry_date = _entry_date_for_signal(conn, signal_date, entry_price_mode=entry_price_mode)
     if not entry_date:
         return []
 
     held = {p["stock_id"] for p in state.get("slots", [])}
     used_slots = {int(p["slot"]) for p in state.get("slots", [])}
-    free_slots = [i for i in range(MAX_SLOTS) if i not in used_slots]
+    free_slots = [i for i in range(slot_cap) if i not in used_slots]
     added: list[dict[str, Any]] = []
 
     for row in fresh_mono[:TOP_N]:
@@ -750,6 +757,7 @@ def simulate_mono_hold7(
     fresh_by_date: dict[str, list[ScanRow]],
     zone_filter: BreadthZoneFilter = None,
     entry_price_mode: EntryPriceMode = "close",
+    n_slots: int | None = None,
 ) -> tuple[list[dict], dict]:
     state: dict = {"slots": [], "history": []}
     periods: list[dict] = []
@@ -776,6 +784,7 @@ def simulate_mono_hold7(
             fresh_mono,
             full_dates=full_dates,
             entry_price_mode=entry_price_mode,
+            n_slots=n_slots,
         )
 
     for pos in list(state.get("slots", [])):
@@ -790,6 +799,8 @@ def simulate_mono_hold7(
     summary = _summarize(periods)
     summary["zone_filter"] = zone_filter
     summary["entry_price_mode"] = entry_price_mode
+    if n_slots is not None:
+        summary["n_slots"] = n_slots
     return periods, summary
 
 

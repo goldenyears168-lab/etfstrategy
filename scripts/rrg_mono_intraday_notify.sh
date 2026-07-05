@@ -7,6 +7,6 @@ ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 STAMP="$(date '+%Y%m%d')"
 
 exec "${ROOT}/scripts/job_notify.sh" \
-  "RRG mono 收盤前預警" "${1:?}" "logs/launchd_rrg-mono-intraday-watch.log" RUN_RRG_MONO_INTRADAY_EMAIL \
+  "RRG mono 收盤前預警" "${1:?}" "logs/intraday/launchd_rrg-mono-intraday-watch.log" RUN_RRG_MONO_INTRADAY_EMAIL \
   "reports/daily/${STAMP}_rrg_mono_intraday_watch.md" \
   "reports/daily/rrg_mono_intraday_watch.md"

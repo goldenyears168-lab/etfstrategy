@@ -16,7 +16,7 @@ LEGACY_SCHEMA_VERSIONS = frozenset({"execution-intent-v1"})
 
 Side = Literal["buy", "sell"]
 PriceTypeName = Literal[
-    "limit", "market", "reference", "limit_up", "limit_down", "chase_ask"
+    "limit", "market", "reference", "limit_up", "limit_down", "chase_ask", "chase_bid"
 ]
 MarketTypeName = Literal["common", "odd", "intraday_odd", "emg"]
 TimeInForceName = Literal["rod", "ioc", "fok"]
@@ -75,6 +75,7 @@ class OrderIntent:
             "limit_up",
             "limit_down",
             "chase_ask",
+            "chase_bid",
         ):
             raise ValueError(f"{sym}: 不支援 price_type={pt!r}")
 

@@ -32,7 +32,6 @@
 | `rrg/` | RRG universe 軌跡、rotation 回測、mono × breadth |
 | `breadth/` | 200MA 廣度 HTML、momentum 結構 |
 | `vcp/` | VCP benchmark、春哥 L4 校準 |
-| `minervini-sepa-basket/` | broad_momentum 回測 JSON |
 | `_archive/` | 已停損研究摘要 |
 
 ## _archive/ 封存索引

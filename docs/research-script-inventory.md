@@ -13,7 +13,7 @@
 | **strategy** | 已採納策略 · 回測或 production screen | `config/strategy.yaml` |
 | **research** | 探索 topic · sweep · 假說 | `config/research.yaml` → `topics.*` |
 | **pipeline** | daily_sync / launchd · 非 alpha | `config/pipeline_scripts.yaml` |
-| **archive** | 已完成一次性研究 · 保留參考 | `scripts/research/archive/` |
+| **archive** | 已刪除 · 不再保留 | — |
 | **delete** | 無 SSOT · 無下游依賴 · 將以統一流程重跑 | 已移除 |
 
 ---
@@ -62,7 +62,6 @@
 | `run_pullback_regime_backtest.py` | **delete** |  abandoned · 無 topic |
 | `run_inst_flow_backtest.py` | **delete** | abandoned · 無 topic |
 | `run_acdd04_copytrade_backtest.py` | **delete** | 主動基金實驗 · 無 topic |
-| `run_dual_momentum_antonacci_backtest.py` | **delete** | 模組保留 · 腳本刪（minervini 用 library） |
 | `run_rrg_rotation_backtest.py` | **delete** | 月頻 rotation 演示 · `rrg_rotation` 模組保留 |
 
 ---
@@ -100,4 +99,32 @@ for sc in p["scripts"].values(): reg.add(Path(sc["path"]).name)
 orphans = sorted(set(Path(x).name for x in glob.glob("scripts/run_*.py")) - reg)
 print("orphans:", len(orphans), orphans or "none")
 PY
+```
+
+---
+
+## Sweep runner（trial registry）
+
+| 模組 | 用途 |
+|------|------|
+| `src/research/sweep_runner.py` | topic → family → trial → run |
+| `scripts/run_research_sweep.py` | CLI 模板 |
+| `config/sweep_trial_registry.example.yaml` | JSON schema |
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_research_sweep.py \\
+  --topic rrg-lens-score-swap --family alpha-sweep --dry-run
+```
+
+---
+
+## 統一回測比較層
+
+| 模組 | 用途 |
+|------|------|
+| `config/backtest_standard.yaml` | 五軌 adapter · 窗口 · 成本 |
+| `scripts/run_unified_backtest_comparison.py` | league table |
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_unified_backtest_comparison.py
 ```

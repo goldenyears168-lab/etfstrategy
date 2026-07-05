@@ -1,0 +1,67 @@
+# Research 層 · IS/OOS 與 walk-forward 切分 SSOT
+# 引用：config/research.yaml topics.*.split_spec
+
+version: research-splits-v1
+
+split_specs:
+  default_is_oos:
+    method: date_ratio
+    ratio: 0.7
+    min_oos_n: 80
+    description: 依日期 70% IS / 30% OOS · 盤中策略預設
+
+  intraday_is_oos_70_30:
+    method: date_ratio
+    ratio: 0.7
+    min_oos_n: 80
+    cost_model_rt_pct: 0.585
+    description: 1m 盤中 · 台股成本 0.585% RT · OOS n≥80
+
+  walk_forward_3y1y:
+    method: walk_forward
+    train_years: 3
+    test_years: 1
+    min_oos_n: 30
+    description: 3 年訓練 + 1 年測試 · 滾動 walk-forward
+
+  oos_2026h1:
+    method: fixed_holdout
+    holdout_start: "2026-01-01"
+    holdout_end: null
+    min_oos_n: 30
+    description: 2026H1 固定 hold-out · 條件機率 OOS 檢定
+
+  tw100_wfa_504_100:
+    method: walk_forward
+    train_days: 504
+    test_days: 100
+    embargo_days: 7
+    min_oos_n: 80
+    description: qlib-tw-trader 風格 · 504d train + 100d test + 7d embargo · TW100 ML
+
+  tw100_is_oos_70_30:
+    method: date_ratio
+    ratio: 0.7
+    min_oos_n: 60
+    description: TW100 baseline Rank IC · 70/30 日期切分（骨架 PoC）
+
+  tw100_monthly_wfa_36_6:
+    method: walk_forward_monthly
+    train_months: 36
+    test_months: 6
+    embargo_months: 1
+    min_oos_n: 12
+    description: TW100 月頻 WFA · 36M train + 6M test + 1M embargo · 次月超額報酬 label
+
+  leading_stage2_gap_fade_wfa:
+    method: composite
+    ratio: 0.7
+    min_oos_n: 25
+    min_oos_n_h5: 12
+    holdout_start: "2026-01-01"
+    dip_pct: 0.06
+    hold_days: [5, 10]
+    runup_min_pct: 0.01
+    description: >
+      Stage-2 leading -6% 深跌加码 · H3 baseline vs H5 开高后杀 ·
+      70/30 日期切分 + 2026 固定 hold-out · quarterly walk-forward

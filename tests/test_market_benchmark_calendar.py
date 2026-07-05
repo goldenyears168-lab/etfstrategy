@@ -6,7 +6,12 @@ import sqlite3
 import unittest
 from datetime import date
 
-from market_benchmark import is_trading_date, latest_trading_date, resolve_brief_trade_date
+from market_benchmark import (
+    is_trading_date,
+    is_trading_session_day,
+    latest_trading_date,
+    resolve_brief_trade_date,
+)
 
 
 class TestTradingCalendar(unittest.TestCase):
@@ -39,6 +44,14 @@ class TestTradingCalendar(unittest.TestCase):
             latest_trading_date(self.conn, on_or_before="2026-06-20"),
             "2026-06-19",
         )
+
+    def test_session_day_before_tej_close(self) -> None:
+        self.conn.execute(
+            "INSERT INTO daily_bars VALUES ('IX0001', 'tej', '2026-06-24', 1.0)"
+        )
+        wed = date(2026, 6, 25)
+        self.assertFalse(is_trading_date(self.conn, wed))
+        self.assertTrue(is_trading_session_day(self.conn, wed))
 
 
 if __name__ == "__main__":

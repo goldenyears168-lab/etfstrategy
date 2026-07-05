@@ -1,71 +1,43 @@
 ---
-description: Project terminology — canonical English, layer boundaries, deprecated terms
+description: Core terminology — product layers, boundaries, submit checklist
 alwaysApply: true
 ---
 
-# Terminology (SSOT: docs/terminology.md)
+# Terminology core (SSOT: docs/terminology.md)
 
-## Rules
+## Product layers (≠ `src/` L0–L5)
 
-1. **Bilingual academic terms** in reports and docs: each concept has paired **English** and **Chinese** labels with formal definitions in [`docs/terminology.md`](docs/terminology.md). Code/config identifiers stay English. First use in prose: `English term（中文術語）`.
-2. **Product layers** (distinct): `facts` → `regime` → `research` → `strategy` (+ local **order layer** `order`). Not the same as `src/` L0–L5, VCP funnel screen stages, or infra SOP (`daily-operations.md`).
-3. **Regime layer（環境層）** = four-axis **diagnostic** (Breadth zone, Trend posture, RRG rotation, Stage 2 participation). Not alpha, not a live gate.
-4. **Research layer** = exploratory topics · sweep · matrix · hypothesis (`config/research.yaml`). Not frozen specs.
-5. **Strategy layer** = **adopted** frozen specs · backtest JSON · optional production screen (`config/strategy.yaml`). No ensemble weighting.
-6. **Order layer** = local broker intents · `config/order.yaml` · `src/order/`; not on public website; not VCP `execution_state`.
-7. **VFP** per layer: deliver **results** (files, DB state, decisions)—not processes. See `docs/terminology.md` §1.1. **Ingest/Facts VFP denominator** = `ETF_CODES_LISTED` (6 listed ETFs); `00407A` is optional pre-listing.
-8. **PIT / ex-post**: signal-day T uses only `date ≤ T` data; distinguish from production screen and live P&L.
+`facts` → `regime` → `research` → `strategy` (+ local **order layer** `order`).
 
-## Use → Don't use
+| Layer | SSOT | Not |
+|-------|------|-----|
+| **Regime（環境層）** | four-axis **diagnostic** · `config/regime.yaml` | alpha · live gate |
+| **Research** | `config/research.yaml` · sweep · hypothesis | frozen specs |
+| **Strategy** | `config/strategy.yaml` · backtest JSON · screen | ensemble weighting |
+| **Order** | `config/order.yaml` · `src/order/` | public site · VCP `execution_state` |
+
+**VFP** = deliver **results** (files, DB, decisions)—not processes. See `docs/terminology.md` §1.1.  
+**PIT**: signal-day T uses only `date ≤ T` data.
+
+Prose: bilingual `English term（中文術語）` on first use. Code/config identifiers stay English.
+
+## Critical deprecated (grep §7 / §10 before new strings)
 
 | Use | Don't use |
 |-----|-----------|
-| **Facts layer** · `layer: facts` | **Operations layer**（product；infra SOP 見 `daily-operations.md`） |
-| `trend_posture` / **Trend posture** | `regime_name`, Trend regime |
-| **Regime four-axis diagnostic** | 四格雷達 alone (no English) |
-| **Optimal hold (H\*)** | 甜蜜点 alone in reports |
-| **Flow tape regime** / `flow_tape_regime()` | `market_regime` for index posture |
-| **Copytrade** (after first 跟單 define) | vague「跟单策略」|
-| `etf-daily` + `regime-daily` daily close | daily `research_digest` |
-| `config/strategy.yaml` for adopted specs | `research.yaml` tracks · `research_os.yaml` |
-| `config/research.yaml` for exploratory topics | sweep 結果當 strategy SSOT |
-| **VFP**（§1.1） | 「跑過腳本」「研究有進展」當交付物 |
-| — | **Exposure overlay** product layer · `exposure_coach_tw` |
-| — | **Evaluation layer** · `track_evaluation` · `evaluation_contract` · `signal_review` |
-| **Copytrade** · **持股異動** · **異動檔數** | 腿 · 多腿 · 腿數（對外中文） |
-| **實現超額** · **組合總報酬** | 回收 α · 總損益回收率 |
-| **成交筆** · **每筆均** | 成交輪 · 每輪均 |
-| **採納**（research → strategy） | 畢業 |
-| **Minervini**（英文名） | 米涅維尼 · 米涅爾維尼 |
-| **Regime layer（環境層）** · **四軸市場環境** | 市場診斷層 · 體制診斷層 · 市場體制診斷層 · 四軸市場體制診斷 · 四軸體制 · 市場體制 · 市場結構 |
-| **每日市場環境** | 每日市場環境 · PIT 快照 |
-| **ETF00981A 跟單策略** | 00981A 跟單篩選 |
-| **Weinstein 階段** · **Stage 2** | 趨勢姿態 · 趨勢階段 · Stage-2 · 第二階段 |
-| **大盤同向** · **大盤背離** | 環境同向 · 環境背離 |
-| **勝率** · **總報酬率** | 勝台指% · 總報酬（UI 欄位） |
-| **對照基準** | 對標 · 對標尺 |
-| **搭配閱讀** | 並讀 |
-| **fresh** · **依軌跡排序**（RRG 對外） | 新鮮 · 段落末 |
-| **篩選條件** | 篩選檔 |
-| **日報首頁** · **每日三問** | Strategy Hub · 一屏（日報） |
-| **Order layer（下單層）** · `layer: order` | 執行層 · `layer: execution` |
-| **Market breadth（市場廣度）** | 廣度軸 · Breadth axis（對外） |
-| **新進觀察** · `delta_new_to_watchlist` | 新進池 · `delta_new_to_lens` |
-| **監控清單** | 監控池 · Lens 池 · 監控表 |
-| **策略目錄** | 策略中心（舊 Readdy 導覽） |
-| **今日亮點** | 收盤情報 · 今日必看 · 今日有結構變化的標的 · 策略中心收盤情報 · Lens |
-| **監控清單 N 檔** · **新進觀察** · **四框架收斂** | 監控標的 · 清單內 N 檔 · 共識（Lens chip）· Lens Score |
-| **變化優先** · **今日異動** | 今日訊號 · 裸 Delta / Watch / Lens |
+| **Regime layer（環境層）** · **四軸市場環境** | 市場體制 · 體制診斷層 |
+| **Trend posture** · **Weinstein 階段** | `regime_name` · 趨勢階段 |
+| **Order layer（下單層）** | 執行層 · `layer: execution` |
+| **採納** (research → strategy) | 畢業 |
+| **Copytrade** · **ETF00981A 跟單策略** | vague 跟单策略 · 00981A 跟單篩選 |
 
-## Lineage (cite when introducing methods)
-
-Weinstein Stage Analysis · Minervini Trend Template/VCP · Kempenaer RRG · Grinold & Kahn IC/ICIR · Zweig/Deemer breadth.
+Full Use→Don't use table: rule `terminology-glossary.mdc` (auto on `reports/**`, `docs/**`, `*.md`).
 
 ## Before submitting
 
-- Grep new strings against docs/terminology.md §7 Deprecated and §10 quick reference.
-- New adopted strategy → `config/strategy.yaml` + matching `strategies.yaml` entry (`layer: strategy`).
-- New research topic → `config/research.yaml` only until graduated.
-- Regime diagnostics → `config/regime.yaml` four axes (not a strategy).
+- Grep new strings vs `docs/terminology.md` §7 Deprecated and §10.
+- Adopted strategy → `config/strategy.yaml` + `config/strategies.yaml` (`layer: strategy`).
+- Research topic → `config/research.yaml` only until graduated.
+- Regime diagnostics → `config/regime.yaml` (not a strategy).
 
-Full glossary: `docs/terminology.md` · quick reference: §10 · audit checklist: `docs/terminology-audit.md`.
+Task navigation for agents: `docs/agent-brief.md`.

@@ -270,11 +270,28 @@ def backfill_stock_kbar_yahoo(
     return total
 
 
+def _kbar_pair_meets_min_bars(
+    conn,
+    stock_id: str,
+    trade_date: str,
+    min_bars: int,
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM stock_kbar_1m
+        WHERE stock_id = ? AND trade_date = ? AND source IN ('finmind', 'yahoo')
+        """,
+        (stock_id, trade_date),
+    ).fetchone()
+    return int(row[0] or 0) >= min_bars if row else False
+
+
 def collect_mono_shortlist_kbar_gaps(
     conn,
     *,
     start: str,
     end: str,
+    min_bars: int | None = None,
 ) -> list[tuple[str, str]]:
     """RRG mono fresh shortlist 上缺 1m K 的 (trade_date, stock_id) 對。"""
     trade_dates = _trade_dates_in_range(conn, start=start, end=end)
@@ -282,7 +299,11 @@ def collect_mono_shortlist_kbar_gaps(
     gaps: list[tuple[str, str]] = []
     for trade_date in trade_dates:
         for row in close_shortlist(fresh_by_date.get(trade_date, [])):
-            if not kbar_day_has_data(conn, row.stock_id, trade_date):
+            if min_bars is None:
+                ok = kbar_day_has_data(conn, row.stock_id, trade_date)
+            else:
+                ok = _kbar_pair_meets_min_bars(conn, row.stock_id, trade_date, min_bars)
+            if not ok:
                 gaps.append((trade_date, row.stock_id))
     return gaps
 

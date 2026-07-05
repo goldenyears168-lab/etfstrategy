@@ -89,6 +89,36 @@ def chase_ask_price(session: FubonSession, symbol: str, acc: Any | None = None) 
     return price
 
 
+def chase_bid_price(session: FubonSession, symbol: str, acc: Any | None = None) -> float:
+    """盤中零股買一；fallback 整股買一／最新價／跌停。"""
+    account = acc or session.primary
+    candidates: list[float] = []
+    limit_down: float | None = None
+
+    for mt in (MarketType.IntradayOdd, MarketType.Common):
+        res = session.sdk.stock.query_symbol_quote(account, symbol, mt)
+        if not _result_ok(res) or res.data is None:
+            continue
+        d = res.data
+        ld = getattr(d, "limitdown_price", None)
+        if ld is not None and float(ld) > 0:
+            limit_down = float(ld)
+        for key in ("bid_price", "last_price", "open_price"):
+            val = getattr(d, key, None)
+            if val is not None and float(val) > 0:
+                candidates.append(float(val))
+
+    if not candidates:
+        if limit_down is not None:
+            return limit_down
+        raise RuntimeError(f"{symbol}: 無法取得買一報價")
+
+    price = min(candidates)
+    if limit_down is not None:
+        price = max(price, limit_down)
+    return price
+
+
 def _sync_symbol_from_order(st: SymbolChaseState, item: Any | None) -> None:
     if item is None:
         return

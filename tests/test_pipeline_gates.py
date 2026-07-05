@@ -67,11 +67,25 @@ class PipelineGatesTests(unittest.TestCase):
         reason = daily_sync_skip_reason("vcp_funnel_close", env)
         self.assertIsNone(reason)
 
+    def test_improving_watch_research_env_only(self) -> None:
+        env = {**os.environ, "RUN_RRG_IMPROVING_WATCH": "1"}
+        self.assertIsNone(daily_sync_skip_reason("rrg_improving_watch_daily", env))
+        env_off = {**os.environ, "RUN_RRG_IMPROVING_WATCH": "0"}
+        self.assertEqual(
+            daily_sync_skip_reason("rrg_improving_watch_daily", env_off),
+            "RUN_RRG_IMPROVING_WATCH=0",
+        )
+
     def test_registry_env_mismatch_detects_run_on_registry_off(self) -> None:
         reg = _registry_with_disabled("rrg-mono-hold7")
         env = {**os.environ, "RUN_RRG_MONO_DAILY": "1"}
         mismatches = registry_env_mismatches(env, registry=reg)
         self.assertTrue(any("rrg_mono_daily" in m for m in mismatches))
+
+    def test_improving_watch_mismatch_skips_empty_strategy_ids(self) -> None:
+        env = {**os.environ, "RUN_RRG_IMPROVING_WATCH": "1"}
+        mismatches = registry_env_mismatches(env)
+        self.assertFalse(any("rrg_improving_watch_daily" in m for m in mismatches))
 
 
 if __name__ == "__main__":

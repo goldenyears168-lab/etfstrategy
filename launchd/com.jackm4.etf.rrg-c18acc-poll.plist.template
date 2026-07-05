@@ -20,17 +20,18 @@
 		<key>ORDER_C18ACC_DRY_RUN</key>
 		<string>1</string>
 		<key>ORDER_C18ACC_APPLY_STATE</key>
-		<string>1</string>
+		<string>0</string>
+		<key>RUN_RRG_C18ACC_EMAIL</key>
+		<string>0</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 每 5 分鐘觸發；scripts/launchd/rrg-c18acc-poll.command 內再限 Mon–Fri 09:00–13:20 -->
-	<key>StartInterval</key>
-	<integer>300</integer>
+	<!-- Mon–Fri 09:00–13:30 每 5 分鐘；由 install-launchd.sh 渲染 -->
+{{C18ACC_CALENDAR_INTERVALS}}
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-c18acc-poll.log</string>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_rrg-c18acc-poll.err.log</string>
+	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

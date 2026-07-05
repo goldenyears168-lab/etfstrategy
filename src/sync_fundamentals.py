@@ -21,9 +21,11 @@ from stock_db import (
     connect,
     load_etf_constituent_watchlist,
     upsert_stock_consensus,
+    upsert_stock_dividend_history,
     upsert_stock_financial_history,
     upsert_stock_fundamental,
 )
+from screener_universe import resolve_sync_watchlist
 from sync_etf_signal import SOURCE, fetch_finmind
 
 FIN_LOOKBACK_DAYS = 800
@@ -31,6 +33,7 @@ REQUEST_DELAY_SEC = 0.4
 
 FIN_TYPES_EPS = frozenset({"EPS"})
 FIN_TYPES_REV = frozenset({"Revenue"})
+FIN_TYPES_OI = frozenset({"OperatingIncome"})
 FIN_TYPES_NI = frozenset({"IncomeFromContinuingOperations"})
 FIN_TYPES_EQ = frozenset({"EquityAttributableToOwnersOfParent"})
 
@@ -52,6 +55,30 @@ def parse_per_rows(rows: list[dict]) -> dict | None:
         "pb": _float(latest.get("PBR") or latest.get("pb")),
         "dividend_yield": _float(latest.get("dividend_yield")),
     }
+
+
+def parse_per_timeseries(rows: list[dict]) -> list[dict]:
+    """Historical PER/PBR snapshots · one row per FinMind date."""
+    out: list[dict] = []
+    for row in rows:
+        d = str(row.get("date", ""))[:10]
+        if not d:
+            continue
+        pe = _float(row.get("PER") or row.get("pe"))
+        pb = _float(row.get("PBR") or row.get("pb"))
+        div = _float(row.get("dividend_yield"))
+        if pe is None and pb is None and div is None:
+            continue
+        out.append(
+            {
+                "as_of_date": d,
+                "pe": pe,
+                "pb": pb,
+                "dividend_yield": div,
+            }
+        )
+    out.sort(key=lambda r: r["as_of_date"])
+    return out
 
 
 def parse_revenue_rows(rows: list[dict]) -> tuple[list[dict], dict | None]:
@@ -102,6 +129,44 @@ def parse_revenue_rows(rows: list[dict]) -> tuple[list[dict], dict | None]:
     }
 
 
+def _is_operating_income(row: dict) -> bool:
+    t = str(row.get("type", ""))
+    if t in FIN_TYPES_OI:
+        return True
+    origin = str(row.get("origin_name") or "")
+    return "營業利益" in origin and "率" not in origin
+
+
+def parse_dividend_rows(stock_id: str, raw: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in raw:
+        fiscal_year = str(item.get("year") or "").strip()
+        ex_cash = str(item.get("CashExDividendTradingDate") or "")[:10]
+        if not ex_cash or ex_cash == "None":
+            ex_cash = str(item.get("date") or "")[:10]
+        if not ex_cash:
+            continue
+        cash_a = _float(item.get("CashEarningsDistribution")) or 0.0
+        cash_b = _float(item.get("CashStatutorySurplus")) or 0.0
+        cash_div = cash_a + cash_b
+        stock_a = _float(item.get("StockEarningsDistribution")) or 0.0
+        stock_b = _float(item.get("StockStatutorySurplus")) or 0.0
+        stock_div = stock_a + stock_b
+        rows.append(
+            {
+                "stock_id": stock_id,
+                "fiscal_year": fiscal_year or ex_cash[:4],
+                "ex_cash_date": ex_cash,
+                "cash_dividend": cash_div if cash_div > 0 else None,
+                "stock_dividend": stock_div if stock_div > 0 else None,
+                "payment_date": str(item.get("CashDividendPaymentDate") or "")[:10] or None,
+                "announcement_date": str(item.get("AnnouncementDate") or "")[:10] or None,
+                "source": SOURCE,
+            }
+        )
+    return rows
+
+
 def parse_financial_rows(rows: list[dict]) -> tuple[list[dict], dict, list[float]]:
     """季報序列 + 衍生共識/實際指標。"""
     hist: list[dict] = []
@@ -109,17 +174,23 @@ def parse_financial_rows(rows: list[dict]) -> tuple[list[dict], dict, list[float
 
     for row in rows:
         t = str(row.get("type", ""))
-        if t not in FIN_TYPES_EPS | FIN_TYPES_REV | FIN_TYPES_NI | FIN_TYPES_EQ:
+        is_oi = _is_operating_income(row)
+        if t not in FIN_TYPES_EPS | FIN_TYPES_REV | FIN_TYPES_NI | FIN_TYPES_EQ and not is_oi:
             continue
         qd = str(row["date"])[:10]
         val = _float(row.get("value"))
         if val is None:
             continue
-        metric = t.lower() if t in FIN_TYPES_EPS | FIN_TYPES_REV else t
-        if t in FIN_TYPES_NI:
+        if is_oi:
+            metric = "operating_income"
+        elif t in FIN_TYPES_EPS | FIN_TYPES_REV:
+            metric = t.lower()
+        elif t in FIN_TYPES_NI:
             metric = "net_income"
-        if t in FIN_TYPES_EQ:
+        elif t in FIN_TYPES_EQ:
             metric = "equity"
+        else:
+            continue
         hist.append(
             {
                 "period_date": qd,
@@ -130,6 +201,22 @@ def parse_financial_rows(rows: list[dict]) -> tuple[list[dict], dict, list[float
             }
         )
         by_q.setdefault(qd, {})[metric] = val
+
+    for qd in sorted(by_q.keys()):
+        bucket = by_q[qd]
+        oi = bucket.get("operating_income")
+        rev = bucket.get("revenue")
+        if oi is not None and rev is not None and rev > 0:
+            margin = round(oi / rev * 100.0, 4)
+            hist.append(
+                {
+                    "period_date": qd,
+                    "period_type": "quarter",
+                    "metric": "operating_margin_pct",
+                    "value": margin,
+                    "source": SOURCE,
+                }
+            )
 
     roe_by_q: list[tuple[str, float]] = []
     eps_by_q: list[tuple[str, float]] = []
@@ -231,6 +318,65 @@ def build_stock_fundamentals(
     return fund_row, history, consensus_rows
 
 
+def build_stock_fundamental_history(
+    stock_id: str,
+    start: date,
+    end: date,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Historical PER rows + financial history · for TW100 ML backfill."""
+    per_rows = fetch_finmind("TaiwanStockPER", stock_id, start, end)
+    rev_rows = fetch_finmind("TaiwanStockMonthRevenue", stock_id, start, end)
+    fin_rows = fetch_finmind("TaiwanStockFinancialStatements", stock_id, start, end)
+
+    per_series = parse_per_timeseries(per_rows)
+    rev_hist, _rev_stats = parse_revenue_rows(rev_rows)
+    fin_hist, fin_derived, _ = parse_financial_rows(fin_rows)
+
+    fund_rows: list[dict] = []
+    for snap in per_series:
+        fund_rows.append(
+            {
+                "stock_id": stock_id,
+                "as_of_date": snap["as_of_date"],
+                "pe": snap.get("pe"),
+                "pb": snap.get("pb"),
+                "dividend_yield": snap.get("dividend_yield"),
+                "roe_ttm": fin_derived.get("roe_ttm"),
+                "eps_ttm": fin_derived.get("eps_ttm"),
+                "eps_latest_q": fin_derived.get("eps_latest_q"),
+                "roe_latest_q": fin_derived.get("roe_latest_q"),
+                "revenue_yoy_pct": None,
+                "revenue_mom_accel_pp": None,
+                "source": SOURCE,
+            }
+        )
+
+    if not fund_rows:
+        latest = parse_per_rows(per_rows)
+        if latest:
+            fund_rows.append(
+                {
+                    "stock_id": stock_id,
+                    "as_of_date": latest["as_of_date"],
+                    "pe": latest.get("pe"),
+                    "pb": latest.get("pb"),
+                    "dividend_yield": latest.get("dividend_yield"),
+                    "roe_ttm": fin_derived.get("roe_ttm"),
+                    "eps_ttm": fin_derived.get("eps_ttm"),
+                    "eps_latest_q": fin_derived.get("eps_latest_q"),
+                    "roe_latest_q": fin_derived.get("roe_latest_q"),
+                    "revenue_yoy_pct": None,
+                    "revenue_mom_accel_pp": None,
+                    "source": SOURCE,
+                }
+            )
+
+    history = rev_hist + fin_hist
+    for h in history:
+        h["stock_id"] = stock_id
+    return fund_rows, history, []
+
+
 def sync_fundamentals(
     db_path: Path,
     *,
@@ -315,6 +461,92 @@ def sync_fundamentals(
     return stats
 
 
+def sync_dividend_history(
+    db_path: Path,
+    *,
+    window_start: date | None = None,
+    window_end: date | None = None,
+    lookback_days: int | None = None,
+    universe: str = "etf_watchlist",
+    universe_as_of: date | None = None,
+    stock_ids: list[str] | None = None,
+    dry_run: bool = False,
+    quiet: bool = False,
+    max_stocks: int = 0,
+    request_delay: float = REQUEST_DELAY_SEC,
+) -> dict[str, int]:
+    end = window_end or date.today()
+    if window_start is not None:
+        start = window_start
+    elif lookback_days is not None:
+        start = end - timedelta(days=lookback_days)
+    else:
+        start = end - timedelta(days=FIN_LOOKBACK_DAYS)
+
+    conn = connect(db_path)
+    try:
+        if stock_ids:
+            watchlist = resolve_sync_watchlist(
+                conn, universe, universe_as_of=universe_as_of, stock_ids=stock_ids, end=end
+            )
+        elif universe == "etf_watchlist":
+            watchlist = load_etf_constituent_watchlist(conn)
+        else:
+            watchlist = resolve_sync_watchlist(
+                conn, universe, universe_as_of=universe_as_of, end=end
+            )
+    finally:
+        conn.close()
+
+    if not watchlist:
+        raise RuntimeError(f"universe {universe} 為空")
+
+    if max_stocks > 0:
+        watchlist = watchlist[:max_stocks]
+
+    stats = {"stocks": len(watchlist), "rows": 0, "ok": 0, "warn": 0}
+
+    for i, item in enumerate(watchlist):
+        stock_id = item["stock_id"]
+        if i > 0 and request_delay > 0:
+            time.sleep(request_delay)
+        try:
+            raw = fetch_finmind("TaiwanStockDividend", stock_id, start, end)
+            rows = parse_dividend_rows(stock_id, raw)
+            if not rows:
+                stats["warn"] += 1
+                continue
+            stats["ok"] += 1
+            if dry_run:
+                stats["rows"] += len(rows)
+                continue
+            conn = connect(db_path)
+            try:
+                stats["rows"] += upsert_stock_dividend_history(conn, rows)
+            finally:
+                conn.close()
+        except requests.HTTPError as exc:
+            stats["warn"] += 1
+            print(f"  WARN {stock_id}: HTTP {exc}", file=sys.stderr)
+        except RuntimeError as exc:
+            stats["warn"] += 1
+            print(f"  WARN {stock_id}: {exc}", file=sys.stderr)
+
+        if not quiet and stats["stocks"] >= 20 and (i + 1) % 10 == 0:
+            print(
+                f"  ... dividend {i + 1}/{stats['stocks']} "
+                f"ok={stats['ok']} rows={stats['rows']}",
+                flush=True,
+            )
+
+    if not quiet and not dry_run:
+        print(
+            f"股利 sync：{stats['ok']}/{stats['stocks']} OK · "
+            f"rows={stats['rows']} warn={stats['warn']}"
+        )
+    return stats
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="同步成分股 L8/L8.5 至 SQLite")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
@@ -323,17 +555,38 @@ def main() -> int:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--max-stocks", type=int, default=0)
     parser.add_argument("--request-delay", type=float, default=REQUEST_DELAY_SEC)
+    parser.add_argument("--dividend-only", action="store_true", help="只同步 TaiwanStockDividend")
+    parser.add_argument("--universe", default="etf_watchlist")
+    parser.add_argument("--start-date", default=None)
+    parser.add_argument("--end-date", default=None)
+    parser.add_argument("--lookback-days", type=int, default=None)
     args = parser.parse_args()
 
     dry_run = args.dry_run or not args.sync_db
+    end = date.fromisoformat(args.end_date) if args.end_date else None
+    start = date.fromisoformat(args.start_date) if args.start_date else None
+
     try:
-        sync_fundamentals(
-            args.db,
-            dry_run=dry_run,
-            quiet=args.quiet,
-            max_stocks=args.max_stocks,
-            request_delay=args.request_delay,
-        )
+        if args.dividend_only:
+            sync_dividend_history(
+                args.db,
+                window_start=start,
+                window_end=end,
+                lookback_days=args.lookback_days,
+                universe=args.universe,
+                dry_run=dry_run,
+                quiet=args.quiet,
+                max_stocks=args.max_stocks,
+                request_delay=args.request_delay,
+            )
+        else:
+            sync_fundamentals(
+                args.db,
+                dry_run=dry_run,
+                quiet=args.quiet,
+                max_stocks=args.max_stocks,
+                request_delay=args.request_delay,
+            )
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

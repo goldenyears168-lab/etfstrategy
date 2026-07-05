@@ -44,8 +44,8 @@
 | `/briefs/:date` | 合併日報 | **A** | `daily.tsx` · `BriefDailyTOC` · `RegimeContent` · `RRGContent` · `HighlightBadges` | 同上 + brief 區塊 `section_intro_zh`（可選） |
 | `/briefs` | 日報列表 | **B** | `list.tsx` 改讀同步常數 | `BRIEF_LIST_INTRO_ZH` → Python |
 | `/strategies` | 策略目錄 | **B+C** | `hub.tsx` 殼層句 | `site_content` 卡片 `description_short` |
-| `/strategies/:id` | 凍結規格 | **C** | `SiteContentView` 不動 | `supabase/site/strategies/*.md` |
-| `/strategies/:id/lineage` | 採納報告 | **C** | 不動 | `research_case_*.md` |
+| `/strategies/:id` | 凍結規格 | **C** | `SiteContentView` 不動 | Supabase `site_content`（git mirror：`supabase/site/strategies/*.md`） |
+| `/strategies/:id/lineage` | 採納報告 | **C** | 不動 | Supabase `site_content`（`research_page_id` 列） |
 | `/stock-search` | 個股情報 | **B** | 殼層句 | `lens_ui_copy`；報價仍 Yahoo |
 | `/about` | 關於 | **B+C** | `ReadingGuide` 殼層 | `site_content` + `home_ui_copy` |
 | `/pages/:page_id` | 方法論頁 | **C** | 不動 | `site_content` markdown |

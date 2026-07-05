@@ -44,6 +44,7 @@ class TestC18accLiveScreen(unittest.TestCase):
         self.assertEqual(cfg.variant_id, CHAMPION_SCORE_SWAP_C_VARIANT_ID)
         self.assertEqual(cfg.entry_leg, "C0")
         self.assertEqual(cfg.timing_mode, "poll_5m")
+        self.assertEqual(cfg.candidate_pool, "fresh_union_accel")
         self.assertEqual(screen_champion().variant_id, cfg.variant_id)
 
     def test_poll_minute_floors_to_5m(self) -> None:
@@ -135,7 +136,7 @@ class TestC18accLiveScreen(unittest.TestCase):
                 dry_run=True,
             )
         )
-        self.assertIn("fresh mono 全池", md)
+        self.assertIn("fresh∪accel 全池", md)
         self.assertIn("2026-06-23", md)
         self.assertIn("backtest_pit", md)
 

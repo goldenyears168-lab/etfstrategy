@@ -122,8 +122,14 @@ def maybe_sync_rrg_universe_to_supabase(
     flag = os.environ.get("RUN_SUPABASE_RESEARCH_SYNC", "0").strip()
     if flag in ("0", "false", "False", ""):
         return None
-    if scheduled and not allow_scheduled_supabase_push(conn):
+    if scheduled and not allow_scheduled_supabase_push(conn, intraday=(screen_kind == "intraday")):
         return None
-    if scheduled and not is_trading_date(conn, date.fromisoformat(session_date)):
+    session = date.fromisoformat(session_date)
+    if scheduled and screen_kind == "intraday":
+        from market_benchmark import is_trading_session_day
+
+        if not is_trading_session_day(conn, session):
+            return None
+    elif scheduled and not is_trading_date(conn, session):
         return None
     return sync_rrg_universe_to_supabase(conn, session_date, screen_kind)
