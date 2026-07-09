@@ -17,7 +17,11 @@ from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP, rank_shortli
 from research.backtest.rrg_mono_swap_exit_b import build_mono_tier2_calendar
 from rrg_improving_watch import build_improving_observation_pool
 from rrg_mono_daily_brief import ScanRow
-from rrg_universe_intraday_panel import build_dual_wma_lead_pullback_observation_pool
+from rrg_universe_intraday_panel import (
+    build_abc_v3_f1_observation_pool,
+    build_abc_v3_skip09_observation_pool,
+    build_dual_wma_lead_pullback_observation_pool,
+)
 from rrg_mono_swap_accel_screen import (
     _parse_pool_override,
     _signal_date_for_session,
@@ -43,6 +47,8 @@ PoolSource = Literal[
     "rrg_improving_arch_b",
     "rrg_improving_arch_c",
     "dual_wma_lead_pullback",
+    "abc_v3_f1_pullback",
+    "abc_v3_skip09_pullback",
 ]
 
 
@@ -57,6 +63,7 @@ class BuyObservationPoolSpec:
     notify: bool
     strategy_ref: str = ""
     observe_only: bool = False
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -67,6 +74,8 @@ class BuyObservationTopRow:
     price: float | None
     confirm: int
     note: str = ""
+    w3_mom: float | None = None  # 盤中 dual-wma / abc-v3：MV3
+    w5_mom: float | None = None  # 盤中 dual-wma / abc-v3：MV5
 
 
 @dataclass
@@ -85,6 +94,13 @@ class PoolObservation:
     skip_note: str = ""
 
 
+def _slice_top_n(rows: list[Any], top_n: int) -> list[Any]:
+    """top_n <= 0 means no display/notify cap (show all pool hits)."""
+    if top_n <= 0:
+        return rows
+    return rows[:top_n]
+
+
 def load_buy_observation_config(path: Path | None = None) -> tuple[dict[str, Any], list[BuyObservationPoolSpec]]:
     p = path or BUY_OBSERVATION_PATH
     if not p.is_file():
@@ -96,17 +112,24 @@ def load_buy_observation_config(path: Path | None = None) -> tuple[dict[str, Any
     for item in pools_raw:
         if not isinstance(item, dict) or not item.get("id"):
             continue
+        if item.get("enabled") is False:
+            continue
         specs.append(
             BuyObservationPoolSpec(
                 id=str(item["id"]),
                 title=str(item.get("title") or item["id"]),
                 role=str(item.get("role") or "research"),
                 source=str(item.get("source") or "rrg_fresh_mono"),
-                top_n=int(item.get("top_n") or defaults.get("top_n") or 5),
+                top_n=int(
+                    item["top_n"]
+                    if item.get("top_n") is not None
+                    else defaults.get("top_n", 5)
+                ),
                 confirm_bars=int(item.get("confirm_bars") or defaults.get("confirm_bars") or 1),
                 notify=bool(item.get("notify", defaults.get("notify", False))),
                 strategy_ref=str(item.get("strategy_ref") or ""),
                 observe_only=bool(item.get("observe_only", defaults.get("observe_only", False))),
+                enabled=True,
             )
         )
     return raw, specs
@@ -146,6 +169,20 @@ def build_observation_pool(
         if not poll_minute:
             return [], session
         return build_dual_wma_lead_pullback_observation_pool(
+            conn, session=session, poll_minute=poll_minute
+        )
+
+    if spec.source == "abc_v3_f1_pullback":
+        if not poll_minute:
+            return [], session
+        return build_abc_v3_f1_observation_pool(
+            conn, session=session, poll_minute=poll_minute
+        )
+
+    if spec.source == "abc_v3_skip09_pullback":
+        if not poll_minute:
+            return [], session
+        return build_abc_v3_skip09_observation_pool(
             conn, session=session, poll_minute=poll_minute
         )
 
@@ -213,21 +250,30 @@ def evaluate_pool_observation(
             reverse=True,
         )
         pit = pool_as_of or session
-        for row in ranked[: spec.top_n]:
+        for row in _slice_top_n(ranked, spec.top_n):
+            intraday_sources = (
+                "dual_wma_lead_pullback",
+                "abc_v3_f1_pullback",
+                "abc_v3_skip09_pullback",
+            )
             px: float | None = None
-            if spec.source == "dual_wma_lead_pullback":
+            if spec.source in intraday_sources:
                 px = _kbar_px_at(conn, row.stock_id, session, poll_minute, close, kbar_cache)
             elif pit in close.index.astype(str) and row.stock_id in close.columns:
                 raw = close.at[pit, row.stock_id]
                 if raw is not None and not pd.isna(raw) and float(raw) > 0:
                     px = float(raw)
             note_parts = []
-            if spec.source == "dual_wma_lead_pullback":
+            if spec.source in intraday_sources:
                 w20q = row.quadrants[0] if row.quadrants else "?"
                 w5q = row.quadrants[1] if len(row.quadrants) > 1 else "?"
                 note_parts.append(f"spread={row.seg_last:.1f}")
                 note_parts.append(f"W20={w20q}")
                 note_parts.append(f"W5={w5q}")
+                if spec.source == "abc_v3_f1_pullback":
+                    note_parts.append("f1")
+                elif spec.source == "abc_v3_skip09_pullback":
+                    note_parts.append("v3")
             elif row.daily_pct is not None:
                 note_parts.append(f"sig={row.daily_pct:+.2f}%")
                 note_parts.append(f"RV={row.rs_ratio:.1f}")
@@ -241,6 +287,8 @@ def evaluate_pool_observation(
                     price=px,
                     confirm=0,
                     note=" · ".join(note_parts),
+                    w3_mom=row.w3_mom,
+                    w5_mom=row.w5_mom,
                 )
             )
         obs.skip_note = "observe-only · 無 C0 進場"
@@ -265,7 +313,7 @@ def evaluate_pool_observation(
             confirm[sid] = 0
 
     need = int(spec.confirm_bars or c0_cfg.confirm_bars)
-    for row in ranked[:spec.top_n]:
+    for row in _slice_top_n(ranked, spec.top_n):
         px = _kbar_px_at(conn, row.stock_id, session, poll_minute, close, kbar_cache)
         if row.stock_id in top_ids:
             confirm[row.stock_id] = confirm.get(row.stock_id, 0) + 1

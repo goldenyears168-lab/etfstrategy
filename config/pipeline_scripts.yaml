@@ -134,15 +134,15 @@ scripts:
     report_dir: reports/research/_unified
 
   run_market_probe_radar:
-    path: scripts/run_market_probe_radar.py
+    path: scripts/research/archive/run_market_probe_radar.py
     layer: research
-    purpose: T-1 探針雷達 · Holmberg vol + meta_router Phase 1
+    purpose: T-1 探針雷達 · archived topic · manual only
     report_dir: reports/daily/regime
 
   backfill_probe_kbar:
-    path: scripts/backfill_probe_kbar.py
+    path: scripts/research/archive/backfill_probe_kbar.py
     layer: research
-    purpose: 探針 universe 1m kbar 回灌
+    purpose: 探針 universe 1m kbar 回灌 · archived
     report_dir: reports/research/market-probe
 
   backfill_c18acc_kbar:
@@ -152,9 +152,9 @@ scripts:
     report_dir: reports/research/rrg
 
   run_market_probe_strategy_research:
-    path: scripts/run_market_probe_strategy_research.py
+    path: scripts/research/archive/run_market_probe_strategy_research.py
     layer: research
-    purpose: 探針穩定性 · 日型分類 · 全策略相關/互補
+    purpose: 探針穩定性 · archived topic · manual only
     report_dir: reports/research/market-probe
 
   run_research_sweep:
@@ -162,3 +162,18 @@ scripts:
     layer: research
     purpose: Preregistered sweep grid · sweep_runner trial registry
     schema: config/sweep_trial_registry.example.yaml
+
+  run_daily_sync:
+    path: scripts/run_daily_sync.py
+    layer: pipeline
+    purpose: daily_sync wrapper · 手動重跑收盤管線
+
+  run_launchd_replay:
+    path: scripts/run_launchd_replay.py
+    layer: pipeline
+    purpose: launchd job replay · 排程健檢
+
+  run_signal_radar_replay:
+    path: scripts/run_signal_radar_replay.py
+    layer: pipeline
+    purpose: buy/sell radar 歷史 replay · 除錯

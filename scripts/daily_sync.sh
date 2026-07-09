@@ -454,7 +454,7 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_RRG_MONO_SWAP_ACCEL_DAILY=0）"
   fi
 
-  if [[ "${RUN_RRG_IMPROVING_WATCH:-1}" != "0" ]]; then
+  if [[ "${RUN_RRG_IMPROVING_WATCH:-0}" != "0" ]]; then
     run_step_if_pipeline_enabled "rrg_improving_watch_daily" \
       "RRG Improving lifecycle watch daily brief" \
       "$PYTHON" "${ROOT}/scripts/run_rrg_improving_watch_daily.py" || true
@@ -567,17 +567,17 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_VCP_FUNNEL_CLOSE=0）"
   fi
 
-  if [[ "${RUN_PROBE_KBAR_BACKFILL:-1}" != "0" ]]; then
+  if [[ "${RUN_PROBE_KBAR_BACKFILL:-0}" != "0" ]]; then
     run_step_optional "probe kbar backfill (recent 35d)" \
-      "$PYTHON" "${ROOT}/scripts/backfill_probe_kbar.py" --recent-days 35 --quiet || true
+      "$PYTHON" "${ROOT}/scripts/research/archive/backfill_probe_kbar.py" --recent-days 35 --quiet || true
   else
     log_line "--- probe kbar backfill ---"
     log_line "  SKIP（RUN_PROBE_KBAR_BACKFILL=0）"
   fi
 
-  if [[ "${RUN_MARKET_PROBE_RADAR:-1}" != "0" ]]; then
+  if [[ "${RUN_MARKET_PROBE_RADAR:-0}" != "0" ]]; then
     run_step_optional "market probe radar" \
-      "$PYTHON" "${ROOT}/scripts/run_market_probe_radar.py" || true
+      "$PYTHON" "${ROOT}/scripts/research/archive/run_market_probe_radar.py" || true
   else
     log_line "--- market probe radar ---"
     log_line "  SKIP（RUN_MARKET_PROBE_RADAR=0）"

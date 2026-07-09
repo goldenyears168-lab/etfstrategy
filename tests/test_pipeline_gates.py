@@ -67,6 +67,13 @@ class PipelineGatesTests(unittest.TestCase):
         reason = daily_sync_skip_reason("vcp_funnel_close", env)
         self.assertIsNone(reason)
 
+    def test_improving_watch_default_off(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != "RUN_RRG_IMPROVING_WATCH"}
+        self.assertEqual(
+            daily_sync_skip_reason("rrg_improving_watch_daily", env),
+            "RUN_RRG_IMPROVING_WATCH=0",
+        )
+
     def test_improving_watch_research_env_only(self) -> None:
         env = {**os.environ, "RUN_RRG_IMPROVING_WATCH": "1"}
         self.assertIsNone(daily_sync_skip_reason("rrg_improving_watch_daily", env))

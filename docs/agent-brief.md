@@ -23,11 +23,12 @@
 | 收盤 DAG | `config/pipelines/daily_close.yaml` |
 | 策略 registry · enabled · publish | `config/strategies.yaml` |
 | 採納規格 · backtest | `config/strategy.yaml` |
-| 探索主題 · sweep | `config/research.yaml` |
+| 探索主題 · sweep | `config/research.yaml`（Phase A–C 收斂 · v4） |
 | Regime 四軸 | `config/regime.yaml` |
 | 下單意圖 | `config/order.yaml` |
 | Pipeline / launchd 腳本 registry | `config/pipeline_scripts.yaml` |
 | Gate · `RUN_*` | `src/pipeline_gates.py` · `.env` |
+| 買入觀測池 | `config/buy_observation.yaml` |
 
 ---
 
@@ -39,7 +40,7 @@
 | **Facts · ETF 持股** | `src/etf_daily_report.py`, `config/strategies.yaml` · `etf-daily` | `src/sync_etf_holdings.py` |
 | **Regime 四軸日報** | `src/regime_daily_brief.py`, `config/regime.yaml` | `src/regime_snapshot.py`, `src/market_*` |
 | **00981A Copytrade · L1H9** | `src/copytrade/signals.py`, `config/strategy.yaml` · `00981a-l1h9` | `src/copytrade_l1h9_daily.py`, `scripts/run_copytrade_l1h9_daily_brief.py` |
-| **RRG mono / swap-accel** | `src/rrg_mono_daily_brief.py`, `src/rrg_rotation.py` | `scripts/run_rrg_universe_close.py` |
+| **RRG mono / swap-accel** | `docs/RRG相對輪動圖入門.md`, `src/rrg_mono_daily_brief.py`, `src/rrg_rotation.py` | `scripts/run_rrg_universe_close.py` |
 | **RRG Improving lifecycle** | `docs/rrg-improving-lifecycle-research.md`, `scripts/run_rrg_improving_lifecycle_backtest.py`, `scripts/run_rrg_improving_lifecycle_monthly_sweep.py`, `scripts/run_rrg_improving_watch_daily.py` | `src/research/backtest/rrg_improving_lifecycle_*.py`, `src/rrg_improving_watch.py`, `config/buy_observation.yaml` |
 | **VCP funnel** | `src/vcp_funnel_specs_daily.py`, `src/vcp_funnel_screen.py` | `scripts/run_vcp_funnel_*.py` |
 | **buy / sell signal radar** | `src/strategy_signal_radar.py`, `config/strategy.yaml` · `buy-signal-radar` / `sell-signal-radar` | `scripts/launchd/*-signal-radar.command` |

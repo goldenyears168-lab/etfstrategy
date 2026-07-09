@@ -159,7 +159,7 @@ class TestImprovingWatchRules(unittest.TestCase):
             ).raw_mul,
         )
 
-    def test_buy_observation_config_improving_pools(self) -> None:
+    def test_buy_observation_config_improving_pools_disabled_phase_c(self) -> None:
         _, specs = load_buy_observation_config()
         ids = {s.id for s in specs}
         for pid in (
@@ -170,11 +170,9 @@ class TestImprovingWatchRules(unittest.TestCase):
             "rrg-improving-arch-a",
             "rrg-improving-arch-b",
             "rrg-improving-arch-c",
-            "dual-wma-lead-pullback",
         ):
-            self.assertIn(pid, ids)
-        rule_b = next(s for s in specs if s.id == "rrg-improving-rule-b")
-        self.assertTrue(rule_b.observe_only)
+            self.assertNotIn(pid, ids)
+        self.assertNotIn("dual-wma-lead-pullback", ids)
 
 
 class TestObserveOnlyPool(unittest.TestCase):

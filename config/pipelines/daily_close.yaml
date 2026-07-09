@@ -112,11 +112,11 @@ phases:
         fail_kind: aux
 
       - id: rrg_improving_watch_daily
-        label: RRG Improving lifecycle watch（蓄力 + S3 RV98-99 · research）
+        label: RRG Improving lifecycle watch（蓄力 + S3 RV98-99 · archived · manual）
         module: src/rrg_improving_watch.py
         run_script: scripts/run_rrg_improving_watch_daily.py
         env_flag: RUN_RRG_IMPROVING_WATCH
-        env_default: "1"
+        env_default: "0"
         requires:
           - constituent stock_daily_bars for as_of（建議 RUN_STOCK_MARKET_SYNC=1）
         fail_kind: aux

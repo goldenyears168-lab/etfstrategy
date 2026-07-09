@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
 from research.backtest.c18acc_intraday_exit_loop import (  # noqa: E402
+    merge_intraday_exit_loop_payloads,
     render_intraday_exit_loop_md,
     run_intraday_exit_loop_sweep,
 )
@@ -36,12 +37,27 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Comma-separated variant ids (e.g. XEL-2,XEL-3)",
     )
+    ap.add_argument(
+        "--window-labels",
+        default=None,
+        help="Comma-separated window labels (IS,FULL,OOS_H1,OOS_H2)",
+    )
+    ap.add_argument(
+        "--merge-from",
+        type=Path,
+        action="append",
+        default=None,
+        help="Merge rows from prior JSON payloads after this run",
+    )
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
 
     variant_ids = None
     if args.variants:
         variant_ids = [v.strip() for v in args.variants.split(",") if v.strip()]
+    window_labels = None
+    if args.window_labels:
+        window_labels = [w.strip() for w in args.window_labels.split(",") if w.strip()]
 
     conn = connect(args.db)
     try:
@@ -52,9 +68,19 @@ def main(argv: list[str] | None = None) -> int:
             is_end=args.is_end,
             oos_h2_mode=args.oos_h2_mode,
             variant_ids=variant_ids,
+            window_labels=window_labels,
         )
     finally:
         conn.close()
+
+    if args.merge_from:
+        extras = [json.loads(p.read_text(encoding="utf-8")) for p in args.merge_from]
+        payload = merge_intraday_exit_loop_payloads(
+            *extras,
+            payload,
+            date_start=args.date_start,
+            date_end=args.date_end,
+        )
 
     stamp = date.today().strftime("%Y%m%d")
     out_json = args.out or RESEARCH_RRG / f"{stamp}_c18acc_intraday_exit_loop.json"

@@ -6,6 +6,27 @@ import unittest
 
 from research_config import load_research_config, load_research_splits
 
+# Phase A 收斂後仍 active 的主線（2026-07-09）
+PHASE_A_ACTIVE_TOPICS = frozenset(
+    {
+        "c18acc-abc-dual-sleeve",
+        "c18acc-extension-radar",
+        "c18acc-snapshot-1300",
+        "copytrade-rrg-audit",
+        "finmind-low-ps-growth",
+        "finmind-low-rebound-foreign-it-sync",
+    }
+)
+
+PHASE_A_RETIRED_TOPIC_IDS = frozenset(
+    {
+        "breadth-impulse-validation",
+        "external-strategy-compare",
+        "factor-validation-s04",
+        "tanish-momentum-breadth",
+    }
+)
+
 
 class ResearchConfigTests(unittest.TestCase):
     def test_load_research_config(self) -> None:
@@ -41,7 +62,10 @@ class ResearchConfigTests(unittest.TestCase):
 
         vcp = cfg.get("chunge-funnel-sweep")
         assert vcp is not None
-        self.assertIn("vcp-pivot-gate", vcp.graduated_strategies or vcp.graduation.strategy_ids if vcp.graduation else ())
+        self.assertIn(
+            "vcp-pivot-gate",
+            vcp.graduated_strategies or vcp.graduation.strategy_ids if vcp.graduation else (),
+        )
 
     def test_graduated_c18acc_gates(self) -> None:
         cfg = load_research_config()
@@ -55,78 +79,80 @@ class ResearchConfigTests(unittest.TestCase):
         self.assertEqual(gates.G2_oos_holdout, "passed")
         self.assertEqual(gates.G3_regime_stratification, "passed")
 
-    def test_active_topic_has_phase(self) -> None:
+    def test_phase_a_active_topics(self) -> None:
+        cfg = load_research_config()
+        active = {t.topic_id for t in cfg.topics if t.status == "active"}
+        self.assertEqual(active, PHASE_A_ACTIVE_TOPICS)
+
+    def test_abc_graduated_from_triple_wma_topic(self) -> None:
+        cfg = load_research_config()
+        topic = cfg.get("triple-wma-pullback")
+        assert topic is not None
+        self.assertEqual(topic.status, "graduated")
+        self.assertEqual(topic.phase, "graduated")
+        assert topic.graduation is not None
+        self.assertEqual(topic.graduation.strategy_id, "abc-v3-f1-pullback")
+        self.assertEqual(topic.graduation.gates.G6_adoption_report, "passed")
+
+    def test_archived_lens_score_swap(self) -> None:
         cfg = load_research_config()
         topic = cfg.get("rrg-lens-score-swap")
         assert topic is not None
-        self.assertEqual(topic.phase, "is_sweep")
-        self.assertEqual(topic.split_spec, "default_is_oos")
-        self.assertGreater(len(topic.hypotheses), 0)
-        self.assertIsNotNone(topic.sweep)
+        self.assertEqual(topic.status, "archived")
+        self.assertEqual(topic.phase, "rejected")
 
-    def test_c18acc_slot_topic_registered(self) -> None:
+    def test_c18acc_snapshot_1300_topic_registered(self) -> None:
         cfg = load_research_config()
-        topic = cfg.get("rrg-mono-swap-accel-slots")
+        topic = cfg.get("c18acc-snapshot-1300")
         assert topic is not None
-        self.assertEqual(topic.phase, "is_sweep")
+        self.assertEqual(topic.status, "active")
+        self.assertEqual(topic.phase, "hypothesis")
         self.assertEqual(topic.parent_strategy, "rrg-mono-swap-accel")
+        self.assertEqual(topic.split_spec, "c18acc_snapshot_1300_2021")
         assert topic.sweep is not None
-        self.assertEqual(topic.sweep.get("dimensions", {}).get("n_slots"), [3, 5, 7, 9])
+        self.assertEqual(topic.sweep.get("sample_start"), "2021-01-01")
+        self.assertEqual(topic.sweep.get("snapshot_minute"), "13:00:00")
+        variant_ids = {v["id"] for v in topic.sweep.get("variants") or []}
+        self.assertIn("S0", variant_ids)
+        self.assertIn("S2", variant_ids)
+        splits = load_research_splits()
+        split = splits.get("c18acc_snapshot_1300_2021")
+        assert split is not None
+        self.assertEqual(split.holdout_start, "2026-01-01")
+        self.assertEqual(split.cost_model_rt_pct, 0.585)
 
-    def test_intraday_topic_artifacts_and_extra_gates(self) -> None:
-        cfg = load_research_config()
-        topic = cfg.get("intraday-1m-path-predictor")
-        assert topic is not None
-        self.assertEqual(topic.split_spec, "intraday_is_oos_70_30")
-        assert topic.artifacts is not None
-        self.assertIn("rejection_registry", topic.artifacts)
-        assert topic.graduation is not None
-        assert topic.graduation.extra_gates is not None
-        self.assertEqual(topic.graduation.extra_gates.get("calibration"), "pending")
-        assert topic.graduation.gates is not None
-        self.assertEqual(topic.graduation.gates.G4_rejection_registry, "passed")
-        self.assertEqual(topic.graduation.gates.G3_regime_stratification, "na")
-
-    def test_orb_topic_artifacts_moved_out_of_yaml(self) -> None:
-        cfg = load_research_config()
-        topic = cfg.get("1m-orb-tw-stock-select")
-        assert topic is not None
-        assert topic.artifacts is not None
-        self.assertIn("catalog_sweep", topic.artifacts)
-        self.assertIn("rejection_registry", topic.artifacts)
-
-    def test_cz_intraday_topic_registered(self) -> None:
-        cfg = load_research_config()
-        topic = cfg.get("cz-intraday-tw-replication")
-        assert topic is not None
-        self.assertEqual(topic.split_spec, "intraday_is_oos_70_30")
-        self.assertIn("scripts/run_cz_track2_0050_orb.py", topic.run_scripts or [])
-        assert topic.hypotheses is not None
-        ids = {h["id"] for h in topic.hypotheses}
-        self.assertIn("H-CZ-T2-1", ids)
-
-    def test_extension_radar_extra_gates(self) -> None:
+    def test_extension_radar_graduation(self) -> None:
         cfg = load_research_config()
         topic = cfg.get("c18acc-extension-radar")
         assert topic is not None
+        self.assertEqual(topic.status, "active")
         assert topic.graduation is not None
-        assert topic.graduation.extra_gates is not None
-        self.assertEqual(
-            topic.graduation.extra_gates.get("spike_subset_calibration"), "pending"
-        )
         assert topic.graduation.gates is not None
-        self.assertEqual(topic.graduation.gates.G3_regime_stratification, "na")
+        self.assertEqual(topic.graduation.gates.G3_regime_stratification, "partial")
+        self.assertEqual(topic.graduation.gates.G5_frozen_spec, "passed")
+        self.assertEqual(
+            topic.graduation.champion_artifact,
+            "reports/research/rrg/20260627_c18acc_phase3b_report.md",
+        )
 
     def test_retired_topics_removed(self) -> None:
         cfg = load_research_config()
-        ids = cfg.topic_ids()
-        for retired in (
-            "factor-validation-s04",
-            "external-strategy-compare",
-            "tanish-momentum-breadth",
-            "breadth-impulse-validation",
-        ):
+        ids = set(cfg.topic_ids())
+        for retired in PHASE_A_RETIRED_TOPIC_IDS:
             self.assertNotIn(retired, ids)
+
+    def test_lane_discovery_archived_not_deleted(self) -> None:
+        cfg = load_research_config()
+        topic = cfg.get("rrg-lane-discovery-loop")
+        assert topic is not None
+        self.assertEqual(topic.status, "archived")
+
+    def test_improving_lifecycle_archived_phase_c(self) -> None:
+        cfg = load_research_config()
+        topic = cfg.get("rrg-improving-lifecycle")
+        assert topic is not None
+        self.assertEqual(topic.status, "archived")
+        self.assertEqual(topic.phase, "rejected")
 
 
 if __name__ == "__main__":

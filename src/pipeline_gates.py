@@ -40,7 +40,7 @@ _DAILY_SYNC_STEPS: dict[str, dict[str, Any]] = {
     "rrg_improving_watch_daily": {
         "strategy_ids": (),
         "run_env": "RUN_RRG_IMPROVING_WATCH",
-        "run_default": "1",
+        "run_default": "0",
     },
 }
 

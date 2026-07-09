@@ -1,4 +1,5 @@
 # 買入觀測板 SSOT · 多池盤中 C0 scale · 對齊 strategy / research 軌
+# Phase C（2026-07-09）：RRG Improving 池 enabled=false（research archived · 保留定義供手動啟用）
 # 術語：docs/terminology.md · 採納軌 notify=true 才觸發寄信去重
 
 version: buy-observation-v1
@@ -37,11 +38,22 @@ pools:
     notify: false
     top_n: 5
 
-  - id: dual-wma-lead-pullback
-    title: Dual WMA 強勢回踩
+  - id: abc-v3-f1-pullback
+    title: ABC v3+f1 回踩
     role: research
-    source: dual_wma_lead_pullback
+    source: abc_v3_f1_pullback
     strategy_ref: buy-signal-radar
+    # observe-only 命中即寄信（獨立 advisory 軌 · 不與 C18acc 搶 slot）
+    notify: true
+    observe_only: true
+    top_n: 0  # 0 = 無上限 · 顯示/寄信全部命中
+
+  - id: abc-v3-skip09-pullback
+    title: ABC v3 skip09 回踩
+    role: research
+    source: abc_v3_skip09_pullback
+    strategy_ref: abc-v3-skip09
+    # v3（無 F gate）· 覆蓋較廣 · observe-only 命中即寄信（不搶 slot）
     notify: true
     observe_only: true
     top_n: 8
@@ -50,6 +62,7 @@ pools:
     title: RRG Improving 蓄力 watch
     role: research
     source: rrg_improving_watch_setup
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8
@@ -58,6 +71,7 @@ pools:
     title: RRG Improving S3 RV98-99
     role: research
     source: rrg_improving_s3_rv
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8
@@ -66,6 +80,7 @@ pools:
     title: RRG Improving S3 可執行 tier
     role: research
     source: rrg_improving_s3_exec
+    enabled: false
     notify: false
     observe_only: true
     top_n: 5
@@ -74,6 +89,7 @@ pools:
     title: RRG Improving S3 burst
     role: research
     source: rrg_improving_s3_burst
+    enabled: false
     notify: false
     observe_only: true
     top_n: 10
@@ -82,6 +98,7 @@ pools:
     title: RRG Improving Rule B
     role: research
     source: rrg_improving_rule_b
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8
@@ -90,6 +107,7 @@ pools:
     title: RRG Improving 原型 A 蓄力簧
     role: research
     source: rrg_improving_arch_a
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8
@@ -98,6 +116,7 @@ pools:
     title: RRG Improving 原型 B 貼 Leading
     role: research
     source: rrg_improving_arch_b
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8
@@ -106,6 +125,7 @@ pools:
     title: RRG Improving 原型 C 預追價
     role: research
     source: rrg_improving_arch_c
+    enabled: false
     notify: false
     observe_only: true
     top_n: 8

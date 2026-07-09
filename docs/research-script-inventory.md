@@ -2,9 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 2026-06-25 |
+| Version | 2026-07-09 · Phase C |
 | SSOT | `config/research.yaml` · `config/strategy.yaml` · `config/pipeline_scripts.yaml` |
 | Graduation gates | `config/research.yaml` → `graduation_gates` |
+| Archived runners | `scripts/research/archive/`（77 支 · 對應 `status: archived` topic） |
 
 ## 分類定義
 
@@ -12,9 +13,9 @@
 |------|------|----------|
 | **strategy** | 已採納策略 · 回測或 production screen | `config/strategy.yaml` |
 | **research** | 探索 topic · sweep · 假說 | `config/research.yaml` → `topics.*` |
+| **research/archive** | Phase B 封存 runner · 手動重跑 | `scripts/research/archive/` + yaml `run_scripts` |
 | **pipeline** | daily_sync / launchd · 非 alpha | `config/pipeline_scripts.yaml` |
-| **archive** | 已刪除 · 不再保留 | — |
-| **delete** | 無 SSOT · 無下游依賴 · 將以統一流程重跑 | 已移除 |
+| **delete** | 無 SSOT · 無下游依賴 · 已移除 | — |
 
 ---
 
@@ -78,6 +79,34 @@
 
 ---
 
+## Phase B · archived runners（2026-07-09）
+
+| 項目 | 說明 |
+|------|------|
+| 目錄 | `scripts/research/archive/` |
+| 觸發 | **非** daily_sync 主線 · 手動或 sweep CLI |
+| yaml | `config/research.yaml` · `status: archived` 的 `run_scripts` 已指向 archive 路徑 |
+| pipeline 例外 | `RUN_MARKET_PROBE=1` 時 daily_sync 仍呼叫 archive 內 `run_market_probe_radar.py` / `backfill_probe_kbar.py` |
+| 保留 | `src/research/backtest/` 不搬 · ABC/C18acc 引擎仍引用 |
+
+Active / graduated runner 仍在 `scripts/` 根目錄（例：`run_triple_wma_pullback_sweep.py` · `run_c18acc_abc_dual_sleeve_phase*.py`）。
+
+---
+
+## Phase C · pipeline 簡化（2026-07-09）
+
+| 項目 | 變更 |
+|------|------|
+| `RUN_RRG_IMPROVING_WATCH` | 預設 **0**（`.env.example` · `daily_sync.sh` · `pipeline_gates.py`） |
+| `RUN_MARKET_PROBE_RADAR` / `RUN_PROBE_KBAR_BACKFILL` | 預設 **0** |
+| `config/buy_observation.yaml` | RRG Improving 池 `enabled: false`（定義保留 · radar 不算） |
+| orphan runner | 登錄 `run_scripts_followup` / `compare_scripts` · 22 支移入 archive |
+| 剩餘 orphan | 3 支 infra（`run_daily_sync` · `run_launchd_replay` · `run_signal_radar_replay`）→ `pipeline_scripts.yaml` |
+
+手動重開 improving：`RUN_RRG_IMPROVING_WATCH=1` + 將 buy_observation 池 `enabled: true`。
+
+---
+
 ## 驗證
 
 ```bash
@@ -91,13 +120,23 @@ with open("config/strategy.yaml") as f: s = yaml.safe_load(f)
 with open("config/pipeline_scripts.yaml") as f: p = yaml.safe_load(f)
 reg = set()
 for t in r["topics"].values():
-    for x in t.get("run_scripts") or []: reg.add(Path(x).name)
+    for x in t.get("run_scripts") or []: reg.add(str(x))
+    for x in t.get("run_scripts_followup") or []: reg.add(str(x))
 for st in s["strategies"].values():
     for k in ("run_script","screen_script"):
-        if st.get(k): reg.add(Path(st[k]).name)
-for sc in p["scripts"].values(): reg.add(Path(sc["path"]).name)
-orphans = sorted(set(Path(x).name for x in glob.glob("scripts/run_*.py")) - reg)
-print("orphans:", len(orphans), orphans or "none")
+        if st.get(k): reg.add(st[k])
+for sc in p["scripts"].values(): reg.add(sc["path"])
+# archived topic scripts live under archive/
+archived_paths = {
+    x for t in r["topics"].values() if t.get("status") == "archived"
+    for x in (t.get("run_scripts") or [])
+}
+missing = sorted(p for p in archived_paths if not Path(p).is_file())
+print("missing archived scripts:", missing or "none")
+root_runs = set(glob.glob("scripts/run_*.py"))
+reg_names = {Path(x).name for x in reg if not x.startswith("scripts/research/archive/")}
+orphans = sorted(Path(x).name for x in root_runs if Path(x).name not in reg_names)
+print("root orphans:", len(orphans), orphans[:20] if orphans else "none")
 PY
 ```
 
@@ -113,7 +152,7 @@ PY
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/run_research_sweep.py \\
-  --topic rrg-lens-score-swap --family alpha-sweep --dry-run
+  --topic c18acc-snapshot-1300 --family alpha-sweep --dry-run
 ```
 
 ---

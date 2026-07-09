@@ -3,8 +3,15 @@
 # 腳本盤點：docs/research-script-inventory.md
 # Pipeline 腳本：config/pipeline_scripts.yaml（非本檔）
 
-version: research-v3
+# Phase A 收斂（2026-07-09）· status=archived|graduated 僅 metadata · 不刪 topic/不動 pipeline
+# Phase B（2026-07-09）· archived runner → scripts/research/archive/
+# Phase C（2026-07-09）· improving/probe pipeline 預設關 · buy_observation improving 池 disabled
+# Active research 主線：c18acc-abc-dual-sleeve · c18acc-snapshot-1300 · c18acc-extension-radar · copytrade-rrg-audit · finmind P0×2
+
+version: research-v4
 layer: research
+
+splits_ref: config/research_splits.yaml
 
 principles:
   - exploratory · sweep · matrix · hypothesis testing
@@ -38,7 +45,13 @@ graduation_gates:
 
 lifecycle:
   phase: [hypothesis, is_sweep, wfa, oos_holdout, graduated, rejected]
-  status: [active, paused, graduated, archived, rejected]
+  status:
+    - active
+    - paused
+    - graduated
+    - archived
+    - rejected
+    - converged
 
 topics:
   copytrade-hypothesis-matrix:
@@ -139,11 +152,11 @@ topics:
 
   rrg-mono-s2-exit-probe:
     title: RRG mono hold7 · S2 rotation-exit mirror probe
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-hold7
     run_scripts:
-      - scripts/run_rrg_mono_s2_exit_probe.py
+      - scripts/research/archive/run_rrg_mono_s2_exit_probe.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-MONO-S2-1
@@ -159,13 +172,14 @@ topics:
       M2 S2 mirror (weakening 2d + loss≥5%) · 不模擬提早出場釋槽。
       Phase 2 slot re-sim + timeline only if probe passes.
 
+    archive_action: S2 已採納至 c18acc-rotation-exit · probe 完成
   c18acc-s2-dual-wma-annot:
     title: C18acc+S2 · dual-WMA leg annotation (Phase W-annot)
-    status: converged
-    phase: graduation_decided
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
-      - scripts/run_c18acc_s2_dual_wma_annot.py
+      - scripts/research/archive/run_c18acc_s2_dual_wma_annot.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-W-annot-1
@@ -181,8 +195,8 @@ topics:
       Back-annotate C18acc+S2 executed legs with 30m dual-WMA spread geometry;
       compare first W5 rotation vs S2 quad_force_exit timing.
     run_scripts_followup:
-      - scripts/run_c18acc_s2_dual_wma_exit_save.py
-      - scripts/run_c18acc_s2_dual_wma_stack.py
+      - scripts/research/archive/run_c18acc_s2_dual_wma_exit_save.py
+      - scripts/research/archive/run_c18acc_s2_dual_wma_stack.py
     artifacts:
       annot: reports/research/rrg/20260705_c18acc_s2_dual_wma_annot.json
       exit_save: reports/research/rrg/20260705_c18acc_s2_dual_wma_exit_save.json
@@ -191,6 +205,7 @@ topics:
       verdict: NO_GO_W5_STACK
       action: 維持 S2 · W5 不作 stack 出場 overlay · leg save 有方向但 portfolio Δ≤0.09pp
 
+    archive_action: NO_GO_W5_STACK · 維持 S2
   c18acc-drs-extension-overlay:
     title: C18acc · drs / extension overlay vs S2
     status: graduated
@@ -226,8 +241,8 @@ topics:
 
   c18acc-w5-shortline:
     title: C18acc · WMA(5) short-line · scaled hold / accel / S2
-    status: active
-    phase: is_sweep
+    status: graduated
+    phase: graduated
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
       - scripts/run_c18acc_w5_shortline_sweep.py
@@ -269,14 +284,56 @@ topics:
         pool: W20
         hold: [[2, 5], [3, 7], [4, 8]]
         overlay: [S2sp, DR3, DR4, bypass, hold+DR3, hold+S2sp]
+    archive_action: graduated · GO_SPREAD_BYPASS 已採納
+
+  triple-wma-pullback:
+    title: Triple-WMA · W20+W5 high · W3 low · intraday dip entry
+    status: graduated
+    phase: graduated
+    archive_action: >
+      graduated · abc-v3-f1-pullback + abc-v3-skip09-pullback
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/run_triple_wma_pullback_sweep.py
+    report_dir: reports/research/rrg
+    compare_scripts:
+      - scripts/run_triple_micro_trigger_compare.py
+      - scripts/run_w2_rv_strict_sweep.py
+      - scripts/run_w2_rv_mv_sweep.py
+      - scripts/run_w3_w2_combo_sweep.py
+      - scripts/run_w3_winner_profile.py
+      - scripts/run_w3_abc_v2_oos.py
+      - scripts/run_w3_abc_v3_oos.py
+      - scripts/run_abc_v3_entry_gate_sweep.py
+      - scripts/run_abc_v3_hold_sweep.py
+      - scripts/run_abc_v3_slot_sweep.py
+      - scripts/run_abc_v3_score_calibration.py
+      - scripts/run_abc_v2_winner_profile.py
+      - scripts/run_abc_v3_trade_quality.py
+      - scripts/sync_us_overnight_futures.py
+      - scripts/run_abc_v3_f1_pipeline.py
+      - scripts/run_abc_v3_f1_overnight_regime_annot.py
+      - scripts/run_abc_v3_rh50_gate.py
+    graduation:
+      strategy_id: abc-v3-f1-pullback
+      sibling_strategy_id: abc-v3-skip09-pullback
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed
+        G3_regime_stratification: passed
+        G4_rejection_registry: passed
+        G5_frozen_spec: passed
+        G6_adoption_report: passed
+      champion_artifact: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
+      adoption_report: reports/research/rrg/20260708_abc_v3_f1_adoption.md
 
   c18acc-pool1-kinematic-gate:
     title: C18acc · POOL1 kinematic gate · spread pause · intraday confirm
-    status: converged
-    phase: graduation_decided
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
-      - scripts/run_c18acc_pool1_kinematic_gate_sweep.py
+      - scripts/research/archive/run_c18acc_pool1_kinematic_gate_sweep.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-GATE-1
@@ -322,13 +379,14 @@ topics:
         POOL1 基底已採納（2026-07-05）· gate/pause/IC/rank overlay 全 rejected ·
         維持 fresh∪accel + S2 凍結
 
+    archive_action: NO_GO_POOL1_ENHANCE
   c18acc-intraday-exit-loop:
     title: C18acc · POOL1 intraday exit loop · poll_5m 逐 bar 出場
-    status: active
-    phase: phase3_sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
-      - scripts/run_c18acc_intraday_exit_loop_sweep.py
+      - scripts/research/archive/run_c18acc_intraday_exit_loop_sweep.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-XEL-1
@@ -366,20 +424,25 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: XEL-2 rejected · 維持 XEL-0 poll_5m
+    run_scripts_followup:
+      - scripts/run_c18acc_intraday_1m_sweep.py
+      - scripts/run_c18acc_hard_stop_sweep.py
+      - scripts/run_c18acc_pool1_seg_last_gate.py
   rrg-improving-lifecycle:
     title: RRG Improving lifecycle · S0–S3 分階回測與隔日期望值
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     methodology: docs/rrg-improving-lifecycle-research.md
     run_scripts:
-      - scripts/run_rrg_improving_lifecycle_backtest.py
-      - scripts/run_rrg_improving_lifecycle_monthly_sweep.py
-      - scripts/run_rrg_s2_burst_case_study.py
-      - scripts/run_rrg_improving_s3rv_subset_backtest.py
-      - scripts/run_rrg_improving_s3rv_executable_proof.py
-      - scripts/run_rrg_improving_pre_release_backtest.py
-      - scripts/run_rrg_improving_pre_release_v2_research.py
-      - scripts/run_rrg_pre_release_funnel_backtest.py
+      - scripts/research/archive/run_rrg_improving_lifecycle_backtest.py
+      - scripts/research/archive/run_rrg_improving_lifecycle_monthly_sweep.py
+      - scripts/research/archive/run_rrg_s2_burst_case_study.py
+      - scripts/research/archive/run_rrg_improving_s3rv_subset_backtest.py
+      - scripts/research/archive/run_rrg_improving_s3rv_executable_proof.py
+      - scripts/research/archive/run_rrg_improving_pre_release_backtest.py
+      - scripts/research/archive/run_rrg_improving_pre_release_v2_research.py
+      - scripts/research/archive/run_rrg_pre_release_funnel_backtest.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H1
@@ -422,14 +485,26 @@ topics:
         statement: D+1 gap 開盤進場 open→close 不能複製 oracle
         status: supported  # open-gap mean −0.51%
 
+    archive_action: 診斷完成 · Phase C 關閉 daily pipeline（RUN_RRG_IMPROVING_WATCH 預設 0 · buy_observation 池 disabled）
+    run_scripts_followup:
+      - scripts/research/archive/run_rrg_drs3d_score_backtest.py
+      - scripts/research/archive/run_rrg_drs5d_score_backtest.py
+      - scripts/research/archive/run_rrg_hybrid_drs5d_ret5d_backtest.py
+      - scripts/research/archive/run_rrg_pre_release_funnel_lead3_3d_backtest.py
+      - scripts/research/archive/run_rrg_pre_release_score_backtest.py
+      - scripts/research/archive/run_rrg_lead_pullback_showcase.py
+      - scripts/research/archive/run_rrg_lead_pullback_slots_timeline.py
+      - scripts/research/archive/run_rrg_universe_dual_wma_intraday_timeline.py
+      - scripts/research/archive/run_rrg_universe_dual_wma_signals_intraday_timeline.py
+      - scripts/research/archive/run_rrg_universe_intraday_timeline.py
   geoalpha-dual-track:
     title: GeoAlpha dual-track · geometry φ + S_struct / S_alpha / S_joint
-    status: active
-    phase: ablation
+    status: archived
+    phase: rejected
     parent_research: rrg-improving-lifecycle
     run_scripts:
-      - scripts/run_geoalpha_conditional_ic.py
-      - scripts/run_geoalpha_ablation_backtest.py
+      - scripts/research/archive/run_geoalpha_conditional_ic.py
+      - scripts/research/archive/run_geoalpha_ablation_backtest.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-G1
@@ -450,13 +525,16 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: ablation 無 strategy 路徑
+    run_scripts_followup:
+      - scripts/research/archive/run_geoalpha_followup.py
   rrg-dual-wma-imp-early-long:
     title: Dual WMA 輪動早期 imp_early_long · 盤中進場 sweep
-    status: converged
-    phase: graduation_decided
+    status: archived
+    phase: rejected
     parent_research: rrg-improving-lifecycle
     run_scripts:
-      - scripts/run_dual_wma_signal_backtest.py
+      - scripts/research/archive/run_dual_wma_signal_backtest.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H1
@@ -494,10 +572,10 @@ topics:
       champion_exit: exit_w20_leading
       champion_exit_params:
         min_hold_polls: 0
-        w20_rs_min_at_exit: null
-        w5_gate: null
-        trail_after_w20: null
-        cap_days: null
+        w20_rs_min_at_exit:
+        w5_gate:
+        trail_after_w20:
+        cap_days:
       champion_regime_filter:
         flow_tape_regimes: [多頭]
     phase2b:
@@ -552,6 +630,7 @@ topics:
         G6_adoption_report: passed
       action: 收斂至 C18acc 強化（dual-WMA 出場 / extension overlay）
 
+    archive_action: CONVERGE_C18ACC · OOS failed
   rrg-dual-wma-lead-pullback:
     title: Dual WMA 強勢回踩 · buy-signal-radar advisory
     status: observe
@@ -582,14 +661,14 @@ topics:
 
   rrg-mono-hold3-tactical:
     title: RRG mono hold1–3 · 日線訊號 + 盤中執行（TradingView 雙層）
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-hold7
     run_scripts:
-      - scripts/run_rrg_mono_intraday_entry_sweep.py
-      - scripts/run_rrg_mono_intraday_ab.py
-      - scripts/run_rrg_mono_intraday_c_sweep.py
-      - scripts/run_rrg_mono_intraday_exit_sweep.py
+      - scripts/research/archive/run_rrg_mono_intraday_entry_sweep.py
+      - scripts/research/archive/run_rrg_mono_intraday_ab.py
+      - scripts/research/archive/run_rrg_mono_intraday_c_sweep.py
+      - scripts/research/archive/run_rrg_mono_intraday_exit_sweep.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H1
@@ -609,12 +688,13 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: ABC v3+f1 承接盤中短 hold
   expert-intraday-standalone:
     title: 專家盤中進場 · 獨立策略回測（非日線訊號疊加）
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     run_scripts:
-      - scripts/run_expert_intraday_standalone_backtest.py
+      - scripts/research/archive/run_expert_intraday_standalone_backtest.py
     report_dir: reports/research/intraday
     hypotheses:
       - id: H-EXP-1
@@ -629,12 +709,23 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: 獨立盤中系統 · 無採納
+    run_scripts_followup:
+      - scripts/research/archive/run_intraday_1300_digest.py
+      - scripts/research/archive/run_intraday_open_digest.py
+      - scripts/research/archive/run_intraday_midday_digest.py
+      - scripts/research/archive/run_intraday_orb_phase2.py
+      - scripts/research/archive/run_intraday_path_predictor.py
+      - scripts/research/archive/run_intraday_universe_pool_sweep.py
+      - scripts/research/archive/run_dual_wma_drs3d_intraday_backtest.py
+      - scripts/research/archive/run_dual_wma_tactical_slot_backtest.py
+      - scripts/research/archive/run_overnight_rrg_signal_test.py
   vcp-intraday-rrg-h3:
     title: H3 · 日線 VCP pivot 池 + 盤中 RRG seg_last 重排
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     run_scripts:
-      - scripts/run_vcp_intraday_rrg_ab.py
+      - scripts/research/archive/run_vcp_intraday_rrg_ab.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H3
@@ -649,6 +740,7 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: VCP×RRG 盤中重排無 champion
   rrg-mono-score-swap-c:
     title: RRG mono · 模式 C · 純 seg_last 分數換倉
     status: graduated
@@ -688,14 +780,19 @@ topics:
       breadth_holdout: reports/research/rrg/20260624_rrg_mono_swap_accel_breadth_zones.json
       research_stable_variant: C18-dls1
 
+    run_scripts_followup:
+      - scripts/run_c18acc_champion_showcase_html.py
+      - scripts/run_c18acc_pool1_showcase_html.py
+      - scripts/run_c18acc_triple_showcase_html.py
+      - scripts/run_rrg_intro_champion_combo_html.py
   rrg-mono-swap-exit-b:
     title: RRG mono · 模式 B · 左下 + challenger 換倉
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-hold7
     run_scripts:
-      - scripts/run_rrg_mono_swap_exit_b.py
-      - scripts/run_rrg_mono_c0_swap_b.py
+      - scripts/research/archive/run_rrg_mono_swap_exit_b.py
+      - scripts/research/archive/run_rrg_mono_c0_swap_b.py
     report_dir: reports/research/rrg
     graduation:
       gates:
@@ -706,12 +803,13 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: 模式 B 未勝 C18acc
   rrg-vcp-sequential-h1:
     title: H1 · RRG 觸發 → N 日內 VCP pivot 序列進場
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     run_scripts:
-      - scripts/run_rrg_vcp_sequential_h1.py
+      - scripts/research/archive/run_rrg_vcp_sequential_h1.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H1-SEQ
@@ -726,17 +824,18 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: RRG→VCP 序列無採納
   rrg-lens-score-swap:
     title: RRG 監控清單 · 日線+盤中加權分 · Top-N 升級換倉
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-hold7
     baseline_strategy: rrg-mono-hold7
     run_scripts:
-      - scripts/backfill_rrg_lens_backtest_data.py
-      - scripts/run_rrg_lens_score_swap.py
-      - scripts/run_rrg_lens_score_swap_phase1_parallel.sh
-      - scripts/summarize_rrg_lens_score_swap.py
+      - scripts/research/archive/backfill_rrg_lens_backtest_data.py
+      - scripts/research/archive/run_rrg_lens_score_swap.py
+      - scripts/research/archive/run_rrg_lens_score_swap_phase1_parallel.sh
+      - scripts/research/archive/summarize_rrg_lens_score_swap.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-A1
@@ -766,6 +865,7 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: 未勝 hold7/C18acc
   broad-momentum-sepa:
     title: Minervini SEPA basket ad-hoc 回測
     status: graduated
@@ -785,82 +885,13 @@ topics:
         G6_adoption_report: pending
       champion_artifact: reports/minervini-sepa-basket/backtest_summary.json
 
-  breadth-impulse-validation:
-    title: Zweig / Deemer breadth impulse · Regime diagnostic validation
-    status: active
-    phase: hypothesis
-    run_scripts:
-      - scripts/run_breadth_impulse_validation.py
-    report_dir: reports/research
-    notes: Regime breadth_impulse only · not Strategy overlay
-    graduation:
-      gates:
-        G1_preregistered_hypothesis: passed
-        G2_oos_holdout: pending
-        G3_regime_stratification: pending
-        G4_rejection_registry: na
-        G5_frozen_spec: na
-        G6_adoption_report: na
-
-  tanish-momentum-breadth:
-    title: tanish35 NewMom × Breadth zone Strong / Overbought
-    status: active
-    phase: hypothesis
-    run_scripts:
-      - scripts/run_tanish_momentum_backtest.py
-    report_dir: reports/research/breadth
-    source_repo: https://github.com/tanish35/Momentum-Investing
-    graduation:
-      gates:
-        G1_preregistered_hypothesis: pending
-        G2_oos_holdout: pending
-        G3_regime_stratification: pending
-        G4_rejection_registry: pending
-        G5_frozen_spec: pending
-        G6_adoption_report: pending
-
-  factor-validation-s04:
-    title: S04 因子 · layer / mom sweep
-    status: active
-    phase: is_sweep
-    run_scripts:
-      - scripts/run_s04_mom_sweep.py
-      - scripts/run_s04_layer_analysis.py
-      - scripts/run_factor_validation.py
-      - scripts/run_s04_freq_compare.py
-      - scripts/run_s04_monthly_tri_compare.py
-    graduation:
-      gates:
-        G1_preregistered_hypothesis: passed
-        G2_oos_holdout: pending
-        G3_regime_stratification: pending
-        G4_rejection_registry: pending
-        G5_frozen_spec: pending
-        G6_adoption_report: pending
-
-  external-strategy-compare:
-    title: FinPilot · tw_stocker vs L1 對照
-    status: active
-    phase: hypothesis
-    run_scripts:
-      - scripts/run_finpilot_vs_l1_compare.py
-      - scripts/run_tw_stocker_vs_l1_compare.py
-    graduation:
-      gates:
-        G1_preregistered_hypothesis: passed
-        G2_oos_holdout: na
-        G3_regime_stratification: na
-        G4_rejection_registry: pending
-        G5_frozen_spec: na
-        G6_adoption_report: na
-
   cz-track5-or-fade:
     title: OR fade short · C18acc overlay vs I36 · bar-by-bar sweep
     status: archived
     phase: rejected
     parent_topic: cz-intraday-tw-replication
     run_scripts:
-      - scripts/run_cz_track5_or_fade_sweep.py
+      - scripts/research/archive/run_cz_track5_or_fade_sweep.py
     report_dir: reports/research/intraday
     artifacts:
       standalone: reports/research/intraday/cz_track5_or_fade_standalone_2026.json
@@ -878,6 +909,169 @@ topics:
         G4_rejection_registry: passed
         G5_frozen_spec: na
         G6_adoption_report: na
+
+    run_scripts_followup:
+      - scripts/research/archive/run_cz_lit_smoke_batch.py
+      - scripts/research/archive/run_cz_track2_0050_orb.py
+
+  c18acc-abc-dual-sleeve:
+    title: C18acc × ABC v3+f1 · dual-sleeve complementarity
+    status: active
+    phase: phase1b_event_observe_nav
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/run_c18acc_abc_dual_sleeve_phase0.py
+      - scripts/run_c18acc_abc_dual_sleeve_phase1.py
+      - scripts/run_c18acc_abc_dual_sleeve_phase1b.py
+    report_dir: reports/research/rrg
+    split_spec: comparison_2024
+    hypotheses:
+      - id: H-DS-0
+        statement: >
+          Executed entry Jaccard ≤ 0.30 · same-day stock conflict ≤ 0.20 ·
+          |daily return corr| ≤ 0.50 → GO Phase1 capital-split NAV
+        status: passed
+      - id: H-DS-1
+        statement: >
+          Default 70/30 partitioned NAV · FULL mean_daily > C18-only ·
+          FULL CAGR > C18-only → ADOPT_DUAL_SLEEVE observe
+        status: rejected
+      - id: H-DS-1b
+        statement: >
+          Phase1b 70/30 · ABC event-observe FIFO · FULL mean_daily > C18-only ·
+          FULL CAGR > C18-only → ADOPT_DUAL_SLEEVE observe
+        status: pending
+    context: >
+      Phase0 GO · Phase1 NO_GO on 5-slot portfolio ABC sleeve.
+      Phase1b: ABC event-observe · all candidates · FIFO · auto peak slots.
+    artifacts:
+      phase0: reports/research/rrg/20260709_c18acc_abc_dual_sleeve_phase0.md
+      phase1: reports/research/rrg/20260709_c18acc_abc_dual_sleeve_phase1.md
+      phase1b: reports/research/rrg/*_c18acc_abc_dual_sleeve_phase1b.md
+    do_not:
+      - merge ABC F gate into C18acc pool
+      - merge mono_tier2 into ABC matcher
+      - treat as adopted strategy without Phase1 NAV pass
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    run_scripts_followup:
+      - scripts/run_c18acc_abc_v3_f1_comparison.py
+      - scripts/run_c18acc_abc_v3_f1_gap_diagnostic.py
+      - scripts/run_c18acc_abc_v3_f1_rh50_triad.py
+
+  c18acc-snapshot-1300:
+    title: C18acc · POOL1 snapshot 13:00 timing · poll_5m vs close
+    status: active
+    phase: hypothesis
+    parent_strategy: rrg-mono-swap-accel
+    split_spec: c18acc_snapshot_1300_2021
+    run_scripts:
+      - scripts/run_c18acc_snapshot_1300_sweep.py
+    report_dir: reports/research/rrg
+    baseline_artifact: reports/research/rrg/20260706_c18acc_pool1_bypass_showcase_2021_full.html
+    hypotheses:
+      - id: H-S1300-0
+        statement: >
+          POOL1 shortlist · stock_kbar_1m coverage ≥ 85% on trade dates ≥ 2021-01-01
+        status: open
+      - id: H-S1300-1
+        statement: >
+          S2 snapshot_1300 timing beats close poll_5m on OOS mean excess without excess collapse
+        status: open
+    sweep:
+      preregistered: true
+      sample_start: "2021-01-01"
+      snapshot_minute: "13:00:00"
+      requires: stock_kbar_1m
+      variants:
+        - id: S0
+          timing_mode: poll_5m
+        - id: S1
+          timing_mode: snapshot_1300
+        - id: S2
+          timing_mode: snapshot_1300
+          accel_sell_bypass_on_spread_lost: true
+        - id: S2b
+          timing_mode: snapshot_1300
+          accel_sell_bypass_on_spread_lost: true
+          label: S2 + breadth gate
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    run_scripts_followup:
+      - scripts/run_kbar_1m_vs_5m_impact_audit.py
+      - scripts/run_c18acc_bypass_showcase_html.py
+
+  c18acc-hybrid-rrg-mom:
+    title: C18acc · hybrid RRG mom · WMA(5) Y-axis sweep
+    status: archived
+    phase: rejected
+    archive_action: >
+      NO_GO · portfolio/OOS 全 rejected
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/archive/run_c18acc_hybrid_rrg_mom_sweep.py
+    report_dir: reports/research/rrg
+
+  c18acc-pool-rv98:
+    title: C18acc · POOL1 soft RV≥98 ∧ MV>100 · poll_5m
+    status: archived
+    phase: rejected
+    archive_action: >
+      NO_GO_SOFT_RV
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/archive/run_c18acc_pool_rv98_sweep.py
+    report_dir: reports/research/rrg
+    split_spec: oos_2026h1
+
+  c18acc-weekday-execution:
+    title: C18acc · weekday / Friday swap gate
+    status: archived
+    phase: rejected
+    archive_action: >
+      日曆/Friday gate 全 rejected · 維持 W0
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/archive/run_c18acc_weekday_execution_sweep.py
+      - scripts/research/archive/run_c18acc_weekday_annot.py
+    report_dir: reports/research/rrg
+
+  c18acc-overnight-regime-gate:
+    title: C18acc · overnight regime gate · SOX/FF_OI exposure overlay
+    status: archived
+    phase: rejected
+    archive_action: >
+      H-OR-0 rejected · Phase0 不顯著
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/archive/run_c18acc_overnight_regime_annot.py
+    report_dir: reports/research/rrg
+
+  rrg-regime-four-axis-annot:
+    title: RRG Regime four-axis · RH50 POOL1 gate annotation
+    status: archived
+    phase: rejected
+    archive_action: >
+      RH50 POOL1 gate 未採納 · triad 20260708 NAV 更差
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/archive/run_rrg_regime_four_axis_annot.py
+      - scripts/research/archive/run_rrg_regime_four_axis_sweep.py
+      - scripts/research/archive/run_rrg_regime_four_axis_phase2.py
+      - scripts/research/archive/run_rrg_regime_four_axis_phase3.py
+    report_dir: reports/research/rrg
 
   c18acc-extension-radar:
     title: C18acc I36 Extension Radar · combo_spike 出場 · 季末 CI 追蹤 + Regime 分層
@@ -940,13 +1134,24 @@ topics:
       next_bootstrap_run: "2026-09-30"
       champion_artifact: reports/research/rrg/20260627_c18acc_phase3b_report.md
 
+    run_scripts_followup:
+      - scripts/run_c18acc_extension_exit_sweep.py
+      - scripts/run_c18acc_phase3b_sweep.py
+      - scripts/run_c18acc_phase3_1m_sweep.py
+      - scripts/run_c18acc_i36_fullstack_sweep.py
+      - scripts/run_c18acc_norrg_i36_sweep.py
+      - scripts/run_c18acc_pure_i36_sweep.py
+      - scripts/run_c18acc_f3_opening_spike_tune.py
+      - scripts/run_c18acc_fullslot_sweep.py
+      - scripts/run_c18acc_repeat_sweep.py
+      - scripts/run_c18acc_slot_sweep.py
   c18acc-bleed-exit-overlay:
     title: C18acc Bleed-Sensitive Extension Overlay · C_bleed cohort
-    status: active
-    phase: sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
-      - scripts/run_c18acc_bleed_exit_sweep.py
+      - scripts/research/archive/run_c18acc_bleed_exit_sweep.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-BLEED-A2
@@ -955,19 +1160,20 @@ topics:
         statement: max_hold legs final ret≤−8% down ≥30% vs I36
       - id: H-BLEED-D3
         statement: T7 OR-hybrid passes A2+B1
-      evidence:
-        - reports/research/rrg/20260627_c18acc_phase3b_report.md
-        - reports/research/intraday/cz_track5_c18acc_or_overlay_2026.json
-        - reports/research/intraday/cz_track5_or_fade_verdict_2026.json
+    evidence:
+      - reports/research/rrg/20260627_c18acc_phase3b_report.md
+      - reports/research/intraday/cz_track5_c18acc_or_overlay_2026.json
+      - reports/research/intraday/cz_track5_or_fade_verdict_2026.json
 
+    archive_action: I36 combo_spike 為 overlay SSOT
   c18acc-rrg-weakening-stop:
     title: C18acc daily RRG Weakening stop-loss · C_bleed / C_pure_drip cohorts
-    status: active
-    phase: sweep
+    status: archived
+    phase: rejected
     parent_strategy: rrg-mono-swap-accel
     run_scripts:
-      - scripts/run_c18acc_rrg_weakening_stop_sweep.py
-      - scripts/run_c18acc_w6_tune_sweep.py
+      - scripts/research/archive/run_c18acc_rrg_weakening_stop_sweep.py
+      - scripts/research/archive/run_c18acc_w6_tune_sweep.py
     report_dir: reports/research/rrg
     hypotheses:
       - id: H-RRG-WK-A2
@@ -983,6 +1189,7 @@ topics:
       日線 close RRG Weakening quadrant 停損 · min_hold_before_quad_exit 格點 ·
       可疊 I36 extension（W6）。
 
+    archive_action: W6/weakening stop 未過 I36 對照
   c18acc-rotation-exit:
     title: C18acc rotation-exit · gradual Weakening→Lagging swap block audit & rule sweep
     status: graduated
@@ -1080,18 +1287,18 @@ topics:
 
   leading-stage2-gap-fade:
     title: Stage-2 leading 深跌加码 · 开高后杀（gap-up fade）· WFA / OOS
-    status: active
-    phase: oos_holdout
+    status: archived
+    phase: rejected
     description: |
       156 档 kbar 全样本 · 昨收 RRG leading + Weinstein Stage 2 advancing + Minervini≥7/8 +
       09:05 portfolio gate OFF · 盘中 -6% 进场 · 对比 H3 baseline vs H5 开高后杀（high≥昨收×1.01）。
       6/29 6223 最接近 H5 全条件；3008/5536 缺开高后杀。
     run_scripts:
-      - scripts/run_leading_stage2_crash_entry_backtest.py
-      - scripts/run_leading_stage2_gap_fade_wfa.py
-      - scripts/run_leading_stage2_dip_monthly_compare.py
-      - scripts/run_leading_stage2_regime_stratify.py
-      - scripts/backfill_signal_radar_kbar.py
+      - scripts/research/archive/run_leading_stage2_crash_entry_backtest.py
+      - scripts/research/archive/run_leading_stage2_gap_fade_wfa.py
+      - scripts/research/archive/run_leading_stage2_dip_monthly_compare.py
+      - scripts/research/archive/run_leading_stage2_regime_stratify.py
+      - scripts/research/archive/backfill_signal_radar_kbar.py
     report_dir: reports/research/leading-stage2-gap-fade
     split_spec: leading_stage2_gap_fade_wfa
     artifacts:
@@ -1103,12 +1310,12 @@ topics:
       - id: H-L2GF-1
         statement: H3 baseline（leading+Stage2+MV≥7+gate OFF · -6%）OOS 胜率≥50% 且中位报酬>0
         variant: H3_baseline
-        params: { dip_pct: 0.06, hold_days: [5, 10] }
+        params: {dip_pct: 0.06, hold_days: [5, 10]}
         current: "OOS 70/30 hold5 n=114 win=61.4% med=+3.87% · hold10 n=124 win=70.2% med=+11.33%"
       - id: H-L2GF-2
         statement: H5 开高后杀（H3 + high≥prev×1.01）OOS 中位报酬 > H3 · min_oos_n≥12
         variant: H5_gap_up_fade
-        params: { runup_min_pct: 0.01, dip_pct: 0.06, hold_days: [5, 10] }
+        params: {runup_min_pct: 0.01, dip_pct: 0.06, hold_days: [5, 10]}
         current: "OOS 70/30 hold5 n=42 win=73.8% med=+15.65% lift=+11.78pp · hold10 n=51 win=80.4% med=+21.56%"
     wfa_summary: >
       2026-06-29 · 156 档 kbar · G2 PASS（70/30 + 2026 hold-out）· H5 开高后杀 OOS 中位显著优于 H3。
@@ -1141,26 +1348,27 @@ topics:
         - reports/research/leading-stage2-gap-fade/dip6_vs_dip7_monthly_20260626.json
         - reports/research/leading-stage2-gap-fade/regime_stratify_20260626.json
 
+    archive_action: G5/G6 pending · backlog
   tw100-alpha158-wfa:
     title: TW100 橫截面 ML · Alpha158 walk-forward
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     description: |
       TW100（100 檔 · 排除 0050/0056 ETF）cross-sectional ranking · Alpha158 + LightGBM 參考 qlib-tw-trader。
       Research 期間固定 universe snapshot 2026-06-26；不併入 etf_watchlist。
     run_scripts:
-      - scripts/sync_tw100_market.py
-      - scripts/export_qlib_tw100.py
-      - scripts/qlib_smoke_tw100.py
-      - scripts/run_tw100_ml_backtest.py
-      - scripts/run_tw100_wfa_backtest.py
-      - scripts/run_tw100_alpha158_lgbm_wfa.py
-      - scripts/run_tw100_wfa_analysis.py
-      - scripts/run_tw100_topk_portfolio_wfa.py
-      - scripts/run_tw100_slot_topk_portfolio_wfa.py
-      - scripts/run_tw100_monthly_wfa.py
-      - scripts/sync_tw100_fundamentals.py
-      - scripts/run_copytrade_leg_ml_overlay.py
+      - scripts/research/archive/sync_tw100_market.py
+      - scripts/research/archive/export_qlib_tw100.py
+      - scripts/research/archive/qlib_smoke_tw100.py
+      - scripts/research/archive/run_tw100_ml_backtest.py
+      - scripts/research/archive/run_tw100_wfa_backtest.py
+      - scripts/research/archive/run_tw100_alpha158_lgbm_wfa.py
+      - scripts/research/archive/run_tw100_wfa_analysis.py
+      - scripts/research/archive/run_tw100_topk_portfolio_wfa.py
+      - scripts/research/archive/run_tw100_slot_topk_portfolio_wfa.py
+      - scripts/research/archive/run_tw100_monthly_wfa.py
+      - scripts/research/archive/sync_tw100_fundamentals.py
+      - scripts/research/archive/run_copytrade_leg_ml_overlay.py
     methodology: docs/ml-tw100-import-plan.md
     report_dir: reports/research/tw100
     config_ref: config/universe.yaml
@@ -1218,10 +1426,11 @@ topics:
         H-TW100-7 FAIL (RRG intersect sparse · 5 multi-leg days). Overlay rejected · no strategy change.
         Strategy 採納待定（standalone TW100 top-K only）。
 
+    archive_action: overlay rejected · standalone 採納待定
   rrg-lane-discovery-loop:
     title: RRG pre-release funnel · 微策略 lane 持續 discovery loop
-    status: active
-    phase: is_sweep
+    status: archived
+    phase: rejected
     description: |
       從已達成 outcome cohort（3 連漲 · ret_3d 正向）回推 signal-day 七維因子；
       全月份 success signal-day 共現分析 + 大賠 exclusion gate；
@@ -1231,13 +1440,13 @@ topics:
     methodology: docs/rrg-pre-release-funnel-lanes-3d.md
     config_ref: config/rrg_pre_release_funnel_lanes_3d.yaml
     run_scripts:
-      - scripts/run_rrg_lane_discovery_loop.py
-      - scripts/run_rrg_pre_release_funnel_3d_backtest.py
-      - scripts/export_pre_release_feature_panel.py
-      - scripts/run_rrg_lane_rulefit.py
-      - scripts/run_rrg_lane_pool_topk.py
-      - scripts/run_rrg_lane_oos_graduation.py
-      - scripts/export_rrg_streak_cohort_panel.py
+      - scripts/research/archive/run_rrg_lane_discovery_loop.py
+      - scripts/research/archive/run_rrg_pre_release_funnel_3d_backtest.py
+      - scripts/research/archive/export_pre_release_feature_panel.py
+      - scripts/research/archive/run_rrg_lane_rulefit.py
+      - scripts/research/archive/run_rrg_lane_pool_topk.py
+      - scripts/research/archive/run_rrg_lane_oos_graduation.py
+      - scripts/research/archive/export_rrg_streak_cohort_panel.py
     report_dir: reports/research/rrg
     artifacts:
       miss_list_glob: reports/research/rrg/lane_discovery_miss_list_*.json
@@ -1350,6 +1559,7 @@ topics:
         P4 OOS graduation 20260701 · 29/40 G2 · 38/40 G3 · ML distillation skipped (H-ML-3 FAIL).
         Artifacts: reports/research/rrg-lane-foundation/artifacts/lane_oos_graduation_*.json
 
+    archive_action: discovery 基建完畢 · 非新 alpha 主線
   finmind-low-rebound-foreign-it-sync:
     title: FinMind 市集 · 低檔回升且外資投信同步買超
     status: active
@@ -1379,6 +1589,10 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    run_scripts_followup:
+      - scripts/run_finmind_marketplace_comparison.py
+      - scripts/run_finmind_marketplace_complementarity.py
+      - scripts/run_finmind_marketplace_ensemble.py
   finmind-low-ps-growth:
     title: FinMind 市集 · 低市銷率的成長股
     status: active
@@ -1402,16 +1616,20 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    run_scripts_followup:
+      - scripts/run_finmind_marketplace_comparison.py
+      - scripts/run_finmind_marketplace_complementarity.py
+      - scripts/run_finmind_marketplace_ensemble.py
   finmind-tx-foreign-net-long-3d:
     title: FinMind 市集 · 指數期貨外資淨多單持續 3 日
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     spec_fidelity: approx
     priority: P1
     methodology: docs/strategy-marketplace/finmind-tx-foreign-net-long-3d.md
     report_dir: reports/research/finmind-marketplace
     run_scripts:
-      - scripts/run_finmind_tx_foreign_net_long_backtest.py
+      - scripts/research/archive/run_finmind_tx_foreign_net_long_backtest.py
     hypotheses:
       - id: H-FM-3
         statement: TX 外資 OI 淨多連 3 日 · IX0001 proxy 方向性具正報酬
@@ -1425,16 +1643,17 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: P1 backlog · 未跑
   finmind-ma20-breakout-volume:
     title: FinMind 市集 · 突破月線長紅放量
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     spec_fidelity: approx
     priority: P2
     methodology: docs/strategy-marketplace/finmind-ma20-breakout-volume.md
     report_dir: reports/research/finmind-marketplace
     run_scripts:
-      - scripts/run_finmind_ma20_breakout_backtest.py
+      - scripts/research/archive/run_finmind_ma20_breakout_backtest.py
     hypotheses:
       - id: H-FM-4
         statement: MA20 突破 + 5% 漲幅 + vol_ratio≥2 日線 proxy 具短線超額
@@ -1448,16 +1667,17 @@ topics:
         G5_frozen_spec: pending
         G6_adoption_report: pending
 
+    archive_action: P2 backlog · 未跑
   finmind-it-cold-stove:
     title: FinMind 市集 · 投信燒冷灶（簡化版）
-    status: active
-    phase: hypothesis
+    status: archived
+    phase: rejected
     spec_fidelity: simplified
     priority: P2
     methodology: docs/strategy-marketplace/finmind-it-cold-stove.md
     report_dir: reports/research/finmind-marketplace
     run_scripts:
-      - scripts/run_finmind_it_cold_stove_backtest.py
+      - scripts/research/archive/run_finmind_it_cold_stove_backtest.py
     hypotheses:
       - id: H-FM-5
         statement: 投信買超>300 張 + 10/15% 停損停利 · 缺持股濾網之簡化版
@@ -1473,15 +1693,16 @@ topics:
       notes: |
         E2 投信持股<2000 張 blocked · 待 FinMind 投信持股 dataset。
 
+    archive_action: 資料缺口 · 簡化版未跑
   market-probe-radar:
     layer: research
-    status: active
+    status: archived
     label: 市場探針雷達 · Holmberg vol + 1m probe axes
     report_dir: reports/daily/regime
     run_scripts:
-      - scripts/run_market_probe_radar.py
-      - scripts/backfill_probe_kbar.py
-      - scripts/run_market_probe_strategy_research.py
+      - scripts/research/archive/run_market_probe_radar.py
+      - scripts/research/archive/backfill_probe_kbar.py
+      - scripts/research/archive/run_market_probe_strategy_research.py
     hypotheses:
       - id: H-MPR-1
         statement: T-1 探針軸 z-score + vol decile 規則路由可改善 ensemble 相對 IX0001 超額
@@ -1496,3 +1717,5 @@ topics:
         G6_adoption_report: pending
       notes: |
         Phase 1 規則 meta_router · Phase 2 meta-labeling walk-forward。
+    phase: rejected
+    archive_action: ensemble routing · PRD 非目標

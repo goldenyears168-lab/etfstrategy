@@ -34,6 +34,32 @@ class TestSignalRadarDedup(unittest.TestCase):
                 _, new2 = filter_new_signals("buy", [sig], session_date=session)
                 self.assertEqual(len(new2), 0)
 
+    def test_observe_action_reason_key_distinct(self) -> None:
+        buy = BuySignal("2330", "台積電", action="buy", pool_id="abc-v3-f1-pullback")
+        obs = BuySignal("2330", "台積電", action="observe", pool_id="abc-v3-f1-pullback")
+        self.assertEqual(buy.reason_key(), "abc-v3-f1-pullback:c0_entry")
+        self.assertEqual(obs.reason_key(), "abc-v3-f1-pullback:observe")
+        self.assertNotEqual(
+            dedup_key("buy", buy.stock_id, buy.reason_key()),
+            dedup_key("buy", obs.stock_id, obs.reason_key()),
+        )
+
+    def test_observe_signal_dedup_once_per_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dedup = Path(tmp) / "dedup.json"
+            with patch("strategy_signal_radar.DEDUP_PATH", dedup):
+                session = "2026-06-28"
+                sig = BuySignal(
+                    "2330", "台積電", action="observe",
+                    reason="ABC v3+f1 回踩 命中", price=100.0,
+                    poll_minute="09:15", pool_id="abc-v3-f1-pullback",
+                )
+                _, new1 = filter_new_signals("buy", [sig], session_date=session)
+                self.assertEqual(len(new1), 1)
+                mark_notified("buy", new1, session_date=session)
+                _, new2 = filter_new_signals("buy", [sig], session_date=session)
+                self.assertEqual(len(new2), 0)
+
     def test_dedup_resets_next_day(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             dedup = Path(tmp) / "dedup.json"
@@ -90,6 +116,55 @@ class TestSignalRadarMarkdown(unittest.TestCase):
         self.assertIn("RRG fresh mono + RRG mono tier2", md)
         self.assertIn("多軌重疊", md)
 
+    def test_mv_gap_table_sorted_positive_first(self) -> None:
+        from strategy_signal_radar import _mv_gap_rows
+
+        ranked = _mv_gap_rows(
+            [
+                ("8016 矽創", 100.25, 101.12),  # diff -0.87 · F fail
+                ("2481 強茂", 98.95, 98.67),  # diff +0.28 · F pass
+                ("6488 環球晶", 98.78, 97.65),  # diff +1.13 · F pass
+                ("6499 缺MV", None, 99.0),  # 缺值略過
+            ]
+        )
+        # 依 MV3−MV5 由大到小：+1.13 → +0.28 → -0.87；缺值列略過
+        self.assertEqual([r[0] for r in ranked], ["6488 環球晶", "2481 強茂", "8016 矽創"])
+        self.assertAlmostEqual(ranked[0][3], 1.13, places=2)
+        self.assertTrue(ranked[0][4])  # F pass (diff positive)
+        self.assertTrue(ranked[1][4])
+        self.assertFalse(ranked[2][4])  # F fail (MV5 明顯高於 MV3)
+
+    def test_format_buy_markdown_includes_mv_table(self) -> None:
+        buy = [
+            BuySignal(
+                "8016",
+                "矽創",
+                action="observe",
+                reason="Dual WMA 強勢回踩 命中",
+                price=350.5,
+                pool_id="dual-wma-lead-pullback",
+                w3_mom=100.25,
+                w5_mom=101.12,
+            ),
+            BuySignal(
+                "6488",
+                "環球晶",
+                action="observe",
+                reason="Dual WMA 強勢回踩 命中",
+                price=1215.0,
+                pool_id="dual-wma-lead-pullback",
+                w3_mom=98.78,
+                w5_mom=97.65,
+            ),
+        ]
+        md = format_radar_markdown(buy=buy, session_date="2026-07-08", poll_minute="12:45", side="buy")
+        self.assertIn("MV3−MV5 排序", md)
+        self.assertIn("| 標的 | MV3 | MV5 | 差值 | F門 |", md)
+        # F pass 的 6488（diff 正）應排在 F fail 的 8016（diff 負）之前
+        self.assertLess(md.index("6488 環球晶"), md.index("8016 矽創"))
+        self.assertIn("✅", md)
+        self.assertIn("❌", md)
+
     def test_format_buy_log_skip(self) -> None:
         from strategy_signal_radar import BuyRadarResult, format_buy_radar_log
 
@@ -134,16 +209,58 @@ class TestSignalRadarMarkdown(unittest.TestCase):
         from buy_observation import load_buy_observation_config
 
         _, specs = load_buy_observation_config()
-        self.assertGreaterEqual(len(specs), 8)
+        self.assertGreaterEqual(len(specs), 5)
         ids = {s.id for s in specs}
         self.assertIn("rrg-fresh-mono", ids)
         self.assertIn("rrg-mono-tier2", ids)
-        self.assertIn("rrg-improving-watch-setup", ids)
-        self.assertIn("dual-wma-lead-pullback", ids)
-        lpb = next(s for s in specs if s.id == "dual-wma-lead-pullback")
-        self.assertEqual(lpb.source, "dual_wma_lead_pullback")
-        self.assertTrue(lpb.observe_only)
-        self.assertFalse(lpb.notify)
+        self.assertNotIn("rrg-improving-watch-setup", ids)  # Phase C disabled
+        self.assertIn("abc-v3-f1-pullback", ids)
+        f1 = next(s for s in specs if s.id == "abc-v3-f1-pullback")
+        self.assertEqual(f1.source, "abc_v3_f1_pullback")
+        self.assertTrue(f1.observe_only)
+        self.assertEqual(f1.top_n, 0)
+        # observe-only 命中即寄信（advisory 軌）
+        self.assertTrue(f1.notify)
+        self.assertIn("abc-v3-skip09-pullback", ids)
+        v3 = next(s for s in specs if s.id == "abc-v3-skip09-pullback")
+        self.assertEqual(v3.source, "abc_v3_skip09_pullback")
+        self.assertTrue(v3.observe_only)
+        self.assertTrue(v3.notify)
+        self.assertNotIn("dual-wma-lead-pullback", ids)
+
+    def test_abc_v3_skip09_source_dispatch_empty_poll(self) -> None:
+        # intraday 來源在 poll_minute 為空時應早退（不觸 DB），確認 source 已註冊
+        import pandas as pd
+        from buy_observation import BuyObservationPoolSpec, build_observation_pool
+
+        spec = BuyObservationPoolSpec(
+            id="abc-v3-skip09-pullback",
+            title="ABC v3 skip09 回踩",
+            role="research",
+            source="abc_v3_skip09_pullback",
+            top_n=8,
+            confirm_bars=1,
+            notify=True,
+            observe_only=True,
+        )
+        pool, as_of = build_observation_pool(
+            None,  # type: ignore[arg-type]
+            spec,
+            session="2026-07-07",
+            poll_minute="",
+            close=pd.DataFrame(),
+            bench=pd.Series(dtype=float),
+            ephemeral={},
+        )
+        self.assertEqual(pool, [])
+        self.assertEqual(as_of, "2026-07-07")
+
+    def test_slice_top_n_zero_means_unlimited(self) -> None:
+        from buy_observation import _slice_top_n
+
+        rows = list(range(12))
+        self.assertEqual(_slice_top_n(rows, 0), rows)
+        self.assertEqual(_slice_top_n(rows, 8), rows[:8])
 
     def test_format_buy_only(self) -> None:
         md = format_radar_markdown(
