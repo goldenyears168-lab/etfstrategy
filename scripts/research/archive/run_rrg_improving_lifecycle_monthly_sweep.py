@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_improving_lifecycle_rule_sweep import (  # noqa: E402
+from research.backtest.archive.rrg_improving_lifecycle_rule_sweep import (  # noqa: E402
     render_sweep_markdown,
     run_rule_sweep,
 )

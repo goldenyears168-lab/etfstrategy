@@ -2,10 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 2026-07-09 · Phase C |
+| Version | 2026-07-09 · Phase D |
 | SSOT | `config/research.yaml` · `config/strategy.yaml` · `config/pipeline_scripts.yaml` |
 | Graduation gates | `config/research.yaml` → `graduation_gates` |
-| Archived runners | `scripts/research/archive/`（77 支 · 對應 `status: archived` topic） |
+| Archived runners | `scripts/research/archive/`（160 支 · 含 graduated 重跑） |
 
 ## 分類定義
 
@@ -87,9 +87,26 @@
 | 觸發 | **非** daily_sync 主線 · 手動或 sweep CLI |
 | yaml | `config/research.yaml` · `status: archived` 的 `run_scripts` 已指向 archive 路徑 |
 | pipeline 例外 | `RUN_MARKET_PROBE=1` 時 daily_sync 仍呼叫 archive 內 `run_market_probe_radar.py` / `backfill_probe_kbar.py` |
-| 保留 | `src/research/backtest/` 不搬 · ABC/C18acc 引擎仍引用 |
+| 保留 | `src/research/backtest/` 根目錄 **48 模組** · production import 鏈 |
+| Archived engines | `src/research/backtest/archive/`（**86 模組** · sweep-only） |
 
 Active / graduated runner 仍在 `scripts/` 根目錄（例：`run_triple_wma_pullback_sweep.py` · `run_c18acc_abc_dual_sleeve_phase*.py`）。
+
+---
+
+## Phase D · research 靜默（2026-07-09）
+
+| 項目 | 說明 |
+|------|------|
+| Active topics | **0** · dual-sleeve rejected · snapshot / finmind / audit archived |
+| `scripts/run_*.py` 根目錄 | **25 支** · 僅 pipeline + strategy daily |
+| `scripts/research/archive/` | +62 runner（ABC/C18acc sweep · finmind · showcase HTML） |
+| Production 例外 | `run_c18acc_extension_screen.py` 仍在根目錄（launchd + sell-radar） |
+| yaml version | `research-v5` |
+
+Graduated champion 重跑：`scripts/research/archive/run_triple_wma_pullback_sweep.py` 等 · 路徑見 yaml `run_scripts`。
+
+Archived backtest 測試：`tests/research/archive/`（56 支）· production 測試見 `tests/` 根目錄。
 
 ---
 

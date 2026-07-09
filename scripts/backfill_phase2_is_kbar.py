@@ -28,7 +28,7 @@ from project_dotenv import load_project_dotenv  # noqa: E402
 load_project_dotenv()
 
 from finmind_client import fetch_finmind, finmind_token  # noqa: E402
-from research.backtest.cz_intraday_common import _load_stock_ids  # noqa: E402
+from research.backtest.archive.cz_intraday_common import _load_stock_ids  # noqa: E402
 from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
 from stock_db.kbar import finmind_kbar_rows_to_db, kbar_day_has_data, upsert_stock_kbar_1m  # noqa: E402
 

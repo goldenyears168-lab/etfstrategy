@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_drs5d_score_backtest import (  # noqa: E402
+from research.backtest.archive.rrg_drs5d_score_backtest import (  # noqa: E402
     run_drs5d_score_backtest,
     write_drs5d_report,
 )

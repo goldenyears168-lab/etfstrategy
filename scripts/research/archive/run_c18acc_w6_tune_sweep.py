@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.c18acc_w6_tune_sweep import (  # noqa: E402
+from research.backtest.archive.c18acc_w6_tune_sweep import (  # noqa: E402
     render_w6_tune_md,
     run_w6_tune_sweep,
 )

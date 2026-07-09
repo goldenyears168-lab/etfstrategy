@@ -22,7 +22,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_streak_cohort_panel import (  # noqa: E402
+from research.backtest.archive.rrg_streak_cohort_panel import (  # noqa: E402
     DEFAULT_OUT_DIR,
     analyze_streak_cohort,
     export_streak_cohort_panel,

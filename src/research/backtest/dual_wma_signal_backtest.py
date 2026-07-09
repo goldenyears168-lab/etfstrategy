@@ -349,6 +349,10 @@ def _exit_frame_idx(
         return min(entry_idx + 1, n - 1)
     if rule_id == "hold_6poll":
         return min(entry_idx + 6, n - 1)
+    if rule_id.startswith("hold_") and rule_id.endswith("d"):
+        days_str = rule_id[5:-1]
+        if days_str.isdigit():
+            return _hold_nd_frame_idx(entry_idx, frames, int(days_str))
     if rule_id in ("hold_1d", "hold_3d", "hold_5d"):
         days = int(rule_id.replace("hold_", "").replace("d", ""))
         return _hold_nd_frame_idx(entry_idx, frames, days)

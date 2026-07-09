@@ -22,7 +22,11 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .dual_momentum_antonacci import DEFAULT_RF_ANNUAL, _compute_stats, _mom_12m_at
+from research.backtest.archive.dual_momentum_antonacci import (
+    DEFAULT_RF_ANNUAL,
+    _compute_stats,
+    _mom_12m_at,
+)
 from .finpilot_local_backtest import load_price_panels, month_end_trading_dates
 from market_breadth_ma import build_breadth_panel
 from stage_analysis import (

@@ -37,7 +37,7 @@ def _ensure_lightgbm_if_needed(signal: str) -> None:
 
 
 def main() -> int:
-    from research.backtest.tw100_monthly_wfa import (  # noqa: WPS433
+    from research.backtest.archive.tw100_monthly_wfa import (  # noqa: WPS433
         Tw100MonthlyWfaConfig,
         run_tw100_monthly_wfa,
         write_walk_forward_artifact,

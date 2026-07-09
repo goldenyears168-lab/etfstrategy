@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from project_dotenv import load_project_dotenv
 from report_paths import RESEARCH_RRG
-from research.backtest.intraday_universe_pool_sweep import (
+from research.backtest.archive.intraday_universe_pool_sweep import (
     diagnose_session_tick,
     render_sweep_md,
     run_intraday_universe_pool_sweep,

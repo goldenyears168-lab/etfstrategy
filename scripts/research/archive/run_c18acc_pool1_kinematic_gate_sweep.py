@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
-from research.backtest.c18acc_pool1_kinematic_gate_sweep import (  # noqa: E402
+from research.backtest.archive.c18acc_pool1_kinematic_gate_sweep import (  # noqa: E402
     render_pool1_kinematic_gate_md,
     run_pool1_kinematic_gate_sweep,
 )

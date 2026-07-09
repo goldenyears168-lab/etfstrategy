@@ -15,8 +15,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from project_config import DEFAULT_ETF_CODES, parse_etf_codes
 from project_dotenv import load_project_dotenv
 from render_rrg_universe_html import _load_trading_dates_range
-from research.backtest.dual_wma_tactical_slot_backtest import TacticalExitParams
-from research.backtest.geoalpha_ablation_backtest import (
+from research.backtest.archive.dual_wma_tactical_slot_backtest import TacticalExitParams
+from research.backtest.archive.geoalpha_ablation_backtest import (
     IS_DATE_FROM,
     IS_DATE_TO,
     OOS_DATE_FROM,

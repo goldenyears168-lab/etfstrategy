@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from project_config import DEFAULT_ETF_CODES, parse_etf_codes
 from project_dotenv import load_project_dotenv
 from render_rrg_universe_html import _load_trading_dates_range
-from research.backtest.geoalpha_ablation_backtest import (
+from research.backtest.archive.geoalpha_ablation_backtest import (
     ALL_MODELS,
     DEFAULT_STRUCT_PERCENTILE,
     run_geoalpha_ablation,

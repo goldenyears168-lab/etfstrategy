@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.extension_prob_calibration import (  # noqa: E402
+from research.backtest.archive.extension_prob_calibration import (  # noqa: E402
     calibrate_extension_probs,
     render_calibration_md,
 )

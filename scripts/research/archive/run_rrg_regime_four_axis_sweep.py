@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
-from research.backtest.rrg_regime_four_axis_sweep import (  # noqa: E402
+from research.backtest.archive.rrg_regime_four_axis_sweep import (  # noqa: E402
     load_annot_events,
     render_rrg_regime_four_axis_sweep_md,
     run_rrg_regime_four_axis_sweep,

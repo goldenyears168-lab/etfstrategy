@@ -152,20 +152,23 @@ class RrgUniverseSnapshotTests(unittest.TestCase):
         conn = _memory_conn()
         conn.executescript(
             """
-            CREATE TABLE stock_kbar_1m (
-                stock_id TEXT, trade_date TEXT, minute TEXT, close REAL
+            CREATE TABLE stock_kbar_5m (
+                stock_id TEXT, trade_date TEXT, minute TEXT,
+                open REAL, high REAL, low REAL, close REAL,
+                volume INTEGER, source TEXT
             );
             """
         )
         conn.executemany(
             """
-            INSERT INTO stock_kbar_1m (stock_id, trade_date, minute, close)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO stock_kbar_5m (
+                stock_id, trade_date, minute, open, high, low, close, volume, source
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                ("2330", "2026-07-03", "10:59:00", 2400.0),
-                ("2330", "2026-07-03", "11:00:00", 2410.0),
-                ("2330", "2026-07-03", "11:01:00", 2420.0),
+                ("2330", "2026-07-03", "10:55:00", 2390.0, 2400.0, 2385.0, 2400.0, 100, "yahoo"),
+                ("2330", "2026-07-03", "11:00:00", 2405.0, 2415.0, 2400.0, 2410.0, 120, "yahoo"),
             ],
         )
         conn.commit()
@@ -174,7 +177,7 @@ class RrgUniverseSnapshotTests(unittest.TestCase):
             2410.0,
         )
         self.assertAlmostEqual(
-            kbar_close_at_minute(conn, "2330", "2026-07-03", "10:59"),
+            kbar_close_at_minute(conn, "2330", "2026-07-03", "10:56"),
             2400.0,
         )
         self.assertIsNone(kbar_close_at_minute(conn, "2317", "2026-07-03", "11:00"))

@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_vcp_sequential_h1 import (  # noqa: E402
+from research.backtest.archive.rrg_vcp_sequential_h1 import (  # noqa: E402
     run_h1_comparison,
     run_h1_lag_sweep,
 )

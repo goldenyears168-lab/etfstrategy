@@ -8,7 +8,7 @@ Examples:
   PYTHONPATH=src .venv/bin/python scripts/run_rrg_lane_discovery_loop.py --no-sweep
   PYTHONPATH=src .venv/bin/python scripts/run_research_sweep.py \\
     --topic rrg-lane-discovery-loop --family seed-grid --dry-run \\
-    --runner-module research.backtest.rrg_lane_discovery_loop
+    --runner-module research.backtest.archive.rrg_lane_discovery_loop
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_lane_discovery_loop import (  # noqa: E402
+from research.backtest.archive.rrg_lane_discovery_loop import (  # noqa: E402
     TOPIC_ID,
     _expand_seed_grid,
     load_discovery_topic,

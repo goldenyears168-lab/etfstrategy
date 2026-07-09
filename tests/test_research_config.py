@@ -6,17 +6,8 @@ import unittest
 
 from research_config import load_research_config, load_research_splits
 
-# Phase A 收斂後仍 active 的主線（2026-07-09）
-PHASE_A_ACTIVE_TOPICS = frozenset(
-    {
-        "c18acc-abc-dual-sleeve",
-        "c18acc-extension-radar",
-        "c18acc-snapshot-1300",
-        "copytrade-rrg-audit",
-        "finmind-low-ps-growth",
-        "finmind-low-rebound-foreign-it-sync",
-    }
-)
+# Phase D 收斂後 · 0 active research（2026-07-09）
+PHASE_D_ACTIVE_TOPICS: frozenset[str] = frozenset()
 
 PHASE_A_RETIRED_TOPIC_IDS = frozenset(
     {
@@ -32,7 +23,7 @@ class ResearchConfigTests(unittest.TestCase):
     def test_load_research_config(self) -> None:
         cfg = load_research_config()
         self.assertEqual(cfg.layer, "research")
-        self.assertEqual(cfg.version, "research-v4")
+        self.assertEqual(cfg.version, "research-v5")
         self.assertGreater(len(cfg.principles), 0)
         self.assertIsNotNone(cfg.graduation_gates)
         self.assertEqual(cfg.splits_ref, "config/research_splits.yaml")
@@ -79,10 +70,10 @@ class ResearchConfigTests(unittest.TestCase):
         self.assertEqual(gates.G2_oos_holdout, "passed")
         self.assertEqual(gates.G3_regime_stratification, "passed")
 
-    def test_phase_a_active_topics(self) -> None:
+    def test_phase_d_no_active_research_topics(self) -> None:
         cfg = load_research_config()
         active = {t.topic_id for t in cfg.topics if t.status == "active"}
-        self.assertEqual(active, PHASE_A_ACTIVE_TOPICS)
+        self.assertEqual(active, PHASE_D_ACTIVE_TOPICS)
 
     def test_abc_graduated_from_triple_wma_topic(self) -> None:
         cfg = load_research_config()
@@ -101,11 +92,11 @@ class ResearchConfigTests(unittest.TestCase):
         self.assertEqual(topic.status, "archived")
         self.assertEqual(topic.phase, "rejected")
 
-    def test_c18acc_snapshot_1300_topic_registered(self) -> None:
+    def test_c18acc_snapshot_1300_topic_archived(self) -> None:
         cfg = load_research_config()
         topic = cfg.get("c18acc-snapshot-1300")
         assert topic is not None
-        self.assertEqual(topic.status, "active")
+        self.assertEqual(topic.status, "archived")
         self.assertEqual(topic.phase, "hypothesis")
         self.assertEqual(topic.parent_strategy, "rrg-mono-swap-accel")
         self.assertEqual(topic.split_spec, "c18acc_snapshot_1300_2021")
@@ -121,11 +112,12 @@ class ResearchConfigTests(unittest.TestCase):
         self.assertEqual(split.holdout_start, "2026-01-01")
         self.assertEqual(split.cost_model_rt_pct, 0.585)
 
-    def test_extension_radar_graduation(self) -> None:
+    def test_extension_radar_archived_with_graduation(self) -> None:
         cfg = load_research_config()
         topic = cfg.get("c18acc-extension-radar")
         assert topic is not None
-        self.assertEqual(topic.status, "active")
+        self.assertEqual(topic.status, "archived")
+        self.assertEqual(topic.phase, "wfa")
         assert topic.graduation is not None
         assert topic.graduation.gates is not None
         self.assertEqual(topic.graduation.gates.G3_regime_stratification, "partial")
@@ -134,6 +126,15 @@ class ResearchConfigTests(unittest.TestCase):
             topic.graduation.champion_artifact,
             "reports/research/rrg/20260627_c18acc_phase3b_report.md",
         )
+
+    def test_dual_sleeve_archived_rejected(self) -> None:
+        cfg = load_research_config()
+        topic = cfg.get("c18acc-abc-dual-sleeve")
+        assert topic is not None
+        self.assertEqual(topic.status, "archived")
+        self.assertEqual(topic.phase, "rejected")
+        h1b = next(h for h in topic.hypotheses if h["id"] == "H-DS-1b")
+        self.assertEqual(h1b["status"], "rejected")
 
     def test_retired_topics_removed(self) -> None:
         cfg = load_research_config()

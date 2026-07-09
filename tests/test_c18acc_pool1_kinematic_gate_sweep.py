@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from research.backtest.c18acc_pool1_kinematic_gate_sweep import (
+from research.backtest.archive.c18acc_pool1_kinematic_gate_sweep import (
     build_hybrid_top_gate_lookup,
     build_intraday_extension_lookup,
     build_omega_kinematic_gate_lookup,

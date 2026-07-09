@@ -26,7 +26,7 @@ from project_dotenv import load_project_dotenv
 from render_rrg_universe_html import _load_trading_dates_range
 from report_paths import RESEARCH_RRG
 from research.backtest.dual_wma_signal_backtest import run_phase4_oos_holdout
-from research.backtest.dual_wma_tactical_slot_backtest import (
+from research.backtest.archive.dual_wma_tactical_slot_backtest import (
     HookEntryParams,
     TacticalExitParams,
     merge_graduation_verdict,

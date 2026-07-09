@@ -65,3 +65,13 @@ split_specs:
     description: >
       Stage-2 leading -6% 深跌加码 · H3 baseline vs H5 开高后杀 ·
       70/30 日期切分 + 2026 固定 hold-out · quarterly walk-forward
+
+  c18acc_snapshot_1300_2021:
+    method: composite
+    ratio: 0.7
+    min_oos_n: 80
+    holdout_start: "2026-01-01"
+    cost_model_rt_pct: 0.585
+    description: >
+      C18acc snapshot_1300 · sample from 2021-01-01 · 70/30 date + 2026 fixed hold-out ·
+      stock_kbar_1m required · RT 0.585%

@@ -30,3 +30,7 @@ omit = [
 fail_under = 55
 show_missing = false
 skip_empty = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

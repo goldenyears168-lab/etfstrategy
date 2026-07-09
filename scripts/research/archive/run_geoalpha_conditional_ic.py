@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.geoalpha_conditional_ic import (  # noqa: E402
+from research.backtest.archive.geoalpha_conditional_ic import (  # noqa: E402
     run_geoalpha_conditional_ic,
     write_geoalpha_conditional_ic_report,
 )

@@ -48,12 +48,280 @@ from stock_db.kbar import load_kbar_day_closes, price_at_or_before_minute
 
 PHASE3_HARD_STOP_PCT = -0.08
 
+BREADTH_BUCKETS: dict[str, tuple[str, ...]] = {
+    "risk_on": ("strong", "overbought"),
+    "neutral": ("neutral",),
+    "risk_off": ("weak", "oversold"),
+}
+
+BUCKET_LABELS: dict[str, str] = {
+    "risk_on": "Strong/Overbought · 強勢/過熱",
+    "neutral": "Neutral · 中性",
+    "risk_off": "Weak/Oversold · 弱勢/超賣",
+}
+
+HXEL2_OOS_TOLERANCE_PP = -0.25
+HXEL2_IS_TOLERANCE_PP = -0.5
+HXEL2_REJECT_OOS_PP = -1.0
+HXEL2_REGIME_RED_FLAG_PP = -2.0
+HXEL2_REGIME_MIN_N = 3
+
 IS_END_DEFAULT = "2025-12-31"
 OOS_START_DEFAULT = "2026-01-01"
 OOS_H1_END_DEFAULT = "2026-06-30"
 OOS_H2_START_DEFAULT = "2026-07-01"
 OOS_H2_END_FORWARD_DEFAULT = None
 MIN_OOS_H2_TRADE_DATES_DEFAULT = 20
+
+
+def _bucket_for_zone(zone: str | None) -> str:
+    z = str(zone or "unknown")
+    for bucket, zones in BREADTH_BUCKETS.items():
+        if z in zones:
+            return bucket
+    return "unknown"
+
+
+def _stratify_periods_by_regime(periods: list[dict[str, Any]]) -> dict[str, Any]:
+    by_bucket: dict[str, list[float]] = {b: [] for b in (*BREADTH_BUCKETS, "unknown")}
+    by_zone: dict[str, list[float]] = {}
+    for p in periods:
+        excess = p.get("excess_pct")
+        if excess is None:
+            continue
+        zone = str(p.get("breadth_zone_200") or "unknown")
+        bucket = _bucket_for_zone(zone)
+        by_bucket.setdefault(bucket, []).append(float(excess))
+        by_zone.setdefault(zone, []).append(float(excess))
+
+    def _bucket_stats(vals: list[float]) -> dict[str, Any]:
+        return {
+            "n": len(vals),
+            "mean_excess_pct": round(sum(vals) / len(vals), 4),
+        }
+
+    return {
+        "by_bucket": {b: _bucket_stats(v) for b, v in by_bucket.items() if v},
+        "by_zone": {z: _bucket_stats(v) for z, v in by_zone.items() if v},
+        "n_legs": len(periods),
+    }
+
+
+def _regime_bucket_deltas(
+    strat0: dict[str, Any] | None,
+    strat2: dict[str, Any] | None,
+) -> dict[str, Any]:
+    b0 = (strat0 or {}).get("by_bucket") or {}
+    b2 = (strat2 or {}).get("by_bucket") or {}
+    out: dict[str, Any] = {}
+    for bucket in sorted(set(b0) | set(b2)):
+        m0 = (b0.get(bucket) or {}).get("mean_excess_pct")
+        m2 = (b2.get(bucket) or {}).get("mean_excess_pct")
+        n0 = int((b0.get(bucket) or {}).get("n") or 0)
+        n2 = int((b2.get(bucket) or {}).get("n") or 0)
+        delta = round(float(m2) - float(m0), 4) if m0 is not None and m2 is not None else None
+        out[bucket] = {
+            "label": BUCKET_LABELS.get(bucket, bucket),
+            "delta_excess_pp": delta,
+            "n_xel0": n0,
+            "n_xel2": n2,
+            "mean_xel0": m0,
+            "mean_xel2": m2,
+        }
+    return out
+
+
+def evaluate_h_xel2_verdict(
+    *,
+    comparison: dict[str, Any],
+    by_variant: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """H-XEL-2 · OOS 不劣化 + 出場語意改善 + G3 regime 無紅旗."""
+    c12 = comparison.get("xel2_vs_xel0") or {}
+    delta_is = c12.get("delta_excess_is_pp")
+    delta_oos = c12.get("delta_excess_oos_h1_pp")
+
+    is0 = by_variant.get("XEL-0", {}).get("IS", {})
+    is2 = by_variant.get("XEL-2", {}).get("IS", {})
+    oos0 = by_variant.get("XEL-0", {}).get("OOS_H1", {})
+    oos2 = by_variant.get("XEL-2", {}).get("OOS_H1", {})
+
+    x0_stats = (oos0.get("exit_minute_stats") if oos0 and not oos0.get("skipped") else None) or (
+        (by_variant.get("XEL-0", {}).get("FULL", {}) or {}).get("exit_minute_stats")
+    ) or (c12.get("xel0_exit_minute_stats") or {})
+    x2_stats = (oos2.get("exit_minute_stats") if oos2 and not oos2.get("skipped") else None) or (
+        (by_variant.get("XEL-2", {}).get("FULL", {}) or {}).get("exit_minute_stats")
+    ) or (c12.get("exit_minute_stats") or {})
+    pct0 = x0_stats.get("pct_not_0930")
+    pct2 = x2_stats.get("pct_not_0930")
+    execution_improves = (
+        pct0 is not None and pct2 is not None and float(pct2) > float(pct0)
+    ) or (pct0 == 0 and (pct2 or 0) > 0)
+
+    regime_oos = c12.get("regime_bucket_deltas_oos") or {}
+    regime_flags = [
+        b
+        for b, row in regime_oos.items()
+        if row.get("delta_excess_pp") is not None
+        and float(row["delta_excess_pp"]) < HXEL2_REGIME_RED_FLAG_PP
+        and int(row.get("n_xel2") or 0) >= HXEL2_REGIME_MIN_N
+        and int(row.get("n_xel0") or 0) >= HXEL2_REGIME_MIN_N
+    ]
+
+    oos_ok = delta_oos is None or float(delta_oos) >= HXEL2_OOS_TOLERANCE_PP
+    is_ok = delta_is is None or float(delta_is) >= HXEL2_IS_TOLERANCE_PP
+    g3_ok = len(regime_flags) == 0
+
+    if delta_oos is not None and float(delta_oos) < HXEL2_REJECT_OOS_PP:
+        status = "rejected"
+        rationale = f"OOS H1 Δexcess {delta_oos}pp < {HXEL2_REJECT_OOS_PP}pp"
+    elif oos_ok and is_ok and execution_improves and g3_ok:
+        status = "supported"
+        rationale = (
+            f"OOS Δexcess {delta_oos}pp ≥ {HXEL2_OOS_TOLERANCE_PP} · "
+            f"non-09:30 {pct0}%→{pct2}% · G3 clean"
+        )
+    elif delta_oos is not None and float(delta_oos) < HXEL2_OOS_TOLERANCE_PP:
+        status = "rejected"
+        rationale = f"OOS H1 Δexcess {delta_oos}pp below tolerance {HXEL2_OOS_TOLERANCE_PP}pp"
+    elif not g3_ok:
+        status = "open"
+        rationale = f"G3 red flags in buckets: {', '.join(regime_flags)}"
+    else:
+        status = "open"
+        rationale = "Mixed · execution improves but excess borderline or IS/OOS incomplete"
+
+    return {
+        "hypothesis_id": "H-XEL-2",
+        "status": status,
+        "rationale": rationale,
+        "delta_excess_is_pp": delta_is,
+        "delta_excess_oos_h1_pp": delta_oos,
+        "execution_improves": execution_improves,
+        "pct_not_0930_xel0": pct0,
+        "pct_not_0930_xel2": pct2,
+        "g3_regime_red_flags": regime_flags,
+        "regime_bucket_deltas_is": c12.get("regime_bucket_deltas_is"),
+        "regime_bucket_deltas_oos": regime_oos,
+        "windows": {
+            "IS": {"xel0": _row_kpi(is0), "xel2": _row_kpi(is2)},
+            "OOS_H1": {"xel0": _row_kpi(oos0), "xel2": _row_kpi(oos2)},
+        },
+    }
+
+
+def _row_kpi(row: dict[str, Any]) -> dict[str, Any]:
+    if not row or row.get("skipped"):
+        return {"skipped": True}
+    return {
+        "n_legs": row.get("n_legs"),
+        "mean_excess_pct": row.get("mean_excess_pct"),
+        "pct_not_0930": (row.get("exit_minute_stats") or {}).get("pct_not_0930"),
+    }
+
+
+def _attach_hxel2_comparison_fields(
+    comparison: dict[str, Any],
+    by_var: dict[str, dict[str, Any]],
+) -> None:
+    x0 = by_var.get("XEL-0", {})
+    x2 = by_var.get("XEL-2", {})
+    is0, is2 = x0.get("IS", {}), x2.get("IS", {})
+    h10, h12 = x0.get("OOS_H1", {}), x2.get("OOS_H1", {})
+
+    def _d(a: dict, b: dict, k: str) -> float | None:
+        av, bv = a.get(k), b.get(k)
+        if av is None or bv is None:
+            return None
+        return round(float(bv) - float(av), 4)
+
+    c12 = comparison.setdefault("xel2_vs_xel0", {})
+    c12["delta_excess_is_pp"] = _d(is0, is2, "mean_excess_pct")
+    c12["regime_strat_is"] = {
+        "xel0": is0.get("regime_strat"),
+        "xel2": is2.get("regime_strat"),
+    }
+    c12["regime_strat_oos"] = {
+        "xel0": h10.get("regime_strat"),
+        "xel2": h12.get("regime_strat"),
+    }
+    c12["regime_bucket_deltas_is"] = _regime_bucket_deltas(
+        is0.get("regime_strat"), is2.get("regime_strat")
+    )
+    c12["regime_bucket_deltas_oos"] = _regime_bucket_deltas(
+        h10.get("regime_strat"), h12.get("regime_strat")
+    )
+    if "xel0_exit_minute_stats" not in c12:
+        full0 = x0.get("FULL", {})
+        c12["xel0_exit_minute_stats"] = full0.get("exit_minute_stats")
+    if h12:
+        c12["exit_minute_stats"] = h12.get("exit_minute_stats")
+
+
+def render_h_xel2_verdict_md(payload: dict[str, Any]) -> str:
+    v = payload.get("hxel2_verdict") or {}
+    c12 = (payload.get("comparison") or {}).get("xel2_vs_xel0") or {}
+    lines = [
+        "# H-XEL-2 verdict · XEL-2 vs XEL-0",
+        "",
+        f"窗口 `{payload.get('date_start')}` → `{payload.get('date_end')}`",
+        "",
+        f"**狀態：{v.get('status', '—')}** — {v.get('rationale', '')}",
+        "",
+        "## 主指標",
+        "",
+        "| 窗口 | Δ mean excess (XEL-2−XEL-0) | XEL-0 legs | XEL-2 legs |",
+        "|------|------------------------------|------------|------------|",
+    ]
+    for win in ("IS", "OOS_H1"):
+        w = (v.get("windows") or {}).get(win) or {}
+        x0, x2 = w.get("xel0") or {}, w.get("xel2") or {}
+        if x0.get("skipped") and x2.get("skipped"):
+            continue
+        delta = v.get("delta_excess_is_pp") if win == "IS" else v.get("delta_excess_oos_h1_pp")
+        lines.append(
+            f"| {win} | {delta} pp | {x0.get('n_legs', '—')} · {x0.get('mean_excess_pct', '—')}% "
+            f"| {x2.get('n_legs', '—')} · {x2.get('mean_excess_pct', '—')}% |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 執行語意",
+            "",
+            f"- XEL-0 非 09:30 出場：**{v.get('pct_not_0930_xel0', '—')}%**",
+            f"- XEL-2 非 09:30 出場：**{v.get('pct_not_0930_xel2', '—')}%**",
+            f"- 改善：{'是' if v.get('execution_improves') else '否'}",
+            "",
+            "## G3 · Regime layer（環境層）分層 · breadth bucket",
+            "",
+        ]
+    )
+    for label, key in (("IS", "regime_bucket_deltas_is"), ("OOS H1", "regime_bucket_deltas_oos")):
+        deltas = c12.get(key) or {}
+        if not deltas:
+            continue
+        lines.append(f"### {label}")
+        lines.append("")
+        lines.append("| Bucket | Δ excess pp | n₀ / n₂ | mean₀ / mean₂ |")
+        lines.append("|--------|-------------|---------|-----------------|")
+        for bucket, row in sorted(deltas.items()):
+            lines.append(
+                f"| {row.get('label', bucket)} | {row.get('delta_excess_pp')} | "
+                f"{row.get('n_xel0')}/{row.get('n_xel2')} | "
+                f"{row.get('mean_xel0')}% / {row.get('mean_xel2')}% |"
+            )
+        lines.append("")
+    flags = v.get("g3_regime_red_flags") or []
+    if flags:
+        lines.append(f"G3 紅旗 bucket：**{', '.join(flags)}**")
+    lines.append("")
+    lines.append("## 門檻")
+    lines.append("")
+    lines.append(f"- OOS 容忍：Δexcess ≥ {HXEL2_OOS_TOLERANCE_PP} pp")
+    lines.append(f"- IS 容忍：Δexcess ≥ {HXEL2_IS_TOLERANCE_PP} pp")
+    lines.append(f"- 拒絕：OOS Δexcess < {HXEL2_REJECT_OOS_PP} pp")
+    lines.append(f"- G3 紅旗：bucket Δ < {HXEL2_REGIME_RED_FLAG_PP} pp 且 n≥{HXEL2_REGIME_MIN_N}")
+    return "\n".join(lines) + "\n"
 
 
 def _prior_trade_date(full_dates: list[str], as_of: str) -> str | None:
@@ -602,7 +870,103 @@ def _run_variant_window(
         "hard_stop_exits": hard_stop_exits,
         "exit_reason_counts": _exit_reason_stats(periods),
         "exit_minute_stats": _exit_minute_stats(periods),
+        "regime_strat": _stratify_periods_by_regime(periods),
         "skipped": False,
+    }
+
+
+def merge_intraday_exit_loop_payloads(
+    *payloads: dict[str, Any],
+    date_start: str | None = None,
+    date_end: str | None = None,
+) -> dict[str, Any]:
+    """Merge variant rows from multiple sweep runs · rebuild comparison + verdict."""
+    rows: list[dict[str, Any]] = []
+    for p in payloads:
+        rows.extend(r for r in (p.get("rows") or []) if not r.get("skipped"))
+
+    ds = date_start or payloads[0].get("date_start")
+    de = date_end or payloads[0].get("date_end")
+
+    by_var: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        by_var.setdefault(str(r["variant_id"]), {})[str(r["label"])] = r
+
+    x0 = by_var.get("XEL-0", {})
+    x1 = by_var.get("XEL-1", {})
+    x2 = by_var.get("XEL-2", {})
+    x3 = by_var.get("XEL-3", {})
+    full0, full1, full2, full3 = (
+        x0.get("FULL", {}),
+        x1.get("FULL", {}),
+        x2.get("FULL", {}),
+        x3.get("FULL", {}),
+    )
+    h10, h11, h12, h13 = (
+        x0.get("OOS_H1", {}),
+        x1.get("OOS_H1", {}),
+        x2.get("OOS_H1", {}),
+        x3.get("OOS_H1", {}),
+    )
+
+    def _d(a: dict, b: dict, k: str) -> float | None:
+        av, bv = a.get(k), b.get(k)
+        if av is None or bv is None:
+            return None
+        return round(float(bv) - float(av), 4)
+
+    comparison = {
+        "xel1_vs_xel0": {
+            "delta_excess_full_pp": _d(full0, full1, "mean_excess_pct"),
+            "delta_excess_oos_h1_pp": _d(h10, h11, "mean_excess_pct"),
+            "delta_force_exits": int(full1.get("force_exits") or 0) - int(full0.get("force_exits") or 0),
+            "exit_minute_stats": full1.get("exit_minute_stats"),
+        },
+        "xel2_vs_xel0": {
+            "delta_excess_full_pp": _d(full0, full2, "mean_excess_pct"),
+            "delta_excess_oos_h1_pp": _d(h10, h12, "mean_excess_pct"),
+            "delta_swaps": int(full2.get("swaps_total") or 0) - int(full0.get("swaps_total") or 0),
+            "delta_max_hold_exits": int(full2.get("max_hold_exits") or 0) - int(full0.get("max_hold_exits") or 0),
+            "exit_minute_stats": full2.get("exit_minute_stats"),
+        },
+        "xel2_vs_xel1": {
+            "delta_excess_full_pp": _d(full1, full2, "mean_excess_pct"),
+            "delta_excess_oos_h1_pp": _d(h11, h12, "mean_excess_pct"),
+        },
+        "xel3_vs_xel2": {
+            "delta_excess_full_pp": _d(full2, full3, "mean_excess_pct"),
+            "delta_excess_oos_h1_pp": _d(h12, h13, "mean_excess_pct"),
+            "delta_hard_stop_exits": int(full3.get("hard_stop_exits") or 0)
+            - int(full2.get("hard_stop_exits") or 0),
+            "delta_swaps": int(full3.get("swaps_total") or 0) - int(full2.get("swaps_total") or 0),
+            "exit_minute_stats": full3.get("exit_minute_stats"),
+        },
+        "xel0_exit_minute_stats": full0.get("exit_minute_stats"),
+    }
+
+    c32 = comparison["xel3_vs_xel2"]
+    stats3 = c32.get("exit_minute_stats") or {}
+    verdict = {
+        "summary": (
+            f"XEL-3 vs XEL-2 · FULL Δexcess={c32.get('delta_excess_full_pp')}pp · "
+            f"Δhard_stop={c32.get('delta_hard_stop_exits')} · "
+            f"Δswaps={c32.get('delta_swaps')} · "
+            f"non-09:30 exits={stats3.get('pct_not_0930', '—')}%"
+        ),
+        "phase": "phase3_hard_stop_swap_repick",
+        "next": "OOS holdout verdict · optional showcase HTML for XEL-3",
+    }
+
+    return {
+        "schema": "c18acc_intraday_exit_loop-v3",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "date_start": ds,
+        "date_end": de,
+        "comparison": comparison,
+        "rows": rows,
+        "by_variant": by_var,
+        "verdict": verdict,
+        "note": payloads[0].get("note"),
     }
 
 
@@ -617,6 +981,8 @@ def run_intraday_exit_loop_sweep(
     oos_h2_mode: Literal["forward", "historical"] = "forward",
     min_oos_h2_trade_dates: int = MIN_OOS_H2_TRADE_DATES_DEFAULT,
     variant_ids: list[str] | None = None,
+    window_labels: list[str] | None = None,
+    hxel2_verdict: bool = False,
 ) -> dict[str, Any]:
     close, _, _ = load_price_panels(conn)
     full_dates = close.index.astype(str).tolist()
@@ -652,6 +1018,9 @@ def run_intraday_exit_loop_sweep(
     ]
     if h2_ready and h2_start <= h2_end:
         windows.insert(2, ("OOS_H2", h2_start, h2_end))
+    if window_labels:
+        allow = set(window_labels)
+        windows = [w for w in windows if w[0] in allow]
 
     rows: list[dict[str, Any]] = []
     for cfg in exit_loop_sweep_configs(variant_ids=variant_ids):
@@ -739,20 +1108,35 @@ def run_intraday_exit_loop_sweep(
         "xel0_exit_minute_stats": full0.get("exit_minute_stats"),
     }
 
+    if hxel2_verdict or {"XEL-0", "XEL-2"}.issubset(by_var):
+        _attach_hxel2_comparison_fields(comparison, by_var)
+
     c32 = comparison["xel3_vs_xel2"]
     stats3 = c32.get("exit_minute_stats") or {}
-    verdict = {
-        "summary": (
-            f"XEL-3 vs XEL-2 · FULL Δexcess={c32.get('delta_excess_full_pp')}pp · "
-            f"Δhard_stop={c32.get('delta_hard_stop_exits')} · "
-            f"Δswaps={c32.get('delta_swaps')} · "
-            f"non-09:30 exits={stats3.get('pct_not_0930', '—')}%"
-        ),
-        "phase": "phase3_hard_stop_swap_repick",
-        "next": "OOS holdout verdict · optional showcase HTML for XEL-3",
-    }
+    hxel2 = (
+        evaluate_h_xel2_verdict(comparison=comparison, by_variant=by_var)
+        if hxel2_verdict or {"XEL-0", "XEL-2"}.issubset(by_var)
+        else None
+    )
+    if hxel2:
+        verdict = {
+            "summary": f"H-XEL-2 · {hxel2['status']} · {hxel2['rationale']}",
+            "phase": "hxel2_oos_regime_verdict",
+            "next": "採納 XEL-2 showcase refresh" if hxel2["status"] == "supported" else "extend OOS or tune",
+        }
+    else:
+        verdict = {
+            "summary": (
+                f"XEL-3 vs XEL-2 · FULL Δexcess={c32.get('delta_excess_full_pp')}pp · "
+                f"Δhard_stop={c32.get('delta_hard_stop_exits')} · "
+                f"Δswaps={c32.get('delta_swaps')} · "
+                f"non-09:30 exits={stats3.get('pct_not_0930', '—')}%"
+            ),
+            "phase": "phase3_hard_stop_swap_repick",
+            "next": "OOS holdout verdict · optional showcase HTML for XEL-3",
+        }
 
-    return {
+    payload: dict[str, Any] = {
         "schema": "c18acc_intraday_exit_loop-v3",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "date_start": date_start,
@@ -765,6 +1149,9 @@ def run_intraday_exit_loop_sweep(
             "XEL-3=XEL-2 + hard_stop 1m −8% + score_swap 盤中 worst_held scaled 重排。"
         ),
     }
+    if hxel2:
+        payload["hxel2_verdict"] = hxel2
+    return payload
 
 
 def render_intraday_exit_loop_md(payload: dict[str, Any]) -> str:

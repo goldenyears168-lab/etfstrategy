@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from finmind_client import fetch_finmind, finmind_token  # noqa: E402
-from research.backtest.cz_track2_0050_orb import (  # noqa: E402
+from research.backtest.archive.cz_track2_0050_orb import (  # noqa: E402
     DEFAULT_STOCK_ID,
     run_track2_backtest,
     write_track2_report,

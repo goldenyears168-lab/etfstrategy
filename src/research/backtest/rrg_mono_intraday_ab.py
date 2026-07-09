@@ -44,7 +44,7 @@ from rrg_mono_daily_brief import (
     _mono_tier2,
 )
 from rrg_rotation import compute_rrg_panel
-from stock_db.kbar import KbarBar, load_kbar_day_bars, load_kbar_day_closes, price_at_or_before_minute
+from stock_db.kbar import KbarBar, load_kbar_day_5m_closes, load_kbar_day_bars, price_at_or_before_minute
 from analytics.bench import bench_return_entry_to_exit
 
 EntryLeg = Literal["A", "B", "C"]
@@ -288,7 +288,7 @@ def _kbar_px(
 ) -> float | None:
     key = (sid, trade_date)
     if key not in kbar_cache:
-        kbar_cache[key] = load_kbar_day_closes(conn, sid, trade_date)
+        kbar_cache[key] = load_kbar_day_5m_closes(conn, sid, trade_date)
     px = price_at_or_before_minute(kbar_cache[key], minute)
     if px is None and trade_date in close.index and sid in close.columns:
         px = float(close.at[trade_date, sid])
@@ -631,7 +631,7 @@ def _apply_intraday_entries(
             ready_at = confirm_ready_at.get(sid, minute)
             key = (sid, entry_date)
             if key not in kbar_cache:
-                kbar_cache[key] = load_kbar_day_closes(conn, sid, entry_date)
+                kbar_cache[key] = load_kbar_day_5m_closes(conn, sid, entry_date)
             if kbar_cache[key]:
                 kbar_stats["hits"] += 1
             kbar_stats["checks"] += 1
@@ -707,7 +707,7 @@ def _apply_entries_leg_b(
         sid = row.stock_id
         key = (sid, signal_date)
         if key not in kbar_cache:
-            kbar_cache[key] = load_kbar_day_closes(conn, sid, signal_date)
+            kbar_cache[key] = load_kbar_day_5m_closes(conn, sid, signal_date)
         if kbar_cache[key]:
             kbar_stats["hits"] += 1
         kbar_stats["checks"] += 1

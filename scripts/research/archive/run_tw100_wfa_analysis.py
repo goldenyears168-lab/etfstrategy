@@ -15,7 +15,7 @@ REPORT_DIR = ROOT / "reports" / "research" / "tw100"
 
 
 def main() -> int:
-    from research.backtest.tw100_wfa_analysis import (  # noqa: WPS433
+    from research.backtest.archive.tw100_wfa_analysis import (  # noqa: WPS433
         Tw100WfaAnalysisConfig,
         build_wfa_analysis_report,
         load_wfa_payload,

@@ -28,7 +28,7 @@ def _ensure_qlib_python() -> None:
 def main() -> int:
     _ensure_qlib_python()
 
-    from research.backtest.tw100_alpha158_lgbm_wfa import (  # noqa: WPS433
+    from research.backtest.archive.tw100_alpha158_lgbm_wfa import (  # noqa: WPS433
         DEFAULT_QLIB_URI,
         QLIB_ALPHA158_LGBM_PRESET,
         Tw100Alpha158LgbmConfig,

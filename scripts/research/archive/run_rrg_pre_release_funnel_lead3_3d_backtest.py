@@ -14,7 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_pre_release_funnel_lanes_lead3_3d import (  # noqa: E402
+from research.backtest.archive.rrg_pre_release_funnel_lanes_lead3_3d import (  # noqa: E402
     CONFIG_PATH,
     render_lead3_funnel_markdown,
     run_lead3_funnel_3d_backtest,

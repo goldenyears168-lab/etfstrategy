@@ -16,7 +16,7 @@ from project_config import DEFAULT_ETF_CODES, parse_etf_codes
 from project_dotenv import load_project_dotenv
 from render_rrg_universe_html import _load_trading_dates_range
 from report_paths import RESEARCH_RRG
-from research.backtest.dual_wma_drs3d_intraday_backtest import (
+from research.backtest.archive.dual_wma_drs3d_intraday_backtest import (
     run_h_a1_backtest,
     write_h_a1_report,
 )

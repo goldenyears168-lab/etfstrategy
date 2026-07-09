@@ -24,7 +24,7 @@ from render_lead_pullback_backtest_showcase_html import (
 )
 from render_rrg_universe_html import _load_trading_dates_range
 from report_paths import research_html_path
-from research.backtest.lead_pullback_showcase import build_lead_pullback_showcase_bundle
+from research.backtest.archive.lead_pullback_showcase import build_lead_pullback_showcase_bundle
 from rrg_mono_daily_brief import LENGTH
 from stock_db import DEFAULT_DB_PATH, connect
 

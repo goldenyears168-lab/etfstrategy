@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
-from research.backtest.overnight_gap_seg_calibration import (  # noqa: E402
+from research.backtest.archive.overnight_gap_seg_calibration import (  # noqa: E402
     calibrate_overnight_gap_seg,
     render_calibration_md,
 )

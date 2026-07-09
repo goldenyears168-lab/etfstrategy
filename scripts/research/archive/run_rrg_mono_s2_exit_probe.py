@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
-from research.backtest.rrg_mono_s2_exit_probe import (  # noqa: E402
+from research.backtest.archive.rrg_mono_s2_exit_probe import (  # noqa: E402
     render_rrg_mono_s2_exit_probe_md,
     run_rrg_mono_s2_exit_probe,
 )

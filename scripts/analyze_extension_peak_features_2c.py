@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.extension_peak_feature_analysis import (  # noqa: E402
+from research.backtest.archive.extension_peak_feature_analysis import (  # noqa: E402
     render_phase_2c_md,
     run_phase_2c_analysis,
 )

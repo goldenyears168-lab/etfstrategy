@@ -184,6 +184,25 @@ class ExitFrameIdxTest(unittest.TestCase):
         idx = _exit_frame_idx("exit_w5_leading", 0, frames, points, max_forward=10)
         self.assertEqual(idx, 2)
 
+    def test_hold_nd_generic(self) -> None:
+        from research.backtest.dual_wma_signal_backtest import _exit_frame_idx, _hold_nd_frame_idx
+
+        frames = [
+            {"id": "d0", "date": "2026-04-01", "minute": "09:00"},
+            {"id": "d0e", "date": "2026-04-01", "minute": "13:30"},
+            {"id": "d1", "date": "2026-04-02", "minute": "09:00"},
+            {"id": "d1e", "date": "2026-04-02", "minute": "13:30"},
+            {"id": "d2", "date": "2026-04-03", "minute": "09:00"},
+            {"id": "d2e", "date": "2026-04-03", "minute": "13:30"},
+            {"id": "d3", "date": "2026-04-06", "minute": "09:00"},
+            {"id": "d3e", "date": "2026-04-06", "minute": "13:30"},
+        ]
+        points: list[dict | None] = [None] * len(frames)
+        for hold in (2, 5, 7):
+            expected = _hold_nd_frame_idx(0, frames, hold)
+            actual = _exit_frame_idx(f"hold_{hold}d", 0, frames, points, max_forward=50)
+            self.assertEqual(actual, expected, hold)
+
     def test_champion_entry_params(self) -> None:
         from research.backtest.dual_wma_signal_backtest import imp_early_long_champion_entry
 

@@ -3,6 +3,8 @@
 from dataclasses import replace
 
 from research.backtest.c18acc_intraday_exit_loop import (
+    _bucket_for_zone,
+    evaluate_h_xel2_verdict,
     exit_loop_sweep_configs,
     intraday_quad_matches,
     intraday_swap_margin_ok,
@@ -94,3 +96,43 @@ def test_try_intraday_swap_repick_requires_seg_last():
         full_dates=["2025-01-02", "2025-01-03"],
     )
     assert out == (None, None, None, None, None, None)
+
+
+def test_bucket_for_zone():
+    assert _bucket_for_zone("strong") == "risk_on"
+    assert _bucket_for_zone("weak") == "risk_off"
+    assert _bucket_for_zone("unknown") == "unknown"
+
+
+def test_evaluate_h_xel2_supported():
+    by_var = {
+        "XEL-0": {
+            "IS": {"n_legs": 10, "mean_excess_pct": 3.0, "exit_minute_stats": {"pct_not_0930": 0}},
+            "OOS_H1": {
+                "n_legs": 8,
+                "mean_excess_pct": 2.5,
+                "exit_minute_stats": {"pct_not_0930": 0},
+                "regime_strat": {"by_bucket": {"risk_on": {"n": 5, "mean_excess_pct": 2.0}}},
+            },
+        },
+        "XEL-2": {
+            "IS": {"n_legs": 10, "mean_excess_pct": 2.8, "exit_minute_stats": {"pct_not_0930": 80}},
+            "OOS_H1": {
+                "n_legs": 8,
+                "mean_excess_pct": 2.6,
+                "exit_minute_stats": {"pct_not_0930": 75},
+                "regime_strat": {"by_bucket": {"risk_on": {"n": 5, "mean_excess_pct": 2.1}}},
+            },
+        },
+    }
+    comparison = {
+        "xel2_vs_xel0": {
+            "delta_excess_is_pp": -0.2,
+            "delta_excess_oos_h1_pp": 0.1,
+            "regime_bucket_deltas_oos": {
+                "risk_on": {"delta_excess_pp": 0.1, "n_xel0": 5, "n_xel2": 5},
+            },
+        }
+    }
+    v = evaluate_h_xel2_verdict(comparison=comparison, by_variant=by_var)
+    assert v["status"] == "supported"

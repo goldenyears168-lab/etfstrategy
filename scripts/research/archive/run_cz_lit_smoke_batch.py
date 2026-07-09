@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.cz_noise_area_0050 import run_noise_area_backtest, write_report as write_na  # noqa: E402
-from research.backtest.cz_torb_probe_scan import run_torb_probe_scan, write_report as write_torb  # noqa: E402
+from research.backtest.archive.cz_noise_area_0050 import run_noise_area_backtest, write_report as write_na  # noqa: E402
+from research.backtest.archive.cz_torb_probe_scan import run_torb_probe_scan, write_report as write_torb  # noqa: E402
 from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
 
 NOISE_AREA_REPORT = ROOT / "reports/research/intraday/cz_noise_area_0050_2026.json"

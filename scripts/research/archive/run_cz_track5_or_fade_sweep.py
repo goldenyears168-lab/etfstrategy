@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.cz_track5_or_fade import (  # noqa: E402
+from research.backtest.archive.cz_track5_or_fade import (  # noqa: E402
     OrFadeParams,
     COST_RT_NEGOTIATED,
     DEFAULT_COST_RT,

@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.tw100_ml_backtest import (  # noqa: E402
+from research.backtest.archive.tw100_ml_backtest import (  # noqa: E402
     Tw100MlBacktestConfig,
     run_tw100_baseline_backtest,
     write_tw100_backtest_artifact,

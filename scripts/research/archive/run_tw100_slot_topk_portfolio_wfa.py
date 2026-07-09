@@ -28,12 +28,12 @@ def _ensure_qlib_python() -> None:
 def main() -> int:
     _ensure_qlib_python()
 
-    from research.backtest.tw100_alpha158_lgbm_wfa import DEFAULT_QLIB_URI  # noqa: WPS433
-    from research.backtest.tw100_slot_topk_portfolio_wfa import (  # noqa: WPS433
+    from research.backtest.archive.tw100_alpha158_lgbm_wfa import DEFAULT_QLIB_URI  # noqa: WPS433
+    from research.backtest.archive.tw100_slot_topk_portfolio_wfa import (  # noqa: WPS433
         Tw100SlotTopkWfaConfig,
         run_tw100_slot_topk_portfolio_wfa,
     )
-    from research.backtest.tw100_walk_forward import write_walk_forward_artifact  # noqa: WPS433
+    from research.backtest.archive.tw100_walk_forward import write_walk_forward_artifact  # noqa: WPS433
     from stock_db import DEFAULT_DB_PATH, connect  # noqa: WPS433
 
     p = argparse.ArgumentParser(description="TW100 slot Top-K portfolio WFA")

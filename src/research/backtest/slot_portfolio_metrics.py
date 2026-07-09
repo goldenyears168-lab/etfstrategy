@@ -98,6 +98,62 @@ def _entry_cost(allocation: float, *, cost_model: dict | None) -> float:
     return allocation * float(cost_model.get("buy_fee_pct", 0)) / 100.0
 
 
+def leg_net_settlement(
+    deployed: float,
+    entry_px: float,
+    exit_px: float,
+    *,
+    cost_model: dict | None,
+) -> tuple[float, float]:
+    """Close one slot leg · return (cash_after_exit, net_pnl vs starting deployed).
+
+    Matches ``simulate_slot_portfolio`` cash flow: buy fee reduces share notional;
+    sell fee + tax apply on exit proceeds.
+    """
+    if deployed <= 0 or entry_px <= 0 or exit_px <= 0:
+        return deployed, 0.0
+    if not cost_model or not cost_model.get("enabled"):
+        proceeds = deployed * (exit_px / entry_px)
+        return proceeds, proceeds - deployed
+    entry_fee = _entry_cost(deployed, cost_model=cost_model)
+    alloc = deployed - entry_fee
+    proceeds = _apply_exit_proceeds(alloc, entry_px, exit_px, cost_model=cost_model)
+    return proceeds, proceeds - deployed
+
+
+def leg_net_equity_open(
+    deployed: float,
+    entry_px: float,
+    mark_px: float,
+    *,
+    cost_model: dict | None,
+) -> float:
+    """Mark open leg to market (no sell costs until exit)."""
+    if deployed <= 0 or entry_px <= 0 or mark_px <= 0:
+        return deployed
+    if not cost_model or not cost_model.get("enabled"):
+        return deployed * (mark_px / entry_px)
+    entry_fee = _entry_cost(deployed, cost_model=cost_model)
+    alloc = deployed - entry_fee
+    return alloc * (mark_px / entry_px)
+
+
+def format_cost_model_note(cost_model: dict | None) -> str:
+    if not cost_model or not cost_model.get("enabled"):
+        return "回測假設 <b>0 bps</b>（未扣手續費／稅，實務需自行加回）。"
+    buy = float(cost_model.get("buy_fee_pct", 0))
+    sell = float(cost_model.get("sell_fee_pct", 0))
+    tax = float(cost_model.get("sell_tax_pct", 0))
+    disc = str(cost_model.get("fee_discount_label") or "").strip()
+    disc_txt = f"（{disc}）" if disc else ""
+    rt = buy + sell + tax
+    return (
+        f"已扣交易成本{disc_txt}：買進手續費 <b>{buy:g}%</b> · "
+        f"賣出手續費 <b>{sell:g}%</b> · 賣出證交稅 <b>{tax:g}%</b> "
+        f"（單邊賣出合計約 <b>{sell + tax:g}%</b> · 來回約 <b>{rt:g}%</b>）。"
+    )
+
+
 def simulate_slot_portfolio(
     conn: sqlite3.Connection,
     close: pd.DataFrame,

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from report_paths import RESEARCH_RRG  # noqa: E402
-from research.backtest.dual_wma_short_length_sweep import (  # noqa: E402
+from research.backtest.archive.dual_wma_short_length_sweep import (  # noqa: E402
     render_dual_wma_short_length_md,
     run_dual_wma_short_length_sweep,
 )

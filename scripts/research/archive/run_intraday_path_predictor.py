@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.intraday_path_predictor import (  # noqa: E402
+from research.backtest.archive.intraday_path_predictor import (  # noqa: E402
     render_intraday_path_predictor_md,
     run_intraday_path_predictor,
 )

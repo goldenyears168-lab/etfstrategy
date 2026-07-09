@@ -34,7 +34,7 @@ from rrg_mono_daily_brief import HOLD_DAYS, LENGTH, LOOKBACK, MAX_SLOTS, TOP_N, 
 from rrg_rotation import compute_rrg_panel
 from stock_db.kbar import KbarBar, load_kbar_day_bars, load_kbar_day_closes, price_at_or_before_minute
 
-CandidatePool = Literal["fresh", "mono_tier2", "mono_up", "mono_up_fresh", "fresh_union_accel"]
+CandidatePool = Literal["fresh", "mono_tier2", "mono_up", "mono_up_fresh", "fresh_union_accel", "fresh_union_mono"]
 StructuralGate = Literal[
     "none",
     "down_left",
@@ -50,7 +50,7 @@ ChallengerGate = Literal["none", "recent_accel_up", "v_dot_positive"]
 CandidateRankKey = Literal["seg_last", "avg_accel_decel"]
 EntryLeg = Literal["A", "C0"]
 SwapTarget = Literal["worst_held", "each_held"]
-TimingMode = Literal["close", "poll_5m"]
+TimingMode = Literal["close", "poll_5m", "snapshot_1300"]
 ExitLoopMode = Literal[
     "day_first_poll",
     "intraday_loop",
@@ -142,6 +142,7 @@ class ScoreSwapCConfig:
     portfolio_loss_cap_pct: float | None = None  # 組合權益 ≤ initial×(1−cap) → 全平並停止新進場
     quad_force_exit_pause_spread_rs_positive: bool = False  # W5>W20 close → pause quad force-exit
     quad_force_exit_pause_spread_rs_streak_min: int = 0  # N consecutive spread_rs>0 days → pause
+    quad_force_exit_pause_hybrid_mom_positive: bool = False  # hybrid Y (W20 ratio · WMA5 mom) >100 → pause
     entry_gate_mode: EntryGateMode = "none"  # Ω′ / hybrid top-K entry+swap gate (lookup passed at sim)
     hybrid_top_k: int = 10  # hybrid_top_k gate · top N per day in Ω′
     intraday_swap_confirm: bool = False  # swap challenger must pass 13:30 imp_extension strict
@@ -2574,6 +2575,36 @@ def _portfolio_credit_exit(
         book["cash"] += alloc * (exit_px / entry_px)
 
 
+def build_daily_spread_rs_panel(
+    close: pd.DataFrame,
+    bench: pd.Series,
+) -> pd.DataFrame:
+    """Daily close · WMA(5) − WMA(20) spread_rs."""
+    from rrg_universe_intraday_panel import WMA_LONG_LENGTH, WMA_SHORT_LENGTH
+
+    rs5, _, _ = compute_rrg_panel(close, bench, length=WMA_SHORT_LENGTH)
+    rs20, _, _ = compute_rrg_panel(close, bench, length=WMA_LONG_LENGTH)
+    common = rs5.columns.intersection(rs20.columns)
+    return rs5[common].subtract(rs20[common], axis=0)
+
+
+def held_accel_bypass_on_spread_lost(
+    *,
+    config: ScoreSwapCConfig,
+    spread_rs_panel: pd.DataFrame | None,
+    as_of: str,
+    slot_stock_ids: list[str],
+) -> set[str]:
+    """spread_rs≤0 → held names bypass accel_sell_negative_only (rotation sell)."""
+    if not config.accel_sell_bypass_on_spread_lost or spread_rs_panel is None:
+        return set()
+    bypass: set[str] = set()
+    for sid in slot_stock_ids:
+        if not spread_rs_positive_at(spread_rs_panel, as_of=as_of, stock_id=sid):
+            bypass.add(sid)
+    return bypass
+
+
 def spread_rs_positive_at(
     spread_rs_panel: pd.DataFrame | None,
     *,
@@ -2633,6 +2664,29 @@ def quad_force_exit_paused_by_positive_spread(
     if not config.quad_force_exit_pause_spread_rs_positive:
         return False
     return spread_rs_positive_at(spread_rs_panel, as_of=as_of, stock_id=stock_id)
+
+
+def quad_force_exit_paused_by_hybrid_mom(
+    config: ScoreSwapCConfig,
+    *,
+    hybrid_mom_panel: pd.DataFrame | None,
+    as_of: str,
+    stock_id: str,
+) -> bool:
+    """Pause quad force-exit when hybrid Y-momentum (W20 ratio · WMA5) is still >100.
+
+    Rationale (20260707 forward-return study): W20-leading legs whose hybrid Y
+    momentum is still positive keep positive forward excess (~+0.4% h3), so defer
+    the S2 weakening force-exit while the fast momentum has not rolled over.
+    """
+    if not config.quad_force_exit_pause_hybrid_mom_positive:
+        return False
+    if hybrid_mom_panel is None:
+        return False
+    if as_of not in hybrid_mom_panel.index or stock_id not in hybrid_mom_panel.columns:
+        return False
+    val = hybrid_mom_panel.at[as_of, stock_id]
+    return bool(pd.notna(val) and float(val) > 100.0)
 
 
 def filter_scan_rows_by_gate(
@@ -2751,6 +2805,15 @@ def _swap_px(
     close_px = float(close.at[trade_date, stock_id])
     if config.timing_mode == "close":
         return close_px, None
+    if config.timing_mode == "snapshot_1300":
+        from research.backtest.c18acc_snapshot_1300 import SNAPSHOT_1300_MINUTE, snapshot_px_strict
+
+        px = snapshot_px_strict(
+            conn, stock_id, trade_date, kbar_cache=kbar_cache
+        )
+        if px is None:
+            return None, None
+        return px, SNAPSHOT_1300_MINUTE
     from research.backtest.rrg_lens_score_swap import _rebalance_minutes
 
     key = (stock_id, trade_date)
@@ -2764,6 +2827,23 @@ def _swap_px(
         if px is not None and px > 0:
             return float(px), minute
     return close_px, None
+
+
+def _finite_mean_excess_pct(periods: list[dict[str, Any]]) -> float | None:
+    vals: list[float] = []
+    for p in periods:
+        ex = p.get("excess_pct")
+        if ex is None:
+            continue
+        try:
+            v = float(ex)
+        except (TypeError, ValueError):
+            continue
+        if v == v:
+            vals.append(v)
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 4)
 
 
 def _settle_leg(
@@ -2811,6 +2891,18 @@ def _settle_leg(
     }
 
 
+def _fresh_union_mono_pool(
+    fresh_mono: list[ScanRow],
+    mono_rows: list[ScanRow],
+) -> list[ScanRow]:
+    """fresh ∪ mono_tier2 · 週五 research · 不篩 accel>0。"""
+    by_id: dict[str, ScanRow] = {r.stock_id: r for r in fresh_mono}
+    for row in mono_rows:
+        if row.stock_id not in by_id:
+            by_id[row.stock_id] = row
+    return sorted(by_id.values(), key=lambda r: (-r.seg_last, r.stock_id))
+
+
 def _fresh_union_accel_pool(
     fresh_mono: list[ScanRow],
     mono_rows: list[ScanRow],
@@ -2846,6 +2938,9 @@ def _candidate_pool(
     full_dates: list[str] | None = None,
 ) -> list[ScanRow]:
     pool = pool_type or config.candidate_pool
+    if pool == "fresh_union_mono":
+        mono_rows = (mono_by_date or {}).get(as_of, [])
+        return _fresh_union_mono_pool(fresh_mono, mono_rows)
     if pool == "fresh_union_accel":
         mono_rows = (mono_by_date or {}).get(as_of, [])
         if rs_ratio is not None and rs_mom is not None and full_dates is not None:
@@ -2886,12 +2981,14 @@ def _pick_swap_pair(
     rs_ratio: pd.DataFrame | None = None,
     rs_mom: pd.DataFrame | None = None,
     full_dates: list[str] | None = None,
+    swap_margin: float | None = None,
 ) -> tuple[dict[str, Any] | None, ScanRow | None]:
     """回傳 (sell_pos, buy_row) · challenger 須 score > held + margin。"""
     eligible = [r for r in candidates if r.stock_id not in held_ids]
     if not eligible or not slots:
         return None, None
 
+    margin = config.effective_margin if swap_margin is None else float(swap_margin)
     key = config.sort_key
     today = held_today or {}
     trends = held_trend or {}
@@ -2958,7 +3055,7 @@ def _pick_swap_pair(
 
     if config.swap_target == "worst_held":
         sell = min(sell_pool, key=held_score)
-        buy = try_swap(config.effective_margin, sell)
+        buy = try_swap(margin, sell)
         if buy:
             return sell, buy
         relax_days = config.swap_margin_relax_neg_accel_days
@@ -2967,7 +3064,7 @@ def _pick_swap_pair(
             buy is None
             and relax_days is not None
             and relax_to is not None
-            and relax_to < config.effective_margin
+            and relax_to < margin
             and rs_ratio is not None
             and rs_mom is not None
             and full_dates is not None
@@ -2989,7 +3086,7 @@ def _pick_swap_pair(
         return None, None
 
     for sell in sorted(sell_pool, key=held_score):
-        buy = try_swap(config.effective_margin, sell)
+        buy = try_swap(margin, sell)
         if buy:
             return sell, buy
     return None, None
@@ -3012,6 +3109,7 @@ def simulate_score_swap_c(
     rs_mom: pd.DataFrame | None = None,
     rs_ratio: pd.DataFrame | None = None,
     spread_rs_panel: pd.DataFrame | None = None,
+    hybrid_mom_panel: pd.DataFrame | None = None,
     zone_filter: str | None = None,
     entry_c_config: Any | None = None,
     slot_snapshots: dict[str, list[dict[str, Any]]] | None = None,
@@ -3021,7 +3119,26 @@ def simulate_score_swap_c(
     intraday_extension_by_date: dict[str, set[str]] | None = None,
     challenger_rank_bonus_by_date: dict[str, dict[str, float]] | None = None,
     capital_ntd_per_slot: float = 10_000.0,
+    weekday_gate: Any | None = None,
+    snapshot_full_rrg_cache: dict[tuple[Any, ...], list[ScanRow]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    from research.backtest.c18acc_weekday_gate import (
+        WeekdayGateConfig,
+        entry_target_date,
+        flush_pending_entries,
+        is_weekday_gate_active,
+        pending_row_to_scan_row,
+        queue_entry_candidates,
+        should_anti_weekend_force_exit,
+        should_defer_max_hold_default_to_friday,
+        should_defer_exit_to_friday,
+        swap_allowed_today,
+        swap_margin_for_day,
+        friday_swap_pool_override,
+        max_swaps_for_day,
+        week_friday_key,
+    )
+
     cache = kbar_cache if kbar_cache is not None else {}
     bars_cache: dict[tuple[str, str], tuple[KbarBar, ...]] = {}
     kbar_stats = {"hits": 0, "checks": 0}
@@ -3045,6 +3162,15 @@ def simulate_score_swap_c(
     early_waiver_swaps = 0    # waiver 下 hold < min_hold_days 的換倉
     early_waiver_excess: list[float] = []
     total_entries = 0
+    pending_entries: list[dict[str, Any]] = []
+    signals_skipped_expired = 0
+    signals_deferred = 0
+    swaps_deferred = 0
+    swaps_lost = 0
+    swap_deferred_this_week = 0
+    snapshot_days_skipped = 0
+    current_week_key: str | None = None
+    wd_gate_active = weekday_gate is not None and is_weekday_gate_active(weekday_gate)
     portfolio_book: dict[str, Any] | None = None
     if config.portfolio_loss_cap_pct is not None:
         initial = n_slots * float(capital_ntd_per_slot)
@@ -3107,6 +3233,14 @@ def simulate_score_swap_c(
     )
 
     for as_of in trade_dates:
+        if wd_gate_active and weekday_gate is not None:
+            wk = week_friday_key(as_of)
+            if current_week_key is not None and wk != current_week_key:
+                if weekday_gate.swap_mode == "S2" and swap_deferred_this_week > 0:
+                    swaps_lost += swap_deferred_this_week
+                swap_deferred_this_week = 0
+            current_week_key = wk
+
         if portfolio_book is not None and config.portfolio_loss_cap_pct is not None:
             if portfolio_book.get("halted"):
                 continue
@@ -3153,8 +3287,38 @@ def simulate_score_swap_c(
             full_dates=full_dates,
         )
         entry_pool_type, swap_pool_type = _resolve_breadth_pool_types(as_of, zone_by_date, config)
+        if wd_gate_active and weekday_gate is not None:
+            swap_pool_type = friday_swap_pool_override(weekday_gate, swap_pool_type, as_of)  # type: ignore[assignment]
         entry_pool_rows = _candidate_pool(as_of, pool_type=entry_pool_type, **pool_kwargs)
         swap_pool_rows = _candidate_pool(as_of, pool_type=swap_pool_type, **pool_kwargs)
+        day_rs_ratio = rs_ratio
+        day_rs_mom = rs_mom
+        day_spread_rs = spread_rs_panel
+        if config.timing_mode == "snapshot_1300":
+            from research.backtest.c18acc_snapshot_1300 import (
+                collect_snapshot_stock_ids,
+                rerank_shortlist_snapshot_1300,
+                resolve_snapshot_1300_panels,
+            )
+
+            snap_ids = collect_snapshot_stock_ids(slots, entry_pool_rows, swap_pool_rows)
+            snap_panels = resolve_snapshot_1300_panels(
+                conn,
+                close=close,
+                bench=bench,
+                as_of=as_of,
+                stock_ids=snap_ids,
+                rs_ratio=rs_ratio,
+                rs_mom=rs_mom,
+                spread_rs_panel=spread_rs_panel,
+                kbar_cache=cache,
+            )
+            if snap_panels is None:
+                snapshot_days_skipped += 1
+                continue
+            day_rs_ratio = snap_panels.rs_ratio
+            day_rs_mom = snap_panels.rs_mom
+            day_spread_rs = snap_panels.spread_rs
         signal_zone = zone_by_date.get(as_of, "unknown")
         for pos in slots:
             _update_gain_waiver_stats(pos)
@@ -3168,19 +3332,19 @@ def simulate_score_swap_c(
             or config.structural_gate != "none"
             or config.sort_key in ("seg_step_delta", "accel_decel", "avg_accel_decel")
         )
-        if need_feat and rs_ratio is not None and rs_mom is not None:
+        if need_feat and day_rs_ratio is not None and day_rs_mom is not None:
             for pos in slots:
                 sid = str(pos["stock_id"])
                 entry_date = str(pos["entry_date"])
                 skip_feat = False
                 if config.sort_key == "accel_decel":
-                    dot = _last_va_dot(rs_ratio, rs_mom, full_dates, as_of, sid)
+                    dot = _last_va_dot(day_rs_ratio, day_rs_mom, full_dates, as_of, sid)
                     if dot is not None:
                         held_today[sid] = float(dot)
                     skip_feat = config.structural_gate == "none"
                 elif config.sort_key == "avg_accel_decel":
                     scalar = _avg_accel_scalar(
-                        rs_ratio, rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
+                        day_rs_ratio, day_rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
                     )
                     if scalar is not None:
                         held_today[sid] = float(scalar)
@@ -3195,15 +3359,15 @@ def simulate_score_swap_c(
                         structural_gate=config.structural_gate,
                         config=config,
                         feat={},
-                        rs_ratio=rs_ratio,
-                        rs_mom=rs_mom,
+                        rs_ratio=day_rs_ratio,
+                        rs_mom=day_rs_mom,
                         full_dates=full_dates,
                         as_of=as_of,
                         stock_id=sid,
                         entry_date=entry_date,
                     )
                     continue
-                feat = _daily_feat(rs_ratio, rs_mom, full_dates, as_of, sid)
+                feat = _daily_feat(day_rs_ratio, day_rs_mom, full_dates, as_of, sid)
                 if not feat:
                     continue
                 held_today[sid] = _seg_step_delta(feat["segs"])
@@ -3211,8 +3375,8 @@ def simulate_score_swap_c(
                     structural_gate=config.structural_gate,
                     config=config,
                     feat=feat,
-                    rs_ratio=rs_ratio,
-                    rs_mom=rs_mom,
+                    rs_ratio=day_rs_ratio,
+                    rs_mom=day_rs_mom,
                     full_dates=full_dates,
                     as_of=as_of,
                     stock_id=sid,
@@ -3224,18 +3388,18 @@ def simulate_score_swap_c(
             or config.challenger_gate != "none"
             or config.buy_sort_key in ("accel_decel", "avg_accel_decel")
         )
-        if need_challenger_kin and rs_ratio is not None and rs_mom is not None:
+        if need_challenger_kin and day_rs_ratio is not None and day_rs_mom is not None:
             kin_rows = swap_pool_rows if swap_pool_rows else []
             for row in kin_rows:
                 sid = row.stock_id
                 if config.challenger_gate == "recent_accel_up":
                     t = _avg_acceleration_trend(
-                        rs_ratio, rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
+                        day_rs_ratio, day_rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
                     )
                     if t:
                         challenger_trend[sid] = t
                 if config.challenger_gate == "v_dot_positive" or config.buy_sort_key == "accel_decel":
-                    dot = _last_va_dot(rs_ratio, rs_mom, full_dates, as_of, sid)
+                    dot = _last_va_dot(day_rs_ratio, day_rs_mom, full_dates, as_of, sid)
                     if dot is not None:
                         challenger_va_dot[sid] = float(dot)
                 if (
@@ -3244,7 +3408,7 @@ def simulate_score_swap_c(
                     or config.buy_sort_key == "avg_accel_decel"
                 ):
                     scalar = _avg_accel_scalar(
-                        rs_ratio, rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
+                        day_rs_ratio, day_rs_mom, full_dates, as_of, sid, lb=config.accel_lookback
                     )
                     if scalar is not None:
                         challenger_avg_accel[sid] = float(scalar)
@@ -3264,11 +3428,44 @@ def simulate_score_swap_c(
         )
         swap_shortlist = apply_gate_by_date(swap_shortlist, as_of, swap_gate_by_date)
         entry_shortlist = apply_gate_by_date(entry_shortlist, as_of, entry_gate_by_date)
+        if config.timing_mode == "snapshot_1300":
+            from research.backtest.c18acc_snapshot_1300 import rerank_shortlist_snapshot_1300
+
+            swap_shortlist = rerank_shortlist_snapshot_1300(
+                swap_shortlist,
+                conn=conn,
+                close=close,
+                bench=bench,
+                trade_date=as_of,
+                kbar_cache=cache,
+                full_rrg_cache=snapshot_full_rrg_cache,
+            )
+            entry_shortlist = rerank_shortlist_snapshot_1300(
+                entry_shortlist,
+                conn=conn,
+                close=close,
+                bench=bench,
+                trade_date=as_of,
+                kbar_cache=cache,
+                full_rrg_cache=snapshot_full_rrg_cache,
+            )
         swaps_today = 0
 
         for pos in list(slots):
             hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
             if hold_days < config.max_hold_days:
+                continue
+            if (
+                wd_gate_active
+                and weekday_gate is not None
+                and should_defer_max_hold_default_to_friday(weekday_gate, as_of)
+            ):
+                continue
+            if (
+                wd_gate_active
+                and weekday_gate is not None
+                and should_defer_exit_to_friday(weekday_gate, as_of, full_dates)
+            ):
                 continue
             if config.exit_loop_mode in ("intraday_loop_full", "intraday_loop_phase3") and config.timing_mode == "poll_5m":
                 from research.backtest.c18acc_intraday_exit_loop import poll_px_last
@@ -3308,28 +3505,68 @@ def simulate_score_swap_c(
         swap_allowed = _breadth_zone_ok(signal_zone, config.breadth_swap_zones)
         held_accel_bypass: set[str] = set()
         if (
-            rs_ratio is not None
-            and rs_mom is not None
+            day_rs_ratio is not None
+            and day_rs_mom is not None
             and (config.quad_weakening_sell_days is not None or config.quad_lagging_sell_days is not None)
         ):
             for pos in slots:
                 sid = str(pos["stock_id"])
                 if _quad_sell_bypass_accel(
                     config,
-                    rs_ratio=rs_ratio,
-                    rs_mom=rs_mom,
+                    rs_ratio=day_rs_ratio,
+                    rs_mom=day_rs_mom,
                     full_dates=full_dates,
                     as_of=as_of,
                     stock_id=sid,
                     entry_date=str(pos["entry_date"]),
                 ):
                     held_accel_bypass.add(sid)
-        if config.accel_sell_bypass_on_spread_lost and spread_rs_panel is not None:
+        if config.accel_sell_bypass_on_spread_lost and day_spread_rs is not None:
             for pos in slots:
                 sid = str(pos["stock_id"])
-                if not spread_rs_positive_at(spread_rs_panel, as_of=as_of, stock_id=sid):
+                if not spread_rs_positive_at(day_spread_rs, as_of=as_of, stock_id=sid):
                     held_accel_bypass.add(sid)
-        while swaps_today < config.max_swaps_per_day:
+        skip_swap_today = (
+            wd_gate_active
+            and weekday_gate is not None
+            and not swap_allowed_today(weekday_gate, as_of)
+        )
+        day_swap_margin = (
+            swap_margin_for_day(weekday_gate, config.effective_margin, as_of)
+            if wd_gate_active and weekday_gate is not None
+            else config.effective_margin
+        )
+        day_max_swaps = (
+            max_swaps_for_day(weekday_gate, config.max_swaps_per_day, as_of)
+            if wd_gate_active and weekday_gate is not None
+            else config.max_swaps_per_day
+        )
+        if skip_swap_today and len(slots) >= n_slots and swap_allowed:
+            probe_sell, probe_buy = _pick_swap_pair(
+                slots,
+                swap_shortlist,
+                held_ids={str(p["stock_id"]) for p in slots},
+                config=config,
+                held_today=held_today,
+                held_trend=held_trend,
+                challenger_trend=challenger_trend,
+                challenger_va_dot=challenger_va_dot,
+                challenger_avg_accel=challenger_avg_accel,
+                held_accel_bypass=held_accel_bypass,
+                as_of=as_of,
+                intraday_extension_by_date=intraday_extension_by_date,
+                challenger_rank_bonus_by_sid=(
+                    challenger_rank_bonus_by_date.get(as_of) if challenger_rank_bonus_by_date else None
+                ),
+                rs_ratio=day_rs_ratio,
+                rs_mom=day_rs_mom,
+                full_dates=full_dates,
+                swap_margin=day_swap_margin,
+            )
+            if probe_sell is not None and probe_buy is not None:
+                swaps_deferred += 1
+                swap_deferred_this_week += 1
+        while swaps_today < day_max_swaps and not skip_swap_today:
             held = {str(p["stock_id"]) for p in slots}
             if len(slots) < n_slots:
                 break
@@ -3374,9 +3611,10 @@ def simulate_score_swap_c(
                     challenger_rank_bonus_by_sid=(
                         challenger_rank_bonus_by_date.get(as_of) if challenger_rank_bonus_by_date else None
                     ),
-                    rs_ratio=rs_ratio,
-                    rs_mom=rs_mom,
+                    rs_ratio=day_rs_ratio,
+                    rs_mom=day_rs_mom,
                     full_dates=full_dates,
+                    swap_margin=day_swap_margin,
                 )
                 if sell is None or buy is None:
                     break
@@ -3509,20 +3747,28 @@ def simulate_score_swap_c(
 
         if (
             config.quad_force_exit_mode != "none"
-            and rs_ratio is not None
-            and rs_mom is not None
+            and day_rs_ratio is not None
+            and day_rs_mom is not None
         ):
             for pos in list(slots):
-                if swaps_today >= config.max_swaps_per_day:
+                if swaps_today >= day_max_swaps:
                     break
                 hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
                 eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
                 if quad_force_exit_paused_by_positive_spread(
                     config,
-                    spread_rs_panel=spread_rs_panel,
+                    spread_rs_panel=day_spread_rs,
                     as_of=as_of,
                     stock_id=str(pos["stock_id"]),
                     full_dates=full_dates,
+                ):
+                    quad_force_exit_paused += 1
+                    continue
+                if quad_force_exit_paused_by_hybrid_mom(
+                    config,
+                    hybrid_mom_panel=hybrid_mom_panel,
+                    as_of=as_of,
+                    stock_id=str(pos["stock_id"]),
                 ):
                     quad_force_exit_paused += 1
                     continue
@@ -3538,9 +3784,9 @@ def simulate_score_swap_c(
                         close=close,
                         bench=bench,
                         full_dates=full_dates,
-                        rs_ratio=rs_ratio,
-                        rs_mom=rs_mom,
-                        spread_rs_panel=spread_rs_panel,
+                        rs_ratio=day_rs_ratio,
+                        rs_mom=day_rs_mom,
+                        spread_rs_panel=day_spread_rs,
                         pos=pos,
                         as_of=as_of,
                         config=config,
@@ -3550,8 +3796,8 @@ def simulate_score_swap_c(
                         continue
                 else:
                     streak = quad_force_exit_streak_days(
-                        rs_ratio,
-                        rs_mom,
+                        day_rs_ratio,
+                        day_rs_mom,
                         full_dates,
                         as_of=as_of,
                         stock_id=str(pos["stock_id"]),
@@ -3571,6 +3817,12 @@ def simulate_score_swap_c(
                         effective_min_hold=eff_min_hold,
                         streak_days=streak,
                         unrealized_ret=unrealized_ret,
+                    ):
+                        continue
+                    if (
+                        wd_gate_active
+                        and weekday_gate is not None
+                        and should_defer_exit_to_friday(weekday_gate, as_of, full_dates)
                     ):
                         continue
                     sell_px, sell_min = _swap_px(
@@ -3602,18 +3854,18 @@ def simulate_score_swap_c(
 
         if (
             config.struct_force_exit_mode != "none"
-            and rs_ratio is not None
-            and (config.struct_force_exit_mode != "spread_lost" or spread_rs_panel is not None)
+            and day_rs_ratio is not None
+            and (config.struct_force_exit_mode != "spread_lost" or day_spread_rs is not None)
         ):
             for pos in list(slots):
-                if swaps_today >= config.max_swaps_per_day:
+                if swaps_today >= day_max_swaps:
                     break
                 hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
                 eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
                 streak = struct_force_exit_streak_days(
                     config,
-                    rs_ratio=rs_ratio,
-                    spread_rs_panel=spread_rs_panel,
+                    rs_ratio=day_rs_ratio,
+                    spread_rs_panel=day_spread_rs,
                     full_dates=full_dates,
                     as_of=as_of,
                     stock_id=str(pos["stock_id"]),
@@ -3664,7 +3916,7 @@ def simulate_score_swap_c(
 
         if config.hard_stop_loss_pct is not None:
             for pos in list(slots):
-                if swaps_today >= config.max_swaps_per_day:
+                if swaps_today >= day_max_swaps:
                     break
                 hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
                 eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
@@ -3731,7 +3983,7 @@ def simulate_score_swap_c(
                 force_exits += 1
                 swaps_today += 1
 
-        if swap_block_audit is not None and rs_ratio is not None and rs_mom is not None:
+        if swap_block_audit is not None and day_rs_ratio is not None and day_rs_mom is not None:
             from research.backtest.c18acc_swap_block_audit import record_swap_block_audit_day
 
             record_swap_block_audit_day(
@@ -3742,8 +3994,8 @@ def simulate_score_swap_c(
                 config=config,
                 close=close,
                 full_dates=full_dates,
-                rs_ratio=rs_ratio,
-                rs_mom=rs_mom,
+                rs_ratio=day_rs_ratio,
+                rs_mom=day_rs_mom,
                 held_today=held_today,
                 held_accel_bypass=held_accel_bypass,
                 swaps_today=swaps_today,
@@ -3800,7 +4052,75 @@ def simulate_score_swap_c(
                     if free_k > len(fill_pool):
                         pool_shortfall_days += 1
 
-            if config.fill_repeat and fill_pool:
+            if (
+                wd_gate_active
+                and weekday_gate is not None
+                and weekday_gate.entry_mode not in ("baseline", "E0")
+            ):
+                pending_entries, exp_n, ready = flush_pending_entries(
+                    pending_entries,
+                    gate=weekday_gate,
+                    as_of=as_of,
+                    full_dates=full_dates,
+                )
+                signals_skipped_expired += exp_n
+                held_pending = {str(p["stock_id"]) for p in slots}
+                for pe in ready:
+                    if len(slots) >= n_slots:
+                        break
+                    row = pending_row_to_scan_row(pe["row"])
+                    if row.stock_id in held_pending:
+                        continue
+                    slots_before_pe = len(slots)
+                    _fill_empty_slots(
+                        conn,
+                        as_of=as_of,
+                        fresh_mono=[row],
+                        slots=slots,
+                        close=close,
+                        bench=bench,
+                        full_dates=full_dates,
+                        config=fill_cfg,
+                        kbar_cache=cache,
+                        kbar_stats=kbar_stats,
+                        entry_c_config=entry_c_config,
+                        n_slots=n_slots,
+                    )
+                    for pos in slots[slots_before_pe:]:
+                        pos["signal_date"] = pe["signal_date"]
+                        held_pending.add(str(pos["stock_id"]))
+                    total_entries += len(slots) - slots_before_pe
+
+                entry_target = entry_target_date(weekday_gate, as_of, full_dates)
+                if free_k > 0 and fill_pool and entry_target != as_of:
+                    deferred_n, _ = queue_entry_candidates(
+                        pending_entries,
+                        gate=weekday_gate,
+                        signal_date=as_of,
+                        full_dates=full_dates,
+                        rows=fill_pool,
+                        max_n=free_k,
+                    )
+                    signals_deferred += deferred_n
+                    fill_pool = []
+
+            if config.timing_mode == "snapshot_1300" and fill_pool:
+                from research.backtest.c18acc_snapshot_1300 import fill_empty_slots_snapshot_1300
+
+                added = fill_empty_slots_snapshot_1300(
+                    conn,
+                    as_of=as_of,
+                    rows=fill_pool if not config.fill_repeat else fill_pool[:free_k],
+                    slots=slots,
+                    close=close,
+                    bench=bench,
+                    kbar_cache=cache,
+                    n_slots=n_slots,
+                    entry_leg=config.entry_leg,
+                    full_rrg_cache=snapshot_full_rrg_cache,
+                )
+                total_entries += added
+            elif config.fill_repeat and fill_pool:
                 # 直接寫入 slots，允許同一 stock_id 佔多個槽位
                 slot_used = {int(p["slot"]) for p in slots}
                 free_slot_ids = [i for i in range(n_slots) if i not in slot_used]
@@ -3871,6 +4191,45 @@ def simulate_score_swap_c(
             pos.setdefault("seg_last", round(row.seg_last, 4))
             pos.setdefault("rs_momentum", float(row.rs_momentum))
             pos.setdefault("seg_step_delta", _seg_step_delta(row.segs))
+        if (
+            wd_gate_active
+            and weekday_gate is not None
+            and weekday_gate.exit_mode == "X3"
+        ):
+            for pos in list(slots):
+                hold_days = _trading_days_between(full_dates, str(pos["entry_date"]), as_of)
+                eff_min_hold = _effective_min_hold_days(config, close, full_dates, pos, as_of)
+                if not should_anti_weekend_force_exit(
+                    weekday_gate,
+                    as_of,
+                    hold_days=hold_days,
+                    eff_min_hold=eff_min_hold,
+                ):
+                    continue
+                sell_px, sell_min = _swap_px(
+                    conn,
+                    close=close,
+                    stock_id=str(pos["stock_id"]),
+                    trade_date=as_of,
+                    config=config,
+                    kbar_cache=cache,
+                )
+                if sell_px is None:
+                    continue
+                if sell_min:
+                    pos["exit_minute"] = sell_min
+                leg = _settle(
+                    pos,
+                    exit_date=as_of,
+                    exit_px=sell_px,
+                    exit_reason="weekday_anti_weekend",
+                )
+                if leg is None:
+                    continue
+                leg["breadth_zone_200"] = zone_by_date.get(str(pos.get("signal_date")), "unknown")
+                periods.append(leg)
+                slots.remove(pos)
+                force_exits += 1
         if slot_snapshots is not None:
             slot_snapshots[as_of] = [dict(p) for p in slots]
 
@@ -3889,7 +4248,7 @@ def simulate_score_swap_c(
     summary = summarize_periods(periods)
     n = len(periods)
     if n:
-        summary["mean_excess_pct"] = round(sum(p["excess_pct"] for p in periods) / n, 4)
+        summary["mean_excess_pct"] = _finite_mean_excess_pct(periods)
         summary["mean_hold_days"] = round(sum(p["hold_days"] for p in periods) / n, 2)
     else:
         summary["mean_excess_pct"] = None
@@ -3969,8 +4328,16 @@ def simulate_score_swap_c(
             "early_waiver_mean_excess_pct": (
                 round(sum(early_waiver_excess) / len(early_waiver_excess), 4) if early_waiver_excess else None
             ),
+            "weekday_gate": weekday_gate.to_dict() if weekday_gate is not None else None,
+            "signals_skipped_expired": signals_skipped_expired if wd_gate_active else 0,
+            "signals_deferred": signals_deferred if wd_gate_active else 0,
+            "swaps_deferred": swaps_deferred if wd_gate_active else 0,
+            "swaps_lost": swaps_lost if wd_gate_active else 0,
+            "snapshot_days_skipped": snapshot_days_skipped,
         }
     )
+    if wd_gate_active and weekday_gate is not None and weekday_gate.swap_mode == "S2" and swap_deferred_this_week > 0:
+        summary["swaps_lost"] = int(summary.get("swaps_lost") or 0) + swap_deferred_this_week
     return periods, summary
 
 
@@ -4304,6 +4671,14 @@ def _pool_tag_for_signal(
     return "fresh" if stock_id in fresh_ids else "accel-only"
 
 
+def _poll5m_needs_spread_rs_panel(cfg: ScoreSwapCConfig) -> bool:
+    return bool(
+        cfg.accel_sell_bypass_on_spread_lost
+        or cfg.quad_force_exit_pause_spread_rs_positive
+        or int(cfg.quad_force_exit_pause_spread_rs_streak_min or 0) > 0
+    )
+
+
 def build_c18acc_poll5m_s2_timeline_legs(
     conn: sqlite3.Connection,
     dates: list[str],
@@ -4312,6 +4687,8 @@ def build_c18acc_poll5m_s2_timeline_legs(
     variant_id: str = "POOL1-P5M",
     n_slots: int = 3,
     capital_ntd: float = 10_000.0,
+    accel_sell_bypass_on_spread_lost: bool | None = None,
+    extra_config: dict[str, Any] | None = None,
 ) -> tuple[list[dict], list[dict], list[dict], dict]:
     """C18acc poll_5m · S2 exit · fresh or fresh_union_accel pool → timeline legs."""
     from dataclasses import replace
@@ -4330,13 +4707,29 @@ def build_c18acc_poll5m_s2_timeline_legs(
     configs = {c.variant_id: c for c in rotation_selective_exit_sweep_configs()}
     s2_base = configs["S2"]
     champ = champion_score_swap_c_config()
+    bypass = (
+        champ.accel_sell_bypass_on_spread_lost
+        if accel_sell_bypass_on_spread_lost is None
+        else accel_sell_bypass_on_spread_lost
+    )
     cfg = replace(
         s2_base,
         timing_mode=champ.timing_mode,
         candidate_pool=candidate_pool,
         variant_id=variant_id,
         n_slots=max(1, int(n_slots)),
+        sort_key=champ.sort_key,
+        buy_sort_key=champ.buy_sort_key,
+        score_margin=champ.score_margin,
+        accel_sell_negative_only=champ.accel_sell_negative_only,
+        accel_lookback=champ.accel_lookback,
+        candidate_lookback=champ.candidate_lookback,
+        min_hold_days=champ.min_hold_days,
+        max_hold_days=champ.max_hold_days,
+        accel_sell_bypass_on_spread_lost=bypass,
     )
+    if extra_config:
+        cfg = replace(cfg, **extra_config)
     c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
 
     close, _, _ = load_price_panels(conn)
@@ -4353,6 +4746,11 @@ def build_c18acc_poll5m_s2_timeline_legs(
     zone_by_date = {str(r.trade_date): str(r.zone_200) for r in panel.itertuples()}
     kbar_cache: dict = {}
     slot_snapshots: dict[str, list[dict[str, Any]]] = {}
+    spread_rs_panel = (
+        build_daily_spread_rs_panel(close, bench)
+        if _poll5m_needs_spread_rs_panel(cfg)
+        else None
+    )
 
     periods, summary = simulate_score_swap_c(
         conn,
@@ -4366,6 +4764,7 @@ def build_c18acc_poll5m_s2_timeline_legs(
         mono_by_date=mono_by_date,
         rs_ratio=rs_ratio,
         rs_mom=rs_mom,
+        spread_rs_panel=spread_rs_panel,
         kbar_cache=kbar_cache,
         entry_c_config=c0_cfg,
         slot_snapshots=slot_snapshots,
@@ -4373,14 +4772,15 @@ def build_c18acc_poll5m_s2_timeline_legs(
 
     legs_out: list[dict] = []
     executed_signals: list[dict] = []
+    run_variant_id = str(cfg.variant_id or variant_id)
     for period in periods:
         period = dict(period)
-        period["overlay_variant"] = variant_id
+        period["overlay_variant"] = run_variant_id
         sig = str(period.get("signal_date") or period["entry_date"])
         pool_tag = _pool_tag_for_signal(str(period["stock_id"]), sig, fresh_by_date)
         leg, executed = _timeline_bundle_from_period(period, capital_ntd=capital_ntd)
         leg["pool_tag"] = pool_tag
-        leg["showcase_variant"] = variant_id
+        leg["showcase_variant"] = run_variant_id
         executed["pool_tag"] = pool_tag
         executed["exit_reason"] = period.get("exit_reason")
         legs_out.append(leg)
@@ -4407,12 +4807,20 @@ def build_c18acc_poll5m_s2_timeline_legs(
         "swaps_total": summary.get("swaps_total"),
         "timing_mode": cfg.timing_mode,
     }
-    if variant_id.startswith("POOL1"):
-        meta = _finalize_c18acc_pool1_timeline_meta(meta, summary, cfg, display_code=variant_id)
+    display_code = run_variant_id
+    if cfg.candidate_pool == "fresh_union_accel" or run_variant_id.startswith("POOL1"):
+        meta = _finalize_c18acc_pool1_timeline_meta(meta, summary, cfg, display_code=display_code)
     else:
         meta = _finalize_c18acc_s2_timeline_meta(meta, summary, cfg)
-        meta["display_code"] = variant_id
+        meta["display_code"] = display_code
         meta["candidate_pool"] = candidate_pool
+    meta["variant_id"] = run_variant_id
+    meta["fill_repeat"] = cfg.fill_repeat
+    meta["max_swaps_per_day"] = cfg.max_swaps_per_day
+    meta["accel_sell_bypass_on_spread_lost"] = cfg.accel_sell_bypass_on_spread_lost
+    meta["quad_force_exit_pause_spread_rs_positive"] = (
+        cfg.quad_force_exit_pause_spread_rs_positive
+    )
     return legs_out, executed_signals, [], meta
 
 
@@ -4875,26 +5283,16 @@ def render_swap_accel_candidate_pool_markdown(results: dict[str, Any]) -> str:
 
 def champion_score_swap_c_config() -> ScoreSwapCConfig:
     """Research champion · rrg-mono-swap-accel（C18acc）· live / backtest SSOT。"""
-    for cfg in (
-        C18_BUY_ACCEL_PHASE2_SWEEP
-        + C18_ACC4_LB_SWEEP
-        + C18_ACC4_EARLY_MARGIN_SWEEP
-    ):
-        if cfg.variant_id == CHAMPION_SCORE_SWAP_C_VARIANT_ID:
-            return cfg
     return ScoreSwapCConfig(
         CHAMPION_SCORE_SWAP_C_VARIANT_ID,
-        "四日加速 · 卖转弱 · 买转强 · margin=0.05 · fresh∪accel",
-        entry_leg="C0",
-        min_hold_days=5,
-        max_hold_days=10,
-        timing_mode="poll_5m",
-        sort_key="avg_accel_decel",
-        score_margin=0.05,
-        accel_sell_negative_only=True,
-        buy_sort_key="avg_accel_decel",
-        accel_lookback=4,
+        "四日加速 · POOL1 · S2 · spread_lost bypass",
         candidate_pool="fresh_union_accel",
+        quad_force_exit_mode="weakening",
+        quad_force_exit_min_days=2,
+        quad_force_exit_loss_pct=-0.05,
+        quad_force_exit_requires_min_hold=True,
+        accel_sell_bypass_on_spread_lost=True,
+        **_champion_accel_fields(),
     )
 
 

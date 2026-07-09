@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.c18acc_rrg_weakening_stop_sweep import (  # noqa: E402
+from research.backtest.archive.c18acc_rrg_weakening_stop_sweep import (  # noqa: E402
     render_rrg_weakening_stop_md,
     run_rrg_weakening_stop_sweep,
 )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from research.backtest.c18acc_rotation_exit_sweep import rotation_exit_sweep_configs
+from research.backtest.archive.c18acc_rotation_exit_sweep import rotation_exit_sweep_configs
 from research.backtest.c18acc_swap_block_audit import classify_daily_swap_block
 
 

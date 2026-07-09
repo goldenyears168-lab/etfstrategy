@@ -23,7 +23,7 @@
 | 收盤 DAG | `config/pipelines/daily_close.yaml` |
 | 策略 registry · enabled · publish | `config/strategies.yaml` |
 | 採納規格 · backtest | `config/strategy.yaml` |
-| 探索主題 · sweep | `config/research.yaml`（Phase A–C 收斂 · v4） |
+| 探索主題 · sweep | `config/research.yaml`（Phase D · v5 · 0 active） |
 | Regime 四軸 | `config/regime.yaml` |
 | 下單意圖 | `config/order.yaml` |
 | Pipeline / launchd 腳本 registry | `config/pipeline_scripts.yaml` |
@@ -45,10 +45,10 @@
 | **VCP funnel** | `src/vcp_funnel_specs_daily.py`, `src/vcp_funnel_screen.py` | `scripts/run_vcp_funnel_*.py` |
 | **buy / sell signal radar** | `src/strategy_signal_radar.py`, `config/strategy.yaml` · `buy-signal-radar` / `sell-signal-radar` | `scripts/launchd/*-signal-radar.command` |
 | **launchd 排錯** | `config/pipeline_scripts.yaml`, `docs/daily-operations.md` | 對應 `scripts/launchd/*.command` |
-| **下單 · Fubon** | `src/order/`, `config/order.yaml`, `scripts/order/` | `reports/order/`（runtime） |
-| **回測 · 採納策略** | `config/strategy.yaml`, `docs/evaluation-contract.md` | `src/research/backtest/` |
+| **下單 · Fubon** | [order-layer-prd.md](./order-layer-prd.md), `src/order/`, `config/order.yaml`, `scripts/order/` | `reports/order/`（runtime） |
+| **回測 · 採納策略** | `config/strategy.yaml`, `docs/evaluation-contract.md` | `src/research/backtest/`（production 48 模組）· sweep 見 `backtest/archive/` |
 | **探索 sweep** | `config/research.yaml`, `scripts/run_research_sweep.py` | `src/research/` |
-| **FinMind 策略市集回測** | `docs/strategy-marketplace/README.md`, `config/research.yaml` · `topics.finmind-*` | `scripts/run_finmind_*_backtest.py`（待實作） |
+| **FinMind 策略市集回測** | `docs/strategy-marketplace/README.md`, `config/research.yaml` · `topics.finmind-*`（archived backlog） | `scripts/research/archive/run_finmind_*` |
 | **Readdy 公開站** | `docs/architecture.md` § Readdy | 前端 · Supabase publish 腳本 |
 | **FinMind 取數** | `src/finmind_client.py`, `.cursor/rules/finmind.mdc` | ingest `src/sync_*` |
 
@@ -64,7 +64,8 @@ SYNC_PROFILE=slim scripts/daily_sync.sh --holdings-report
 PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 
 # 單測（依任務替換路徑）
-PYTHONPATH=src .venv/bin/pytest tests/test_pipeline_gates.py -q
+.venv/bin/pytest tests/ --ignore=tests/research/archive -q   # production
+.venv/bin/pytest tests/research/archive/ -q                 # archived backtest
 ```
 
 ---

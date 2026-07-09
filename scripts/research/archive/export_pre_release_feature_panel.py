@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_pre_release_funnel_lanes_3d import (  # noqa: E402
+from research.backtest.archive.rrg_pre_release_funnel_lanes_3d import (  # noqa: E402
     export_pre_release_feature_panel,
 )
 from stock_db import PROJECT_ROOT  # noqa: E402

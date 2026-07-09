@@ -15,7 +15,7 @@ REPORT_DIR = ROOT / "reports" / "research" / "tw100"
 
 
 def main() -> int:
-    from research.backtest.copytrade_leg_ml_overlay import (  # noqa: WPS433
+    from research.backtest.archive.copytrade_leg_ml_overlay import (  # noqa: WPS433
         CopytradeLegMlOverlayConfig,
         format_overlay_markdown,
         run_copytrade_leg_ml_overlay,

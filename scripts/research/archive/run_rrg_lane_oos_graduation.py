@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from research.backtest.rrg_lane_oos_graduation import (  # noqa: E402
+from research.backtest.archive.rrg_lane_oos_graduation import (  # noqa: E402
     DEFAULT_OUT_DIR,
     DEFAULT_RULEFIT_PATH,
     LaneGraduationConfig,
