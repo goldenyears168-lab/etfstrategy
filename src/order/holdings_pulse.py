@@ -372,6 +372,39 @@ def _holdings_pulse_rrg_kbar_enabled() -> bool:
     return os.environ.get("HOLDINGS_PULSE_RRG_KBAR", "1").strip() not in ("0", "false", "False")
 
 
+def _sync_intraday_rrg_impl(
+    conn: sqlite3.Connection,
+    *,
+    session_date: str,
+    poll_minute: str,
+    holding_ids: list[str] | None = None,
+) -> tuple[int, int, int, str | None]:
+    from rrg_mono_intraday_watch import BENCH_TICK_IDS
+    from rrg_mono_swap_accel_screen import sync_watchlist_kbar
+    from rrg_universe_snapshot import run_intraday_universe_snapshot
+
+    price_mode = "kbar" if _holdings_pulse_rrg_kbar_enabled() else "tick"
+    if price_mode == "kbar" and holding_ids:
+        sync_ids = sorted(
+            {str(s) for s in holding_ids if s} | {"2330"} | set(BENCH_TICK_IDS)
+        )
+        sync_watchlist_kbar(
+            conn,
+            sync_ids,
+            session_date,
+            env_key="HOLDINGS_PULSE_KBAR_SYNC",
+            poll_minute=poll_minute,
+        )
+
+    n, _, priced_n, kbar_n = run_intraday_universe_snapshot(
+        conn,
+        session_date=session_date,
+        poll_minute=poll_minute,
+        price_mode=price_mode,
+    )
+    return n, priced_n, kbar_n, None
+
+
 def sync_intraday_rrg(
     conn: sqlite3.Connection,
     *,
@@ -379,27 +412,57 @@ def sync_intraday_rrg(
     poll_minute: str,
     holding_ids: list[str] | None = None,
 ) -> tuple[int, int, int, str | None]:
-    try:
-        from rrg_mono_swap_accel_screen import sync_watchlist_kbar
-        from rrg_universe_snapshot import run_intraday_universe_snapshot
-
-        price_mode = "kbar" if _holdings_pulse_rrg_kbar_enabled() else "tick"
-        if price_mode == "kbar" and holding_ids:
-            sync_ids = sorted({str(s) for s in holding_ids if s} | {"2330"})
-            sync_watchlist_kbar(
+    """寫入 rrg_universe_scores（screen_kind=intraday）。富邦 venv 缺 pandas 時委派主 .venv worker。"""
+    if os.environ.get("HOLDINGS_RRG_SYNC_WORKER") == "1":
+        try:
+            return _sync_intraday_rrg_impl(
                 conn,
-                sync_ids,
-                session_date,
-                env_key="HOLDINGS_PULSE_KBAR_SYNC",
+                session_date=session_date,
+                poll_minute=poll_minute,
+                holding_ids=holding_ids,
             )
+        except Exception as exc:  # noqa: BLE001
+            return 0, 0, 0, str(exc)
 
-        n, _, priced_n, kbar_n = run_intraday_universe_snapshot(
+    main_py = PROJECT_ROOT / ".venv" / "bin" / "python"
+    worker = PROJECT_ROOT / "scripts" / "order" / "sync_holdings_rrg_intraday_worker.py"
+    if main_py.is_file() and worker.is_file():
+        import subprocess
+
+        cmd = [
+            str(main_py),
+            str(worker),
+            "--session",
+            session_date,
+            "--poll-minute",
+            poll_minute,
+        ]
+        if holding_ids:
+            cmd.extend(["--holdings", *holding_ids])
+        proc = subprocess.run(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+            return 0, 0, 0, err
+        return _sync_intraday_rrg_impl(
             conn,
             session_date=session_date,
             poll_minute=poll_minute,
-            price_mode=price_mode,
+            holding_ids=holding_ids,
         )
-        return n, priced_n, kbar_n, None
+
+    try:
+        return _sync_intraday_rrg_impl(
+            conn,
+            session_date=session_date,
+            poll_minute=poll_minute,
+            holding_ids=holding_ids,
+        )
     except Exception as exc:  # noqa: BLE001
         return 0, 0, 0, str(exc)
 
@@ -411,7 +474,7 @@ def _rrg_intraday_source_note(pulse: HoldingsPulse) -> str:
         kbar_n = pulse.rrg_intraday_kbar_n or 0
         priced_n = pulse.rrg_intraday_tick_n or 0
         fallback = max(0, priced_n - kbar_n)
-        base = f"1m K @{pulse.poll_minute}（{kbar_n} 檔"
+        base = f"5m K @{pulse.poll_minute}（{kbar_n} 檔"
         if fallback:
             return f"{base} · tick fallback {fallback}）"
         return f"{base}）"
@@ -1017,7 +1080,7 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
         if pulse.rrg_intraday_price_mode == "kbar":
             lines.append(
                 f"- RRG 盤中覆蓋：**{pulse.rrg_intraday_tick_n}** 檔 "
-                f"（1m K **{pulse.rrg_intraday_kbar_n or 0}** · "
+                f"（5m K **{pulse.rrg_intraday_kbar_n or 0}** · "
                 f"tick fallback **{max(0, (pulse.rrg_intraday_tick_n or 0) - (pulse.rrg_intraday_kbar_n or 0))}**）"
             )
         else:
@@ -1079,7 +1142,7 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
     lines.append(
         "_tier：weak=RRG 偏弱或 VCP Overextended；strong=leading/improving 且非 Overextended。"
         "距-2%=距昨收×0.98；S1b=弱檔 -3%；ext=昨收×1.04。"
-        "RRG盤中 K=1m K · t=tick fallback。旗標為觀測線，非自動賣出。_"
+        "RRG盤中 K=5m K · t=tick fallback。旗標為觀測線，非自動賣出。_"
     )
     lines.append("")
     lines.append(
@@ -1155,4 +1218,59 @@ def write_holdings_pulse(pulse: HoldingsPulse, path: Path | None = None) -> Path
     out = path or default_report_path(pulse.session_date)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(format_holdings_pulse(pulse), encoding="utf-8")
+    return out
+
+
+def default_holdings_json_path(session_date: str) -> Path:
+    stamp = session_date.replace("-", "")
+    return PROJECT_ROOT / "reports" / "order" / "snapshots" / f"holdings_pulse_{stamp}.json"
+
+
+def holdings_pulse_to_dict(pulse: HoldingsPulse) -> dict[str, Any]:
+    """序列化 · 供 RRG 繪圖端（.venv）讀取持倉、現價與 exit playbook 摘要。"""
+    return {
+        "session_date": pulse.session_date,
+        "generated_at": pulse.generated_at,
+        "poll_minute": pulse.poll_minute,
+        "account_label": pulse.account_label,
+        "portfolio_exit_mode": pulse.portfolio_exit_mode,
+        "rrg_intraday_sync_error": pulse.rrg_intraday_error,
+        "rrg_intraday_kbar_n": pulse.rrg_intraday_kbar_n,
+        "holdings": [
+            {
+                "stock_id": r.base.stock_id,
+                "stock_name": r.base.stock_name,
+                "shares": r.base.shares,
+                "cost_price": r.base.cost_price,
+                "prev_close": r.base.prev_close,
+                "current_price": r.current_price,
+                "price_source": r.price_source,
+                "daily_pct": r.daily_pct,
+                "pnl_pct": r.pnl_pct,
+                "weight_pct": r.weight_pct,
+                "structure_tier": r.base.structure_tier,
+                "vcp_composite": r.vcp_composite,
+                "vcp_state": r.vcp_state,
+                "hold_days": r.hold_days,
+                "gate_2pct": r.base.gate_2pct,
+                "trigger_s1b": r.base.trigger_s1b,
+                "dist_gate_2pct_pct": r.dist_gate_2pct_pct,
+                "dist_s1b_pct": r.dist_s1b_pct,
+                "dist_extension_pct": r.dist_extension_pct,
+                "structural_flags": list(r.structural_flags),
+                "rrg_close_quadrant": r.rrg_close.quadrant,
+                "rrg_intraday_quadrant": r.rrg_intraday.quadrant,
+            }
+            for r in pulse.holdings
+        ],
+    }
+
+
+def write_holdings_pulse_json(pulse: HoldingsPulse, path: Path | None = None) -> Path:
+    out = path or default_holdings_json_path(pulse.session_date)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(holdings_pulse_to_dict(pulse), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return out

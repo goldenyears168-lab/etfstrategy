@@ -290,7 +290,7 @@ def corporate_action_rows(
     ]
 
 
-YahooIntradayInterval = Literal["1m", "1h"]
+YahooIntradayInterval = Literal["1m", "5m", "1h"]
 
 
 def fetch_yahoo_intraday_df(
@@ -302,7 +302,7 @@ def fetch_yahoo_intraday_df(
 ) -> pd.DataFrame:
     """Yahoo Chart intraday OHLCV via yfinance.
 
-    1m：約最近 30 日 · 1h：可覆蓋數月（台股回測 H1 用 1h + 近端 1m）。
+    1m：約最近 30 日 · 5m：約最近 60 日 · 1h：可覆蓋數月。
     """
     import yfinance as yf
 
@@ -323,7 +323,7 @@ def yahoo_intraday_rows_to_db(
     *,
     source: str = YAHOO_KBAR_SOURCE,
 ) -> list[dict]:
-    """DataFrame index → stock_kbar_1m rows（Asia/Taipei 牆鐘）。"""
+    """DataFrame index → intraday kbar rows（Asia/Taipei 牆鐘 · minute=bar open）。"""
     if df is None or df.empty:
         return []
     out: list[dict] = []

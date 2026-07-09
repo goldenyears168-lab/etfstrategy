@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from order.morning_holdings_brief import CORE4
 from stock_db import PROJECT_ROOT, load_order_holdings_snapshot_rows
+from stock_db.kbar import kbar_sql_minute
 from stock_db.order_holdings import append_intraday_exit_log
 
 _TZ = ZoneInfo("Asia/Taipei")
@@ -75,7 +76,7 @@ class PortfolioGateResult:
 
 
 def gate_watch_stock_ids(snapshot_rows: list[Any] | None = None) -> list[str]:
-    """2330 + CORE4 · gate 判斷所需 1m K 標的。"""
+    """2330 + CORE4 · gate 判斷所需 5m K 標的。"""
     return sorted({_BENCHMARK_ID, *CORE4})
 
 
@@ -87,7 +88,12 @@ def sync_gate_kbar(
 ) -> int:
     from rrg_mono_swap_accel_screen import sync_watchlist_kbar
 
-    return sync_watchlist_kbar(conn, gate_watch_stock_ids(snapshot_rows), session_date)
+    return sync_watchlist_kbar(
+        conn,
+        gate_watch_stock_ids(snapshot_rows),
+        session_date,
+        poll_minute=_GATE_MINUTE,
+    )
 
 
 def _price_at_minute(
@@ -98,11 +104,11 @@ def _price_at_minute(
 ) -> float | None:
     row = conn.execute(
         """
-        SELECT close FROM stock_kbar_1m
+        SELECT close FROM stock_kbar_5m
         WHERE stock_id = ? AND trade_date = ? AND minute <= ?
         ORDER BY minute DESC LIMIT 1
         """,
-        (stock_id, session, minute),
+        (stock_id, session, kbar_sql_minute(minute)),
     ).fetchone()
     if row and row[0] is not None:
         return float(row[0])
@@ -242,7 +248,7 @@ def format_portfolio_gate_report(result: PortfolioGateResult) -> str:
         "",
         f"檢查時間：{result.checked_at} · minute {result.poll_minute}",
         f"**portfolio_exit_mode={_mode_label(result)}**",
-        f"- 1m K sync：**{result.kbar_sync_n}** bars",
+        f"- 5m K sync：**{result.kbar_sync_n}** bars",
     ]
     if result.evaluated:
         lines.extend(

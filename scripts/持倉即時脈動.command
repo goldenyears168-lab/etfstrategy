@@ -41,6 +41,18 @@ if [[ "$EXIT" -eq 0 ]]; then
 else
   echo "有失敗步驟 (exit=${EXIT})。"
 fi
+
+# RRG 每檔一頁 PDF（盤中 WMA20/5/3 三腿 + 評語）· 需主環境 .venv（pandas/matplotlib）
+VENV_MAIN="${ROOT}/.venv/bin/python"
+if [[ -x "${VENV_MAIN}" ]]; then
+  echo ""
+  echo "── RRG 每檔一頁 PDF（WMA20/5/3）──"
+  set +e
+  "${VENV_MAIN}" "${ROOT}/scripts/order/render_holdings_rrg.py" --open 2>&1
+  set -e
+else
+  echo "（略過 RRG PDF：找不到 ${VENV_MAIN}）"
+fi
 echo "完整輸出見上方表格。"
 echo ""
 read -r -p "按 Enter 關閉視窗…"

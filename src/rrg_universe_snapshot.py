@@ -31,6 +31,7 @@ from stock_db import (
     load_etf_constituent_watchlist,
     replace_rrg_universe_scores,
 )
+from stock_db.kbar import kbar_5m_close_at_minute
 
 ScreenKind = Literal["intraday", "close"]
 IntradayPriceMode = Literal["tick", "kbar"]
@@ -66,18 +67,8 @@ def kbar_close_at_minute(
     trade_date: str,
     poll_minute: str,
 ) -> float | None:
-    """Latest 1m close at or before poll_minute on trade_date."""
-    row = conn.execute(
-        """
-        SELECT close FROM stock_kbar_1m
-        WHERE stock_id = ? AND trade_date = ? AND minute <= ?
-        ORDER BY minute DESC LIMIT 1
-        """,
-        (stock_id, trade_date, _minute_sql(poll_minute)),
-    ).fetchone()
-    if row and row[0] is not None:
-        return float(row[0])
-    return None
+    """主線 · stock_kbar_5m close at or before poll_minute（5m PIT）。"""
+    return kbar_5m_close_at_minute(conn, stock_id, trade_date, poll_minute)
 
 
 def _intraday_stock_prices(

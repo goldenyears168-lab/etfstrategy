@@ -22,8 +22,10 @@ from research.backtest.rrg_mono_score_swap_c import (
     _buy_threshold_score,
     _trading_days_between,
     candidate_shortlist_is_passthrough,
+    build_daily_spread_rs_panel,
     build_pit_candidate_pool,
     champion_score_swap_c_config,
+    held_accel_bypass_on_spread_lost,
 )
 from rrg_mono_daily_brief import (
     TOP_N,
@@ -111,6 +113,7 @@ def _swap_proximity_rows(
     challenger_avg_accel: dict[str, float],
     session_dates: list[str],
     as_of: str,
+    spread_bypass: set[str] | None = None,
 ) -> list[SwapProximityRow]:
     held_ids = {str(p["stock_id"]) for p in slots}
     if candidate_shortlist_is_passthrough(config):
@@ -128,8 +131,9 @@ def _swap_proximity_rows(
         seg = float(pos.get("seg_last") or 0.0)
         accel = held_today.get(sid)
         sell_eligible = True
+        bypass = spread_bypass or set()
         if config.accel_sell_negative_only:
-            sell_eligible = accel is not None and accel < 0
+            sell_eligible = accel is not None and (accel < 0 or sid in bypass)
         sell_eligible = sell_eligible and hold_days >= config.min_hold_days
 
         threshold = _buy_threshold_score(pos, config.sort_key) + margin
@@ -193,6 +197,17 @@ def build_payload(
         full_dates=signal_dates,
         as_of=as_of,
     )
+    spread_rs_panel = (
+        build_daily_spread_rs_panel(close, bench)
+        if cfg.accel_sell_bypass_on_spread_lost
+        else None
+    )
+    spread_bypass = held_accel_bypass_on_spread_lost(
+        config=cfg,
+        spread_rs_panel=spread_rs_panel,
+        as_of=as_of,
+        slot_stock_ids=[str(p["stock_id"]) for p in slots],
+    )
     proximity = _swap_proximity_rows(
         config=cfg,
         pool=pool,
@@ -201,6 +216,7 @@ def build_payload(
         challenger_avg_accel=chall_avg,
         session_dates=session_dates,
         as_of=as_of,
+        spread_bypass=spread_bypass,
     )
     sell, buy = _pick_swap_pair(
         slots,
@@ -209,6 +225,7 @@ def build_payload(
         config=cfg,
         held_today=held_today,
         challenger_avg_accel=chall_avg,
+        held_accel_bypass=spread_bypass,
     )
     zone, zone_zh = _breadth_zone_for(conn, as_of)
 

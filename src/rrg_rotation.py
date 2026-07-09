@@ -79,8 +79,13 @@ def rs_ratio_momentum(
     bench_close: pd.Series,
     *,
     length: int = DEFAULT_LENGTH,
+    mom_length: int | None = None,
 ) -> tuple[pd.Series, pd.Series]:
-    """單檔 vs 基準的 JdK RS-Ratio / RS-Momentum（對齊 index）。"""
+    """單檔 vs 基準的 JdK RS-Ratio / RS-Momentum（對齊 index）。
+
+    When ``mom_length`` is set, RS-Ratio uses ``length`` but RS-Momentum smooths
+    RS-Ratio with ``mom_length`` (hybrid / asymmetric RRG).
+    """
     aligned = pd.concat({"asset": asset_close, "bench": bench_close}, axis=1).dropna()
     if aligned.empty:
         empty = pd.Series(dtype=float)
@@ -88,8 +93,14 @@ def rs_ratio_momentum(
     rs = aligned["asset"] / aligned["bench"]
     wma_rs = wma(rs, length)
     rs_ratio = wma(rs / wma_rs, length) * 100.0
-    rs_momentum = rs_ratio / wma(rs_ratio, length) * 100.0
+    ml = mom_length if mom_length is not None else length
+    rs_momentum = rs_ratio / wma(rs_ratio, ml) * 100.0
     return rs_ratio, rs_momentum
+
+
+def rs_momentum_from_ratio(rs_ratio: pd.Series, *, mom_length: int) -> pd.Series:
+    """RS-Momentum from an existing RS-Ratio series · hybrid Y-axis only."""
+    return rs_ratio / wma(rs_ratio, mom_length) * 100.0
 
 
 def classify_quadrant(rs_ratio: float, rs_momentum: float) -> RrgQuadrant | None:
@@ -111,6 +122,7 @@ def compute_rrg_panel(
     bench: pd.Series,
     *,
     length: int = DEFAULT_LENGTH,
+    mom_length: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """回傳 (rs_ratio, rs_momentum, quadrant) 三個 wide panel。"""
     ratio_cols: dict[str, pd.Series] = {}
@@ -119,7 +131,9 @@ def compute_rrg_panel(
     bench_aligned = bench.reindex(close.index).astype(float).ffill()
 
     for sid in close.columns:
-        r, m = rs_ratio_momentum(close[sid], bench_aligned, length=length)
+        r, m = rs_ratio_momentum(
+            close[sid], bench_aligned, length=length, mom_length=mom_length
+        )
         ratio_cols[str(sid)] = r
         mom_cols[str(sid)] = m
         quad_cols[str(sid)] = pd.Series(

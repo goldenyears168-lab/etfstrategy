@@ -539,6 +539,72 @@ def upsert_us_daily_bars(conn: sqlite3.Connection, rows: list[dict]) -> int:
     return len(payload)
 
 
+def upsert_us_futures_overnight_snapshots(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO us_futures_overnight_snapshot (
+            tw_session_date, capture_label, captured_at, us_prior_trade_date,
+            es_price, nq_price, es_prior_close, nq_prior_close,
+            es_overnight_pct, nq_overnight_pct, source, synced_at
+        ) VALUES (
+            :tw_session_date, :capture_label, :captured_at, :us_prior_trade_date,
+            :es_price, :nq_price, :es_prior_close, :nq_prior_close,
+            :es_overnight_pct, :nq_overnight_pct, :source, :synced_at
+        )
+        ON CONFLICT(tw_session_date, capture_label, source) DO UPDATE SET
+            captured_at=excluded.captured_at,
+            us_prior_trade_date=excluded.us_prior_trade_date,
+            es_price=excluded.es_price,
+            nq_price=excluded.nq_price,
+            es_prior_close=excluded.es_prior_close,
+            nq_prior_close=excluded.nq_prior_close,
+            es_overnight_pct=excluded.es_overnight_pct,
+            nq_overnight_pct=excluded.nq_overnight_pct,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def load_us_futures_overnight_snapshots(
+    conn: sqlite3.Connection,
+    *,
+    start: str,
+    end: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT *
+        FROM us_futures_overnight_snapshot
+        WHERE tw_session_date >= ? AND tw_session_date <= ?
+        ORDER BY tw_session_date, capture_label
+        """,
+        (start, end),
+    ).fetchall()
+
+
+def lookup_us_futures_overnight(
+    conn: sqlite3.Connection,
+    tw_session_date: str,
+    capture_label: str,
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM us_futures_overnight_snapshot
+        WHERE tw_session_date = ? AND capture_label = ?
+        ORDER BY synced_at DESC
+        LIMIT 1
+        """,
+        (tw_session_date, capture_label),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def load_us_daily_bars(
     conn: sqlite3.Connection,
     ticker: str,

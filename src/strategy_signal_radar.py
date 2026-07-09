@@ -42,10 +42,11 @@ from buy_observation import (
     load_buy_observation_config,
     role_label_zh,
     _pool_confirm_state,
+    _slice_top_n,
     build_observation_pool,
 )
 from stock_db import PROJECT_ROOT, load_etf_constituent_watchlist
-from stock_db.kbar import kbar_day_has_data
+from stock_db.kbar import kbar_mainline_day_has_data
 
 DEDUP_PATH = PROJECT_ROOT / "data" / "signal_radar_dedup.json"
 BUY_STATE_PATH = PROJECT_ROOT / "data" / "signal_radar_buy_state.json"
@@ -154,14 +155,16 @@ def _sell_replay_day_extension_alerts(
 class BuySignal:
     stock_id: str
     stock_name: str
-    action: Literal["buy"] = "buy"
+    action: Literal["buy", "observe"] = "buy"
     reason: str = ""
     price: float = 0.0
     poll_minute: str = ""
     pool_id: str = ""
+    w3_mom: float | None = None  # 盤中 dual-wma / abc-v3：MV3
+    w5_mom: float | None = None  # 盤中 dual-wma / abc-v3：MV5
 
     def reason_key(self) -> str:
-        base = "c0_entry"
+        base = "observe" if self.action == "observe" else "c0_entry"
         return f"{self.pool_id}:{base}" if self.pool_id else base
 
 
@@ -193,6 +196,7 @@ class BuyRadarResult:
     pool_as_of: str = ""
     pool_n: int = 0
     pool_observations: list[PoolObservation] = field(default_factory=list)
+    abc_v3_f1_orders: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -535,14 +539,14 @@ def load_sell_scan_universe(
     *,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
 ) -> tuple[list[str], dict[str, str], int]:
-    """ETF 監測清單 ∩ 當日有 1m K（mode=kbar）或全清單（mode=watchlist）。"""
+    """ETF 監測清單 ∩ 當日有 5m K（mode=kbar）或全清單（mode=watchlist）。"""
     mode = os.environ.get("SIGNAL_RADAR_SELL_UNIVERSE", "kbar").strip().lower()
     watch = load_etf_constituent_watchlist(conn, etf_codes)
     name_map = {str(w["stock_id"]): str(w.get("stock_name") or "") for w in watch if w.get("stock_id")}
     all_ids = sorted(name_map.keys())
     if mode == "watchlist":
         return all_ids, name_map, len(all_ids)
-    with_kbar = [sid for sid in all_ids if kbar_day_has_data(conn, sid, session)]
+    with_kbar = [sid for sid in all_ids if kbar_mainline_day_has_data(conn, sid, session)]
     return with_kbar, name_map, len(all_ids)
 
 
@@ -662,6 +666,15 @@ def format_radar_markdown(
                     f"- **{primary.stock_id}** {primary.stock_name} · **{primary.action}** · "
                     f"ref **{primary.price:.2f}** · 來源 **{pools}**{overlap} · {primary.reason}"
                 )
+            mv_table = _format_mv_gap_table_md(
+                [
+                    (f"{primary.stock_id} {primary.stock_name}", primary.w3_mom, primary.w5_mom)
+                    for primary, _ in merged
+                ]
+            )
+            if mv_table:
+                lines.append("")
+                lines.extend(mv_table)
         else:
             lines.append("_本輪無新買進訊號_")
         lines.append("")
@@ -719,6 +732,52 @@ def write_radar_report(
     return path
 
 
+_UNIVERSE_INTRADAY_SOURCES = (
+    "dual_wma_lead_pullback",
+    "abc_v3_f1_pullback",
+    "abc_v3_skip09_pullback",
+)
+
+
+def _presync_universe_intraday_kbar(
+    conn: sqlite3.Connection,
+    pool_specs: list[BuyObservationPoolSpec],
+    *,
+    session: str,
+    poll_minute: str,
+) -> int:
+    """Pre-sync full ETF-constituent 5m K before building intraday universe pools.
+
+    盤中宇宙池需要全宇宙 5m K 才能建出候選；radar 內建 sync 只補「已在池內」的股，
+    對這些池是先有雞先有蛋。此函式在建池前先把全宇宙 5m K 備妥。
+    以 env `SIGNAL_RADAR_UNIVERSE_KBAR_SYNC`（預設 1）控管，避免非必要時的重載。
+    """
+    if not poll_minute:
+        return 0
+    if not _env_flag("SIGNAL_RADAR_UNIVERSE_KBAR_SYNC", "1"):
+        return 0
+    needs = any(
+        spec.source in _UNIVERSE_INTRADAY_SOURCES for spec in pool_specs
+    )
+    if not needs:
+        return 0
+    watch = load_etf_constituent_watchlist(conn, DEFAULT_ETF_CODES)
+    universe_ids = sorted({str(w["stock_id"]) for w in watch if w.get("stock_id")})
+    if not universe_ids:
+        return 0
+    try:
+        sleep_sec = float(os.environ.get("SIGNAL_RADAR_UNIVERSE_KBAR_SLEEP", "0.15"))
+    except ValueError:
+        sleep_sec = 0.15
+    return sync_watchlist_kbar(
+        conn,
+        universe_ids,
+        session,
+        sleep_sec=sleep_sec,
+        poll_minute=poll_minute,
+    )
+
+
 def run_buy_signal_radar(
     conn: sqlite3.Connection,
     *,
@@ -757,6 +816,10 @@ def run_buy_signal_radar(
 
     ephemeral = load_buy_confirm_state(session)
 
+    # 盤中宇宙池（dual-wma / abc-v3-f1 / abc-v3-skip09）掃全 ETF 成分股，需先備妥全宇宙 5m K。
+    # 否則盤中即時只有持倉/小池的 5m K，這些池永遠為空（見 20260708 診斷）。
+    _presync_universe_intraday_kbar(conn, pool_specs, session=session, poll_minute=poll_minute)
+
     # 先建各池以彙總 kbar sync
     built: list[tuple[BuyObservationPoolSpec, list[ScanRow], str]] = []
     watch_ids: set[str] = set()
@@ -771,11 +834,13 @@ def run_buy_signal_radar(
             ephemeral=ephemeral,
         )
         built.append((spec, pool, pool_as_of))
-        for row in pool[:spec.top_n]:
+        for row in _slice_top_n(pool, spec.top_n):
             watch_ids.add(row.stock_id)
 
     if watch_ids:
-        sync_watchlist_kbar(conn, sorted(watch_ids), session)
+        sync_watchlist_kbar(
+            conn, sorted(watch_ids), session, poll_minute=poll_minute
+        )
 
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]] = {}
     c0_cfg = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C0")
@@ -816,6 +881,23 @@ def run_buy_signal_radar(
             )
             if spec.notify:
                 notify_signals.append(sig)
+        elif spec.observe_only and spec.notify and obs.top_rows:
+            # observe-only 池：無 C0 進場，命中候選即寄信（advisory 軌 · 每檔每日去重）
+            for row in obs.top_rows:
+                notify_signals.append(
+                    BuySignal(
+                        stock_id=row.stock_id,
+                        stock_name=row.stock_name,
+                        action="observe",
+                        reason=f"{spec.title} 命中"
+                        + (f" · {row.note}" if row.note else ""),
+                        price=float(row.price or 0.0),
+                        poll_minute=poll_minute,
+                        pool_id=spec.id,
+                        w3_mom=row.w3_mom,
+                        w5_mom=row.w5_mom,
+                    )
+                )
 
     save_buy_confirm_state(ephemeral)
 
@@ -870,7 +952,7 @@ def run_sell_signal_radar(
         full_dates=session_dates,
     )
 
-    sync_watchlist_kbar(conn, scan_ids, session)
+    sync_watchlist_kbar(conn, scan_ids, session, poll_minute=poll_minute)
 
     universe_min_hold = _env_int("SIGNAL_RADAR_UNIVERSE_MIN_HOLD_DAYS", 0)
 
@@ -983,12 +1065,72 @@ _SKIP_REASON_CN: dict[str, str] = {
     "buy_observation.yaml missing or empty": "buy_observation.yaml 未設定",
     "RUN_BUY_SIGNAL_RADAR=0": "買方雷達已關閉（RUN_BUY_SIGNAL_RADAR=0）",
     "RUN_SELL_SIGNAL_RADAR=0": "賣方雷達已關閉（RUN_SELL_SIGNAL_RADAR=0）",
-    "extension universe empty (no kbar on session)": "當日無 1m K · extension 宇宙為空",
+    "extension universe empty (no kbar on session)": "當日無 5m K · extension 宇宙為空",
 }
 
 
 def _skip_reason_cn(reason: str) -> str:
     return _SKIP_REASON_CN.get(reason, reason)
+
+
+# H-ABC-FILTER-1 門檻（mirror triple_wma_pullback_sweep.W3_ABC_F1_W5_W3_MV_SPREAD_MAX）：
+# F 門通過條件 = W5 MV − W3 MV < 0.01（避免中線 W5 動能壓過短線 W3）。
+_F1_MV_SPREAD_MAX = 0.01
+
+
+def _cjk_pad(text: str, width: int) -> str:
+    """以顯示寬度（CJK 全形字佔 2）將 text 右補空白至 width。"""
+    disp = sum(2 if ord(ch) > 0x2E7F else 1 for ch in text)
+    return text + " " * max(0, width - disp)
+
+
+def _mv_gap_rows(
+    rows: list[tuple[str, float | None, float | None]],
+) -> list[tuple[str, float, float, float, bool]]:
+    """(label, MV3, MV5) → (label, MV3, MV5, 差值=MV3−MV5, F門通過)，依差值由大到小（正者優先）。"""
+    out: list[tuple[str, float, float, float, bool]] = []
+    for label, mv3, mv5 in rows:
+        if mv3 is None or mv5 is None:
+            continue
+        diff = float(mv3) - float(mv5)
+        f_pass = (float(mv5) - float(mv3)) < _F1_MV_SPREAD_MAX
+        out.append((label, float(mv3), float(mv5), diff, f_pass))
+    out.sort(key=lambda r: (-r[3], r[0]))
+    return out
+
+
+def _format_mv_gap_table_text(
+    rows: list[tuple[str, float | None, float | None]],
+) -> list[str]:
+    """log 純文字表：標的 / MV3 / MV5 / 差值(MV3−MV5) / F門。"""
+    ranked = _mv_gap_rows(rows)
+    if not ranked:
+        return []
+    lines = ["  MV3−MV5 排序（差值正者優先 · F 門＝避免 W5 MV>W3 MV）："]
+    lines.append(f"    {_cjk_pad('標的', 16)}{'MV3':>7}{'MV5':>8}{'差值':>8}  F門")
+    for label, mv3, mv5, diff, f_pass in ranked:
+        gate = "✅" if f_pass else "❌"
+        lines.append(f"    {_cjk_pad(label, 16)}{mv3:7.2f}{mv5:8.2f}{diff:+8.2f}  {gate}")
+    return lines
+
+
+def _format_mv_gap_table_md(
+    rows: list[tuple[str, float | None, float | None]],
+) -> list[str]:
+    """email markdown 表：標的 / MV3 / MV5 / 差值(MV3−MV5) / F門。"""
+    ranked = _mv_gap_rows(rows)
+    if not ranked:
+        return []
+    lines = [
+        "### MV3−MV5 排序（差值正者優先 · F 門＝避免 W5 MV>W3 MV）",
+        "",
+        "| 標的 | MV3 | MV5 | 差值 | F門 |",
+        "| --- | ---: | ---: | ---: | :---: |",
+    ]
+    for label, mv3, mv5, diff, f_pass in ranked:
+        gate = "✅" if f_pass else "❌"
+        lines.append(f"| {label} | {mv3:.2f} | {mv5:.2f} | {diff:+.2f} | {gate} |")
+    return lines
 
 
 def format_buy_radar_log(result: BuyRadarResult) -> str:
@@ -1050,6 +1192,14 @@ def format_buy_radar_log(result: BuyRadarResult) -> str:
                     px = f"{row.price:.2f}" if row.price is not None else "—"
                     extra = f" · {row.note}" if row.note else ""
                     lines.append(f"    {row.stock_id} {row.stock_name} RV={row.seg_last:.1f} @ {px}{extra}")
+                lines.extend(
+                    _format_mv_gap_table_text(
+                        [
+                            (f"{r.stock_id} {r.stock_name}", r.w3_mom, r.w5_mom)
+                            for r in obs.top_rows
+                        ]
+                    )
+                )
             else:
                 lines.append(f"  top {len(obs.top_rows)}（scale · confirm · 價）：")
                 for row in obs.top_rows:
@@ -1064,11 +1214,16 @@ def format_buy_radar_log(result: BuyRadarResult) -> str:
         for primary, group in merged_new:
             pools = _format_buy_pool_sources([s.pool_id for s in group], titles)
             overlap_note = " · 多軌重疊" if len(group) > 1 else ""
+            verb = "觀測命中" if primary.action == "observe" else "買進"
             lines.append(
-                f"  · 買進 {primary.stock_id} {primary.stock_name} @ {primary.price:.2f} · "
+                f"  · {verb} {primary.stock_id} {primary.stock_name} @ {primary.price:.2f} · "
                 f"來源：{pools}{overlap_note} · {primary.reason}"
             )
-        lines.append("  你可做：限價買入或略過 · 系統不會自動送單")
+        abc_new = any(s.pool_id == "abc-v3-f1-pullback" for s in result.new_signals)
+        if abc_new:
+            lines.append("  你可做：確認委託狀態 · ABC v3+f1 已嘗試自動下單（見下方）")
+        else:
+            lines.append("  你可做：限價買入或略過 · 系統不會自動送單")
         lines.append("寄信：是")
     elif result.signals:
         lines.append("→ 寄信軌：訊號已於今日寄過（分軌去重）")
@@ -1083,6 +1238,12 @@ def format_buy_radar_log(result: BuyRadarResult) -> str:
         lines.append("→ 寄信軌：本輪無 C0 買進觸發")
         lines.append("寄信：否")
 
+    if result.abc_v3_f1_orders:
+        from abc_v3_f1_intent_bridge import format_order_log_lines
+
+        lines.extend(format_order_log_lines(result.abc_v3_f1_orders))
+        lines.append("")
+
     lines.append(_log_rule("═"))
     return "\n".join(lines)
 
@@ -1093,7 +1254,7 @@ def format_sell_radar_log(result: SellRadarResult) -> str:
         _log_rule("═"),
         f"【賣出觀測】{result.session_date} {result.poll_minute}",
         f"掃描時間：{result.polled_at}",
-        f"宇宙：監測 {result.universe_n} 檔 · 當日有 1m K {result.universe_kbar_n} 檔",
+        f"宇宙：監測 {result.universe_n} 檔 · 當日有 5m K {result.universe_kbar_n} 檔",
         f"持倉：{result.holdings_n} 檔"
         + (f" · ⚠ {result.holdings_error}" if result.holdings_error else ""),
     ]
@@ -1220,6 +1381,10 @@ def print_buy_radar_log(result: BuyRadarResult) -> None:
         print("BUY_SIGNAL_RADAR=1")
     else:
         print("BUY_SIGNAL_RADAR=0")
+    if any(bool(r.get("notify_submit")) for r in result.abc_v3_f1_orders):
+        print("ABC_V3_F1_SUBMIT=1")
+    else:
+        print("ABC_V3_F1_SUBMIT=0")
 
 
 def print_sell_radar_log(result: SellRadarResult) -> None:

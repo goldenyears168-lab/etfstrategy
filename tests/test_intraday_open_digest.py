@@ -83,6 +83,20 @@ class IntradayOpenDigestTests(unittest.TestCase):
         self.assertEqual(g.kbar_sync_n, 0)
         self.assertIn("no order_holdings", g.skip_reason or "")
 
+    def test_parse_gate_5m(self) -> None:
+        g = parse_gate_report(
+            "# gate\n- 5m K sync：**42** bars\n- 略過：**no 09:05 kbar for 2330**"
+        )
+        self.assertEqual(g.kbar_sync_n, 42)
+
+    def test_parse_sell_log_5m(self) -> None:
+        s = parse_sell_log_for_session(
+            "【賣出觀測】2026-07-08 09:10\n宇宙：監測 149 檔 · 當日有 5m K 120 檔\n",
+            "2026-07-08",
+        )
+        self.assertTrue(s.log_found)
+        self.assertEqual(s.universe_kbar_n, 120)
+
     def test_parse_morning(self) -> None:
         m = parse_morning_brief(MORNING_SAMPLE)
         self.assertEqual(m.tx_gap_pct, "+5.81%")
@@ -113,7 +127,7 @@ class IntradayOpenDigestTests(unittest.TestCase):
 
         text = format_intraday_open_digest(inp)
         self.assertIn("開盤解讀", text)
-        self.assertIn("1m K 同步", text)
+        self.assertIn("5m K 同步", text)
         self.assertIn("TX gap +5.81%", text)
         self.assertIn("2404 漢唐", text)
         self.assertIn("6223 旺矽科技", text)

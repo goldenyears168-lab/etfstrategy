@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -15,6 +16,7 @@ from research.backtest.rrg_lens_score_swap import _rebalance_minutes
 from rrg_rotation import classify_quadrant, compute_rrg_panel
 from rrg_universe_snapshot import _intraday_benchmark_price, kbar_close_at_minute
 from stock_db import load_etf_constituent_watchlist
+from stock_db.kbar import kbar_5m_close_at_minute, load_kbar_day_5m_closes
 
 DEFAULT_POLL_INTERVAL_MIN = 30
 DEFAULT_POLL_START = "09:00"
@@ -22,6 +24,8 @@ DEFAULT_POLL_END = "13:30"
 DEFAULT_LENGTH = 5
 WMA_SHORT_LENGTH = 5
 WMA_LONG_LENGTH = 20
+WMA_MICRO_LENGTH = 3  # optional micro leg · triple pullback research
+WMA_ULTRA_LENGTH = 2  # ultra-short trigger leg · W2 vs W3 compare
 SPREAD_ALIGNED_MAX = 1.5
 SPREAD_SIGNAL_MIN = 2.0
 SMALL_EXTENSION_MAX = 3.0
@@ -64,6 +68,27 @@ DUAL_WMA_TRADE_SIGNALS: dict[str, dict[str, str]] = {
         "action": "觀察池",
     },
 }
+
+
+def _ensure_session_row(
+    close: pd.DataFrame,
+    bench: pd.Series,
+    trade_date: str,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """盤中即時：日線 bar 收盤後才進，故 session 尚不在 panel。
+
+    以最近一筆收盤 forward-fill 出 session 佔位列（stock + benchmark），
+    供 `_patch_intraday_close` 用當日 1m K 覆寫。無此佔位列時盤中池永遠為空。
+    """
+    dates = close.index.astype(str).tolist()
+    if trade_date in dates or not dates:
+        return close, bench
+    close = close.copy()
+    close.loc[trade_date] = close.iloc[-1]
+    bench = bench.copy()
+    last_b = float(bench.iloc[-1]) if len(bench) else float("nan")
+    bench.loc[trade_date] = last_b
+    return close, bench
 
 
 def _slice_panels_for_date(
@@ -117,6 +142,24 @@ def build_intraday_frames(
     return frames
 
 
+def _load_day_5m_bars(
+    conn: sqlite3.Connection,
+    trade_date: str,
+    universe_ids: list[str],
+    *,
+    bar_minutes: int = 5,
+) -> dict[str, tuple[tuple[str, float], ...]]:
+    """Prefetch aggregated 5m closes for one session · one DB read per stock."""
+    out: dict[str, tuple[tuple[str, float], ...]] = {}
+    for sid in universe_ids:
+        bars = load_kbar_day_5m_closes(
+            conn, sid, trade_date, bar_minutes=bar_minutes
+        )
+        if bars:
+            out[sid] = bars
+    return out
+
+
 def _patch_intraday_close(
     prov: pd.DataFrame,
     bench: pd.Series,
@@ -124,15 +167,28 @@ def _patch_intraday_close(
     trade_date: str,
     minute: str,
     universe_ids: list[str],
+    *,
+    day_5m_bars: dict[str, tuple[tuple[str, float], ...]] | None = None,
+    kbar_bar_minutes: int | None = None,
 ) -> set[str]:
-    """覆寫當日 close；回傳有 1m K 的 stock_id 集合。"""
+    """覆寫當日 close；回傳有 K 線的 stock_id 集合。"""
     priced: set[str] = set()
     if trade_date not in prov.index:
         return priced
+    use_5m = kbar_bar_minutes == 5 and day_5m_bars is not None
     for sid in universe_ids:
         if sid not in prov.columns:
             continue
-        px = kbar_close_at_minute(conn, sid, trade_date, minute)
+        if use_5m:
+            px = kbar_5m_close_at_minute(
+                conn,
+                sid,
+                trade_date,
+                minute,
+                day_bars=day_5m_bars.get(sid),
+            )
+        else:
+            px = kbar_close_at_minute(conn, sid, trade_date, minute)
         if px is not None and px > 0:
             prov.at[trade_date, sid] = float(px)
             priced.add(sid)
@@ -537,6 +593,10 @@ def build_intraday_universe_trajectories(
     return frames, trajectories, meta
 
 
+def _micro_leg_key(length: int) -> str:
+    return f"w{length}"
+
+
 def build_dual_wma_intraday_trajectories(
     conn: sqlite3.Connection,
     *,
@@ -545,14 +605,22 @@ def build_dual_wma_intraday_trajectories(
     short_length: int = WMA_SHORT_LENGTH,
     long_length: int = WMA_LONG_LENGTH,
     poll_minutes: list[str] | None = None,
+    micro_length: int | None = None,
+    micro_lengths: tuple[int, ...] | None = None,
     stock_ids: list[str] | None = None,
+    kbar_bar_minutes: int | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]], dict[str, Any]]:
     """雙 WMA 盤中軌跡 · 每點含 w5 / w20 / spread_class。
 
+    micro_length / micro_lengths: 額外短線腿 w{L}（例 w2、w3）· 不影響 trade_signal。
     stock_ids: 若提供，僅建構這些標的（研究回溯用）。
+    kbar_bar_minutes: 5 → 日內定價用聚合 5m K（批次讀取 · 較快）。
     """
     if len(dates) < 1:
         raise ValueError("至少需要 1 個交易日")
+    extra_micro = tuple(micro_lengths or ())
+    if micro_length is not None and micro_length not in extra_micro:
+        extra_micro = (*extra_micro, micro_length)
     polls = poll_minutes or intraday_poll_minutes()
     frames = build_intraday_frames(dates, poll_minutes=polls)
 
@@ -582,11 +650,28 @@ def build_dual_wma_intraday_trajectories(
         )
         if prov_base.empty or trade_date not in slice_dates:
             continue
+        day_5m_bars = (
+            _load_day_5m_bars(
+                conn,
+                trade_date,
+                universe_ids,
+                bar_minutes=int(kbar_bar_minutes),
+            )
+            if kbar_bar_minutes == 5
+            else None
+        )
         for minute in polls:
             prov = prov_base.copy()
             bench_p = bench_base.copy()
             priced = _patch_intraday_close(
-                prov, bench_p, conn, trade_date, minute, universe_ids
+                prov,
+                bench_p,
+                conn,
+                trade_date,
+                minute,
+                universe_ids,
+                day_5m_bars=day_5m_bars,
+                kbar_bar_minutes=kbar_bar_minutes,
             )
             frame_priced.append(len(priced))
             n_frames_done += 1
@@ -594,6 +679,10 @@ def build_dual_wma_intraday_trajectories(
                 continue
             rs5, mom5, _ = compute_rrg_panel(prov, bench_p, length=short_length)
             rs20, mom20, _ = compute_rrg_panel(prov, bench_p, length=long_length)
+            micro_panels: dict[int, tuple[Any, Any]] = {}
+            for ml in extra_micro:
+                rs_m, mom_m, _ = compute_rrg_panel(prov, bench_p, length=ml)
+                micro_panels[ml] = (rs_m, mom_m)
             if trade_date not in rs5.index or trade_date not in rs20.index:
                 continue
             frame_id = f"{trade_date}T{minute}"
@@ -606,17 +695,23 @@ def build_dual_wma_intraday_trajectories(
                 mv20 = mom20.at[trade_date, sid]
                 if any(v != v for v in (rv5, mv5, rv20, mv20)):
                     continue
-                point_buckets[sid].append(
-                    _dual_point(
-                        frame_id=frame_id,
-                        trade_date=trade_date,
-                        minute=minute,
-                        w5_rs=float(rv5),
-                        w5_mom=float(mv5),
-                        w20_rs=float(rv20),
-                        w20_mom=float(mv20),
-                    )
+                pt = _dual_point(
+                    frame_id=frame_id,
+                    trade_date=trade_date,
+                    minute=minute,
+                    w5_rs=float(rv5),
+                    w5_mom=float(mv5),
+                    w20_rs=float(rv20),
+                    w20_mom=float(mv20),
                 )
+                for ml, (rs_m, mom_m) in micro_panels.items():
+                    key = _micro_leg_key(ml)
+                    if sid in rs_m.columns and trade_date in rs_m.index:
+                        rv_m = rs_m.at[trade_date, sid]
+                        mv_m = mom_m.at[trade_date, sid]
+                        if rv_m == rv_m and mv_m == mv_m:
+                            pt[key] = _rrg_leg(float(rv_m), float(mv_m))
+                point_buckets[sid].append(pt)
             if n_frames_done % 45 == 0:
                 print(
                     f"  dual WMA intraday: {n_frames_done}/{n_frames_total} frames "
@@ -661,11 +756,14 @@ def build_dual_wma_intraday_trajectories(
         "n_trajectories": len(trajectories),
         "short_length": short_length,
         "long_length": long_length,
+        "micro_length": micro_length,
+        "micro_lengths": list(extra_micro),
         "avg_priced_per_frame": (
             round(sum(frame_priced) / len(frame_priced), 1) if frame_priced else 0.0
         ),
         "min_priced_per_frame": min(frame_priced) if frame_priced else 0,
         "max_priced_per_frame": max(frame_priced) if frame_priced else 0,
+        "kbar_bar_minutes": kbar_bar_minutes,
     }
     return frames, trajectories, meta
 
@@ -688,11 +786,13 @@ def build_dual_wma_lead_pullback_observation_pool(
     universe_ids = [w["stock_id"] for w in watch]
 
     close, _, _ = load_price_panels(conn)
-    if session not in close.index.astype(str):
-        return [], session
     universe_cols = [sid for sid in universe_ids if sid in close.columns]
     close = close[universe_cols]
     bench = load_benchmark_close(conn).reindex(close.index).astype(float)
+    # 盤中：session 尚不在日線 panel，補 forward-fill 佔位列供 1m K 覆寫
+    close, bench = _ensure_session_row(close, bench, session)
+    if session not in close.index.astype(str):
+        return [], session
 
     prov, bench_p, slice_dates = _slice_panels_for_date(close, bench, session)
     if prov.empty or session not in slice_dates:
@@ -706,6 +806,7 @@ def build_dual_wma_lead_pullback_observation_pool(
 
     rs5, mom5, _ = compute_rrg_panel(prov, bench_p, length=WMA_SHORT_LENGTH)
     rs20, mom20, _ = compute_rrg_panel(prov, bench_p, length=WMA_LONG_LENGTH)
+    rs3, mom3, _ = compute_rrg_panel(prov, bench_p, length=WMA_MICRO_LENGTH)
     if session not in rs5.index or session not in rs20.index:
         return [], session
 
@@ -730,6 +831,11 @@ def build_dual_wma_lead_pullback_observation_pool(
         )
         if classify_dual_wma_trade_signal(point) != "lead_pullback_buy":
             continue
+        mv3: float | None = None
+        if sid in mom3.columns and session in mom3.index:
+            raw_mv3 = mom3.at[session, sid]
+            if raw_mv3 == raw_mv3:  # not NaN
+                mv3 = float(raw_mv3)
         w20q = point["w20"]["quadrant"]
         w5q = point["w5"]["quadrant"]
         spread_dist = float(point["spread_dist"])
@@ -747,11 +853,159 @@ def build_dual_wma_lead_pullback_observation_pool(
                 rs_momentum=float(mv20),
                 daily_pct=None,
                 composite_score=spread_dist,
+                w3_mom=mv3,
+                w5_mom=float(mv5),
             )
         )
 
     rows.sort(key=lambda r: (-float(r.composite_score or 0), r.stock_id))
     return rows, session
+
+
+def _build_abc_v3_family_observation_pool(
+    conn: sqlite3.Connection,
+    *,
+    session: str,
+    poll_minute: str,
+    matcher: Callable[[dict[str, Any]], bool],
+    etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
+) -> tuple[list[Any], str]:
+    """單 poll 快掃 · ABC v3 家族 matcher（skip09 · 4 週期）· observe-only radar。
+
+    `matcher` 決定是否為 v3（`matches_w3_rv_hl_abc_v3`）或 v3+f1
+    （`matches_w3_rv_hl_abc_v3_f1`）；其餘掃描邏輯共用。
+    """
+    from research.backtest.w3_rv_hl_winner_profile import ABC_V3_ADOPTED_MIN_POLL_IDX
+    from rrg_mono_daily_brief import ScanRow
+
+    polls = intraday_poll_minutes()
+    if poll_minute not in polls:
+        return [], session
+    if polls.index(poll_minute) < ABC_V3_ADOPTED_MIN_POLL_IDX:
+        return [], session
+
+    watch = load_etf_constituent_watchlist(conn, etf_codes)
+    name_by_id = {w["stock_id"]: w.get("stock_name") or "" for w in watch}
+    universe_ids = [w["stock_id"] for w in watch]
+
+    close, _, _ = load_price_panels(conn)
+    universe_cols = [sid for sid in universe_ids if sid in close.columns]
+    close = close[universe_cols]
+    bench = load_benchmark_close(conn).reindex(close.index).astype(float)
+    # 盤中：session 尚不在日線 panel，補 forward-fill 佔位列供 1m K 覆寫
+    close, bench = _ensure_session_row(close, bench, session)
+    if session not in close.index.astype(str):
+        return [], session
+
+    prov, bench_p, slice_dates = _slice_panels_for_date(close, bench, session)
+    if prov.empty or session not in slice_dates:
+        return [], session
+
+    prov = prov.copy()
+    bench_p = bench_p.copy()
+    priced = _patch_intraday_close(prov, bench_p, conn, session, poll_minute, universe_ids)
+    if not priced:
+        return [], session
+
+    rs5, mom5, _ = compute_rrg_panel(prov, bench_p, length=WMA_SHORT_LENGTH)
+    rs20, mom20, _ = compute_rrg_panel(prov, bench_p, length=WMA_LONG_LENGTH)
+    rs3, mom3, _ = compute_rrg_panel(prov, bench_p, length=WMA_MICRO_LENGTH)
+    rs2, mom2, _ = compute_rrg_panel(prov, bench_p, length=WMA_ULTRA_LENGTH)
+    if session not in rs5.index or session not in rs20.index:
+        return [], session
+
+    rows: list[ScanRow] = []
+    for sid in priced:
+        if sid not in rs5.columns or sid not in rs20.columns:
+            continue
+        rv5 = rs5.at[session, sid]
+        mv5 = mom5.at[session, sid]
+        rv20 = rs20.at[session, sid]
+        mv20 = mom20.at[session, sid]
+        if any(v != v for v in (rv5, mv5, rv20, mv20)):
+            continue
+        pt = _dual_point(
+            frame_id=f"{session}T{poll_minute}",
+            trade_date=session,
+            minute=poll_minute,
+            w5_rs=float(rv5),
+            w5_mom=float(mv5),
+            w20_rs=float(rv20),
+            w20_mom=float(mv20),
+        )
+        for rs_m, mom_m, ml in ((rs3, mom3, WMA_MICRO_LENGTH), (rs2, mom2, WMA_ULTRA_LENGTH)):
+            if sid in rs_m.columns and session in rs_m.index:
+                rv_m = rs_m.at[session, sid]
+                mv_m = mom_m.at[session, sid]
+                if rv_m == rv_m and mv_m == mv_m:
+                    pt[_micro_leg_key(ml)] = _rrg_leg(float(rv_m), float(mv_m))
+        _annotate_trade_signals([pt])
+        if not matcher(pt):
+            continue
+        w20q = pt["w20"]["quadrant"]
+        w5q = pt["w5"]["quadrant"]
+        spread_dist = float(pt["spread_dist"])
+        w3_leg = pt.get(_micro_leg_key(WMA_MICRO_LENGTH)) or {}
+        mv3_val = w3_leg.get("rs_momentum")
+        rows.append(
+            ScanRow(
+                stock_id=sid,
+                stock_name=name_by_id.get(sid, ""),
+                fresh=True,
+                mono=False,
+                seg_last=spread_dist,
+                disp=spread_dist,
+                segs=[],
+                quadrants=[w20q, w5q, pt["spread_class"]],
+                rs_ratio=float(rv20),
+                rs_momentum=float(mv20),
+                daily_pct=None,
+                composite_score=spread_dist,
+                w3_mom=float(mv3_val) if mv3_val is not None else None,
+                w5_mom=float(mv5),
+            )
+        )
+
+    rows.sort(key=lambda r: (-float(r.composite_score or 0), r.stock_id))
+    return rows, session
+
+
+def build_abc_v3_f1_observation_pool(
+    conn: sqlite3.Connection,
+    *,
+    session: str,
+    poll_minute: str,
+    etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
+) -> tuple[list[Any], str]:
+    """單 poll 快掃 · ABC v3+f1 matcher（skip09 · F gate）· observe-only radar."""
+    from research.backtest.triple_wma_pullback_sweep import matches_w3_rv_hl_abc_v3_f1
+
+    return _build_abc_v3_family_observation_pool(
+        conn,
+        session=session,
+        poll_minute=poll_minute,
+        matcher=matches_w3_rv_hl_abc_v3_f1,
+        etf_codes=etf_codes,
+    )
+
+
+def build_abc_v3_skip09_observation_pool(
+    conn: sqlite3.Connection,
+    *,
+    session: str,
+    poll_minute: str,
+    etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
+) -> tuple[list[Any], str]:
+    """單 poll 快掃 · ABC v3 matcher（skip09 · A∩B∩C∩D∩E · 無 F gate）· observe-only radar."""
+    from research.backtest.triple_wma_pullback_sweep import matches_w3_rv_hl_abc_v3
+
+    return _build_abc_v3_family_observation_pool(
+        conn,
+        session=session,
+        poll_minute=poll_minute,
+        matcher=matches_w3_rv_hl_abc_v3,
+        etf_codes=etf_codes,
+    )
 
 
 def summarize_lead_pullback_showcase(

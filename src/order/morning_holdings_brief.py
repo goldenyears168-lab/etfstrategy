@@ -180,10 +180,23 @@ def _holding_notes(
     return tuple(notes)
 
 
+def _held_level_qty(node: dict[str, Any]) -> int:
+    """單層（整股或零股）持有量 · 優先 today_qty，缺漏或 0 時退回 tradable_qty。
+
+    tradable_qty 只計「當下可賣」數量；今日新買尚未交割者為 0，會被漏算，
+    導致持倉與未實現損益（整倉）不一致。以 today_qty（整股 + 零股）為準。
+    """
+    today = int(node.get("today_qty", 0) or 0)
+    if today > 0:
+        return today
+    return int(node.get("tradable_qty", 0) or 0)
+
+
 def _shares_from_holding(row: dict[str, Any]) -> int:
-    whole = int(row.get("tradable_qty", 0) or 0)
+    """持有股數（含今日買進、尚未交割）= 整股 today_qty + 零股 today_qty。"""
+    whole = _held_level_qty(row)
     odd = row.get("odd") or {}
-    odd_qty = int(odd.get("tradable_qty", 0) or 0) if isinstance(odd, dict) else 0
+    odd_qty = _held_level_qty(odd) if isinstance(odd, dict) else 0
     return whole + odd_qty
 
 

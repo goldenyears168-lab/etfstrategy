@@ -20,6 +20,7 @@ from order.holdings_pulse import (
     build_holdings_pulse,
     format_holdings_pulse,
     format_holdings_pulse_digest,
+    holdings_pulse_to_dict,
     market_phase,
     trend_arrow,
 )
@@ -222,7 +223,7 @@ class TestHoldingsPulse(unittest.TestCase):
             holdings=(),
         )
         text = format_holdings_pulse_digest(pulse)
-        self.assertIn("1m K @11:00", text)
+        self.assertIn("5m K @11:00", text)
         self.assertIn("即時報價", text)
 
     @patch("order.holdings_pulse.fetch_fubon_snapshot")
@@ -280,6 +281,100 @@ class TestHoldingsPulse(unittest.TestCase):
         self.assertIn("優先盯", text)
         self.assertIn("不等於出清指令", text)
         self.assertIn("S2（-3% 環境減碼）不啟用", text)
+
+    def test_holdings_pulse_to_dict_includes_exit_fields(self) -> None:
+        base = HoldingBriefRow(
+            stock_id="2327",
+            stock_name="國巨*",
+            shares=20,
+            cost_price=909.0,
+            unrealized_pnl=-363,
+            prev_close=905.0,
+            bar_date="2026-07-07",
+            rrg_quadrant="weakening",
+            rrg_seg=2.343,
+            rrg_session="2026-07-07",
+            structure_tier="weak",
+            gate_2pct=887.0,
+            trigger_s1b=877.85,
+            extension_spike=941.2,
+            notes=(),
+        )
+        row = HoldingPulseRow(
+            base=base,
+            current_price=896.0,
+            price_source="fubon",
+            daily_pct=-0.99,
+            pnl_pct=-1.43,
+            market_value=17920.0,
+            weight_pct=9.0,
+            rrg_close=RrgPoint(
+                session_date="2026-07-07",
+                quadrant="weakening",
+                rs_ratio=106.6,
+                rs_momentum=94.9,
+                seg_last=2.343,
+                trend="down_right",
+            ),
+            rrg_intraday=RrgPoint(
+                session_date="2026-07-08",
+                quadrant="lagging",
+                rs_ratio=96.0,
+                rs_momentum=98.0,
+                seg_last=2.4,
+                trend="down_left",
+            ),
+            rrg_quad_delta="weakening→lagging",
+            rrg_seg_delta=0.1,
+            dist_gate_2pct_pct=1.01,
+            dist_s1b_pct=2.07,
+            dist_extension_pct=-4.8,
+            vcp_composite=68.0,
+            vcp_state="Overextended",
+            hold_days=12,
+            structural_flags=("CORE4", "結構弱·S1b/S2候選"),
+        )
+        pulse = HoldingsPulse(
+            generated_at="2026-07-08T13:15:00+08:00",
+            session_date="2026-07-08",
+            poll_minute="13:15",
+            market_phase="active",
+            account_label="test",
+            cash_available=100000,
+            total_market_value=198694.0,
+            total_unrealized_pnl=-916,
+            bar_as_of="2026-07-07",
+            rrg_close_as_of="2026-07-07",
+            rrg_intraday_as_of="2026-07-08",
+            tx_gap_pct=1.06,
+            tx_price=45963.0,
+            tw_spot_prev_close=45479.11,
+            te_gap_pct=None,
+            morning_risk_note=None,
+            gate_2330_995=2427.8,
+            gate_2330_price=2445.0,
+            gate_2330_hit=False,
+            core4_gate_hits=1,
+            portfolio_exit_preview=False,
+            portfolio_exit_mode=False,
+            portfolio_gate_ran=True,
+            holdings_stress=False,
+            holdings_stress_count=0,
+            rrg_intraday_tick_n=7,
+            rrg_intraday_kbar_n=7,
+            rrg_intraday_price_mode="kbar",
+            rrg_intraday_error=None,
+            holdings=(row,),
+        )
+        payload = holdings_pulse_to_dict(pulse)
+        h = payload["holdings"][0]
+        self.assertEqual(h["structure_tier"], "weak")
+        self.assertEqual(h["vcp_state"], "Overextended")
+        self.assertEqual(h["hold_days"], 12)
+        self.assertIn("CORE4", h["structural_flags"])
+        self.assertEqual(h["rrg_close_quadrant"], "weakening")
+        self.assertEqual(h["rrg_intraday_quadrant"], "lagging")
+        self.assertFalse(payload["portfolio_exit_mode"])
 
 
 if __name__ == "__main__":

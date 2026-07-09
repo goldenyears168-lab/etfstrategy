@@ -16,7 +16,7 @@
 
 1. **本地研究 OS** — SQLite（`data/stocks.db`）+ 排程 ingest + **多條 alpha 軌並列**（無 ensemble 加權），核心是**個股層級**的策略研究：RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等。各軌 backtest spec 在 `config/strategy.yaml`，探索主題在 `config/research.yaml`。
 2. **公開研究站（唯讀）** — Readdy 前端直連 Supabase，展示 daily brief、策略 registry、分年績效。**不**接受下單、**不**暴露券商憑證。
-3. **下單層（本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。
+3. **下單層（本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。完整藍圖見 [order-layer-prd.md](./order-layer-prd.md)。
 
 > **專案沿革**：起源自 ETF 持股追蹤（git 初始 commit「Phase 0: 5 ETF daily sync」），現行 `scripts/` 162 支腳本中僅 2 支與 ETF 直接相關，其餘（RRG 48 支、backtest 26 支、VCP 6 支、copytrade 3 支、signal radar 4 支等）皆為個股層級策略研究。**ETF 持股變化現在是資料層的一項訊號來源**（`etf-daily` Facts 層 + `00981a-l1h9` 跟單訊號輸入），**不是**整個系統的核心；核心是 §6 的多軌策略研究。
 

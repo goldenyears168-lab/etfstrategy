@@ -116,6 +116,8 @@ strategies:
         sort_key: avg_accel_decel
         buy_rule: "seg_last > held + 0.05 后取四日加速最大"
         accel_sell_negative_only: true
+        accel_sell_bypass_on_spread_lost: true
+        spread_bypass_rule: "W5−W20 spread_rs ≤ 0（昨收 PIT）→ 正加速 held 亦可 rotation 賣出"
         score_margin: 0.05
         accel_lookback: 4
         quad_force_exit_mode: weakening
@@ -153,11 +155,12 @@ strategies:
       quad_force_exit_loss_pct: -0.05
       quad_force_exit_requires_min_hold: true
       candidate_pool: fresh_union_accel
-      source_summary: reports/research/rrg/20260705_c18acc_pool1_poll5m_oos.json
+      accel_sell_bypass_on_spread_lost: true
+      source_summary: reports/research/rrg/20260705_c18acc_w20_conditional_accel_sweep.json
       notes: >
         POOL1 amendment · fresh∪accel candidate pool · S2 exit unchanged ·
-        poll_5m FULL Δ mean_excess +0.04pp · Δswaps +2 · OOS 2026H1 neutral ·
-        2025H2 hist +0.12pp · 採納 2026-07-05
+        spread_lost bypass (+0.11pp FULL excess · total ret 311% vs 303% · OOS neutral) ·
+        採納 2026-07-05 · Phase4 W4P4-bypass
 
   vcp-pivot-gate:
     title: VCP Pivot Gate
@@ -299,6 +302,109 @@ strategies:
       source_summary: reports/research/rrg/20260627_c18acc_phase3b_report.md
       notes: "Round3 I36 · wfa CI tracking continues in research.yaml"
 
+  abc-v3-f1-pullback:
+    title: ABC v3+f1 intraday pullback · event-level
+    kind: research_adopted
+    schedule: none
+    enabled: false
+    parent_strategy: rrg-mono-swap-accel
+    module: triple_wma_pullback_sweep
+    backtest_module: abc_v3_slot_sweep
+    description: >
+      Triple-WMA ABC v3+f1 event-level spec · skip09 poll · hold 3d → 13:30 ·
+      matcher w3_rv_hl_abc_v3_f1 (A∩B∩C∩D∩E∩F) · F gate avoid W5 MV>W3 MV ·
+      5-slot portfolio val NOT passed · slot sizing pending · observe-only on buy-signal-radar.
+    matcher:
+      id: w3_rv_hl_abc_v3_f1
+      parent: w3_rv_hl_abc_v3
+      gates:
+        A: "W20−W3 RV ≤ 6.0"
+        B: "W20 Leading · W5 Weakening"
+        C: "W5 RV ≤ 101.0"
+        D: "W20 RV ≤ 104.0"
+        E: "trade_signal = lead_pullback_buy"
+        F: "W5−W3 MV < 0.01 (avoid W5 MV > W3 MV)"
+    execution:
+      min_poll_idx: 1
+      skip_poll: "09:00"
+      entry_timing: intraday_poll
+    exit:
+      rule: hold_3d
+      exit_minute: "13:30"
+    portfolio:
+      validated: false
+      notes: >
+        Event-level OOS passed (90d val 1.826% vs v3 1.291%) ·
+        5-slot top-K val daily 0.506% vs 0.561% failed · do not size slots until re-validated.
+    backtest:
+      spec_type: event_level_intraday
+      source_module: abc_v3_slot_sweep
+      matcher: w3_rv_hl_abc_v3_f1
+      metrics:
+        - n
+        - mean_ret_3d_net_pct
+        - win_rate_pct
+        - median_ret_3d_net_pct
+      intraday_tail_days: 90
+      hold_days: 3
+      execution_gate: "min_poll_idx>=1"
+      source_summary: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
+      notes: >
+        Event-level 採納 2026-07-08 · f1 n=170 ret=2.845% vs v3 n=220 ret=2.229% ·
+        val event passed · 5-slot val failed · portfolio/slot sizing NOT validated.
+
+  abc-v3-skip09-pullback:
+    title: ABC v3 skip09 intraday pullback · slot-capable base
+    kind: research_adopted
+    schedule: none
+    enabled: false
+    parent_strategy: rrg-mono-swap-accel
+    module: triple_wma_pullback_sweep
+    backtest_module: abc_v3_slot_sweep
+    description: >
+      Triple-WMA ABC v3 event-level spec · skip09 poll · hold 3d → 13:30 ·
+      matcher w3_rv_hl_abc_v3 (A∩B∩C∩D∩E · 無 F gate) · parent of abc-v3-f1-pullback ·
+      5-slot portfolio val PASSED (daily 0.561%) · slot sizing not yet enabled ·
+      observe-only on buy-signal-radar (broader coverage than f1).
+    matcher:
+      id: w3_rv_hl_abc_v3
+      parent: w3_rv_hl_abc_v2
+      gates:
+        A: "W20−W3 RV ≤ 6.0"
+        B: "W20 Leading · W5 Weakening"
+        C: "W5 RV ≤ 101.0"
+        D: "W20 RV ≤ 104.0"
+        E: "trade_signal = lead_pullback_buy"
+    execution:
+      min_poll_idx: 1
+      skip_poll: "09:00"
+      entry_timing: intraday_poll
+    exit:
+      rule: hold_3d
+      exit_minute: "13:30"
+    portfolio:
+      validated: true
+      notes: >
+        5-slot top-K val daily 0.561% (> f1 0.506%) · slot-layer winner within ABC family ·
+        enabled:false until slot competition vs C18acc is decided.
+    backtest:
+      spec_type: event_level_intraday
+      source_module: abc_v3_slot_sweep
+      matcher: w3_rv_hl_abc_v3
+      metrics:
+        - n
+        - mean_ret_3d_net_pct
+        - win_rate_pct
+        - median_ret_3d_net_pct
+      intraday_tail_days: 90
+      hold_days: 3
+      execution_gate: "min_poll_idx>=1"
+      source_summary: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
+      notes: >
+        Frozen 2026-07-08 · v3 n=220 ret=2.229% win=51.36% · skip09 (H-W3W-11) ·
+        5-slot val daily 0.561% passed · event single-trade lower than f1 (2.845%) ·
+        adoption report 20260708_abc_v3_skip09_adoption.md.
+
   buy-signal-radar:
     title: Buy signal radar · C0 advisory
     kind: operational
@@ -313,7 +419,8 @@ strategies:
     description: >
       多池買入觀測板 · config/buy_observation.yaml · C0 scale 5m ·
       fresh-mono + mono-tier2 寄信（來源池標示 · 同檔合併）·
-      dual-wma-lead-pullback 強勢回踩（預設 · observe-only · 不寄信）·
+      abc-v3-f1-pullback + abc-v3-skip09-pullback
+      回踩（observe-only · abc-v3-f1 命中自動下單 2萬/檔 · 單日最多5檔 · re-entry 見 order.yaml）·
       不更新 rrg_c18acc_slots · 不送單。
     config_ref: config/buy_observation.yaml
     backtest:

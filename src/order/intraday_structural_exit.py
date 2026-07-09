@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from stock_db.kbar import kbar_sql_minute
 from stock_db.order_holdings import OrderHoldingSnapshotRow, load_order_holdings_snapshot_rows
 
 if TYPE_CHECKING:
@@ -89,11 +90,11 @@ def _price_at_minute(
 ) -> float | None:
     row = conn.execute(
         """
-        SELECT close FROM stock_kbar_1m
+        SELECT close FROM stock_kbar_5m
         WHERE stock_id = ? AND trade_date = ? AND minute <= ?
         ORDER BY minute DESC LIMIT 1
         """,
-        (stock_id, session, minute),
+        (stock_id, session, kbar_sql_minute(minute)),
     ).fetchone()
     if row and row[0] is not None:
         return float(row[0])
@@ -108,10 +109,10 @@ def _day_high_at_minute(
 ) -> float | None:
     row = conn.execute(
         """
-        SELECT MAX(close) FROM stock_kbar_1m
+        SELECT MAX(close) FROM stock_kbar_5m
         WHERE stock_id = ? AND trade_date = ? AND minute <= ?
         """,
-        (stock_id, session, minute),
+        (stock_id, session, kbar_sql_minute(minute)),
     ).fetchone()
     if row and row[0] is not None:
         return float(row[0])

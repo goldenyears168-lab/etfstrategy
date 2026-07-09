@@ -44,6 +44,26 @@ def _odd_lot_fields(odd: Any) -> dict[str, int]:
     return out
 
 
+def _held_level_qty(node: dict[str, Any]) -> int:
+    """單層（整股或零股）持有量 · 優先 today_qty，缺漏或 0 時退回 tradable_qty。"""
+    today = int(node.get("today_qty", 0) or 0)
+    if today > 0:
+        return today
+    return int(node.get("tradable_qty", 0) or 0)
+
+
+def _held_qty(row: dict[str, Any]) -> int:
+    """持有股數（含今日買進、尚未交割）。
+
+    富邦對當日買進、未交割的部位回傳 ``tradable_qty=0``；若以可賣量判斷是否持有，
+    今日新買整筆會被漏掉。改用 ``today_qty``（整股 + 零股）反映實際持倉。
+    """
+    whole = _held_level_qty(row)
+    odd = row.get("odd") or {}
+    odd_qty = _held_level_qty(odd) if isinstance(odd, dict) else 0
+    return whole + odd_qty
+
+
 def _inventory_row(item: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "stock_no": str(getattr(item, "stock_no", "")),
@@ -102,8 +122,7 @@ def account_snapshot(session: FubonSession, acc: Any | None = None) -> dict[str,
     active_holdings = [
         h
         for h in holdings
-        if h.get("tradable_qty", 0) > 0
-        or (h.get("odd") or {}).get("tradable_qty", 0) > 0
+        if _held_qty(h) > 0
     ]
     return {
         "account": _account_fields(account),

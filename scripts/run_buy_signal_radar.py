@@ -63,6 +63,17 @@ def main() -> int:
         )
         print(f"報告：{path}")
 
+    try:
+        from order.abc_v3_f1_order import process_abc_v3_f1_orders
+
+        result.abc_v3_f1_orders = process_abc_v3_f1_orders(
+            session_date=result.session_date,
+            poll_minute=result.poll_minute,
+            signals=result.signals,
+        )
+    except Exception as exc:  # noqa: BLE001 — launchd 不可因下單層失敗中斷 radar
+        result.abc_v3_f1_orders = [{"status": "error", "reason": str(exc)}]
+
     print_buy_radar_log(result)
     return 0
 

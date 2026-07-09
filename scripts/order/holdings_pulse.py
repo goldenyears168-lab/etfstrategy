@@ -26,6 +26,7 @@ from order.holdings_pulse import (  # noqa: E402
     format_holdings_pulse,
     format_holdings_pulse_digest,
     write_holdings_pulse,
+    write_holdings_pulse_json,
 )
 from project_dotenv import load_project_dotenv  # noqa: E402
 from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
@@ -89,6 +90,8 @@ def main() -> int:
     out_path = write_holdings_pulse(pulse, args.output) if args.write else default_report_path(pulse.session_date)
     if args.write and not args.digest_only:
         print(f"\n已寫入：{out_path}")
+        json_path = write_holdings_pulse_json(pulse)
+        print(f"已寫入持倉 JSON：{json_path}")
 
     exit_code = 1 if pulse.fubon_error and not args.no_fubon else 0
     if not pulse.holdings and not args.no_fubon:

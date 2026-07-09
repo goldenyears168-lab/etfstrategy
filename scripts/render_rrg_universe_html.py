@@ -86,6 +86,43 @@ TRADE_SIGNAL_ORDER = (
     "imp_extension",
     "lead_deep_pullback_wait",
 )
+
+# WMA20 daily · combo UI: quadrant → action-oriented dot colors
+ACTION_QUADRANT_COLORS = {
+    "leading": TRADE_SIGNAL_COLORS["lead_pullback_buy"],
+    "improving": TRADE_SIGNAL_COLORS["imp_early_long"],
+    "weakening": TRADE_SIGNAL_COLORS["lead_deep_pullback_wait"],
+    "lagging": "#666666",
+}
+ACTION_QUADRANT_LABEL_ZH = {
+    "leading": "Leading 領先 · 持盈/優選",
+    "improving": "Improving 轉強 · 候選做多",
+    "weakening": "Weakening 轉弱 · 觀察減碼",
+    "lagging": "Lagging 落後 · 觀望",
+}
+
+# Combo · dot 色 = C18acc 持倉 vs watchlist 背景
+CHAMPION_EXECUTED_COLORS = {
+    "active": "#D4AF37",
+    "background": "#555555",
+}
+CHAMPION_EXECUTED_LABEL_ZH = {
+    "active": "C18acc 持倉中",
+    "background": "watchlist 背景",
+}
+
+
+def champion_legs_from_bundle(bundle: dict) -> list[dict[str, str]]:
+    """Extract champion leg intervals for universe dot coloring."""
+    track = (bundle.get("tracks") or {}).get("champion") or {}
+    out: list[dict[str, str]] = []
+    for lg in track.get("legs") or []:
+        sid = str(lg.get("stock_id") or "").strip()
+        entry = str(lg.get("entry_date") or "").strip()
+        exit_d = str(lg.get("exit_date") or "").strip()
+        if sid and entry and exit_d:
+            out.append({"stock_id": sid, "entry_date": entry, "exit_date": exit_d})
+    return out
 TIMELINE_CHART_MARGIN = {"l": 56, "r": 24, "t": 36, "b": 52}
 TIMELINE_QUAD_OPACITY = 0.08
 
@@ -303,6 +340,7 @@ def _load_rrg_trajectories(
     etf_codes: tuple[str, ...],
     length: int,
     with_close: bool = False,
+    stock_ids: set[str] | frozenset[str] | None = None,
 ) -> list[dict]:
     from research.backtest.finpilot_local_backtest import load_price_panels
     from market_benchmark import load_benchmark_close
@@ -312,6 +350,8 @@ def _load_rrg_trajectories(
     name_by_id = {w["stock_id"]: w.get("stock_name") or "" for w in watch}
     hold_by_id = {w["stock_id"]: w.get("etf_hold_count", 0) for w in watch}
     universe_ids = [w["stock_id"] for w in watch]
+    if stock_ids is not None:
+        universe_ids = [sid for sid in universe_ids if sid in stock_ids]
 
     close, _, _ = load_price_panels(conn)
     for d in dates:
@@ -325,29 +365,43 @@ def _load_rrg_trajectories(
     trajectories: list[dict] = []
     for sid in universe_ids:
         pts: list[dict] = []
+        valid_rrg = 0
+        has_close = False
         for d in dates:
-            if sid not in rs_ratio.columns:
-                continue
-            rv = rs_ratio.at[d, sid]
-            mv = rs_mom.at[d, sid]
-            if rv != rv or mv != mv:
-                continue
-            rv_f, mv_f = float(rv), float(mv)
-            raw_pct = daily_pct_panel.at[d, sid] if sid in daily_pct_panel.columns else float("nan")
-            daily_pct = round(float(raw_pct), 2) if raw_pct == raw_pct else None
-            pt: dict = {
-                "date": d,
-                "rs_ratio": round(rv_f, 2),
-                "rs_momentum": round(mv_f, 2),
-                "quadrant": classify_quadrant(rv_f, mv_f),
-                "daily_pct": daily_pct,
-            }
+            pt: dict = {"date": d}
+            if sid in rs_ratio.columns:
+                rv = rs_ratio.at[d, sid]
+                mv = rs_mom.at[d, sid]
+                if rv == rv and mv == mv:
+                    rv_f, mv_f = float(rv), float(mv)
+                    pt["rs_ratio"] = round(rv_f, 2)
+                    pt["rs_momentum"] = round(mv_f, 2)
+                    pt["quadrant"] = classify_quadrant(rv_f, mv_f)
+                    valid_rrg += 1
+                else:
+                    pt["rs_ratio"] = None
+                    pt["rs_momentum"] = None
+                    pt["quadrant"] = "lagging"
+            else:
+                pt["rs_ratio"] = None
+                pt["rs_momentum"] = None
+                pt["quadrant"] = "lagging"
+            if sid in daily_pct_panel.columns:
+                raw_pct = daily_pct_panel.at[d, sid]
+                pt["daily_pct"] = (
+                    round(float(raw_pct), 2) if raw_pct == raw_pct else None
+                )
+            else:
+                pt["daily_pct"] = None
             if with_close and sid in close.columns:
                 cv = close.at[d, sid]
                 if cv == cv and cv:
                     pt["close"] = round(float(cv), 4)
+                    has_close = True
+                else:
+                    pt["close"] = None
             pts.append(pt)
-        if len(pts) < 2:
+        if valid_rrg < 2 and not has_close:
             continue
         trajectories.append(
             {
@@ -355,12 +409,19 @@ def _load_rrg_trajectories(
                 "stock_name": name_by_id.get(sid, ""),
                 "etf_hold_count": hold_by_id.get(sid, 0),
                 "points": pts,
-                "start_quadrant": pts[0]["quadrant"],
-                "end_quadrant": pts[-1]["quadrant"],
+                "start_quadrant": next(
+                    (p["quadrant"] for p in pts if p.get("rs_ratio") is not None),
+                    pts[0]["quadrant"],
+                ),
+                "end_quadrant": next(
+                    (p["quadrant"] for p in reversed(pts) if p.get("rs_ratio") is not None),
+                    pts[-1]["quadrant"],
+                ),
                 "displacement": round(
                     math.hypot(
-                        pts[-1]["rs_ratio"] - pts[0]["rs_ratio"],
-                        pts[-1]["rs_momentum"] - pts[0]["rs_momentum"],
+                        (pts[-1].get("rs_ratio") or 100) - (pts[0].get("rs_ratio") or 100),
+                        (pts[-1].get("rs_momentum") or 100)
+                        - (pts[0].get("rs_momentum") or 100),
                     ),
                     2,
                 ),
@@ -1357,7 +1418,12 @@ def _timeline_projection(
     """Axis bounds from highlight/active stocks so trajectories fill the plot."""
     hi = [t for t in all_trajectories if t["stock_id"] in highlight_ids]
     source = hi if hi else all_trajectories
-    flat = [(p["rs_ratio"], p["rs_momentum"]) for t in source for p in t["points"]]
+    flat = [
+        (p["rs_ratio"], p["rs_momentum"])
+        for t in source
+        for p in t["points"]
+        if p.get("rs_ratio") is not None and p.get("rs_momentum") is not None
+    ]
     if not flat:
         flat = [(100.0, 100.0)]
     return _chart_projection(
@@ -1485,6 +1551,17 @@ def render_universe_timeline_html(
     trajectories: list[dict],
     length: int,
     etf_codes: tuple[str, ...],
+    cinema_autoplay: bool = False,
+    cinema_autoplay_ms: int = 15000,
+    include_trajectory_table: bool = True,
+    chart_first: bool = False,
+    axis_bounds: tuple[float, float] | None = None,
+    clip_dynamic: bool = True,
+    show_quad_filters: bool = True,
+    show_movers_insight: bool = True,
+    show_dot_labels: bool = False,
+    dot_color_mode: str = "quadrant",
+    champion_legs: list[dict[str, str]] | None = None,
 ) -> str:
     """Interactive RRG: every universe stock with rolling tail (not highlight-only)."""
     date_label = f"{dates[0]} → {dates[-1]}"
@@ -1492,12 +1569,39 @@ def render_universe_timeline_html(
     end_counts = {
         q: sum(1 for t in trajectories if t.get("end_quadrant") == q) for q in QUADRANT_COLORS
     }
-    legend = "".join(
-        f'<span class="legend-item"><i style="background:{QUADRANT_COLORS[q]}"></i>'
-        f'{QUADRANT_LABEL_ZH[q]} ({end_counts[q]})</span>'
-        for q in ("leading", "weakening", "lagging", "improving")
-    )
-    if length == 5:
+    use_champion_colors = dot_color_mode == "champion_executed"
+    use_action_colors = dot_color_mode == "action"
+    legs = champion_legs or []
+    if use_champion_colors and not legs:
+        raise ValueError("champion_executed requires champion_legs")
+    if use_champion_colors:
+        legend = (
+            f'<span class="legend-item"><i style="background:{CHAMPION_EXECUTED_COLORS["active"]}"></i>'
+            f'{CHAMPION_EXECUTED_LABEL_ZH["active"]}</span>'
+            f'<span class="legend-item"><i style="background:{CHAMPION_EXECUTED_COLORS["background"]}"></i>'
+            f'{CHAMPION_EXECUTED_LABEL_ZH["background"]}</span>'
+        )
+        dot_colors = CHAMPION_EXECUTED_COLORS
+        dot_labels = CHAMPION_EXECUTED_LABEL_ZH
+    elif use_action_colors:
+        dot_colors = ACTION_QUADRANT_COLORS
+        dot_labels = ACTION_QUADRANT_LABEL_ZH
+        legend = "".join(
+            f'<span class="legend-item"><i style="background:{dot_colors[q]}"></i>'
+            f'{dot_labels[q]} ({end_counts[q]})</span>'
+            for q in ("leading", "weakening", "lagging", "improving")
+        )
+    else:
+        dot_colors = QUADRANT_COLORS
+        dot_labels = QUADRANT_LABEL_ZH
+        legend = "".join(
+            f'<span class="legend-item"><i style="background:{dot_colors[q]}"></i>'
+            f'{dot_labels[q]} ({end_counts[q]})</span>'
+            for q in ("leading", "weakening", "lagging", "improving")
+        )
+    if axis_bounds is not None:
+        axis_lo, axis_hi = axis_bounds
+    elif length == 5:
         axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_WMA5_MIN, UNIVERSE_TIMELINE_AXIS_WMA5_MAX
     else:
         axis_lo, axis_hi = UNIVERSE_TIMELINE_AXIS_MIN, UNIVERSE_TIMELINE_AXIS_MAX
@@ -1522,15 +1626,97 @@ def render_universe_timeline_html(
     )
     title = f"RRG Universe 全檔 · WMA({length}) · {len(trajectories)} 檔 · {date_short}"
     svg = _svg_timeline_background(
-        proj, title=title, subtitle=dates[0], large_ui=True, clip_dynamic=True
+        proj, title=title, subtitle=dates[0], large_ui=True, clip_dynamic=clip_dynamic
     )
-    table = _trajectory_table_html(trajectories)
+    table = _trajectory_table_html(trajectories) if include_trajectory_table else ""
+    table_block = (
+        f"""
+    <h2>軌跡一覽</h2>
+    <div class="panel">{table}</div>"""
+        if include_trajectory_table
+        else ""
+    )
+    table_hint = " · 點擊表格列聚焦單檔" if include_trajectory_table else ""
+    clip_note = "出框點仍顯示" if not clip_dynamic else "超出裁切"
+    quad_filters_html = (
+        """
+          <div class="filters" id="quad-filters">
+            <button class="active" data-quad="all">全部</button>
+            <button data-quad="leading">Leading</button>
+            <button data-quad="weakening">Weakening</button>
+            <button data-quad="lagging">Lagging</button>
+            <button data-quad="improving">Improving</button>
+          </div>"""
+        if show_quad_filters
+        else ""
+    )
+    movers_html = (
+        """
+          <div>
+            <h3>位移 Top 8</h3>
+            <div id="insight-movers">—</div>
+          </div>"""
+        if show_movers_insight
+        else ""
+    )
+    insight_grid_cols = (
+        "minmax(200px,1fr) minmax(180px,1fr) minmax(220px,1.2fr)"
+        if show_movers_insight
+        else "minmax(200px,1fr) minmax(180px,1fr)"
+    )
+    overflow_css = (
+        """
+    #rrg-timeline-chart {{ position:relative; z-index:2; overflow:visible; }}
+    #dynamic-layer {{ pointer-events:auto; }}"""
+        if not clip_dynamic
+        else ""
+    )
+    sub_block = f"""
+    <p class="sub">
+      期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
+      Universe：ETF 持股聯集（{','.join(etf_codes)}）· <b>{len(trajectories)}</b> 檔 ·
+      {tail_note}
+    </p>"""
+    chart_panel = f"""
+    <div class="legend">{legend}</div>
+    <div class="panel">
+      <div class="timeline-controls">
+        <button type="button" id="btn-prev">◀</button>
+        <button type="button" id="btn-play">{'▶ 自動播放' if cinema_autoplay else '▶ 逐步'}</button>
+        <button type="button" id="btn-next">▶</button>
+        <input type="range" id="frame-slider" min="0" max="{len(dates) - 1}" value="0" step="1"/>
+        <span id="frame-date">{dates[0][5:]}</span>
+        <input type="text" id="stock-search" placeholder="代號篩選…"/>
+      </div>
+      <div class="chart-layout">
+        <div class="panel chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
+        <aside class="frame-insight">
+          {quad_filters_html}
+          <div>
+            <h3>當日摘要</h3>
+            <div id="insight-stats">—</div>
+          </div>
+          <div>
+            <h3>象限分布</h3>
+            <div class="quad-bars" id="insight-quads"></div>
+          </div>
+          {movers_html}
+        </aside>
+      </div>
+      <p class="note" style="font-size:12px;color:#777;margin:8px 0 0">
+        全檔同時顯示；終點色=當日{'C18acc 成交' if use_champion_colors else ('操作' if use_action_colors else '象限')} · 刻度固定 {axis_label} 置中 · {clip_note}{table_hint} · Esc 取消
+        {' · 開頁自動 ' + str(cinema_autoplay_ms // 1000) + ' 秒播完整段' if cinema_autoplay else ''}
+      </p>
+    </div>"""
 
     payload = json.dumps(trajectories, ensure_ascii=False)
     dates_json = json.dumps(dates, ensure_ascii=False)
     proj_json = json.dumps(_projection_meta(proj))
     quad_colors_json = json.dumps(QUADRANT_COLORS)
     quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
+    champion_legs_json = json.dumps(legs, ensure_ascii=False)
+    champion_colors_json = json.dumps(CHAMPION_EXECUTED_COLORS)
+    dot_color_mode_json = json.dumps(dot_color_mode)
 
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1544,7 +1730,8 @@ def render_universe_timeline_html(
     h2 {{ font-size:15px; margin:18px 0 8px; color:#ddd; }}
     .sub {{ color:#999; font-size:13px; margin-bottom:16px; line-height:1.5; }}
     .panel {{ background:#181818; border:1px solid #333; border-radius:8px; padding:12px; margin-bottom:16px; }}
-    .panel.chart-panel {{ overflow:visible; padding:8px; }}
+    .panel.chart-panel {{ overflow:visible; padding:8px; position:relative; z-index:2; }}
+    {overflow_css}
     .legend {{ display:flex; flex-wrap:wrap; gap:12px 18px; margin:8px 0 12px; font-size:13px; }}
     .legend-item i {{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }}
     .timeline-controls {{
@@ -1562,7 +1749,7 @@ def render_universe_timeline_html(
     .chart-layout {{ display:flex; flex-direction:column; gap:12px; }}
     .frame-insight {{
       background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:14px 16px; font-size:13px; line-height:1.5;
-      display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,1fr) minmax(220px,1.2fr); gap:16px 24px;
+      display:grid; grid-template-columns:{insight_grid_cols}; gap:16px 24px;
     }}
     .frame-insight .filters {{ grid-column:1 / -1; margin-bottom:0; }}
     .frame-insight h3 {{ margin:0 0 8px; font-size:14px; color:#ddd; }}
@@ -1575,6 +1762,10 @@ def render_universe_timeline_html(
     .quad-bar-row {{ display:grid; grid-template-columns:52px 1fr 28px; gap:6px; align-items:center; font-size:12px; }}
     .quad-bar {{ height:8px; background:#2a2a2a; border-radius:3px; overflow:hidden; }}
     .quad-bar i {{ display:block; height:100%; border-radius:3px; }}
+    #tooltip {{
+      display:none; position:fixed; z-index:99; background:#222; border:1px solid #555;
+      border-radius:6px; padding:8px 10px; font-size:12px; color:#eee; pointer-events:none;
+    }}
     @media (max-width:900px) {{
       .frame-insight {{ grid-template-columns:1fr; }}
     }}
@@ -1582,52 +1773,8 @@ def render_universe_timeline_html(
 </head>
 <body>
   <div class="wrap">
-    <h1>RRG Universe 全檔互動時間軸 · WMA({length})</h1>
-    <p class="sub">
-      期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
-      Universe：ETF 持股聯集（{','.join(etf_codes)}）· <b>{len(trajectories)}</b> 檔 ·
-      {tail_note}
-    </p>
-    <div class="legend">{legend}</div>
-    <div class="panel">
-      <div class="timeline-controls">
-        <button type="button" id="btn-prev">◀</button>
-        <button type="button" id="btn-play">▶ 逐步</button>
-        <button type="button" id="btn-next">▶</button>
-        <input type="range" id="frame-slider" min="0" max="{len(dates) - 1}" value="0" step="1"/>
-        <span id="frame-date">{dates[0][5:]}</span>
-        <input type="text" id="stock-search" placeholder="代號篩選…"/>
-      </div>
-      <div class="chart-layout">
-        <div class="panel chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
-        <aside class="frame-insight">
-          <div class="filters" id="quad-filters">
-            <button class="active" data-quad="all">全部</button>
-            <button data-quad="leading">Leading</button>
-            <button data-quad="weakening">Weakening</button>
-            <button data-quad="lagging">Lagging</button>
-            <button data-quad="improving">Improving</button>
-          </div>
-          <div>
-            <h3>當日摘要</h3>
-            <div id="insight-stats">—</div>
-          </div>
-          <div>
-            <h3>象限分布</h3>
-            <div class="quad-bars" id="insight-quads"></div>
-          </div>
-          <div>
-            <h3>位移 Top 8</h3>
-            <div id="insight-movers">—</div>
-          </div>
-        </aside>
-      </div>
-      <p class="note" style="font-size:12px;color:#777;margin:8px 0 0">
-        全檔同時顯示；終點色=當日象限 · 刻度固定 {axis_label} 置中 · 超出裁切 · 點擊表格列聚焦單檔 · Esc 取消
-      </p>
-    </div>
-    <h2>軌跡一覽</h2>
-    <div class="panel">{table}</div>
+    {'<h1>RRG Universe 全檔互動時間軸 · WMA(' + str(length) + ')</h1>' + sub_block + chart_panel if not chart_first else chart_panel + sub_block}
+    {table_block}
   </div>
   <div id="tooltip"></div>
   <script>
@@ -1638,6 +1785,14 @@ def render_universe_timeline_html(
     const QUAD_LABEL_ZH = {quad_labels_json};
     const TAIL_DAYS = {tail_days};
     const TAIL_MIN_DISP = {tail_min_disp};
+    const CINEMA_AUTOPLAY = {str(cinema_autoplay).lower()};
+    const CINEMA_AUTOPLAY_MS = {cinema_autoplay_ms};
+    const SHOW_QUAD_FILTERS = {str(show_quad_filters).lower()};
+    const SHOW_MOVERS_INSIGHT = {str(show_movers_insight).lower()};
+    const SHOW_DOT_LABELS = {str(show_dot_labels).lower()};
+    const DOT_COLOR_MODE = {dot_color_mode_json};
+    const CHAMPION_LEGS = {champion_legs_json};
+    const CHAMPION_COLORS = {champion_colors_json};
 
     const layer = document.getElementById('dynamic-layer');
     const slider = document.getElementById('frame-slider');
@@ -1689,11 +1844,29 @@ def render_universe_timeline_html(
       if (n.length > 8) n = n.slice(0, 7) + '…';
       return (id + ' ' + n).trim();
     }}
+    function championStatus(stockId, dateStr) {{
+      for (const l of CHAMPION_LEGS) {{
+        if (l.stock_id === stockId && l.entry_date <= dateStr && dateStr <= l.exit_date) {{
+          return 'active';
+        }}
+      }}
+      return 'background';
+    }}
+    function dotColorFor(t, idx) {{
+      if (DOT_COLOR_MODE === 'champion_executed') {{
+        const d = DATES[idx];
+        return CHAMPION_COLORS[championStatus(t.stock_id, d)] || CHAMPION_COLORS.background;
+      }}
+      const pts = tailPoints(t, idx);
+      if (!pts.length) return '#888';
+      const endQuad = pts[pts.length - 1].quadrant || 'lagging';
+      return QUAD_COLORS[endQuad] || '#888';
+    }}
     function visibleTrajectories(idx) {{
       const q = stockSearch.value.trim();
       return TRAJECTORIES.filter(t => {{
         if (focusId && t.stock_id !== focusId) return false;
-        if (quadFilter !== 'all' && (pointAt(t, idx)?.quadrant || '') !== quadFilter) return false;
+        if (SHOW_QUAD_FILTERS && quadFilter !== 'all' && (pointAt(t, idx)?.quadrant || '') !== quadFilter) return false;
         if (q && !t.stock_id.includes(q)) return false;
         return true;
       }});
@@ -1708,13 +1881,24 @@ def render_universe_timeline_html(
         if (!p) continue;
         const q = p.quadrant;
         if (q && quadCounts[q] !== undefined) quadCounts[q] += 1;
-        const pts = tailPoints(t, idx);
-        movers.push({{ t, disp: tailDisplacement(pts) }});
+        if (SHOW_MOVERS_INSIGHT) {{
+          const pts = tailPoints(t, idx);
+          movers.push({{ t, disp: tailDisplacement(pts) }});
+        }}
       }}
-      movers.sort((a, b) => b.disp - a.disp);
       document.getElementById('insight-stats').innerHTML =
         `<b>${{d}}</b> · 第 ${{idx + 1}}/${{DATES.length}} 日<br/>` +
-        `可見 <b>${{visible.length}}</b> / ${{TRAJECTORIES.length}} 檔`;
+        `可見 <b>${{visible.length}}</b> / ${{TRAJECTORIES.length}} 檔` +
+        (DOT_COLOR_MODE === 'champion_executed'
+          ? (() => {{
+              let active = 0, bg = 0;
+              for (const t of visible) {{
+                if (championStatus(t.stock_id, d) === 'active') active += 1;
+                else bg += 1;
+              }}
+              return `<br/>持倉 <b>${{active}}</b> · 背景 <b>${{bg}}</b>`;
+            }})()
+          : '');
       const maxQ = Math.max(1, ...Object.values(quadCounts));
       document.getElementById('insight-quads').innerHTML =
         ['leading','weakening','lagging','improving'].map(q => {{
@@ -1724,18 +1908,21 @@ def render_universe_timeline_html(
             `<div class="quad-bar"><i style="width:${{w}}%;background:${{QUAD_COLORS[q]}}"></i></div>` +
             `<span>${{n}}</span></div>`;
         }}).join('');
-      document.getElementById('insight-movers').innerHTML = movers.slice(0, 8).map(({{ t, disp }}) => {{
-        const p = pointAt(t, idx);
-        if (!p) return '';
-        return `<div style="margin:2px 0;cursor:pointer" data-id="${{t.stock_id}}">` +
-          `<b>${{t.stock_id}}</b> Δ${{disp.toFixed(1)}} · ${{p.quadrant}}</div>`;
-      }}).join('') || '<span style="color:#666">—</span>';
-      document.querySelectorAll('#insight-movers [data-id]').forEach(el => {{
-        el.addEventListener('click', () => {{
-          focusId = el.dataset.id;
-          renderFrame(idx);
+      if (SHOW_MOVERS_INSIGHT) {{
+        movers.sort((a, b) => b.disp - a.disp);
+        document.getElementById('insight-movers').innerHTML = movers.slice(0, 8).map(({{ t, disp }}) => {{
+          const p = pointAt(t, idx);
+          if (!p) return '';
+          return `<div style="margin:2px 0;cursor:pointer" data-id="${{t.stock_id}}">` +
+            `<b>${{t.stock_id}}</b> Δ${{disp.toFixed(1)}} · ${{p.quadrant}}</div>`;
+        }}).join('') || '<span style="color:#666">—</span>';
+        document.querySelectorAll('#insight-movers [data-id]').forEach(el => {{
+          el.addEventListener('click', () => {{
+            focusId = el.dataset.id;
+            renderFrame(idx);
+          }});
         }});
-      }});
+      }}
     }}
     function renderFrame(idx) {{
       frameIdx = idx;
@@ -1749,8 +1936,9 @@ def render_universe_timeline_html(
       for (const t of ordered) {{
         const pts = tailPoints(t, idx);
         if (!pts.length) continue;
-        const endQuad = pts[pts.length - 1].quadrant || 'lagging';
-        const color = QUAD_COLORS[endQuad] || '#888';
+        const color = dotColorFor(t, idx);
+        const champSt = DOT_COLOR_MODE === 'champion_executed'
+          ? championStatus(t.stock_id, d) : null;
         const showTail = pts.length >= 2 && (TAIL_MIN_DISP <= 0 || tailDisplacement(pts) > TAIL_MIN_DISP);
         const dim = focusId && t.stock_id !== focusId;
         const lineOp = dim ? 0.12 : (focusId ? 0.65 : 0.35);
@@ -1771,14 +1959,21 @@ def render_universe_timeline_html(
         const cx = sx(cur.rs_ratio), cy = sy(cur.rs_momentum);
         const r = focusId === t.stock_id ? 7 : 5;
         const hitR = 14;
-        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · RS ${{cur.rs_ratio}} · Mom ${{cur.rs_momentum}}`;
+        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · RS ${{cur.rs_ratio}} · Mom ${{cur.rs_momentum}}` +
+          (champSt === 'active' ? ' · C18acc 持倉' : '');
         parts.push(
           `<circle class="uni-dot-hit" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{hitR}}" ` +
           `fill="transparent" stroke="none" data-id="${{t.stock_id}}" data-label="${{label}}"/>` +
           `<circle class="uni-dot" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{r}}" ` +
           `fill="${{color}}" stroke="#111" stroke-width="1" opacity="${{dotOp}}" pointer-events="none"/>`
         );
-        if (focusId === t.stock_id) {{
+        if (SHOW_DOT_LABELS) {{
+          parts.push(
+            `<text class="uni-dot-label" x="${{cx.toFixed(1)}}" y="${{(cy - r - 4).toFixed(1)}}" ` +
+            `text-anchor="middle" fill="#ccc" font-size="9" opacity="${{dotOp.toFixed(2)}}" ` +
+            `pointer-events="none">${{t.stock_id}}</text>`
+          );
+        }} else if (focusId === t.stock_id) {{
           parts.push(
             `<text x="${{(cx + r + 4).toFixed(1)}}" y="${{(cy + 4).toFixed(1)}}" fill="#ddd" font-size="13" font-weight="600">${{shortLabel(t.stock_id, t.stock_name)}}</text>`
           );
@@ -1804,11 +1999,30 @@ def render_universe_timeline_html(
         el.addEventListener('mouseleave', () => {{ tooltip.style.display = 'none'; }});
       }});
     }}
+    function playIntervalMs() {{
+      if (CINEMA_AUTOPLAY) {{
+        const steps = Math.max(DATES.length - 1, 1);
+        return Math.max(20, Math.floor(CINEMA_AUTOPLAY_MS / steps));
+      }}
+      return 700;
+    }}
+    function startAutoplay() {{
+      if (frameIdx >= DATES.length - 1) renderFrame(0);
+      playing = true;
+      document.getElementById('btn-play').textContent = CINEMA_AUTOPLAY ? '⏸ 播放中' : '⏸ 暫停';
+      playTimer = setInterval(() => {{
+        if (frameIdx >= DATES.length - 1) {{ stopPlay(); return; }}
+        renderFrame(frameIdx + 1);
+      }}, playIntervalMs());
+    }}
     function stopPlay() {{
       playing = false;
       if (playTimer) {{ clearInterval(playTimer); playTimer = null; }}
-      document.getElementById('btn-play').textContent = '▶ 逐步';
+      document.getElementById('btn-play').textContent = CINEMA_AUTOPLAY ? '▶ 自動播放' : '▶ 逐步';
     }}
+    window.addEventListener('combo-tab-change', ev => {{
+      if (ev.detail && ev.detail.tab !== 'intro') stopPlay();
+    }});
     slider.addEventListener('input', () => {{ stopPlay(); renderFrame(parseInt(slider.value, 10)); }});
     document.getElementById('btn-prev').addEventListener('click', () => {{
       stopPlay(); renderFrame(Math.max(0, frameIdx - 1));
@@ -1818,22 +2032,18 @@ def render_universe_timeline_html(
     }});
     document.getElementById('btn-play').addEventListener('click', () => {{
       if (playing) {{ stopPlay(); return; }}
-      if (frameIdx >= DATES.length - 1) renderFrame(0);
-      playing = true;
-      document.getElementById('btn-play').textContent = '⏸ 暫停';
-      playTimer = setInterval(() => {{
-        if (frameIdx >= DATES.length - 1) {{ stopPlay(); return; }}
-        renderFrame(frameIdx + 1);
-      }}, 700);
+      startAutoplay();
     }});
-    document.querySelectorAll('#quad-filters button').forEach(btn => {{
-      btn.addEventListener('click', () => {{
-        document.querySelectorAll('#quad-filters button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        quadFilter = btn.dataset.quad;
-        renderFrame(frameIdx);
+    if (SHOW_QUAD_FILTERS) {{
+      document.querySelectorAll('#quad-filters button').forEach(btn => {{
+        btn.addEventListener('click', () => {{
+          document.querySelectorAll('#quad-filters button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          quadFilter = btn.dataset.quad;
+          renderFrame(frameIdx);
+        }});
       }});
-    }});
+    }}
     stockSearch.addEventListener('input', () => renderFrame(frameIdx));
     document.addEventListener('keydown', ev => {{
       if (ev.target.tagName === 'INPUT') return;
@@ -1850,6 +2060,9 @@ def render_universe_timeline_html(
       }});
     }});
     renderFrame(0);
+    if (CINEMA_AUTOPLAY) {{
+      requestAnimationFrame(() => startAutoplay());
+    }}
   </script>
 </body>
 </html>"""
@@ -3804,14 +4017,90 @@ def _l1h9_signals_table_html(
 </table>"""
 
 
+def _leg_slot_key(leg: dict) -> tuple:
+    return (leg.get("entry_date"), leg.get("stock_id"), int(leg.get("slot_id") or 0))
+
+
+def _enrich_compound_slot_amounts(
+    legs: list[dict],
+    executed: list[dict],
+    *,
+    n_slots: int,
+    initial_per_slot: float,
+    cost_model: dict | None = None,
+) -> None:
+    """Per-slot compound: reinvest slot equity into the next trade on that slot."""
+    from research.backtest.slot_portfolio_metrics import leg_net_settlement
+
+    use_cost = bool(cost_model and cost_model.get("enabled"))
+    slot_eq = [float(initial_per_slot)] * n_slots
+    open_pos: dict[int, tuple[tuple, float]] = {}
+    exec_by_key = {
+        (sig["entry_date"], sig.get("stock_id"), int(sig.get("slot_id") or 0)): sig
+        for sig in executed
+    }
+
+    events: list[tuple[str, int, tuple, dict]] = []
+    for leg in legs:
+        key = _leg_slot_key(leg)
+        events.append((str(leg["entry_date"]), 0, key, leg))
+        events.append((str(leg["exit_date"]), 1, key, leg))
+    events.sort(key=lambda x: (x[0], x[1]))
+
+    for _date, kind, key, leg in events:
+        sid = int(leg.get("slot_id") or 0)
+        if sid < 0 or sid >= n_slots:
+            continue
+        if kind == 0:
+            if sid in open_pos:
+                continue
+            deployed = slot_eq[sid]
+            open_pos[sid] = (key, deployed)
+            leg["allocated_ntd"] = deployed
+            sig = exec_by_key.get(key)
+            if sig is not None:
+                sig["deployed_ntd"] = deployed
+        else:
+            if sid not in open_pos or open_pos[sid][0] != key:
+                continue
+            deployed = open_pos[sid][1]
+            entry_px = float(leg.get("entry_px") or 0)
+            exit_px = float(leg.get("exit_px") or 0)
+            if use_cost and entry_px > 0 and exit_px > 0:
+                proceeds, pnl = leg_net_settlement(
+                    deployed,
+                    entry_px,
+                    exit_px,
+                    cost_model=cost_model,
+                )
+                slot_eq[sid] = proceeds
+            else:
+                ret = float(leg.get("return_pct") or 0)
+                pnl = deployed * ret / 100.0
+                slot_eq[sid] = deployed + pnl
+            leg["allocated_ntd"] = deployed
+            leg["pnl_ntd"] = pnl
+            if deployed > 0:
+                leg["return_pct_net"] = round(pnl / deployed * 100.0, 4)
+            sig = exec_by_key.get(key)
+            if sig is not None:
+                sig["deployed_ntd"] = deployed
+                sig["pnl_ntd"] = pnl
+                if leg.get("return_pct_net") is not None:
+                    sig["return_pct_net"] = leg["return_pct_net"]
+            del open_pos[sid]
+
+
 def _mono_signals_table_html(
     executed: list[dict],
     skipped: list[dict],
     *,
     show_intraday: bool = False,
     showcase_labels: bool = False,
+    market_labels: bool = False,
     show_exit_reason: bool = False,
 ) -> str:
+    use_market = market_labels or showcase_labels
     rows: list[str] = []
     idx = 1
     for sig in executed:
@@ -3846,22 +4135,42 @@ def _mono_signals_table_html(
         row_cls = "hi-row exec-row"
         if sig.get("showcase_tag") == "pool1_only":
             row_cls += " pool1-only-row"
+        slot_txt = (
+            f"部位{sig['slot_id'] + 1}" if use_market else f"槽{sig['slot_id'] + 1}"
+        )
         alpha_col_html = (
-            "" if showcase_labels else f"<td style='color:{alpha_col}'>{alpha_txt}</td>"
+            f"<td style='color:{alpha_col}'>{alpha_txt}</td>"
+            if use_market
+            else ("" if showcase_labels else f"<td style='color:{alpha_col}'>{alpha_txt}</td>")
+        )
+        status_txt = "已成交" if use_market else "執行"
+        if use_market:
+            deployed = sig.get("deployed_ntd")
+            pnl = sig.get("pnl_ntd")
+            deployed_txt = f"{float(deployed):,.0f}" if deployed is not None else "—"
+            pnl_txt = f"{float(pnl):+,.0f}" if pnl is not None and pnl == pnl else "—"
+            pnl_col = _daily_pct_color(pnl) if pnl is not None else "#888"
+            outcome_cols = (
+                f"<td>{deployed_txt}</td>"
+                f"<td style='color:{pnl_col}'>{pnl_txt}</td>"
+            )
+        else:
+            outcome_cols = (
+                f"<td style='color:{ret_col}'>{ret_txt}</td>"
+                f"{alpha_col_html}"
         )
         rows.append(
             f"<tr class='{row_cls}' data-signal='{sig['signal_date']}' "
-            f"data-entry='{sig['entry_date']}'>"
+            f"data-entry='{sig['entry_date']}' data-exit='{exit_d}'>"
             f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
             f"<td>{sig['stock_id']}</td><td>{_xml_escape(sig.get('stock_name') or '')}</td>"
             f"<td>{seg_txt}</td>"
             f"{px_cols}"
             f"{date_cols}"
-            f"<td>槽{sig['slot_id'] + 1}</td>"
-            f"<td style='color:{ret_col}'>{ret_txt}</td>"
-            f"{alpha_col_html}"
+            f"<td>{slot_txt}</td>"
+            f"{outcome_cols}"
             f"{exit_reason_col}"
-            f"<td style='color:#6BCB94'>執行</td></tr>"
+            f"<td style='color:#6BCB94'>{status_txt}</td></tr>"
         )
         idx += 1
     for sig in skipped:
@@ -3878,7 +4187,18 @@ def _mono_signals_table_html(
                 f"<td>{exit_d[5:] if exit_d else '—'}</td>"
             )
         exit_reason_col = "<td>—</td>" if show_exit_reason else ""
-        alpha_col_html = "" if showcase_labels else "<td>—</td>"
+        alpha_col_html = "—" if use_market else ("—" if showcase_labels else "—")
+        if use_market:
+            alpha_col_html = f"<td>{alpha_col_html}</td>"
+        elif not showcase_labels:
+            alpha_col_html = "<td>—</td>"
+        else:
+            alpha_col_html = ""
+        status_txt = "未成交" if use_market else "略過"
+        if use_market:
+            outcome_cols = "<td>—</td><td>—</td>"
+        else:
+            outcome_cols = f"<td>—</td>{alpha_col_html}"
         rows.append(
             f"<tr class='skip-row' data-signal='{sig['signal_date']}'>"
             f"<td>{idx}</td><td>{sig['signal_date'][5:]}</td>"
@@ -3886,20 +4206,37 @@ def _mono_signals_table_html(
             f"<td>{seg_txt}</td>"
             f"{px_cols}"
             f"{date_cols}"
-            f"<td>—</td><td>—</td>"
-            f"{alpha_col_html}"
+            f"<td>—</td>"
+            f"{outcome_cols}"
             f"{exit_reason_col}"
-            f"<td style='color:#888'>略過</td></tr>"
+            f"<td style='color:#888'>{status_txt}</td></tr>"
         )
         idx += 1
-    intraday_head = ""
     if show_intraday:
-        intraday_head = (
-            "<th>入場價</th><th>出場價</th><th>入場時間</th><th>出場時間</th>"
+        if use_market:
+            intraday_head = (
+                "<th>買進價格</th><th>賣出價格</th><th>買進時間</th><th>賣出時間</th>"
+            )
+        else:
+            intraday_head = (
+                "<th>入場價</th><th>出場價</th><th>入場時間</th><th>出場時間</th>"
+            )
+    else:
+        intraday_head = ""
+    exit_reason_head = "<th>賣出原因</th>" if (show_exit_reason and use_market) else (
+        "<th>出場原因</th>" if show_exit_reason else ""
+    )
+    if use_market:
+        date_head = "" if show_intraday else "<th>買進日期</th><th>賣出日期</th>"
+        headers = (
+            "<th>序號</th><th>訊號日期</th><th>股票代號</th><th>股票名稱</th><th>動能評分</th>"
+            f"{intraday_head}"
+            f"{date_head}"
+            "<th>資金部位</th><th>金額（元）</th><th>損益（元）</th>"
+            f"{exit_reason_head}<th>成交狀態</th>"
         )
-    exit_reason_head = "<th>出場原因</th>" if show_exit_reason else ""
-    date_head = "" if show_intraday else "<th>進場</th><th>出場</th>"
-    if showcase_labels:
+    elif showcase_labels:
+        date_head = "" if show_intraday else "<th>進場</th><th>出場</th>"
         headers = (
             "<th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>RRG 評分</th>"
             f"{intraday_head}"
@@ -3909,6 +4246,7 @@ def _mono_signals_table_html(
         )
     else:
         alpha_head = "<th>α NTD</th>"
+        date_head = "" if show_intraday else "<th>進場</th><th>出場</th>"
         headers = (
             "<th>#</th><th>訊號日</th><th>代號</th><th>名稱</th><th>seg_last</th>"
             f"{intraday_head}"
@@ -3994,6 +4332,208 @@ def _lead_pullback_signals_table_html(
 </table>"""
 
 
+def _market_c18acc_strategy_brief_html(
+    meta: dict,
+    *,
+    date_label: str,
+    n_trade_dates: int,
+    rrg_length: int,
+) -> str:
+    """Reproducible strategy spec in market Chinese (showcase / cinema)."""
+    n_slots = int(meta.get("n_slots") or 3)
+    cap = float(meta.get("capital_ntd") or 10_000)
+    total = float(meta.get("total_capital_ntd") or n_slots * cap)
+    min_hold = int(meta.get("min_hold_days") or 5)
+    max_hold = int(meta.get("hold_trading_days") or 10)
+    pool = str(meta.get("candidate_pool") or "fresh")
+    variant = str(meta.get("variant_id") or meta.get("display_code") or "")
+    track_label = str(meta.get("market_track_label") or variant)
+    track_note = str(meta.get("market_track_note") or "")
+    bypass = bool(meta.get("accel_sell_bypass_on_spread_lost"))
+    max_swaps = int(meta.get("max_swaps_per_day") or 1)
+    fill_repeat = bool(meta.get("fill_repeat"))
+    spread_pause = bool(meta.get("quad_force_exit_pause_spread_rs_positive"))
+    force_exits = meta.get("force_exits")
+    swaps_total = meta.get("swaps_total")
+    n_exec = meta.get("n_executed")
+
+    if pool == "fresh_union_accel":
+        pool_title = "雙池選股（新進強勢 ＋ 加速補充）"
+        pool_body = """
+        <li><b>池 A · 新進領先</b>：當日 RRG 剛跨入「領先象限」的個股（fresh mono）。</li>
+        <li><b>池 B · 四日加速</b>：不在池 A，但近 4 日相對加權指數的動能加速分數為正、且達標的個股。</li>
+        <li><b>合併規則</b>：買進與換倉候選 = 池 A ∪ 池 B，去重後再排序。</li>"""
+    else:
+        pool_title = "單池選股（僅新進領先）"
+        pool_body = """
+        <li><b>候選池</b>：僅限當日 RRG「新進領先象限」個股（fresh mono），不含加速補充池。</li>"""
+
+    bypass_block = ""
+    if bypass:
+        bypass_block = """
+      <h3>採納版專屬 · 價差轉弱放行換倉</h3>
+      <p>一般情況下，持倉須「四日加速轉負」才允許被更高分 challenger 換掉。
+      本版額外規則：若<b>短均線相對強度 ≤ 長均線</b>（5 日 spread RS ≤ 0，代表短線相對動能已失速），
+      即使加速仍為正，也<b>允許換倉</b>——避免抱著短線轉弱的標的不放。</p>"""
+
+    dual_extra = ""
+    if spread_pause or max_swaps > 1 or fill_repeat:
+        extras = []
+        if spread_pause:
+            extras.append(
+                "短線 spread RS 連續為正時，<b>暫停</b>「象限轉弱強制賣出」"
+            )
+        if max_swaps > 1:
+            extras.append(f"每日最多換倉 <b>{max_swaps}</b> 次（非 1 次）")
+        if fill_repeat:
+            extras.append("空位可<b>重複買入同一檔</b>加碼補滿（不留閒置資金）")
+        dual_extra = f"""
+      <h3>本軌額外設定</h3>
+      <ul class="strategy-list">{''.join(f'<li>{x}</li>' for x in extras)}</ul>"""
+
+    stats_line = (
+        f"本窗口已成交 <b>{n_exec}</b> 筆"
+        + (f" · 評分換倉 <b>{swaps_total}</b> 次" if swaps_total is not None else "")
+        + (f" · 象限轉弱強制賣出 <b>{force_exits}</b> 筆" if force_exits is not None else "")
+    )
+
+    from research.backtest.slot_portfolio_metrics import format_cost_model_note
+
+    cost_line = format_cost_model_note(meta.get("cost_model"))
+
+    return f"""
+    <h2>策略完整說明 · {html.escape(track_label)}</h2>
+    {f'<p class="strategy-tagline">{html.escape(track_note)}</p>' if track_note else ''}
+    <p class="strategy-lede">
+      這是一套<b>相對強度輪動</b>策略：每天從 RRG（相對輪動圖）篩出相對加權指數
+      正在變強的個股，用固定資金分 <b>{n_slots}</b> 個部位輪流持有；
+      持倉期間若出現更強的替換標的就換倉，並在動能轉弱或持有到期時賣出。
+      以下規格足以在自有資料庫<b>逐條復現</b>回測，口徑與本頁一致。
+    </p>
+
+    <div class="strategy-grid">
+      <section>
+        <h3>① 資金配置</h3>
+        <ul class="strategy-list">
+          <li><b>{n_slots} 個並行部位</b>，每部位 <b>{cap:,.0f} 元</b>，總本金 <b>{total:,.0f} 元</b>。</li>
+          <li>一筆訊號 = 買進 1 檔股票 = 占用 1 個部位；部位滿則新訊號不成交。</li>
+          <li>同一標的不可重複占用（除非本軌開啟「重複補倉」）。</li>
+          <li>交易成本：{cost_line}</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>② 資料與基準（PIT）</h3>
+        <ul class="strategy-list">
+          <li>掃描範圍：<b>監控清單 watchlist</b>（最新 snapshot 聯集 · 非逐日 PIT）。</li>
+          <li>標的：台股個股日線；大盤基準 <b>加權指數</b>。</li>
+          <li>RRG 計算：JdK RS-Ratio / RS-Momentum，WMA 平滑 <b>{rrg_length} 日</b>。</li>
+          <li><b>訊號日 T</b> 僅能使用 <b>date ≤ T</b> 的收盤資料（無前視）。</li>
+          <li>回測區間：<b>{html.escape(date_label)}</b>（{n_trade_dates} 個交易日）。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>③ 選股池 · {pool_title}</h3>
+        <ul class="strategy-list">{pool_body}
+          <li><b>排序分數</b>：近 <b>4 日</b>平均動能加速（avg_accel_decel），分數高者優先。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>④ 買進（進場）</h3>
+        <ul class="strategy-list">
+          <li><b>時點</b>：每個交易日開盤起，每 <b>5 分鐘</b>掃描一次（poll_5m），自 <b>09:30</b> 起算。</li>
+          <li><b>觸發</b>：有空位 → 從候選池取排序最高、且尚未持有的標的買進。</li>
+          <li><b>成交價</b>：觸發當根 5 分 K 收盤價（無分 K 時改當日收盤價）。</li>
+          <li>實務上多數在<b>09:30 首根 K</b> 即成交。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>⑤ 持有期間</h3>
+        <ul class="strategy-list">
+          <li><b>最短持有 {min_hold} 個交易日</b>：未滿期間，不因換倉或轉弱規則賣出（強制賣出亦尊重此下限）。</li>
+          <li><b>最長持有 {max_hold} 個交易日</b>：到期必賣，不可無限期續抱。</li>
+          <li>持倉期間圖上顯示該股 RRG 軌跡（買進日～賣出日）。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>⑥ 換倉（持倉中替換）</h3>
+        <ul class="strategy-list">
+          <li>每個交易日最多換倉 <b>{max_swaps}</b> 次；賣出「分數最低」的持倉，買入候選池最高分（且未持有）。</li>
+          <li><b>可賣條件</b>：該持倉的四日加速須為<b>負值</b>（動能轉弱）。</li>
+          <li><b>替換門檻</b>： challenger 分數須比被賣者高至少 <b>0.05</b>（5% 分數差距）。</li>
+          <li>換倉成交價：當日 poll_5m 觸發 bar 收盤價（同買進口徑）。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>⑦ 賣出（出場）· 依優先序判定</h3>
+        <ol class="strategy-list ordered">
+          <li><b>評分換倉</b>：符合⑥ 時，被更高分標的替換而賣出。</li>
+          <li><b>象限轉弱強制賣出</b>：連續 <b>2 日</b> 處於 RRG「轉弱象限」，
+            且浮動虧損 ≤ <b>−5%</b>（相對買進價），且已滿最短持有 → 翌日開盤賣出。</li>
+          <li><b>持有到期</b>：滿 <b>{max_hold}</b> 個交易日 → 到期日開盤賣出。</li>
+          <li><b>回測結束</b>：窗口最後一日強制平倉。</li>
+        </ol>
+        <p class="note">賣出條件於<b>前一交易日收盤後</b>判定；成交價取<b>賣出日首根 5 分 K</b>（通常 09:30），非盤中隨時掃描。</p>
+      </section>
+    </div>
+
+    {bypass_block}
+    {dual_extra}
+
+    <section class="strategy-recipe">
+      <h3>⑧ 復現檢查清單（給回測引擎）</h3>
+      <ol class="strategy-list ordered">
+        <li>建立 RRG 面板（WMA {rrg_length}）→ 產生 fresh mono 日曆{(' + 四日加速補充池' if pool == 'fresh_union_accel' else '')}。</li>
+        <li>初始化 {n_slots} 空部位；逐交易日依序：先判賣出 → 再判換倉 → 再填補空位。</li>
+        <li>買／賣成交價用 poll_5m 首觸發 bar；缺 K 線 fallback 日收盤。</li>
+        <li>組合損益 = 各部位已實現 + 浮動損益（含金額欄位之成本口徑）；超額 = 同期等額買加權指數之差。</li>
+        <li>變體 ID：<code>{html.escape(variant)}</code>
+          · bypass={'開' if bypass else '關'}
+          · max_swaps={max_swaps}{' · fill_repeat' if fill_repeat else ''}{' · spread_pause' if spread_pause else ''}</li>
+      </ol>
+      <p class="note strategy-stats">{stats_line}</p>
+    </section>"""
+
+
+def _market_mono_timeline_annotations(
+    *,
+    n_slots: int,
+    capital_ntd: float,
+    hold_h: int,
+    timing_mode: str | None = None,
+) -> dict[str, str]:
+    cap = f"{capital_ntd:,.0f}"
+    intraday_note = ""
+    if timing_mode == "poll_5m":
+        intraday_note = """
+        <li><b>買進時間</b>：盤中掃描，多數於開盤後首根 5 分 K 成交（約 09:30）。</li>
+        <li><b>賣出時間</b>：條件於前一日收盤後判定；成交價取賣出日首根 5 分 K（通常 09:30）。</li>
+        <li><b>買／賣價格</b>：對應分 K 收盤價（無分 K 時改日收盤價）。</li>"""
+    return {
+        "slot_help": (
+            f"最多 {n_slots} 個資金部位，每筆新訊號占用 1 個部位"
+            f"（每部位 {cap} 元、持 1 檔股票）。賣出日收盤後釋出。"
+        ),
+        "hold_help": (
+            "持倉筆數=目前持有的交易筆數；"
+            "持倉檔數=不重複股票數。賣出當日仍計入持倉（收盤才平倉）。"
+        ),
+        "skip_reason": "（部位已滿／重複標的）",
+        "read_guide": f"""
+        <li><b>上方 KPI</b>：播放時請盯「組合累計報酬率」「相對加權指數超額」——數字隨每個交易日更新。</li>
+        <li><b>圖上軌跡</b>：僅在已成交的買進日～賣出日（最長 {hold_h} 個交易日）顯示。</li>{intraday_note}
+        <li><b>累計／今日</b>：累計=自買進以來報酬；今日=較前一交易日的損益變化。</li>
+        <li><b>持倉部位</b>：最多 {n_slots} 個並行；灰格=空閒、藍格=占用。部位滿則新訊號不成交。</li>
+        <li><b>時間軸</b>：藍點=買進日 · 金點=賣出日 · 可拖曳或自動播放（開頁 10 秒播完整段）。</li>
+        <li><b>操作</b>：←→ 換日 · 點下方明細列可跳到該筆買進日。</li>""",
+    }
+
+
 def _slots_timeline_annotations(
     *,
     table_mode: str,
@@ -4046,7 +4586,7 @@ def _slots_timeline_annotations(
         <li><b>vs IX0001 超額 α</b>：各 leg 同期部署資金若買加權指數之損益差；口徑=<b>D4 收盤進、D11 收盤出</b>（hold{hold_h}）。</li>
         <li><b>迷你曲線</b>：金=策略累計 · 灰=IX0001 同期基準 · 看是否跑贏大盤。</li>
         <li><b>槽位占用 N / {n_slots}</b>：目前有 N 則 mono 訊號占用資金槽（每槽 {cap} NTD、<b>1 檔標的</b>）。灰格=空閒 · 藍格=占用中。槽滿時新訊號會<b>略過</b>。</li>
-        <li><b>leg</b>：單一標的從進場到出場的一檔持倉；本策略<b>1 訊號 = 1 檔 = 1 leg</b>（非 ETF 跟單籃子）。</li>
+        <li><b>leg</b>：單一標的從進場到出場的一檔持倉；本策略<b>1 訊號 = 1 檔 = 1 leg</b>（單檔輪動，非整籃跟單）。</li>
         <li><b>出場日</b>：當日仍顯示在持倉中（收盤賣出後才釋放槽位）；圖上仍畫 RRG 軌跡。</li>
         <li><b>槽位</b>：最多 <b>{n_slots}</b> 槽並行；exit 日收盤釋放。滑桿<b>藍點</b>=進場 · <b>金點</b>=出場。</li>
         <li><b>操作</b>：←→ 換日 · [ ] 跳進場 · {{}} 跳出場 · Esc 取消聚焦 · 點表格列跳進場日。</li>""",
@@ -4103,6 +4643,30 @@ def render_l1h9_slots_timeline_html(
     strategy_filter = str(meta.get("strategy_filter") or "")
     table_mode = str(meta.get("table_mode") or "copytrade")
     timing_mode = str(meta.get("timing_mode") or "")
+    cinema_mode = bool(meta.get("cinema_mode"))
+    cinema_autoplay_ms = int(meta.get("cinema_autoplay_ms") or 10000)
+    cinema_autoplay = bool(meta.get("cinema_autoplay", cinema_mode))
+    document_mode = bool(meta.get("document_mode"))
+    document_embed = bool(meta.get("document_embed"))
+    side_trade_feed = bool(meta.get("side_trade_feed"))
+    static_only = bool(meta.get("static_only"))
+    market_labels = bool(
+        meta.get("market_labels") or cinema_mode or meta.get("showcase_mode")
+    )
+    compound_slots = bool(
+        meta.get("compound_slots")
+        if meta.get("compound_slots") is not None
+        else (market_labels and table_mode == "mono")
+    )
+    cost_model = meta.get("cost_model") if isinstance(meta.get("cost_model"), dict) else None
+    if compound_slots and table_mode == "mono":
+        _enrich_compound_slot_amounts(
+            legs,
+            executed_signals,
+            n_slots=n_slots,
+            initial_per_slot=capital_ntd,
+            cost_model=cost_model,
+        )
     ann = _slots_timeline_annotations(
         table_mode=table_mode,
         n_slots=n_slots,
@@ -4110,27 +4674,76 @@ def render_l1h9_slots_timeline_html(
         hold_h=hold_h,
         timing_mode=timing_mode or None,
     )
+    if market_labels and table_mode == "mono":
+        ann = _market_mono_timeline_annotations(
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+        hold_h=hold_h,
+        timing_mode=timing_mode or None,
+    )
     ext_exits = meta.get("ext_exits")
     ext_line = (
+        f"<br/>延長持倉提早賣出 <b>{ext_exits}</b> / {meta['n_executed']} 筆"
+        if ext_exits is not None and market_labels
+        else (
         f"<br/>I36 extension 提早出場 <b>{ext_exits}</b> / {meta['n_executed']} leg"
         if ext_exits is not None
         else ""
+        )
     )
     force_exits = meta.get("force_exits")
     force_line = (
+        f"<br/>象限轉弱強制賣出 <b>{force_exits}</b> / {meta['n_executed']} 筆"
+        if force_exits is not None and market_labels
+        else (
         f"<br/>S2 quad force-exit <b>{force_exits}</b> / {meta['n_executed']} leg"
         if force_exits is not None
         else ""
+        )
     )
     overlay_line = ext_line or force_line
 
-    flat = [(p["rs_ratio"], p["rs_momentum"]) for t in all_trajectories for p in t["points"]]
-    proj = _timeline_projection(all_trajectories, highlight_ids)
-    title = (
-        f"{strategy_title} · RRG 時間軸 · {len(legs)} 檔 · "
-        f"{meta['n_executed']}/{meta['n_signals']} 訊號 · {date_short}"
+    universe_cinema = bool(meta.get("universe_cinema"))
+    axis_bounds_raw = meta.get("axis_bounds")
+    if isinstance(axis_bounds_raw, (list, tuple)) and len(axis_bounds_raw) == 2:
+        u_axis_lo, u_axis_hi = float(axis_bounds_raw[0]), float(axis_bounds_raw[1])
+    else:
+        u_axis_lo, u_axis_hi = 90.0, 110.0
+    clip_dynamic = bool(meta.get("clip_dynamic")) if meta.get("clip_dynamic") is not None else (
+        not universe_cinema
     )
-    svg = _svg_timeline_background(proj, title=title, subtitle=dates[0])
+    show_dot_labels = bool(meta.get("show_dot_labels", universe_cinema))
+    chart_w = UNIVERSE_TIMELINE_CHART_W if universe_cinema else TIMELINE_CHART_W
+    chart_h = UNIVERSE_TIMELINE_CHART_H if universe_cinema else TIMELINE_CHART_H
+
+    if universe_cinema:
+        proj = _timeline_projection(
+            all_trajectories,
+            set(),
+            w=chart_w,
+            h=chart_h,
+            fixed_bounds=(u_axis_lo, u_axis_hi),
+        )
+    else:
+        flat = [(p["rs_ratio"], p["rs_momentum"]) for t in all_trajectories for p in t["points"]]
+        proj = _timeline_projection(all_trajectories, highlight_ids)
+    if universe_cinema:
+        title = (
+            f"RRG watchlist · C18acc 回測 · {len(all_trajectories)} 檔 · "
+            f"{meta['n_executed']}/{meta['n_signals']} 成交 · {date_short}"
+        )
+    else:
+        title = (
+            f"{strategy_title} · RRG 時間軸 · {len(legs)} 檔 · "
+            f"{meta['n_executed']}/{meta['n_signals']} 訊號 · {date_short}"
+        )
+    svg = _svg_timeline_background(
+        proj,
+        title=title,
+        subtitle=dates[0],
+        large_ui=universe_cinema,
+        clip_dynamic=clip_dynamic,
+    )
     if table_mode == "lead_pullback":
         table = _lead_pullback_signals_table_html(
             executed_signals, skipped_signals, total_capital=total_capital
@@ -4141,6 +4754,7 @@ def render_l1h9_slots_timeline_html(
             skipped_signals,
             show_intraday=timing_mode == "poll_5m",
             showcase_labels=bool(meta.get("showcase_mode")),
+            market_labels=market_labels,
             show_exit_reason=bool(meta.get("show_exit_reason")),
         )
     else:
@@ -4179,17 +4793,488 @@ def render_l1h9_slots_timeline_html(
     bench_close_json = json.dumps(bench_closes)
     quad_labels_json = json.dumps(QUADRANT_LABEL_ZH, ensure_ascii=False)
     meta_json = json.dumps(meta, ensure_ascii=False)
-    read_guide_open = " open" if meta.get("read_guide_open") else ""
     signals_table_prefix = str(meta.get("signals_table_prefix") or "")
+    wrap_max_w = (
+        chart_w + 420
+        if (cinema_mode or side_trade_feed)
+        else chart_w + 80
+    )
+    exit_reason_zh_json = json.dumps(EXIT_REASON_ZH, ensure_ascii=False)
+    champion_colors_json = json.dumps(CHAMPION_EXECUTED_COLORS)
+    universe_cinema_js = str(universe_cinema).lower()
+    show_dot_labels_js = str(show_dot_labels).lower()
 
-    return f"""<!DOCTYPE html>
+    lbl_total = "組合累計報酬率" if market_labels else "組合總累計報酬"
+    lbl_daily = "今日報酬變動" if market_labels else "今日報酬變動"
+    lbl_excess = "相對加權指數超額" if market_labels else "vs IX0001 超額 α"
+    lbl_daily_ex = "今日超額變動" if market_labels else "今日超額變動"
+    lbl_slot = "持倉部位占用" if market_labels else "槽位占用"
+    lbl_hold = "持倉檔數 · 筆數" if market_labels else "持倉 leg · 標的 · 批"
+    lbl_bench_sub = "加權指數" if market_labels else "大盤"
+    lbl_spark = "策略 vs 加權指數" if market_labels else "策略累計 vs IX0001（同本金基準）"
+
+    insight_quad = "持倉象限分布" if market_labels else "持倉標的象限"
+    insight_ret = "持倉報酬（累計 · 今日）" if market_labels else "Leg 報酬（持倉中 · Σ / Δ日）"
+
+    btn_prev_entry = "⏮ 買進" if market_labels else "⏮ 進場"
+    btn_prev_exit = "⏮ 賣出" if market_labels else "⏮ 出場"
+    btn_play = "▶ 播放" if market_labels else "▶ 逐步"
+    btn_next_exit = "賣出 ⏭" if market_labels else "出場 ⏭"
+    btn_next_entry = "買進 ⏭" if market_labels else "進場 ⏭"
+    lbl_universe = "全市場背景" if market_labels else "Universe 背景"
+    show_bg_control = (
+        ""
+        if universe_cinema
+        else f'<label><input type="checkbox" id="show-bg"/> {lbl_universe}</label>'
+    )
+    universe_legend_html = (
+        f"""
+    <div class="legend universe-cinema-legend">
+      <span class="legend-item"><i style="background:{CHAMPION_EXECUTED_COLORS['active']}"></i>
+        {CHAMPION_EXECUTED_LABEL_ZH['active']}</span>
+      <span class="legend-item"><i style="background:{CHAMPION_EXECUTED_COLORS['background']}"></i>
+        {CHAMPION_EXECUTED_LABEL_ZH['background']}</span>
+      <span class="legend-item" style="color:#888">刻度 {int(u_axis_lo)}–{int(u_axis_hi)} · 出框點仍顯示 · {len(all_trajectories)} 檔代號全顯示</span>
+      <span class="legend-item legend-universe-pit">watchlist 背景：監控清單（{len(all_trajectories)} 檔 · 最新 snapshot 聯集）
+        · <strong>非逐日 PIT</strong> · RRG 日收 WMA{length}</span>
+    </div>"""
+        if universe_cinema
+        else ""
+    )
+
+    frame_insight_html = f"""
+        <aside class="frame-insight" id="frame-insight">
+          <h3>當日摘要</h3>
+          <div class="insight-stat" id="insight-stats">—</div>
+          <div class="event-pills" id="event-pills"></div>
+          <div class="insight-chips" id="insight-chips"></div>
+          <div class="insight-stat" id="insight-extremes" style="font-size:11px;margin-top:6px">—</div>
+          <h3 style="margin-top:12px">{insight_quad}</h3>
+          <div class="quad-bars" id="insight-quads"></div>
+          <h3 style="margin-top:12px">{insight_ret}</h3>
+          <div class="insight-returns" id="insight-returns"></div>
+        </aside>"""
+
+    timeline_controls_html = f"""
+      <div class="timeline-controls">
+        <button type="button" id="btn-prev">◀</button>
+        <button type="button" id="btn-prev-entry" title="上一筆買進 ([)">{btn_prev_entry}</button>
+        <button type="button" id="btn-prev-exit" title="上一筆賣出 ({{)">{btn_prev_exit}</button>
+        <button type="button" id="btn-play">{btn_play}</button>
+        <button type="button" id="btn-next-exit" title="下一筆賣出 (}})">{btn_next_exit}</button>
+        <button type="button" id="btn-next-entry" title="下一筆買進 (])">{btn_next_entry}</button>
+        <button type="button" id="btn-next">▶</button>
+        <div class="slider-wrap">
+          <div id="slider-marks"></div>
+          <input type="range" id="frame-slider" min="0" max="{len(dates) - 1}" value="0" step="1"/>
+        </div>
+        <span id="frame-date">{dates[0][5:]}</span>
+        {show_bg_control}
+      </div>"""
+
+    chart_panel_html = (
+        f'<div class="chart-panel flash-target" id="chart-panel">{svg}</div>'
+        if document_mode
+        else (
+            f'<div class="panel chart-panel flash-target" id="chart-panel" '
+            f'style="margin:0;padding:8px;border:none">{svg}</div>'
+        )
+    )
+
+    kpi_disclaimer_html = (
+        """
+    <p class="kpi-disclaimer" role="note">
+      回測展示 · 部位複利 · 全樣本窗口 · 非實盤績效 · KPI 已含交易成本 · 僅供研究參考
+    </p>"""
+        if cinema_mode and (bool(meta.get("showcase_mode")) or universe_cinema)
+        else ""
+    )
+
+    kpi_banner_html = f"""
+    {kpi_disclaimer_html}
+    <div class="kpi-banner" id="kpi-banner">
+      <div class="kpi-block highlight">
+        <div class="label">{lbl_total}</div>
+        <div class="value" id="total-return-pct">—</div>
+        <div class="sub" id="total-return-ntd">—</div>
+      </div>
+      <div class="kpi-block kpi-daily">
+        <div class="label">{lbl_daily}</div>
+        <div class="value" id="daily-return-pct">—</div>
+        <div class="sub delta" id="daily-return-ntd">—</div>
+      </div>
+      <div class="kpi-block highlight" style="background:#121a1f;border-color:#2a4a5a">
+        <div class="label">{lbl_excess}</div>
+        <div class="value" id="excess-return-pct">—</div>
+        <div class="sub" id="excess-return-ntd">—</div>
+        <div class="sub" id="bench-return-pct">{lbl_bench_sub} —</div>
+      </div>
+      <div class="kpi-block kpi-daily">
+        <div class="label">{lbl_daily_ex}</div>
+        <div class="value" id="daily-excess-pct">—</div>
+        <div class="sub delta" id="daily-excess-ntd">—</div>
+      </div>
+      <div class="kpi-block">
+        <div class="kpi-label-row">
+          <div class="label">{lbl_slot}</div>
+          <span class="kpi-help" title="{ann['slot_help']}">?</span>
+        </div>
+        <div class="value" id="slot-count">—</div>
+        <div class="slot-meter" id="slot-meter"></div>
+        <div class="kpi-hint" id="slot-hint">—</div>
+      </div>
+      <div class="kpi-block">
+        <div class="kpi-label-row">
+          <div class="label">{lbl_hold}</div>
+          <span class="kpi-help" title="{ann['hold_help']}">?</span>
+        </div>
+        <div class="value" id="hold-count">—</div>
+        <div class="sub" id="hold-batches">—</div>
+        <div class="kpi-hint" id="hold-hint">—</div>
+      </div>
+      <div class="kpi-row2">
+        <div class="sparkline-wrap" title="{lbl_spark}">
+          <svg id="equity-sparkline" viewBox="0 0 300 36" preserveAspectRatio="none"></svg>
+        </div>
+        <span id="period-stats">—</span>
+        <span id="today-events-summary">—</span>
+      </div>
+    </div>"""
+
+    guide_heading = "如何閱讀此回測圖" if market_labels else f"如何閱讀（{strategy_title}）"
+    read_guide_html = (
+        f"""
+    <h2>{guide_heading}</h2>
+    <ul class="read-guide-list">{ann['read_guide']}</ul>"""
+        if document_mode
+        else f"""
+    <section class="read-guide panel">
+      <h2>{guide_heading}</h2>
+      <ul class="read-guide-list">{ann['read_guide']}</ul>
+    </section>"""
+    )
+
+    if market_labels:
+        strategy_brief_html = _market_c18acc_strategy_brief_html(
+            meta,
+            date_label=date_label,
+            n_trade_dates=len(dates),
+            rrg_length=length,
+        )
+    else:
+        strategy_brief_html = ""
+
+    header_sub_html = (
+        f"""
+    <p class="sub">
+      篩選條件 <b>{strategy_filter or strategy_rule}</b><br/>
+      <b>{n_slots}</b> 個部位 × {capital_ntd:,.0f} 元 = 總本金 {total_capital:,.0f} 元 · 最長持有 <b>{hold_h}</b> 個交易日<br/>
+      回測區間 <b>{date_label}</b>（{len(dates)} 個交易日）· 大盤基準 <b>加權指數</b><br/>
+      訊號 <b>{meta['n_signals']}</b> 筆 · 已成交 <b>{meta['n_executed']}</b> 筆 · 未成交 <b>{meta['n_skipped']}</b> 筆
+      {ann['skip_reason']} · 成交率 <b>{meta.get('signal_capture_pct') or '—'}%</b>{overlay_line}
+    </p>"""
+        if market_labels
+        else f"""
+    <p class="sub">
+      策略 <b>{strategy_filter}</b> · {strategy_rule}<br/>
+      <b>{n_slots}</b> 槽 × {capital_ntd:,.0f} NTD = {total_capital:,.0f} NTD 總本金 · 持有 <b>{hold_h}</b> 交易日<br/>
+      期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
+      軌跡 tail 最多 <b>{TIMELINE_TAIL_DAYS}</b> 交易日 · 位移 ≤{TIMELINE_TAIL_MIN_DISP:g} 不畫線<br/>
+      訊號 <b>{meta['n_signals']}</b> · 執行 <b>{meta['n_executed']}</b> · 略過 <b>{meta['n_skipped']}</b>
+      {ann['skip_reason']} · 捕捉率 <b>{meta.get('signal_capture_pct') or '—'}%</b>{overlay_line}
+    </p>"""
+    )
+
+    detail_title = "歷史成交明細" if market_labels else f"訊號執行明細（{display_code}）"
+    if compound_slots and market_labels:
+        cost_note = ""
+        if cost_model and cost_model.get("enabled"):
+            from research.backtest.slot_portfolio_metrics import format_cost_model_note
+
+            cost_note = format_cost_model_note(cost_model)
+        compound_note = (
+            "<p class=\"note\">金額／損益依各部位<b>複利</b>計算：獲利保留在該部位，下一筆以更新後權益投入。"
+            + (f" {cost_note}" if cost_note else "")
+            + "</p>"
+        )
+    else:
+        compound_note = ""
+    table_block = table if document_mode else f'<div class="panel">{table}</div>'
+    signals_section_html = f"""
+    <h2>{detail_title}</h2>
+    {compound_note}
+    {signals_table_prefix}
+    {table_block}"""
+
+    if static_only and market_labels:
+        strategy_brief_html = _market_c18acc_strategy_brief_html(
+            meta,
+            date_label=date_label,
+            n_trade_dates=len(dates),
+            rrg_length=length,
+        )
+        static_html = f"""
+<article class="doc-track" id="track-{html.escape(str(meta.get('embed_id') or 'static'))}">
+  {strategy_brief_html}
+  {signals_section_html}
+</article>"""
+        return static_html
+
+    if cinema_mode:
+        hero_title = (
+            f"{meta.get('market_track_label') or strategy_title} · 回測放映"
+            if market_labels
+            else f"{strategy_title} · 回測放映"
+        )
+        autoplay_note = (
+            f" · 開頁自動 {cinema_autoplay_ms // 1000} 秒播完整段"
+            if cinema_autoplay
+            else ""
+        )
+        if document_mode:
+            autoplay_bar = (
+                '<div class="autoplay-bar" aria-hidden="true">'
+                '<div id="autoplay-progress"></div></div>'
+                if cinema_autoplay
+                else ""
+            )
+            if document_embed:
+                doc_header_html = (
+                    f'<p class="doc-lead">開頁自動播放 · 請看 KPI 數字隨交易日更新</p>{autoplay_bar}'
+                    if cinema_autoplay
+                    else ""
+                )
+            else:
+                doc_header_html = f"""
+    <header class="doc-header">
+      <h1>{hero_title}</h1>
+      <p class="doc-lead">{date_label} · {len(dates)} 個交易日{autoplay_note} · 播放時請看上方 KPI 數字變化 · 右側為交易歷程</p>
+      {autoplay_bar}
+    </header>"""
+            if side_trade_feed:
+                body_top_html = f"""
+    {doc_header_html}
+    {kpi_banner_html}
+    {universe_legend_html}
+    {timeline_controls_html}
+    <div class="cinema-layout doc-cinema-layout">
+      <div class="chart-col">{chart_panel_html}</div>
+      <div class="side-col side-col-feed-only">
+        <aside class="trade-feed-panel" id="trade-feed-panel">
+          <h3>交易歷程 <span id="trade-feed-count" class="feed-count">0</span></h3>
+          <div id="trade-feed-list" class="trade-feed-list"></div>
+        </aside>
+      </div>
+    </div>
+    <p class="note doc-cinema-note">拖曳時間軸或按播放 · 右側逐日累積買賣 · 完整明細見下方表格</p>"""
+            else:
+                body_top_html = f"""
+    {doc_header_html}
+    {kpi_banner_html}
+    {timeline_controls_html}
+    {chart_panel_html}"""
+        else:
+            body_top_html = f"""
+    <div class="cinema-hero panel">
+      <h1>{hero_title}</h1>
+      <p class="cinema-tagline">{date_label} · {len(dates)} 個交易日 · 開頁自動 {cinema_autoplay_ms // 1000} 秒播完整段 · 請留意上方 KPI 隨播放跳動</p>
+      <div class="autoplay-bar" aria-hidden="true"><div id="autoplay-progress"></div></div>
+    </div>
+    {kpi_banner_html}
+    <div class="panel cinema-stage-panel">
+      {timeline_controls_html}
+      <div class="cinema-layout">
+        <div class="chart-col">{chart_panel_html}</div>
+        <div class="side-col">
+          <aside class="trade-feed-panel" id="trade-feed-panel">
+            <h3>交易歷程 <span id="trade-feed-count" class="feed-count">0</span></h3>
+            <div id="trade-feed-list" class="trade-feed-list"></div>
+          </aside>
+          {frame_insight_html}
+        </div>
+      </div>
+      <p class="note cinema-note">拖曳時間軸或按播放 · 右側逐日累積買賣紀錄 · KPI 在圖表上方同步更新</p>
+    </div>"""
+        bottom_parts = []
+        if market_labels:
+            bottom_parts.append(strategy_brief_html if document_mode else (
+                f'<section class="cinema-strategy-brief panel">{strategy_brief_html}</section>'
+            ))
+            if not document_mode:
+                bottom_parts.append(read_guide_html)
+        else:
+            bottom_parts.append(header_sub_html)
+            bottom_parts.append(read_guide_html)
+        bottom_parts.append(
+            signals_section_html
+            if document_mode
+            else f'<section class="cinema-detail-table">{signals_section_html}</section>'
+        )
+        body_bottom_html = "\n".join(bottom_parts)
+    else:
+        body_top_html = f"""
+    <h1>{strategy_title} · RRG 互動時間軸</h1>
+    {header_sub_html}
+    {kpi_banner_html}
+    {read_guide_html}
+    <div class="panel">
+      {timeline_controls_html}
+      <div class="chart-layout">
+        {chart_panel_html}
+        {frame_insight_html}
+      </div>
+      <p class="note">進場／出場日圖表邊框短暫閃爍（藍／金）。預設隱藏 Universe 背景。</p>
+    </div>"""
+        body_bottom_html = signals_section_html
+
+    universe_cinema_css = (
+        """
+    .legend.universe-cinema-legend {
+      display:flex; flex-wrap:wrap; gap:12px 18px; margin:0 0 8px; font-size:12px; color:#aaa;
+    }
+    .legend.universe-cinema-legend .legend-item { display:inline-flex; align-items:center; gap:6px; }
+    .legend.universe-cinema-legend i {
+      display:inline-block; width:10px; height:10px; border-radius:50%;
+    }
+    .legend-universe-pit {
+      flex-basis:100%; color:#b8a060; font-size:11px; line-height:1.45;
+    }
+    .kpi-disclaimer {
+      margin:0 0 10px; padding:8px 12px; font-size:12px; line-height:1.5;
+      color:#c9a227; background:#1a1810; border:1px solid #4a4020; border-radius:6px;
+    }
+    .uni-dot-label { pointer-events:none; }
+    .doc-cinema-layout .chart-col .chart-panel { min-height:620px; }
+"""
+        if universe_cinema
+        else ""
+    )
+
+    cinema_css = """
+    .cinema-wrap { max-width:1280px; }
+    .cinema-hero h1 { font-size:20px; margin:0 0 6px; }
+    .cinema-tagline { color:#999; font-size:13px; margin:0 0 10px; }
+    .cinema-wrap .kpi-banner { margin-bottom:12px; }
+    .autoplay-bar { height:5px; background:#2a2a2a; border-radius:3px; overflow:hidden; margin-top:8px; }
+    #autoplay-progress { height:100%; width:0%; background:linear-gradient(90deg,#5a8ab8,#7ec8a0); transition:width 0.12s linear; }
+    .cinema-stage-panel { padding:10px 12px 12px; border-color:#3a4a5a; }
+    .cinema-layout { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:12px; align-items:start; }
+    @media (max-width:1100px) { .cinema-layout { grid-template-columns:1fr; } }
+    .chart-col .chart-panel { min-height:520px; }
+    .side-col { display:flex; flex-direction:column; gap:10px; min-height:520px; }
+    .trade-feed-panel {
+      background:#141a14; border:1px solid #2a4030; border-radius:8px; padding:10px 12px;
+      flex:1 1 auto; min-height:280px; max-height:360px; display:flex; flex-direction:column;
+    }
+    .trade-feed-panel h3 { margin:0 0 8px; font-size:13px; color:#b8d4b8; }
+    .feed-count { color:#7ec8a0; font-size:12px; font-weight:400; }
+    .trade-feed-list { overflow-y:auto; flex:1; padding-right:4px; }
+    .trade-feed-item {
+      padding:8px 8px 8px 10px; margin-bottom:6px; border-radius:6px; background:#1a1a1a;
+      border-left:3px solid #444; font-size:11px; line-height:1.45; color:#bbb;
+    }
+    .trade-feed-item.entry { border-left-color:#6B8CAE; }
+    .trade-feed-item.exit { border-left-color:#E8A040; }
+    .trade-feed-item.current { background:#1a2420; box-shadow:inset 0 0 0 1px rgba(126,200,160,0.25); }
+    .trade-feed-item .tf-head { color:#ddd; font-weight:600; margin-bottom:2px; }
+    .trade-feed-item .tf-meta { color:#888; font-size:10px; }
+    .trade-feed-item .tf-ret.pos { color:#6BCB94; }
+    .trade-feed-item .tf-ret.neg { color:#F07070; }
+    .cinema-strategy-brief h2 { font-size:17px; margin:0 0 8px; color:#e8e8e8; }
+    .cinema-strategy-brief h3 { font-size:14px; margin:14px 0 6px; color:#c8d8e8; }
+    .strategy-lede { color:#bbb; font-size:13px; line-height:1.65; margin:0 0 14px; }
+    .strategy-tagline { color:#7ec8a0; font-size:12px; margin:-4px 0 10px; }
+    .strategy-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; }
+    @media (max-width:900px) { .strategy-grid { grid-template-columns:1fr; } }
+    .strategy-list { margin:0; padding-left:18px; color:#aaa; font-size:12px; line-height:1.6; }
+    .strategy-list.ordered { padding-left:22px; }
+    .strategy-list li { margin-bottom:4px; }
+    .strategy-recipe { margin-top:16px; padding-top:12px; border-top:1px solid #333; }
+    .strategy-stats { margin-top:8px; color:#888; }
+    .cinema-read-guide h2 { font-size:15px; margin:0 0 8px; }
+    .read-guide-list { margin:0; padding-left:18px; color:#aaa; font-size:13px; line-height:1.65; }
+    .cinema-detail-table { margin-top:16px; }
+    .cinema-detail-table h2 { font-size:16px; margin:0 0 10px; color:#ddd; }
+    .cinema-note { margin-top:8px; font-size:11px; color:#777; }
+""" if cinema_mode else ""
+
+    document_css = """
+    body.doc { max-width:920px; margin:0 auto; padding:24px 20px 48px; line-height:1.65; }
+    body.doc.doc-wide { max-width:1280px; }
+    .doc-header { margin-bottom:20px; }
+    .doc-header h1 { font-size:22px; margin:0 0 8px; }
+    .doc-lead { color:#999; font-size:14px; margin:0 0 12px; }
+    .doc-track { margin:36px 0; padding-top:8px; border-top:1px solid #2a2a2a; }
+    .doc-track:first-of-type { border-top:none; margin-top:24px; }
+    .doc-track h1 { font-size:20px; margin:0 0 8px; }
+    .doc-hr { border:none; border-top:1px solid #333; margin:40px 0; }
+    .doc:not(.doc-wide) .panel, .doc:not(.doc-wide) .kpi-banner, .doc:not(.doc-wide) .frame-insight {
+      background:none; border:none; border-radius:0; padding:0; margin:0 0 20px; box-shadow:none;
+    }
+    .doc:not(.doc-wide) .kpi-block.highlight { background:#1a1814; border:1px solid #3a3528; border-radius:6px; }
+    .doc.doc-wide .kpi-banner {
+      background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:12px 14px;
+      margin-bottom:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+      gap:12px 16px; align-items:end;
+    }
+    .doc.doc-wide .kpi-block.highlight { background:#1f1a12; border:1px solid #4a3a20; border-radius:6px; padding:8px 10px; }
+    .doc.doc-wide .kpi-row2 {
+      grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center;
+      padding-top:8px; border-top:1px solid #2a2a2a; font-size:12px; color:#888;
+    }
+    .doc.doc-wide .doc-cinema-layout {
+      display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; align-items:start; margin-bottom:8px;
+    }
+    .doc.doc-wide .side-col-feed-only .trade-feed-panel {
+      min-height:520px; max-height:720px; flex:1 1 auto;
+    }
+    .doc-cinema-note { font-size:12px; color:#777; margin:0 0 24px; }
+    @media (max-width:1100px) {
+      .doc.doc-wide .doc-cinema-layout { grid-template-columns:1fr; }
+      .doc.doc-wide .side-col-feed-only .trade-feed-panel { min-height:280px; max-height:360px; }
+    }
+    .doc .chart-panel { margin:16px 0 24px; overflow:visible; }
+    .doc.doc-wide .chart-col .chart-panel { margin:0; }
+    .doc .trade-feed-doc { margin:8px 0 24px; }
+    .doc .trade-feed-doc .trade-feed-item {
+      padding:8px 0 8px 10px; margin:0 0 8px; border-left:3px solid #444;
+      background:none; border-radius:0;
+    }
+    .doc .trade-feed-doc .trade-feed-item.entry { border-left-color:#6B8CAE; }
+    .doc .trade-feed-doc .trade-feed-item.exit { border-left-color:#E8A040; }
+    .doc h2 { font-size:17px; margin:28px 0 10px; color:#ddd; }
+    .doc h3 { font-size:15px; margin:20px 0 8px; color:#c8d8e8; }
+    .doc table { margin:12px 0 24px; }
+    .doc th { position:static; background:transparent; border-bottom:1px solid #444; }
+    .doc .strategy-grid { grid-template-columns:1fr; gap:16px; }
+    .doc .exit-reason-legend { background:none; border:none; padding:0; margin:0 0 12px; }
+    .doc .insight-returns { max-height:none; overflow:visible; }
+    .doc .frame-insight { background:none; border:none; padding:0; margin:0 0 24px; }
+""" if document_mode else ""
+
+    wrap_class = (
+        "wrap doc-track-interactive"
+        if (document_mode and cinema_mode and document_embed)
+        else (
+            "wrap doc-champion-stage"
+            if (document_mode and cinema_mode and side_trade_feed)
+            else ("wrap cinema-wrap" if cinema_mode else "wrap")
+        )
+    )
+
+    if document_mode:
+        body_class = ' class="doc doc-wide"' if side_trade_feed else ' class="doc"'
+    else:
+        body_class = ""
+
+    page_html = f"""<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8"/>
   <title>{display_code} 多槽 RRG 時間軸 · {date_label}</title>
   <style>
     body {{ margin:0; background:#141414; color:#e4e4e4; font-family:-apple-system,sans-serif; padding:20px; }}
-    .wrap {{ max-width:{TIMELINE_CHART_W + 80}px; margin:0 auto; }}
+    .wrap {{ max-width:{wrap_max_w}px; margin:0 auto; }}
     h1 {{ font-size:18px; margin:0 0 6px; }}
     h2 {{ font-size:15px; margin:18px 0 8px; color:#ddd; }}
     .sub {{ color:#999; font-size:13px; margin-bottom:16px; line-height:1.5; }}
@@ -4315,107 +5400,15 @@ def render_l1h9_slots_timeline_html(
       position:fixed; display:none; pointer-events:none; background:#222; border:1px solid #444;
       border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.45; z-index:9; max-width:300px;
     }}
+    {universe_cinema_css}
+    {cinema_css}
+    {document_css}
   </style>
 </head>
-<body>
-  <div class="wrap">
-    <h1>{strategy_title} · RRG 互動時間軸</h1>
-    <p class="sub">
-      策略 <b>{strategy_filter}</b> · {strategy_rule}<br/>
-      <b>{n_slots}</b> 槽 × {capital_ntd:,.0f} NTD = {total_capital:,.0f} NTD 總本金 · 持有 <b>{hold_h}</b> 交易日<br/>
-      期間 <b>{date_label}</b>（{len(dates)} 交易日）· 基準 <b>IX0001</b> · WMA length <b>{length}</b><br/>
-      軌跡 tail 最多 <b>{TIMELINE_TAIL_DAYS}</b> 交易日 · 位移 ≤{TIMELINE_TAIL_MIN_DISP:g} 不畫線<br/>
-      訊號 <b>{meta['n_signals']}</b> · 執行 <b>{meta['n_executed']}</b> · 略過 <b>{meta['n_skipped']}</b>
-      {ann['skip_reason']} · 捕捉率 <b>{meta.get('signal_capture_pct') or '—'}%</b>{overlay_line}
-    </p>
-    <div class="kpi-banner" id="kpi-banner">
-      <div class="kpi-block highlight">
-        <div class="label">組合總累計報酬</div>
-        <div class="value" id="total-return-pct">—</div>
-        <div class="sub" id="total-return-ntd">—</div>
-      </div>
-      <div class="kpi-block kpi-daily">
-        <div class="label">今日報酬變動</div>
-        <div class="value" id="daily-return-pct">—</div>
-        <div class="sub delta" id="daily-return-ntd">—</div>
-      </div>
-      <div class="kpi-block highlight" style="background:#121a1f;border-color:#2a4a5a">
-        <div class="label">vs IX0001 超額 α</div>
-        <div class="value" id="excess-return-pct">—</div>
-        <div class="sub" id="excess-return-ntd">—</div>
-        <div class="sub" id="bench-return-pct">大盤 —</div>
-      </div>
-      <div class="kpi-block kpi-daily">
-        <div class="label">今日超額變動</div>
-        <div class="value" id="daily-excess-pct">—</div>
-        <div class="sub delta" id="daily-excess-ntd">—</div>
-      </div>
-      <div class="kpi-block">
-        <div class="kpi-label-row">
-          <div class="label">槽位占用</div>
-          <span class="kpi-help" title="{ann['slot_help']}">?</span>
-        </div>
-        <div class="value" id="slot-count">—</div>
-        <div class="slot-meter" id="slot-meter"></div>
-        <div class="kpi-hint" id="slot-hint">—</div>
-      </div>
-      <div class="kpi-block">
-        <div class="kpi-label-row">
-          <div class="label">持倉 leg · 標的 · 批</div>
-          <span class="kpi-help" title="{ann['hold_help']}">?</span>
-        </div>
-        <div class="value" id="hold-count">—</div>
-        <div class="sub" id="hold-batches">—</div>
-        <div class="kpi-hint" id="hold-hint">—</div>
-      </div>
-      <div class="kpi-row2">
-        <div class="sparkline-wrap" title="策略累計 vs IX0001（同本金基準）">
-          <svg id="equity-sparkline" viewBox="0 0 300 36" preserveAspectRatio="none"></svg>
-        </div>
-        <span id="period-stats">—</span>
-        <span id="today-events-summary">—</span>
-      </div>
-    </div>
-    <details class="read-guide"{read_guide_open}>
-      <summary>如何閱讀（{strategy_title}）</summary>
-      <ul>{ann['read_guide']}
-      </ul>
-    </details>
-    <div class="panel">
-      <div class="timeline-controls">
-        <button type="button" id="btn-prev">◀</button>
-        <button type="button" id="btn-prev-entry" title="上一批進場 ([)">⏮ 進場</button>
-        <button type="button" id="btn-prev-exit" title="上一批出場 ({{)">⏮ 出場</button>
-        <button type="button" id="btn-play">▶ 逐步</button>
-        <button type="button" id="btn-next-exit" title="下一批出場 (}})">出場 ⏭</button>
-        <button type="button" id="btn-next-entry" title="下一批進場 (])">進場 ⏭</button>
-        <button type="button" id="btn-next">▶</button>
-        <div class="slider-wrap">
-          <div id="slider-marks"></div>
-          <input type="range" id="frame-slider" min="0" max="{len(dates) - 1}" value="0" step="1"/>
-        </div>
-        <span id="frame-date">{dates[0][5:]}</span>
-        <label><input type="checkbox" id="show-bg"/> Universe 背景</label>
-      </div>
-      <div class="chart-layout">
-        <div class="panel chart-panel flash-target" id="chart-panel" style="margin:0;padding:8px;border:none">{svg}</div>
-        <aside class="frame-insight" id="frame-insight">
-          <h3>當日摘要</h3>
-          <div class="insight-stat" id="insight-stats">—</div>
-          <div class="event-pills" id="event-pills"></div>
-          <div class="insight-chips" id="insight-chips"></div>
-          <div class="insight-stat" id="insight-extremes" style="font-size:11px;margin-top:6px">—</div>
-          <h3 style="margin-top:12px">持倉標的象限</h3>
-          <div class="quad-bars" id="insight-quads"></div>
-          <h3 style="margin-top:12px">Leg 報酬（持倉中 · Σ / Δ日）</h3>
-          <div class="insight-returns" id="insight-returns"></div>
-        </aside>
-      </div>
-      <p class="note">進場／出場日圖表邊框短暫閃爍（藍／金）。預設隱藏 Universe 背景。</p>
-    </div>
-    <h2>訊號執行明細（{display_code}）</h2>
-    {signals_table_prefix}
-    <div class="panel">{table}</div>
+<body{body_class}>
+  <div class="{wrap_class}">
+{body_top_html}
+{body_bottom_html}
   </div>
   <div id="tooltip"></div>
   <script>
@@ -4438,6 +5431,22 @@ def render_l1h9_slots_timeline_html(
     const TAIL_DAYS = {TIMELINE_TAIL_DAYS};
     const TAIL_MIN_DISP = {TIMELINE_TAIL_MIN_DISP};
     const QUAD_OPACITY = {TIMELINE_QUAD_OPACITY};
+    const CINEMA_MODE = {str(cinema_mode).lower()};
+    const CINEMA_AUTOPLAY = {str(cinema_autoplay).lower()};
+    const CINEMA_AUTOPLAY_MS = {cinema_autoplay_ms};
+    const MARKET_UI = {str(market_labels).lower()};
+    const COMPOUND_SLOTS = {str(compound_slots).lower()};
+    const CAPITAL_NTD = {capital_ntd};
+    const COST_MODEL = META.cost_model || null;
+    const COST_MODEL_ENABLED = !!(COST_MODEL && COST_MODEL.enabled);
+    const BUY_FEE_PCT = COST_MODEL_ENABLED ? Number(COST_MODEL.buy_fee_pct) : 0;
+    const SELL_FEE_PCT = COST_MODEL_ENABLED ? Number(COST_MODEL.sell_fee_pct) : 0;
+    const SELL_TAX_PCT = COST_MODEL_ENABLED ? Number(COST_MODEL.sell_tax_pct) : 0;
+    const SELL_COST_PCT = SELL_FEE_PCT + SELL_TAX_PCT;
+    const EXIT_REASON_ZH = {exit_reason_zh_json};
+    const UNIVERSE_CINEMA = {universe_cinema_js};
+    const CHAMPION_COLORS = {champion_colors_json};
+    const SHOW_DOT_LABELS = {show_dot_labels_js};
 
     const TRAJ_BY_ID = Object.fromEntries(TRAJECTORIES.map(t => [t.stock_id, t]));
     const layer = document.getElementById('dynamic-layer');
@@ -4453,6 +5462,33 @@ def render_l1h9_slots_timeline_html(
     let focusId = null;
 
     const DATE_INDEX = Object.fromEntries(DATES.map((d, i) => [d, i]));
+    const TRADE_LOG = (() => {{
+      const rows = [];
+      for (const lg of LEGS) {{
+        const ei = DATE_INDEX[lg.entry_date];
+        const xi = DATE_INDEX[lg.exit_date];
+        if (ei !== undefined) {{
+          rows.push({{
+            idx: ei, date: lg.entry_date, kind: 'entry',
+            stock_id: lg.stock_id, stock_name: lg.stock_name || '',
+            slot_id: lg.slot_id, pool_tag: lg.pool_tag || '',
+            return_pct: null, exit_reason: null,
+          }});
+        }}
+        if (xi !== undefined) {{
+          rows.push({{
+            idx: xi, date: lg.exit_date, kind: 'exit',
+            stock_id: lg.stock_id, stock_name: lg.stock_name || '',
+            slot_id: lg.slot_id, pool_tag: lg.pool_tag || '',
+            return_pct: (COST_MODEL_ENABLED && lg.return_pct_net != null)
+              ? lg.return_pct_net : lg.return_pct,
+            exit_reason: lg.exit_reason || '',
+          }});
+        }}
+      }}
+      rows.sort((a, b) => a.idx - b.idx || (a.kind === 'entry' ? -1 : 1));
+      return rows;
+    }})();
     const LEGS_BY_STOCK = {{}};
     for (const lg of LEGS) {{
       if (!LEGS_BY_STOCK[lg.stock_id]) LEGS_BY_STOCK[lg.stock_id] = [];
@@ -4513,9 +5549,11 @@ def render_l1h9_slots_timeline_html(
       const pairs = [];
       const addTraj = (t, ei) => {{
         const t0 = Math.max(ei, tailStart(idx, TAIL_DAYS));
-        for (let i = t0; i <= idx && i < t.points.length; i++) {{
-          const p = t.points[i];
-          if (p.rs_ratio != null && p.rs_momentum != null) pairs.push([p.rs_ratio, p.rs_momentum]);
+        for (let i = t0; i <= idx && i < DATES.length; i++) {{
+          const p = trajPoint(t, i);
+          if (p && p.rs_ratio != null && p.rs_momentum != null) {{
+            pairs.push([p.rs_ratio, p.rs_momentum]);
+          }}
         }}
       }};
       if (focusId) {{
@@ -4587,9 +5625,14 @@ def render_l1h9_slots_timeline_html(
         `<circle cx="${{x100.toFixed(1)}}" cy="${{y100.toFixed(1)}}" r="3" fill="#fff" stroke="#666"/>`
       );
       parts.push(
-        `<text x="${{x100.toFixed(1)}}" y="${{(y100 - 10).toFixed(1)}}" text-anchor="middle" fill="#aaa" font-size="10">IX0001</text>`
+        `<text x="${{x100.toFixed(1)}}" y="${{(y100 - 10).toFixed(1)}}" text-anchor="middle" fill="#aaa" font-size="10">${{MARKET_UI ? '加權指數' : 'IX0001'}}</text>`
       );
-      const zoneLabels = [
+      const zoneLabels = MARKET_UI ? [
+        [projSx((xmin + 100) / 2), projSy((100 + ymax) / 2), 'improving', '改善'],
+        [projSx((100 + xmax) / 2), projSy((100 + ymax) / 2), 'leading', '領先'],
+        [projSx((100 + xmax) / 2), projSy((ymin + 100) / 2), 'weakening', '轉弱'],
+        [projSx((xmin + 100) / 2), projSy((ymin + 100) / 2), 'lagging', '落後'],
+      ] : [
         [projSx((xmin + 100) / 2), projSy((100 + ymax) / 2), 'improving', 'Improving'],
         [projSx((100 + xmax) / 2), projSy((100 + ymax) / 2), 'leading', 'Leading'],
         [projSx((100 + xmax) / 2), projSy((ymin + 100) / 2), 'weakening', 'Weakening'],
@@ -4604,8 +5647,101 @@ def render_l1h9_slots_timeline_html(
       bg.innerHTML = parts.join('');
     }}
     function updateFrameProjection(idx) {{
+      if (UNIVERSE_CINEMA) return;
       PROJ = computeFrameProjection(collectFramePoints(idx));
       renderChartBackground(PROJ);
+    }}
+    function championStatus(stockId, dateStr) {{
+      for (const l of LEGS) {{
+        if (l.stock_id === stockId && l.entry_date <= dateStr && dateStr <= l.exit_date) {{
+          return 'active';
+        }}
+      }}
+      return 'background';
+    }}
+    function uniTailPoints(t, idx) {{
+      const t0 = tailStart(idx, TAIL_DAYS);
+      const pts = [];
+      for (let i = t0; i <= idx; i++) {{
+        const p = trajPoint(t, i);
+        if (p && p.rs_ratio != null && p.rs_momentum != null) pts.push(p);
+      }}
+      return pts;
+    }}
+    function bindUniDotTooltips() {{
+      layer.querySelectorAll('circle.uni-dot-hit').forEach(el => {{
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => {{
+          focusId = focusId === el.dataset.id ? null : el.dataset.id;
+          renderFrame(frameIdx);
+        }});
+        el.addEventListener('mouseenter', ev => {{
+          tooltip.innerHTML = `<b>${{el.dataset.id}}</b><br/>${{el.dataset.label || ''}}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mousemove', ev => {{
+          tooltip.style.left = (ev.clientX + 12) + 'px';
+          tooltip.style.top = (ev.clientY + 12) + 'px';
+        }});
+        el.addEventListener('mouseleave', () => {{ tooltip.style.display = 'none'; }});
+      }});
+    }}
+    function renderUniverseCinemaLayer(idx, d) {{
+      const parts = [];
+      const ordered = TRAJECTORIES.slice().sort((a, b) => {{
+        if (focusId) {{
+          if (a.stock_id === focusId) return -1;
+          if (b.stock_id === focusId) return 1;
+        }}
+        const sa = championStatus(a.stock_id, d) === 'active' ? 0 : 1;
+        const sb = championStatus(b.stock_id, d) === 'active' ? 0 : 1;
+        return sa - sb || a.stock_id.localeCompare(b.stock_id);
+      }});
+      for (const t of ordered) {{
+        if (focusId && t.stock_id !== focusId) continue;
+        const pts = uniTailPoints(t, idx);
+        if (!pts.length) continue;
+        const color = CHAMPION_COLORS[championStatus(t.stock_id, d)] || CHAMPION_COLORS.background;
+        const showTail = pts.length >= 2 && tailDisplacement(pts) > TAIL_MIN_DISP;
+        const dim = focusId && t.stock_id !== focusId;
+        const lineOp = dim ? 0.12 : (focusId ? 0.65 : 0.35);
+        const dotOp = dim ? 0.15 : (focusId ? 1.0 : 0.82);
+        if (showTail) {{
+          for (let i = 0; i < pts.length - 1; i++) {{
+            const p1 = pts[i], p2 = pts[i + 1];
+            const opacity = lineOp * (0.45 + 0.55 * (i / Math.max(pts.length - 1, 1)));
+            parts.push(
+              `<line x1="${{sx(p1.rs_ratio).toFixed(1)}}" y1="${{sy(p1.rs_momentum).toFixed(1)}}" ` +
+              `x2="${{sx(p2.rs_ratio).toFixed(1)}}" y2="${{sy(p2.rs_momentum).toFixed(1)}}" ` +
+              `stroke="${{color}}" stroke-width="${{focusId === t.stock_id ? 2.4 : 1.5}}" ` +
+              `opacity="${{opacity.toFixed(2)}}" stroke-linecap="round"/>`
+            );
+          }}
+        }}
+        const cur = pts[pts.length - 1];
+        const cx = sx(cur.rs_ratio), cy = sy(cur.rs_momentum);
+        const r = 5;
+        const hitR = 14;
+        const label = `${{shortLabel(t.stock_id, t.stock_name)}} · RS ${{cur.rs_ratio}} · Mom ${{cur.rs_momentum}}` +
+          (championStatus(t.stock_id, d) === 'active' ? ' · C18acc 持倉' : '');
+        parts.push(
+          `<circle class="uni-dot-hit" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{hitR}}" ` +
+          `fill="transparent" stroke="none" data-id="${{t.stock_id}}" data-label="${{label}}"/>` +
+          `<circle class="uni-dot" cx="${{cx.toFixed(1)}}" cy="${{cy.toFixed(1)}}" r="${{r}}" ` +
+          `fill="${{color}}" stroke="#111" stroke-width="1" opacity="${{dotOp}}" pointer-events="none"/>`
+        );
+        if (SHOW_DOT_LABELS) {{
+          parts.push(
+            `<text class="uni-dot-label" x="${{cx.toFixed(1)}}" y="${{(cy - r - 4).toFixed(1)}}" ` +
+            `text-anchor="middle" fill="#ccc" font-size="9" opacity="${{dotOp.toFixed(2)}}" ` +
+            `pointer-events="none">${{t.stock_id}}</text>`
+          );
+        }}
+      }}
+      layer.innerHTML = parts.join('');
+      bindUniDotTooltips();
     }}
     function fmtPct(pct) {{
       if (pct == null || pct !== pct) return '—';
@@ -4633,6 +5769,17 @@ def render_l1h9_slots_timeline_html(
       return shortLabel(id, name);
     }}
 
+    function finiteNum(v, fallback = 0) {{
+      return v != null && v === v ? v : fallback;
+    }}
+
+    function trajPoint(t, idx) {{
+      if (!t || !t.points || idx < 0) return null;
+      if (t.points.length === DATES.length) return t.points[idx] || null;
+      const d = DATES[idx];
+      return t.points.find(p => p.date === d) || null;
+    }}
+
     function isLegActive(leg, idx) {{
       const ei = DATE_INDEX[leg.entry_date];
       const xi = DATE_INDEX[leg.exit_date];
@@ -4644,16 +5791,63 @@ def render_l1h9_slots_timeline_html(
       const ei = DATE_INDEX[leg.entry_date];
       const xi = DATE_INDEX[leg.exit_date];
       if (ei === undefined || idx < ei) return null;
-      if (idx >= xi) return leg.return_pct;
+      if (idx >= xi) {{
+        if (COST_MODEL_ENABLED && leg.return_pct_net != null && leg.return_pct_net === leg.return_pct_net) {{
+          return leg.return_pct_net;
+        }}
+        const r = leg.return_pct;
+        return r != null && r === r ? r : null;
+      }}
       const t = TRAJ_BY_ID[leg.stock_id];
-      if (!t || !t.points[idx] || !t.points[idx].close || !leg.entry_px) return null;
-      return ((t.points[idx].close / leg.entry_px) - 1) * 100;
+      const p = trajPoint(t, idx);
+      if (!p || !p.close || !leg.entry_px) return null;
+      if (COST_MODEL_ENABLED) {{
+        const deployed = leg.allocated_ntd != null ? leg.allocated_ntd : CAPITAL_NTD;
+        return (legSlotEquityAt(leg, idx, deployed) / deployed - 1) * 100;
+      }}
+      return ((p.close / leg.entry_px) - 1) * 100;
+    }}
+
+    function legSlotEquityAt(leg, idx, deployed) {{
+      const entryPx = leg.entry_px;
+      if (!entryPx || entryPx <= 0 || !deployed || deployed <= 0) return deployed;
+      const ei = DATE_INDEX[leg.entry_date];
+      const xi = DATE_INDEX[leg.exit_date];
+      if (ei === undefined || idx < ei) return deployed;
+      if (!COST_MODEL_ENABLED) {{
+        const pct = idx >= xi
+          ? (leg.return_pct != null && leg.return_pct === leg.return_pct ? leg.return_pct : 0)
+          : (() => {{
+              const t = TRAJ_BY_ID[leg.stock_id];
+              const p = trajPoint(t, idx);
+              if (!p || !p.close) return 0;
+              return ((p.close / entryPx) - 1) * 100;
+            }})();
+        return deployed * (1 + pct / 100);
+      }}
+      const entryFee = deployed * BUY_FEE_PCT / 100;
+      const alloc = deployed - entryFee;
+      if (idx >= xi) {{
+        const exitPx = leg.exit_px;
+        if (!exitPx || exitPx <= 0) return deployed;
+        return alloc * (exitPx / entryPx) * (1 - SELL_COST_PCT / 100);
+      }}
+      const t = TRAJ_BY_ID[leg.stock_id];
+      const p = trajPoint(t, idx);
+      if (!p || !p.close) return deployed;
+      return alloc * (p.close / entryPx);
     }}
 
     function legPnlNtd(leg, idx) {{
+      const ei = DATE_INDEX[leg.entry_date];
+      if (ei === undefined || idx < ei) return 0;
+      const deployed = leg.allocated_ntd != null ? leg.allocated_ntd : CAPITAL_NTD;
+      if (COST_MODEL_ENABLED || COMPOUND_SLOTS) {{
+        return legSlotEquityAt(leg, idx, deployed) - deployed;
+      }}
       const pct = legCumPct(leg, idx);
-      if (pct == null) return 0;
-      return leg.allocated_ntd * pct / 100;
+      if (pct == null || pct !== pct) return 0;
+      return deployed * pct / 100;
     }}
 
     function legBenchCumPct(leg, idx) {{
@@ -4669,7 +5863,7 @@ def render_l1h9_slots_timeline_html(
 
     function legBenchPnlNtd(leg, idx) {{
       const pct = legBenchCumPct(leg, idx);
-      if (pct == null) return 0;
+      if (pct == null || pct !== pct) return 0;
       return leg.allocated_ntd * pct / 100;
     }}
 
@@ -4710,7 +5904,7 @@ def render_l1h9_slots_timeline_html(
       return `D+${{d}}/${{HOLD_DAYS}}`;
     }}
 
-    function portfolioAtFrame(idx) {{
+    function portfolioAtFrameSimple(idx) {{
       let totalPnl = 0;
       let benchPnl = 0;
       let activeLegs = 0;
@@ -4721,24 +5915,89 @@ def render_l1h9_slots_timeline_html(
         if (ei === undefined || idx < ei) continue;
         if (idx >= xi) realizedLegs += 1;
         else activeLegs += 1;
-        totalPnl += legPnlNtd(lg, idx);
-        benchPnl += legBenchPnlNtd(lg, idx);
+        totalPnl += finiteNum(legPnlNtd(lg, idx));
+        benchPnl += finiteNum(legBenchPnlNtd(lg, idx));
       }}
       const totalPct = TOTAL_CAPITAL > 0 ? (totalPnl / TOTAL_CAPITAL) * 100 : null;
       const benchPct = TOTAL_CAPITAL > 0 ? (benchPnl / TOTAL_CAPITAL) * 100 : null;
       const excessPnl = totalPnl - benchPnl;
-      const excessPct = totalPct != null && benchPct != null ? totalPct - benchPct : null;
+      const excessPct =
+        totalPct != null && totalPct === totalPct && benchPct != null && benchPct === benchPct
+          ? totalPct - benchPct
+          : null;
       return {{ totalPnl, totalPct, benchPnl, benchPct, excessPnl, excessPct, activeLegs, realizedLegs }};
     }}
 
-    const PORTFOLIO_CURVE = DATES.map((_, i) => portfolioAtFrame(i));
+    function compoundPortfolioAtIndex(idx) {{
+      const slotEq = Array(N_SLOTS).fill(CAPITAL_NTD);
+      const openPos = {{}};
+      for (let j = 0; j <= idx; j++) {{
+        const d = DATES[j];
+        for (const lg of LEGS) {{
+          if (lg.exit_date !== d) continue;
+          const s = lg.slot_id;
+          const op = openPos[s];
+          if (!op || op.leg !== lg) continue;
+          slotEq[s] = legSlotEquityAt(lg, j, op.deployed);
+          delete openPos[s];
+        }}
+        const entries = LEGS.filter(lg => lg.entry_date === d).sort((a, b) => a.slot_id - b.slot_id);
+        for (const lg of entries) {{
+          const s = lg.slot_id;
+          if (openPos[s]) continue;
+          openPos[s] = {{ deployed: slotEq[s], leg: lg }};
+        }}
+      }}
+      let nav = 0;
+      let benchPnl = 0;
+      for (let s = 0; s < N_SLOTS; s++) {{
+        const op = openPos[s];
+        if (op) {{
+          nav += legSlotEquityAt(op.leg, idx, op.deployed);
+        }} else {{
+          nav += slotEq[s];
+        }}
+      }}
+      for (const lg of LEGS) {{
+        const ei = DATE_INDEX[lg.entry_date];
+        if (ei === undefined || idx < ei) continue;
+        benchPnl += finiteNum(legBenchPnlNtd(lg, idx));
+      }}
+      const totalPnl = nav - TOTAL_CAPITAL;
+      const totalPct = TOTAL_CAPITAL > 0 ? (totalPnl / TOTAL_CAPITAL) * 100 : null;
+      const benchPct = TOTAL_CAPITAL > 0 ? (benchPnl / TOTAL_CAPITAL) * 100 : null;
+      const excessPnl = totalPnl - benchPnl;
+      const excessPct =
+        totalPct != null && totalPct === totalPct && benchPct != null && benchPct === benchPct
+          ? totalPct - benchPct
+          : null;
+      let activeLegs = 0;
+      let realizedLegs = 0;
+      for (const lg of LEGS) {{
+        const ei = DATE_INDEX[lg.entry_date];
+        const xi = DATE_INDEX[lg.exit_date];
+        if (ei === undefined || idx < ei) continue;
+        if (idx >= xi) realizedLegs += 1;
+        else activeLegs += 1;
+      }}
+      return {{ totalPnl, totalPct, benchPnl, benchPct, excessPnl, excessPct, activeLegs, realizedLegs }};
+    }}
+
+    const PORTFOLIO_CURVE = COMPOUND_SLOTS
+      ? DATES.map((_, i) => compoundPortfolioAtIndex(i))
+      : DATES.map((_, i) => portfolioAtFrameSimple(i));
+
+    function portfolioAtFrame(idx) {{
+      return PORTFOLIO_CURVE[idx];
+    }}
+
     let PERIOD_MAX_DD = 0;
     let PERIOD_PEAK_PCT = null;
     let PERIOD_FINAL_ALPHA_NTD = 0;
     (function computePeriodStats() {{
       let peak = -Infinity;
       for (const p of PORTFOLIO_CURVE) {{
-        if (p.totalPct == null) continue;
+        if (p.totalPct == null || p.totalPct !== p.totalPct) continue;
         if (p.totalPct > peak) peak = p.totalPct;
         PERIOD_MAX_DD = Math.max(PERIOD_MAX_DD, peak - p.totalPct);
       }}
@@ -4828,79 +6087,103 @@ def render_l1h9_slots_timeline_html(
       document.getElementById('total-return-pct').textContent = fmtPct(pf.totalPct);
       document.getElementById('total-return-pct').style.color = pctColor(pf.totalPct);
       document.getElementById('total-return-ntd').textContent =
-        fmtNtd(pf.totalPnl) + ' NTD · 本金 ' + TOTAL_CAPITAL.toLocaleString();
+        fmtNtd(pf.totalPnl) + (MARKET_UI ? ' 元 · 本金 ' : ' NTD · 本金 ') + TOTAL_CAPITAL.toLocaleString() +
+        (MARKET_UI ? ' 元' : '');
 
       const dPctEl = document.getElementById('daily-return-pct');
       const dNtdEl = document.getElementById('daily-return-ntd');
       dPctEl.textContent = idx === 0 ? '—' : fmtPct(daily.dailyPct);
       dPctEl.style.color = pctColor(daily.dailyPct);
-      dNtdEl.textContent = idx === 0 ? '（首交易日無前日可比）' : fmtNtd(daily.dailyPnl) + ' NTD';
+      dNtdEl.textContent = idx === 0 ? '（首交易日無前日可比）' : fmtNtd(daily.dailyPnl) + (MARKET_UI ? ' 元' : ' NTD');
       dNtdEl.style.color = pctColor(daily.dailyPnl);
 
       const exPctEl = document.getElementById('excess-return-pct');
       const exNtdEl = document.getElementById('excess-return-ntd');
       exPctEl.textContent = fmtPct(pf.excessPct);
       exPctEl.style.color = pctColor(pf.excessPct);
-      exNtdEl.textContent = fmtNtd(pf.excessPnl) + ' NTD · α';
+      exNtdEl.textContent = fmtNtd(pf.excessPnl) + (MARKET_UI ? ' 元 · 超額損益' : ' NTD · α');
       exNtdEl.style.color = pctColor(pf.excessPnl);
       document.getElementById('bench-return-pct').textContent =
-        'IX0001 ' + fmtPct(pf.benchPct) + ' · ' + fmtNtd(pf.benchPnl) + ' NTD';
+        (MARKET_UI ? '加權指數 ' : 'IX0001 ') + fmtPct(pf.benchPct) + (MARKET_UI ? ' · ' : ' · ') +
+        fmtNtd(pf.benchPnl) + (MARKET_UI ? ' 元' : ' NTD');
 
       const dxPctEl = document.getElementById('daily-excess-pct');
       const dxNtdEl = document.getElementById('daily-excess-ntd');
       dxPctEl.textContent = idx === 0 ? '—' : fmtPct(daily.dailyExcessPct);
       dxPctEl.style.color = pctColor(daily.dailyExcessPct);
-      dxNtdEl.textContent = idx === 0 ? '—' : fmtNtd(daily.dailyExcessPnl) + ' NTD';
+      dxNtdEl.textContent = idx === 0 ? '—' : fmtNtd(daily.dailyExcessPnl) + (MARKET_UI ? ' 元' : ' NTD');
       dxNtdEl.style.color = pctColor(daily.dailyExcessPnl);
 
       document.getElementById('slot-count').textContent = batches.length + ' / ' + N_SLOTS;
       document.getElementById('slot-count').style.color = batches.length >= N_SLOTS ? '#E8A040' : '#e4e4e4';
       document.getElementById('slot-meter').innerHTML = Array.from({{ length: N_SLOTS }}, (_, i) =>
-        `<i class="${{occupiedSlots.has(i) ? 'on' : ''}}" title="槽${{i + 1}}：${{occupiedSlots.has(i) ? '占用中' : '空閒'}}"></i>`
+        `<i class="${{occupiedSlots.has(i) ? 'on' : ''}}" title="${{MARKET_UI
+          ? ('部位' + (i + 1) + '：' + (occupiedSlots.has(i) ? '持有中' : '空閒'))
+          : ('槽' + (i + 1) + '：' + (occupiedSlots.has(i) ? '占用中' : '空閒'))}}"></i>`
       ).join('');
       const slotHint = document.getElementById('slot-hint');
       if (!batches.length) {{
-        slotHint.textContent = '目前無占用 · 全部 ' + N_SLOTS + ' 槽可接新訊號';
+        slotHint.textContent = MARKET_UI
+          ? ('目前無持倉 · 全部 ' + N_SLOTS + ' 個部位可接新訊號')
+          : ('目前無占用 · 全部 ' + N_SLOTS + ' 槽可接新訊號');
       }} else if (batches.length >= N_SLOTS) {{
-        slotHint.textContent = '槽位已滿 · 新訊號需等出場釋放';
+        slotHint.textContent = MARKET_UI
+          ? '部位已滿 · 需賣出後才能接新訊號'
+          : '槽位已滿 · 新訊號需等出場釋放';
       }} else {{
-        slotHint.textContent = '占用槽 ' + [...occupiedSlots].sort((a,b)=>a-b).map(s => s + 1).join('、') +
-          ' · 尚可接 ' + (N_SLOTS - batches.length) + ' 批';
+        slotHint.textContent = (MARKET_UI ? '占用部位 ' : '占用槽 ') +
+          [...occupiedSlots].sort((a,b)=>a-b).map(s => s + 1).join('、') +
+          (MARKET_UI ? ' · 尚可接 ' : ' · 尚可接 ') + (N_SLOTS - batches.length) +
+          (MARKET_UI ? ' 筆' : ' 批');
       }}
 
-      document.getElementById('hold-count').textContent = active.length + ' leg · ' + seenStock.size + ' 檔';
-      document.getElementById('hold-batches').textContent = batches.length + ' 批持倉中';
+      document.getElementById('hold-count').textContent = MARKET_UI
+        ? (active.length + ' 筆 · ' + seenStock.size + ' 檔')
+        : (active.length + ' leg · ' + seenStock.size + ' 檔');
+      document.getElementById('hold-batches').textContent = MARKET_UI
+        ? (batches.length + ' 筆持倉中')
+        : (batches.length + ' 批持倉中');
       const holdHint = document.getElementById('hold-hint');
       if (!active.length) {{
-        holdHint.textContent = '無持倉 leg · 圖上無高亮軌跡';
+        holdHint.textContent = MARKET_UI ? '無持倉 · 圖上無高亮軌跡' : '無持倉 leg · 圖上無高亮軌跡';
       }} else if (exitsToday.length) {{
-        holdHint.textContent =
-          '含今日出場 ' + exitsToday.length + ' 批（收盤賣出 · 盤中仍計入持倉）';
+        holdHint.textContent = MARKET_UI
+          ? ('含今日賣出 ' + exitsToday.length + ' 筆（收盤平倉 · 盤中仍計入持倉）')
+          : ('含今日出場 ' + exitsToday.length + ' 批（收盤賣出 · 盤中仍計入持倉）');
       }} else {{
-        holdHint.textContent =
-          '每批最多 ' + HOLD_DAYS + ' 交易日 · 本日持倉 leg 平均 D+' +
+        holdHint.textContent = MARKET_UI
+          ? ('每筆最長 ' + HOLD_DAYS + ' 個交易日 · 平均持有 D+' +
           Math.round(active.reduce((s, lg) => {{
             const ei = DATE_INDEX[lg.entry_date];
             return s + (ei !== undefined ? idx - ei + 1 : 0);
-          }}, 0) / active.length) + ' 日';
+            }}, 0) / active.length) + ' 日')
+          : ('每批最多 ' + HOLD_DAYS + ' 交易日 · 本日持倉 leg 平均 D+' +
+            Math.round(active.reduce((s, lg) => {{
+              const ei = DATE_INDEX[lg.entry_date];
+              return s + (ei !== undefined ? idx - ei + 1 : 0);
+            }}, 0) / active.length) + ' 日');
       }}
 
-      document.getElementById('period-stats').textContent =
-        `區間峰值 ${{fmtPct(PERIOD_PEAK_PCT)}} · 最大回撤 ${{fmtPct(-PERIOD_MAX_DD)}} · ` +
-        `期末 α ${{fmtNtd(PERIOD_FINAL_ALPHA_NTD)}} · 已結束 ${{pf.realizedLegs}}/${{LEGS.length}} leg`;
+      document.getElementById('period-stats').textContent = MARKET_UI
+        ? (`區間最高 ${{fmtPct(PERIOD_PEAK_PCT)}} · 最大回撤 ${{fmtPct(-PERIOD_MAX_DD)}} · ` +
+          `期末超額 ${{fmtNtd(PERIOD_FINAL_ALPHA_NTD)}} 元 · 已平倉 ${{pf.realizedLegs}}/${{LEGS.length}} 筆`)
+        : (`區間峰值 ${{fmtPct(PERIOD_PEAK_PCT)}} · 最大回撤 ${{fmtPct(-PERIOD_MAX_DD)}} · ` +
+          `期末 α ${{fmtNtd(PERIOD_FINAL_ALPHA_NTD)}} · 已結束 ${{pf.realizedLegs}}/${{LEGS.length}} leg`);
 
       const entries = ENTRY_IDX_BY_DATE[idx] || [];
       const exits = EXIT_IDX_BY_DATE[idx] || [];
       let evSummary = '';
-      if (entries.length) evSummary += `進場 ${{entries.length}} 批 `;
-      if (exits.length) evSummary += `出場 ${{exits.length}} 批 `;
-      if (!evSummary) evSummary = '今日無進出場';
+      if (entries.length) evSummary += (MARKET_UI ? '買進 ' : '進場 ') + entries.length + (MARKET_UI ? ' 筆 ' : ' 批 ');
+      if (exits.length) evSummary += (MARKET_UI ? '賣出 ' : '出場 ') + exits.length + (MARKET_UI ? ' 筆 ' : ' 批 ');
+      if (!evSummary) evSummary = MARKET_UI ? '今日無買賣' : '今日無進出場';
       document.getElementById('today-events-summary').textContent = evSummary.trim();
 
       renderSparkline(idx);
     }}
 
     function updateInsight(idx) {{
+      const stats = document.getElementById('insight-stats');
+      if (!stats) return;
       const d = DATES[idx];
       const pf = PORTFOLIO_CURVE[idx];
       const todayEntries = ENTRY_IDX_BY_DATE[idx] || [];
@@ -4913,29 +6196,38 @@ def render_l1h9_slots_timeline_html(
         if (seenStock.has(lg.stock_id)) continue;
         seenStock.add(lg.stock_id);
         const t = TRAJ_BY_ID[lg.stock_id];
-        if (t && t.points[idx]) {{
-          const q = t.points[idx].quadrant;
+        const p = trajPoint(t, idx);
+        if (p && p.quadrant) {{
+          const q = p.quadrant;
           if (q && quadCounts[q] !== undefined) quadCounts[q] += 1;
         }}
       }}
-      document.getElementById('insight-stats').innerHTML =
+      stats.innerHTML =
         `<b>${{d}}</b> · 第 ${{idx + 1}}/${{DATES.length}} 日<br/>` +
-        `持倉 <b>${{active.length}}</b> leg · <b>${{seenStock.size}}</b> 檔 · ` +
+        (MARKET_UI
+          ? (`持倉 <b>${{active.length}}</b> 筆 · <b>${{seenStock.size}}</b> 檔 · ` +
+            `<b>${{batches.length}}</b>/${{N_SLOTS}} 個部位<br/>` +
+            `相對加權指數：<b style="color:${{pctColor(pf.excessPct)}}">${{fmtPct(pf.excessPct)}}</b> 超額 · 大盤 ${{fmtPct(pf.benchPct)}}`)
+          : (`持倉 <b>${{active.length}}</b> leg · <b>${{seenStock.size}}</b> 檔 · ` +
         `<b>${{batches.length}}</b>/${{N_SLOTS}} 批（槽）<br/>` +
         `<span style="font-size:11px;color:#888">` +
         `leg=每檔股票一檔持倉 · 批=訊號日一籃 · 槽=資金池</span><br/>` +
-        `vs IX0001：<b style="color:${{pctColor(pf.excessPct)}}">${{fmtPct(pf.excessPct)}}</b> 超額 · 大盤 ${{fmtPct(pf.benchPct)}}`;
+            `vs IX0001：<b style="color:${{pctColor(pf.excessPct)}}">${{fmtPct(pf.excessPct)}}</b> 超額 · 大盤 ${{fmtPct(pf.benchPct)}}`));
 
       const pills = document.getElementById('event-pills');
       const pillParts = [];
       todayEntries.forEach(ev => {{
-        pillParts.push(`<span class="event-pill entry">進場 槽${{ev.slot_id + 1}} ${{holdDayLabel(ev, idx)}}</span>`);
+        const slotLbl = MARKET_UI ? ('部位' + (ev.slot_id + 1)) : ('槽' + (ev.slot_id + 1));
+        pillParts.push(`<span class="event-pill entry">${{MARKET_UI ? '買進' : '進場'}} ${{slotLbl}} ${{holdDayLabel(ev, idx)}}</span>`);
       }});
       todayExits.forEach(ev => {{
         const alpha = ev.alpha_ntd;
         const alphaTxt = alpha != null ? fmtNtd(alpha) : '—';
+        const slotLbl = MARKET_UI ? ('部位' + (ev.slot_id + 1)) : ('槽' + (ev.slot_id + 1));
         pillParts.push(
-          `<span class="event-pill exit">出場 槽${{ev.slot_id + 1}} ${{fmtPct(ev.return_pct)}} · α${{alphaTxt}}</span>`
+          `<span class="event-pill exit">${{MARKET_UI ? '賣出' : '出場'}} ${{slotLbl}} ${{fmtPct(ev.return_pct)}}` +
+          (MARKET_UI ? (' · 超額' + alphaTxt + '元') : (' · α' + alphaTxt)) +
+          `</span>`
         );
       }});
       pills.innerHTML = pillParts.length ? pillParts.join('') : '<span style="color:#666;font-size:11px">—</span>';
@@ -4946,10 +6238,13 @@ def render_l1h9_slots_timeline_html(
       }} else {{
         chips.innerHTML = todayEntries.map(ev => {{
           const who = ev.stock_id
-            ? `${{ev.stock_id}} · seg ${{(ev.seg_last ?? 0).toFixed(3)}}`
+            ? (MARKET_UI
+              ? (ev.stock_name || ev.stock_id)
+              : `${{ev.stock_id}} · seg ${{(ev.seg_last ?? 0).toFixed(3)}}`)
             : `${{ev.n_legs}}檔`;
+          const slotLbl = MARKET_UI ? ('部位' + (ev.slot_id + 1)) : ('槽' + (ev.slot_id + 1));
           return `<span class="chip" data-signal="${{ev.signal_date}}">` +
-            `槽${{ev.slot_id + 1}} · ${{who}} · ${{holdDayLabel(ev, idx)}} ` +
+            `${{slotLbl}} · ${{who}} · ${{holdDayLabel(ev, idx)}} ` +
             `<span style="color:${{pctColor(ev.return_pct)}}">${{fmtPct(ev.return_pct)}} 最終</span></span>`;
         }}).join('');
       }}
@@ -4962,14 +6257,19 @@ def render_l1h9_slots_timeline_html(
       dailyLegs.sort((a, b) => (b.daily ?? 0) - (a.daily ?? 0));
       const extremes = document.getElementById('insight-extremes');
       if (idx === 0 || !dailyLegs.length) {{
-        extremes.innerHTML = '<span style="color:#666">今日 leg 日損益：—</span>';
+        extremes.innerHTML = MARKET_UI
+          ? '<span style="color:#666">今日持倉損益：—</span>'
+          : '<span style="color:#666">今日 leg 日損益：—</span>';
       }} else {{
         const best = dailyLegs[0];
         const worst = dailyLegs[dailyLegs.length - 1];
-        extremes.innerHTML =
-          `今日 leg 損益 · 最佳 <b style="color:${{pctColor(best.daily)}}">${{best.lg.stock_id}} ${{fmtNtd(best.daily)}}</b>` +
+        const bestLbl = MARKET_UI ? (best.lg.stock_name || best.lg.stock_id) : best.lg.stock_id;
+        const worstLbl = MARKET_UI ? (worst.lg.stock_name || worst.lg.stock_id) : worst.lg.stock_id;
+        extremes.innerHTML = (MARKET_UI ? '今日持倉損益 · 最佳 ' : '今日 leg 損益 · 最佳 ') +
+          `<b style="color:${{pctColor(best.daily)}}">${{bestLbl}} ${{fmtNtd(best.daily)}}</b>` +
           (dailyLegs.length > 1
-            ? ` · 最差 <b style="color:${{pctColor(worst.daily)}}">${{worst.lg.stock_id}} ${{fmtNtd(worst.daily)}}</b>`
+            ? (MARKET_UI ? ' · 最差 ' : ' · 最差 ') +
+              `<b style="color:${{pctColor(worst.daily)}}">${{worstLbl}} ${{fmtNtd(worst.daily)}}</b>`
             : '');
       }}
 
@@ -4997,8 +6297,8 @@ def render_l1h9_slots_timeline_html(
             : '';
           return `<div class="ret-row" data-id="${{r.lg.stock_id}}">` +
             `<span class="sid">${{stockLabel(r.lg.stock_id, r.lg.stock_name)}}` +
-            `<span style="color:#666;font-size:10px"> 槽${{r.lg.slot_id+1}}</span></span>` +
-            `<span class="nums"><span style="color:${{col}}">Σ${{fmtPct(r.cum)}}</span> ${{dailyTxt}}</span></div>`;
+            `<span style="color:#666;font-size:10px"> ${{MARKET_UI ? '部位' : '槽'}}${{r.lg.slot_id+1}}</span></span>` +
+            `<span class="nums"><span style="color:${{col}}">${{MARKET_UI ? '' : 'Σ'}}${{fmtPct(r.cum)}}</span> ${{dailyTxt}}</span></div>`;
         }}).join('');
         retEl.querySelectorAll('.ret-row').forEach(el => {{
           el.addEventListener('click', () => {{
@@ -5007,16 +6307,14 @@ def render_l1h9_slots_timeline_html(
           }});
         }});
       }}
-      updateKpiBanner(idx);
     }}
 
     function syncTableHighlight(idx) {{
-      const d = DATES[idx].slice(5);
+      const dShort = DATES[idx].slice(5);
       document.querySelectorAll('#l1h9-signals-table tbody tr.exec-row').forEach(tr => {{
-        const entryCell = tr.cells[2]?.textContent?.trim();
-        const exitCell = tr.cells[3]?.textContent?.trim();
-        const onFrame = entryCell === d || exitCell === d;
-        tr.classList.toggle('on-frame', onFrame);
+        const entryD = (tr.dataset.entry || '').slice(5);
+        const exitD = (tr.dataset.exit || '').slice(5);
+        tr.classList.toggle('on-frame', entryD === dShort || exitD === dShort);
       }});
     }}
 
@@ -5024,11 +6322,11 @@ def render_l1h9_slots_timeline_html(
       const marks = document.getElementById('slider-marks');
       const entryMarks = ENTRY_DAY_INDICES.map(i => {{
         const pct = (100 * i / Math.max(DATES.length - 1, 1)).toFixed(2);
-        return `<i style="left:${{pct}}%" title="${{DATES[i].slice(5)}} 進場"></i>`;
+        return `<i style="left:${{pct}}%" title="${{DATES[i].slice(5)}} ${{MARKET_UI ? '買進' : '進場'}}"></i>`;
       }}).join('');
       const exitMarks = EXIT_DAY_INDICES.map(i => {{
         const pct = (100 * i / Math.max(DATES.length - 1, 1)).toFixed(2);
-        return `<i class="exit-mark" style="left:${{pct}}%" title="${{DATES[i].slice(5)}} 出場"></i>`;
+        return `<i class="exit-mark" style="left:${{pct}}%" title="${{DATES[i].slice(5)}} ${{MARKET_UI ? '賣出' : '出場'}}"></i>`;
       }}).join('');
       marks.innerHTML = entryMarks + exitMarks;
     }}
@@ -5068,6 +6366,73 @@ def render_l1h9_slots_timeline_html(
       return legs.sort((a, b) => (entryIdxForLeg(b) ?? 0) - (entryIdxForLeg(a) ?? 0))[0];
     }}
 
+    function updateAutoplayProgress(idx) {{
+      if (!CINEMA_MODE) return;
+      const bar = document.getElementById('autoplay-progress');
+      if (!bar) return;
+      const steps = Math.max(DATES.length - 1, 1);
+      bar.style.width = Math.min(100, (idx / steps) * 100).toFixed(1) + '%';
+    }}
+
+    function updateTradeFeed(idx) {{
+      if (!CINEMA_MODE) return;
+      const list = document.getElementById('trade-feed-list');
+      const countEl = document.getElementById('trade-feed-count');
+      if (!list) return;
+      const currentDate = DATES[idx];
+      const visible = TRADE_LOG.filter(ev => ev.idx <= idx);
+      if (countEl) countEl.textContent = String(visible.length);
+      list.innerHTML = visible.map(ev => {{
+        const isToday = ev.date === currentDate;
+        const kindZh = ev.kind === 'entry' ? '買進' : '賣出';
+        const pool = (ev.pool_tag && !MARKET_UI) ? ` · ${{ev.pool_tag}}` : '';
+        const reason = ev.exit_reason
+          ? (EXIT_REASON_ZH[ev.exit_reason] || ev.exit_reason)
+          : '';
+        let retHtml = '';
+        if (ev.kind === 'exit' && ev.return_pct != null) {{
+          const cls = ev.return_pct >= 0 ? 'pos' : 'neg';
+          retHtml = `<div class="tf-ret ${{cls}}">單筆 ${{fmtPct(ev.return_pct)}}${{reason ? ' · ' + reason : ''}}</div>`;
+        }}
+        const headName = MARKET_UI
+          ? (ev.stock_name || ev.stock_id)
+          : `${{ev.stock_id}} ${{ev.stock_name || ''}}`;
+        const slotLbl = MARKET_UI ? ('部位' + (ev.slot_id + 1)) : ('槽' + (ev.slot_id + 1));
+        return (
+          `<div class="trade-feed-item ${{ev.kind}}${{isToday ? ' current' : ''}}">` +
+          `<div class="tf-head">${{kindZh}} · ${{headName}}</div>` +
+          `<div class="tf-meta">${{ev.date.slice(5)}} · ${{slotLbl}}${{pool}}</div>` +
+          `${{retHtml}}` +
+          `</div>`
+        );
+      }}).join('');
+      list.scrollTop = list.scrollHeight;
+    }}
+
+    function playIntervalMs() {{
+      if (CINEMA_MODE) {{
+        const steps = Math.max(DATES.length - 1, 1);
+        return Math.max(20, Math.floor(CINEMA_AUTOPLAY_MS / steps));
+      }}
+      return 900;
+    }}
+
+    function startAutoplay() {{
+      if (frameIdx >= DATES.length - 1) renderFrame(0);
+      playing = true;
+      document.getElementById('btn-play').textContent = CINEMA_MODE
+        ? (MARKET_UI ? '⏸ 播放中' : '⏸ 放映中')
+        : '⏸ 暫停';
+      playTimer = setInterval(() => {{
+        if (frameIdx >= DATES.length - 1) {{
+          updateAutoplayProgress(DATES.length - 1);
+          stopPlay();
+          return;
+        }}
+        renderFrame(frameIdx + 1);
+      }}, playIntervalMs());
+    }}
+
     function renderFrame(idx) {{
       frameIdx = idx;
       slider.value = String(idx);
@@ -5076,8 +6441,16 @@ def render_l1h9_slots_timeline_html(
       if (frameLabel) frameLabel.textContent = d + ' · frame ' + (idx + 1) + '/' + DATES.length;
       updateFrameProjection(idx);
       flashChartIfNeeded(idx);
+      updateKpiBanner(idx);
       updateInsight(idx);
+      updateTradeFeed(idx);
+      updateAutoplayProgress(idx);
       syncTableHighlight(idx);
+
+      if (UNIVERSE_CINEMA) {{
+        renderUniverseCinemaLayer(idx, d);
+        return;
+      }}
 
       const parts = [];
       const ordered = TRAJECTORIES.slice().sort((a, b) => {{
@@ -5091,7 +6464,7 @@ def render_l1h9_slots_timeline_html(
       }});
 
       for (const t of ordered) {{
-        if (idx >= t.points.length) continue;
+        if (idx >= DATES.length) continue;
         const isHi = STOCK_IDS.has(t.stock_id);
         if (!isHi && !showBg.checked) continue;
         if (focusId && t.stock_id !== focusId) continue;
@@ -5100,8 +6473,14 @@ def render_l1h9_slots_timeline_html(
         const plg = primaryLegForStock(t.stock_id, idx);
         const ei = plg ? entryIdxForLeg(plg) : idx;
         const t0 = Math.max(ei, tailStart(idx, TAIL_DAYS));
-        const pts = t.points.slice(t0, idx + 1);
-        const endQuad = t.points[idx].quadrant || 'lagging';
+        const pts = [];
+        for (let i = t0; i <= idx; i++) {{
+          const p = trajPoint(t, i);
+          if (p && p.rs_ratio != null && p.rs_momentum != null) pts.push(p);
+        }}
+        const endPt = trajPoint(t, idx);
+        if (!endPt || endPt.rs_ratio == null || endPt.rs_momentum == null) continue;
+        const endQuad = endPt.quadrant || 'lagging';
         const color = QUAD_COLORS[endQuad] || '#888';
         const showTail = pts.length >= 2 && tailDisplacement(pts) > TAIL_MIN_DISP;
 
@@ -5165,7 +6544,8 @@ def render_l1h9_slots_timeline_html(
             }}
           }});
         }} else {{
-          const p = t.points[idx];
+          const p = trajPoint(t, idx);
+          if (!p || p.rs_ratio == null || p.rs_momentum == null) continue;
           parts.push(
             `<circle class="bg-dot" cx="${{sx(p.rs_ratio).toFixed(1)}}" cy="${{sy(p.rs_momentum).toFixed(1)}}" r="1.1" ` +
             `fill="${{color}}" opacity="0.07" data-id="${{t.stock_id}}"/>`
@@ -5192,8 +6572,11 @@ def render_l1h9_slots_timeline_html(
     function stopPlay() {{
       playing = false;
       if (playTimer) {{ clearInterval(playTimer); playTimer = null; }}
-      document.getElementById('btn-play').textContent = '▶ 逐步';
+      document.getElementById('btn-play').textContent = CINEMA_MODE ? '▶ 重播' : '▶ 逐步';
     }}
+    window.addEventListener('combo-tab-change', ev => {{
+      if (ev.detail && ev.detail.tab !== 'backtest') stopPlay();
+    }});
 
     slider.addEventListener('input', () => {{ stopPlay(); renderFrame(parseInt(slider.value, 10)); }});
     document.getElementById('btn-prev').addEventListener('click', () => {{
@@ -5208,15 +6591,9 @@ def render_l1h9_slots_timeline_html(
     document.getElementById('btn-next-exit').addEventListener('click', () => jumpExit(1));
     document.getElementById('btn-play').addEventListener('click', () => {{
       if (playing) {{ stopPlay(); return; }}
-      if (frameIdx >= DATES.length - 1) renderFrame(0);
-      playing = true;
-      document.getElementById('btn-play').textContent = '⏸ 暫停';
-      playTimer = setInterval(() => {{
-        if (frameIdx >= DATES.length - 1) {{ stopPlay(); return; }}
-        renderFrame(frameIdx + 1);
-      }}, 900);
+      startAutoplay();
     }});
-    showBg.addEventListener('change', () => renderFrame(frameIdx));
+    if (showBg) showBg.addEventListener('change', () => renderFrame(frameIdx));
     document.addEventListener('keydown', ev => {{
       if (ev.target.tagName === 'INPUT') return;
       if (ev.key === 'ArrowLeft') {{ stopPlay(); renderFrame(Math.max(0, frameIdx - 1)); }}
@@ -5240,9 +6617,14 @@ def render_l1h9_slots_timeline_html(
 
     initSliderMarks();
     renderFrame(0);
+    if (CINEMA_MODE && CINEMA_AUTOPLAY) {{
+      requestAnimationFrame(() => startAutoplay());
+    }}
   </script>
 </body>
 </html>"""
+
+    return page_html
 
 
 def main() -> int:

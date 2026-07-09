@@ -186,7 +186,9 @@ def run_extension_screen(
 
     close, _, _ = load_price_panels(conn)
     watch_ids = [str(p["stock_id"]) for p in slots]
-    result.kbar_sync_n = sync_watchlist_kbar(conn, watch_ids, session_date)
+    result.kbar_sync_n = sync_watchlist_kbar(
+        conn, watch_ids, session_date, poll_minute=poll_minute
+    )
 
     cfg = champion_score_swap_c_config()
     ext_interval = poll_interval_for_now(now)

@@ -36,6 +36,37 @@ intent:
   # 未指定 price_type 時：限價追賣一（盤中零股 · 送單當下查價）
   default_price_mode: chase_ask
 
+# ABC v3+f1 · 盤中命中自動送單（Order layer · 非 Strategy import）
+strategies:
+  abc-v3-f1-pullback:
+    pool_id: abc-v3-f1-pullback
+    strategy_id: abc-v3-f1-pullback
+    budget_twd: 20000
+    max_entries_per_day: 5
+    price_type: chase_ask
+    market_type: intraday_odd
+    time_in_force: rod
+    user_def: abc-v3-f1-pullback
+    cancel_open_buys: true
+    hold_days: 3
+    reentry:
+      # 對齊 event hold 3d · 非 skip_if_held（C18 持倉不擋 ABC sleeve 加碼）
+      hold_days: 3
+      reentry_discount_pct: 2.0
+      reentry_min_trading_days: 1
+      max_entries_per_symbol_rolling: 3
+      rolling_lookback_trading_days: 20
+      max_notional_per_symbol_twd: 60000
+    # env：ABC_V3_F1_ORDER_ENABLED · AUTO_SUBMIT · BUDGET_TWD · MAX_ENTRIES_DAY
+    # · HOLD_DAYS · REENTRY_DISCOUNT_PCT · MAX_NOTIONAL_SYMBOL
+
+# Phase 1 · mini-OMS lifecycle（abc-v3-f1 · 可 env 覆寫）
+lifecycle:
+  poll_max_attempts: 3
+  poll_interval_sec: 2.0
+  notional_basis: submitted   # submitted | filled
+  submit_notify: true         # RUN_ABC_V3_F1_SUBMIT_EMAIL
+
 # launchd 開盤追價（已停用 · 原週一至五 09:00–09:04 · install-order-launchd.sh）
 # 重新啟用：.env ORDER_LAUNCHD_ENABLED=1 + scripts/install-order-launchd.sh
 schedule:

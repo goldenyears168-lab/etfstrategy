@@ -30,7 +30,7 @@ from intraday_extension_radar import (
 from stock_db import PROJECT_ROOT
 from research.backtest.c18acc_extension_exit import _ma20, _prior_close
 from research.backtest.rrg_mono_score_swap_c import _trading_days_between
-from stock_db.kbar import kbar_day_has_data, load_kbar_day_bars
+from stock_db.kbar import kbar_mainline_day_has_data, load_kbar_day_5m_bars
 
 OVERLAY_LOG_PATH = PROJECT_ROOT / "logs" / "c18acc_extension_overlay.log"
 OR_EXT_WATCH_CSV_PATH = PROJECT_ROOT / "reports" / "research" / "rrg" / "c18acc_or_ext_watch_log.csv"
@@ -271,12 +271,12 @@ def scan_held_extension_alerts(
             continue
         if _trading_days_between(full_dates, entry, session) < min_hold_days:
             continue
-        if not kbar_day_has_data(conn, sid, session):
+        if not kbar_mainline_day_has_data(conn, sid, session):
             continue
         prev_close = _prior_close(conn, sid, session, full_dates)
         if prev_close is None:
             continue
-        bars = load_kbar_day_bars(conn, sid, session)
+        bars = load_kbar_day_5m_bars(conn, sid, session)
         if not bars:
             continue
         ma20 = _ma20(conn, sid, session, full_dates)

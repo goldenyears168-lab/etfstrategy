@@ -50,8 +50,10 @@ set -e
 } >>"${TICK_LOG}"
 
 if echo "${OUT}" | grep -q 'BUY_SIGNAL_RADAR=1'; then
-  EXTRA_LINES="$(echo "${OUT}" | grep -E 'BUY_SIGNAL_RADAR|買進|buy ' || true)"
-  EXTRA=$'C0 買進訊號（advisory · 人工確認）\n'"${EXTRA_LINES}"$'\n'
+  # 寄信正文：C0 買進 + observe 命中 + ABC v3 skip09/f1 池標題與 top 列（· v3 / · f1）
+  EXTRA_LINES="$(echo "${OUT}" | grep -E \
+    'BUY_SIGNAL_RADAR|買進|觀測命中|多軌重疊|▸ ABC v3|· v3|· f1|buy ' || true)"
+  EXTRA=$'買進 / ABC v3·f1 observe 命中（advisory · 人工確認）\n'"${EXTRA_LINES}"$'\n'
   for rel in "reports/daily/${STAMP}_buy_signal_radar.md" "reports/daily/buy_signal_radar.md"; do
     [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
   done

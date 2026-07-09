@@ -66,6 +66,8 @@ class ScanRow:
     rs_momentum: float
     daily_pct: float | None
     composite_score: float | None = None
+    w3_mom: float | None = None  # 盤中 dual-wma / abc-v3：W3 RS-momentum（MV3）
+    w5_mom: float | None = None  # 盤中 dual-wma / abc-v3：W5 RS-momentum（MV5）
 
 
 def _feat(

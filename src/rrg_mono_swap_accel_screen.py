@@ -2,7 +2,7 @@
 
 严格对齐回测：
   · 信号层：昨收 PIT · fresh∪accel 全池（`champion_score_swap_c_config` · POOL1）
-  · 执行层：1 分 K · C0 scale · 5m 格点 · poll_5m 换仓（`rrg_mono_intraday_ab` + `score_swap_c`）
+  · 执行层：5m K 儲存 · C0 scale · 5m 格点 · poll_5m 换仓（`rrg_mono_intraday_ab` + `score_swap_c`）
 """
 
 from __future__ import annotations
@@ -39,9 +39,11 @@ from research.backtest.rrg_mono_score_swap_c import (
     _last_va_dot,
     _pick_swap_pair,
     _trading_days_between,
+    build_daily_spread_rs_panel,
     build_pit_candidate_pool,
     candidate_shortlist_is_passthrough,
     champion_score_swap_c_config,
+    held_accel_bypass_on_spread_lost,
 )
 from rrg_mono_daily_brief import (
     LENGTH,
@@ -56,8 +58,14 @@ from rrg_mono_intraday_watch import _session_date
 from rrg_rotation import compute_rrg_panel
 from market_benchmark import load_benchmark_close
 from research.backtest.finpilot_local_backtest import load_price_panels
-from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect, load_etf_constituent_watchlist, upsert_stock_kbar_1m
-from stock_db.kbar import kbar_day_has_data
+from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect, load_etf_constituent_watchlist
+from stock_db.kbar import (
+    kbar_5m_fresh_for_poll,
+    kbar_day_has_data,
+    upsert_1m_rows_as_5m,
+    upsert_stock_kbar_1m,
+    upsert_yahoo_5m_rows,
+)
 from c18acc_extension_overlay import (
     ExtensionAlert,
     append_overlay_log,
@@ -311,19 +319,59 @@ def sync_watchlist_kbar(
     trade_date: str,
     *,
     env_key: str = "C18ACC_KBAR_SYNC",
+    sleep_sec: float = 0.35,
+    poll_minute: str | None = None,
+    skip_fresh: bool | None = None,
 ) -> int:
+    """主線盤中 K sync · Yahoo 原生 5m 寫入 stock_kbar_5m。
+
+    ``poll_minute`` 有值且 ``skip_fresh`` 時，若 DB 已有覆蓋該格點的 5m bar 則跳過 API
+    （env ``KBAR_SYNC_SKIP_FRESH`` 預設 1）。``KBAR_SYNC_YAHOO_INTERVAL`` 預設 ``5m``；
+    設 ``1m`` 可回退舊路徑（聚合寫入）。設 ``KBAR_SYNC_STORE_1M=1`` 會**額外**拉 1m
+    寫入 stock_kbar_1m（research / extension）。
+    """
     if not _env_flag(env_key, "1"):
         return 0
+    if skip_fresh is None:
+        skip_fresh = os.environ.get("KBAR_SYNC_SKIP_FRESH", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+    store_1m = os.environ.get("KBAR_SYNC_STORE_1M", "0").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    yahoo_interval = os.environ.get("KBAR_SYNC_YAHOO_INTERVAL", "5m").strip().lower()
+    if yahoo_interval not in ("5m", "1m"):
+        yahoo_interval = "5m"
     d = date.fromisoformat(trade_date)
     total = 0
     for sid in sorted({str(x) for x in stock_ids if x}):
+        if skip_fresh and poll_minute and kbar_5m_fresh_for_poll(
+            conn, sid, trade_date, poll_minute
+        ):
+            continue
         try:
-            rows, _ = fetch_tw_intraday_kbar_rows(sid, d, d, interval="1m")
-            if rows:
-                total += upsert_stock_kbar_1m(conn, rows)
+            if yahoo_interval == "5m":
+                rows_5m, _ = fetch_tw_intraday_kbar_rows(sid, d, d, interval="5m")
+                if rows_5m:
+                    total += upsert_yahoo_5m_rows(conn, sid, rows_5m)
+            else:
+                rows_1m, _ = fetch_tw_intraday_kbar_rows(sid, d, d, interval="1m")
+                if rows_1m:
+                    total += upsert_1m_rows_as_5m(conn, sid, rows_1m)
+                    if store_1m:
+                        total += upsert_stock_kbar_1m(conn, rows_1m)
+            if store_1m and yahoo_interval == "5m":
+                rows_1m, _ = fetch_tw_intraday_kbar_rows(sid, d, d, interval="1m")
+                if rows_1m:
+                    total += upsert_stock_kbar_1m(conn, rows_1m)
         except Exception:
             continue
-        time.sleep(0.35)
+        if sleep_sec > 0:
+            time.sleep(sleep_sec)
     return total
 
 
@@ -1300,7 +1348,9 @@ def run_screen(
 
     watch_ids = [str(p["stock_id"]) for p in slots] + [r.stock_id for r in pool]
     result.kbar_watch_n = len(set(watch_ids))
-    result.kbar_sync_n = sync_watchlist_kbar(conn, watch_ids, session)
+    result.kbar_sync_n = sync_watchlist_kbar(
+        conn, watch_ids, session, poll_minute=poll_minute
+    )
     result.tick_stock_n = result.kbar_watch_n
 
     if not pool_as_of:
@@ -1342,6 +1392,17 @@ def run_screen(
         full_dates=signal_dates,
         as_of=pool_as_of,
     )
+    spread_rs_panel = (
+        build_daily_spread_rs_panel(close, bench)
+        if cfg.accel_sell_bypass_on_spread_lost
+        else None
+    )
+    spread_bypass = held_accel_bypass_on_spread_lost(
+        config=cfg,
+        spread_rs_panel=spread_rs_panel,
+        as_of=pool_as_of,
+        slot_stock_ids=[str(p["stock_id"]) for p in slots],
+    )
 
     actions: list[ScreenAction] = []
 
@@ -1380,6 +1441,7 @@ def run_screen(
             challenger_trend=chall_trend,
             challenger_va_dot=chall_va,
             challenger_avg_accel=chall_avg,
+            held_accel_bypass=spread_bypass,
         )
         if sell is not None and buy is not None:
             hold_days = _trading_days_between(session_dates, str(sell["entry_date"]), session)

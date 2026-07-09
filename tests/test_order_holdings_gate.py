@@ -17,6 +17,24 @@ from order.morning_holdings_brief import HoldingBriefRow, MorningBrief, brief_to
 from stock_db.order_holdings import load_order_holdings_snapshot, upsert_order_holdings_snapshot, OrderHoldingSnapshotRow
 
 
+def _insert_kbar_5m_close(
+    conn: sqlite3.Connection,
+    stock_id: str,
+    trade_date: str,
+    minute: str,
+    close: float,
+) -> None:
+    label = minute if len(minute) > 5 else f"{minute}:00"
+    conn.execute(
+        """
+        INSERT INTO stock_kbar_5m (
+            stock_id, trade_date, minute, open, high, low, close, volume, source, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'yahoo', 't')
+        """,
+        (stock_id, trade_date, label, close, close, close, close),
+    )
+
+
 class TestOrderHoldingsSnapshot(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = sqlite3.connect(":memory:")
@@ -52,9 +70,12 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
                 detail_json TEXT,
                 dry_run INTEGER NOT NULL DEFAULT 1
             );
-            CREATE TABLE stock_kbar_1m (
-                stock_id TEXT, trade_date TEXT, minute TEXT, close REAL,
-                PRIMARY KEY (stock_id, trade_date, minute)
+            CREATE TABLE stock_kbar_5m (
+                stock_id TEXT, trade_date TEXT, minute TEXT,
+                open REAL, high REAL, low REAL, close REAL NOT NULL,
+                volume INTEGER, source TEXT NOT NULL DEFAULT 'yahoo',
+                synced_at TEXT NOT NULL DEFAULT 't',
+                PRIMARY KEY (stock_id, trade_date, minute, source)
             );
             CREATE TABLE stock_daily_bars (
                 stock_id TEXT, trade_date TEXT, close REAL,
@@ -189,16 +210,14 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             )
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.executemany(
-            "INSERT INTO stock_kbar_1m VALUES (?, '2026-06-29', ?, ?)",
-            [
-                ("2330", "09:05", 2400.0),
-                ("2327", "09:05", 1000.0),
-                ("2449", "09:05", 310.0),
-                ("3211", "09:05", 390.0),
-                ("3264", "09:05", 215.0),
-            ],
-        )
+        for sid, px in [
+            ("2330", 2400.0),
+            ("2327", 1000.0),
+            ("2449", 310.0),
+            ("3211", 390.0),
+            ("3264", 215.0),
+        ]:
+            _insert_kbar_5m_close(self.conn, sid, "2026-06-29", "09:05", px)
         self.conn.commit()
         result = evaluate_portfolio_gate_with_sync(
             self.conn,
@@ -242,16 +261,14 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
                 ("3211", 408.0),
             ],
         )
-        self.conn.executemany(
-            "INSERT INTO stock_kbar_1m VALUES (?, '2026-06-29', '09:05', ?)",
-            [
-                ("2330", 2350.0),
-                ("2327", 990.0),
-                ("3264", 220.0),
-                ("2449", 340.0),
-                ("3211", 410.0),
-            ],
-        )
+        for sid, px in [
+            ("2330", 2350.0),
+            ("2327", 990.0),
+            ("3264", 220.0),
+            ("2449", 340.0),
+            ("3211", 410.0),
+        ]:
+            _insert_kbar_5m_close(self.conn, sid, "2026-06-29", "09:05", px)
         self.conn.commit()
         result = evaluate_portfolio_gate_with_sync(
             self.conn,
@@ -317,10 +334,14 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             )
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.executemany(
-            "INSERT INTO stock_kbar_1m VALUES (?, '2026-06-29', '09:05', ?)",
-            [("2330", 2400.0), ("2327", 1000.0), ("2449", 310.0), ("3211", 390.0), ("3264", 215.0)],
-        )
+        for sid, px in [
+            ("2330", 2400.0),
+            ("2327", 1000.0),
+            ("2449", 310.0),
+            ("3211", 390.0),
+            ("3264", 215.0),
+        ]:
+            _insert_kbar_5m_close(self.conn, sid, "2026-06-29", "09:05", px)
         self.conn.commit()
         result = evaluate_portfolio_gate_with_sync(
             self.conn, session_date="2026-06-29", sync_kbar=False
@@ -391,9 +412,7 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             )
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.execute(
-            "INSERT INTO stock_kbar_1m VALUES ('2327', '2026-06-29', '09:10', 980.0)"
-        )
+        _insert_kbar_5m_close(self.conn, "2327", "2026-06-29", "09:10", 980.0)
         self.conn.commit()
         signals, ctx = scan_structural_sell_signals(
             self.conn,
@@ -432,9 +451,7 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             )
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.execute(
-            "INSERT INTO stock_kbar_1m VALUES ('2449', '2026-06-29', '09:10', 96.0)"
-        )
+        _insert_kbar_5m_close(self.conn, "2449", "2026-06-29", "09:10", 96.0)
         self.conn.commit()
 
         off_sigs, _ = scan_structural_sell_signals(
@@ -490,9 +507,7 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             )
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.execute(
-            "INSERT INTO stock_kbar_1m VALUES ('3008', '2026-06-29', '09:15', 965.0)"
-        )
+        _insert_kbar_5m_close(self.conn, "3008", "2026-06-29", "09:15", 965.0)
         self.conn.commit()
         signals, ctx = scan_holdings_exit_signals(
             self.conn,
@@ -535,14 +550,8 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             _row("6223", "旺矽", 2000.0, "strong", "leading"),
         ]
         upsert_order_holdings_snapshot(self.conn, rows)
-        self.conn.executemany(
-            "INSERT INTO stock_kbar_1m VALUES (?, '2026-06-29', '09:20', ?)",
-            [
-                ("3008", 965.0),
-                ("5536", 480.0),
-                ("6223", 1920.0),
-            ],
-        )
+        for sid, px in [("3008", 965.0), ("5536", 480.0), ("6223", 1920.0)]:
+            _insert_kbar_5m_close(self.conn, sid, "2026-06-29", "09:20", px)
         self.conn.commit()
         signals, ctx = scan_holdings_exit_signals(
             self.conn,
@@ -585,9 +594,7 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
         self.conn.execute(
             "INSERT INTO vcp_screen_scores_v2 VALUES ('6488', '2026-06-26', 495.0)"
         )
-        self.conn.execute(
-            "INSERT INTO stock_kbar_1m VALUES ('6488', '2026-06-29', '09:10', 490.0)"
-        )
+        _insert_kbar_5m_close(self.conn, "6488", "2026-06-29", "09:10", 490.0)
         self.conn.commit()
         signals, _ = scan_holdings_exit_signals(
             self.conn,

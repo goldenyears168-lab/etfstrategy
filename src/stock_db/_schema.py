@@ -908,6 +908,25 @@ CREATE INDEX IF NOT EXISTS idx_stock_daytrade_date
 CREATE INDEX IF NOT EXISTS idx_us_daily_bars_date
     ON us_daily_bars (trade_date DESC, ticker);
 
+CREATE TABLE IF NOT EXISTS us_futures_overnight_snapshot (
+    tw_session_date TEXT NOT NULL,
+    capture_label TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    us_prior_trade_date TEXT,
+    es_price REAL,
+    nq_price REAL,
+    es_prior_close REAL,
+    nq_prior_close REAL,
+    es_overnight_pct REAL,
+    nq_overnight_pct REAL,
+    source TEXT NOT NULL DEFAULT 'yahoo_1h',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (tw_session_date, capture_label, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_us_futures_overnight_tw_date
+    ON us_futures_overnight_snapshot (tw_session_date DESC, capture_label);
+
 CREATE INDEX IF NOT EXISTS idx_mutual_fund_meta_date
     ON mutual_fund_holdings_meta (fund_code, snapshot_date DESC);
 
@@ -955,6 +974,23 @@ CREATE TABLE IF NOT EXISTS stock_kbar_1m (
 
 CREATE INDEX IF NOT EXISTS idx_stock_kbar_1m_date
     ON stock_kbar_1m (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_kbar_5m (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    minute TEXT NOT NULL,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL NOT NULL,
+    volume INTEGER,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, minute, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_kbar_5m_date
+    ON stock_kbar_5m (trade_date, stock_id);
 
 CREATE TABLE IF NOT EXISTS order_holdings_snapshot (
     snapshot_date TEXT NOT NULL,

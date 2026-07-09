@@ -23,7 +23,7 @@ from intraday_1300_digest import (
 )
 from report_paths import REPORTS_DIR
 
-_GATE_KBAR = re.compile(r"1m K sync：\*\*(\d+)\*\* bars")
+_GATE_KBAR = re.compile(r"(?:1m|5m) K sync：\*\*(\d+)\*\* bars")
 _GATE_SKIP = re.compile(r"略過：\*\*(.+?)\*\*")
 _GATE_MODE = re.compile(r"\*\*portfolio_exit_mode=(.+?)\*\*")
 _GATE_CORE4 = re.compile(r"CORE4 觸發 A：(\d+) 檔")
@@ -48,7 +48,7 @@ _SELL_BLOCK = re.compile(
     r"【賣出觀測】(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(.*?)(?=\n════|$)",
     re.DOTALL,
 )
-_SELL_UNIVERSE = re.compile(r"宇宙：監測 (\d+) 檔 · 當日有 1m K (\d+) 檔")
+_SELL_UNIVERSE = re.compile(r"宇宙：監測 (\d+) 檔 · 當日有 (?:1m|5m) K (\d+) 檔")
 _SELL_STRESS = re.compile(r"holdings_stress=(ON|OFF)")
 _SELL_STRESS_N = re.compile(r"holdings_stress=ON（(\d+)檔")
 _SELL_STRUCT = re.compile(
@@ -399,7 +399,7 @@ def _pipeline_section(inp: OpenDigestInput) -> list[str]:
     lines = ["■ 今日開盤資料狀態", ""]
     kbar = inp.gate.kbar_sync_n if inp.gate.kbar_sync_n is not None else inp.c18acc.kbar_sync_n
     kbar_s = str(kbar) if kbar is not None else "—"
-    lines.append(f"  1m K 同步（gate）：{kbar_s} bars")
+    lines.append(f"  5m K 同步（gate）：{kbar_s} bars")
 
     if inp.gate.skip_reason:
         lines.append(f"  09:05 組合閘門：略過 — {inp.gate.skip_reason}")
@@ -412,13 +412,13 @@ def _pipeline_section(inp: OpenDigestInput) -> list[str]:
     lines.append(f"  今日 morning brief：{morning_ok}")
 
     if inp.sell.log_found:
-        lines.append(f"  sell-radar：{inp.sell.poll_minute} 已掃描 · 宇宙 {inp.sell.universe_n} 檔 · 1m K {inp.sell.universe_kbar_n} 檔")
+        lines.append(f"  sell-radar：{inp.sell.poll_minute} 已掃描 · 宇宙 {inp.sell.universe_n} 檔 · 5m K {inp.sell.universe_kbar_n} 檔")
     else:
         lines.append("  sell-radar：09:06 輪次 log 尚未寫入")
 
     if kbar is not None and kbar == 0:
         lines.append("")
-        lines.append("  ⚠ 初段 1m K 可能尚未就位 · gate / sell-radar 結論請保守解讀 · 09:15 後較可靠")
+        lines.append("  ⚠ 初段 5m K 可能尚未就位 · gate / sell-radar 結論請保守解讀 · 09:15 後較可靠")
     lines.append("")
     return lines
 
@@ -601,7 +601,7 @@ def _discipline_section() -> list[str]:
         "■ 實務建議（開盤時段）",
         "",
         "  · 09:00–09:04 只觀察、不賣",
-        "  · 09:15–09:30 確認 1m K 恢復 → sell-radar 較可靠",
+        "  · 09:15–09:30 確認 5m K 恢復 → sell-radar 較可靠",
         "  · 09:25–10:25 buy-radar C0 進場窗口",
         "  · C18acc 換倉：09:30 前不 swap",
         "  · 11:00 盤中持倉脈動 · 13:02 盤中研究摘要 · 16:30 VCP 收盤 screen 覆寫",
