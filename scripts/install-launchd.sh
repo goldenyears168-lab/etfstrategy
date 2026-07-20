@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 安裝方案 C launchd 排程（② 16:30 · ③ 週日 20:00）
+# 安裝下單層 launchd（C18acc · Leading Dip · sell/exit ops）
+# ABC Order 已退役（2026-07-15）。Facts / Regime / VCP / digest 等已退役排程（可手動跑）。
 #
 # 用法：
 #   scripts/install-launchd.sh           # 安裝並載入
@@ -11,42 +12,27 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LAUNCHD_SRC="${PROJECT_ROOT}/launchd"
+APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.etf"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 
 LABELS=(
-  com.jackm4.etf.morning-holdings-brief
-  com.jackm4.etf.intraday-exit-gate
-  com.jackm4.etf.evening-holdings
-  com.jackm4.etf.mutual-fund-disclosure-watch
   com.jackm4.etf.rrg-c18acc-poll
   com.jackm4.etf.buy-signal-radar
   com.jackm4.etf.sell-signal-radar
-  com.jackm4.etf.rrg-mono-intraday-watch
-  com.jackm4.etf.intraday-open-digest
-  com.jackm4.etf.intraday-midday-digest
-  com.jackm4.etf.intraday-1300-digest
-  com.jackm4.etf.vcp-funnel-specs
-  com.jackm4.etf.minervini-sepa-basket
-  com.jackm4.etf.weekly-deep
+  com.jackm4.etf.detach-gate
+  com.jackm4.etf.leading-dip-poll
+  com.jackm4.etf.winbond-expert-pool-watch
 )
 
 TEMPLATES=(
-  com.jackm4.etf.morning-holdings-brief.plist.template
-  com.jackm4.etf.intraday-exit-gate.plist.template
-  com.jackm4.etf.evening-holdings.plist.template
-  com.jackm4.etf.mutual-fund-disclosure-watch.plist.template
   com.jackm4.etf.rrg-c18acc-poll.plist.template
   com.jackm4.etf.buy-signal-radar.plist.template
   com.jackm4.etf.sell-signal-radar.plist.template
-  com.jackm4.etf.rrg-mono-intraday-watch.plist.template
-  com.jackm4.etf.intraday-open-digest.plist.template
-  com.jackm4.etf.intraday-midday-digest.plist.template
-  com.jackm4.etf.intraday-1300-digest.plist.template
-  com.jackm4.etf.vcp-funnel-specs.plist.template
-  com.jackm4.etf.minervini-sepa-basket.plist.template
-  com.jackm4.etf.weekly-deep.plist.template
+  com.jackm4.etf.detach-gate.plist.template
+  com.jackm4.etf.leading-dip-poll.plist.template
+  com.jackm4.etf.winbond-expert-pool-watch.plist.template
 )
 
 usage() {
@@ -56,46 +42,39 @@ usage() {
   預設：將 launchd/*.plist.template 渲染後安裝到
         ~/Library/LaunchAgents/ 並 launchctl load。
 
-  排程（本地時間）：
-    ② evening-holdings      週一至五 16:30（持股 + RRG close + Improving watch + VCP close + stock_daily_lens → Supabase）
-    ⑧ morning-holdings-brief 週一至五 08:50（富邦持倉 · 觸發價 · 台指 gap · DB snapshot · 不寄信）
-    ⑧b intraday-exit-gate   週一至五 09:06/09:10/09:12/09:15（1m K 就緒後重試 · 組合閘門 · ON 才寄信）
-    ⑧c intraday-open-digest 週一至五 09:06（開盤解讀 · 持倉脈動 · 寄信）
-    ⑧d intraday-midday-digest 週一至五 11:00（盤中持倉脈動 · 寄信）
-    ②b mutual-fund-watch    週一至五 16:30（ACDD04 月報公布偵測 · 新快照寄信）
-    ②a rrg-mono-intraday    週一至五 13:00（收盤前預警 + universe snapshot）
-    ②a digest intraday-1300-digest  週一至五 13:02（VCP+RRG+持倉脈動 · 寄信）
-    C18acc rrg-c18acc-poll           週一至五 09:00–13:30 每 5 分（swap · dry-run · 不更新槽位）
-    Buy  buy-signal-radar            週一至五 09:00–13:20 每 5 分（C0 買進 advisory · 寄信）
-    Sell sell-signal-radar           週一至五 09:06–13:20 每 5 分（09:12 前不寄信 · 09:12 起有新訊號才寄）
-    SEPA minervini-sepa-basket       週一至五 16:35（月末調倉檢查 · dry-run intent）
-    VCP funnel specs          週一至五 13:00（Pivot Gate / Coil Close brief）
-    ③ weekly-deep           週日     20:00
+  現行排程（Order layer · C18acc / Leading Dip；本地時間）：
+    rrg-c18acc-poll         週一至五 09:00–13:30 每 5 分（C18acc swap · auto-submit）
+    buy-signal-radar        週一至五 09:00–13:20 每 5 分（notify；ABC Order 已退役）
+    sell-signal-radar       週一至五 09:06–13:20 每 5 分（extension 持倉賣出 advisory）
+    detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
+    leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
+    winbond-expert-pool-watch  週一至五 20:00（華邦電專家池共識 · 達標才寄信 · 不下單）
 
-  log：${PROJECT_ROOT}/logs/launchd_*.log（收盤／週日等非盤中）
-       盤中排程：${PROJECT_ROOT}/logs/intraday/
+  已退役（不再安裝；手動仍可用 scripts/launchd/*.command 或 1630收盤雷達）：
+    morning-holdings-brief（2026-07-16 退役 · 手動仍可用 scripts/order/morning_holdings_brief.py）·
+    ABC v3+f1 Order（buy-radar 不再送單）·
+    intraday-exit-gate（結構停損閘門 · 已退回 Research）·
+    evening-holdings · digests · vcp-funnel-specs · minervini-sepa-basket ·
+    mutual-fund-disclosure-watch · rrg-mono-intraday-watch · weekly-deep ·
+    c18acc-extension-overlay
 
-  注意：Mac 須已登入；睡眠中可能不觸發。
-        evening-holdings · rrg-c18acc-poll · vcp-funnel-specs · rrg-mono-intraday · intraday-1300-digest · intraday-midday-digest · intraday-open-digest · mutual-fund · minervini · weekly-deep 以 Application Support launcher + /bin/bash 背景執行（不 open -gj Documents 內 .command）。
-        手動除錯仍可用 scripts/launchd/*.command 或 scripts/1630收盤雷達.command。
+  log：盤中 ${PROJECT_ROOT}/logs/intraday/
+
+  注意：Mac 須已登入。盤中 poll 用 StartInterval=300（非 Aqua CalendarInterval），
+        開盤窗由 launcher 過濾；order-wake 每 5 分 caffeinate。launchd stdout 寫
+        ~/Library/Logs/com.jackm4.etf/（避開 Documents TCC → EX_CONFIG）。
+        rrg-c18acc-poll · leading-dip-poll · buy/sell radar · detach-gate
+        以 Application Support launcher + /bin/bash 背景執行。
 EOF
 }
 
 LAUNCHD_COMMANDS=(
-  morning-holdings-brief
-  intraday-exit-gate
-  evening-holdings
-  mutual-fund-disclosure-watch
   rrg-c18acc-poll
   buy-signal-radar
   sell-signal-radar
-  rrg-mono-intraday-watch
-  intraday-open-digest
-  intraday-midday-digest
-  intraday-1300-digest
-  vcp-funnel-specs
-  minervini-sepa-basket
-  weekly-deep
+  detach-gate
+  leading-dip-poll
+  winbond-expert-pool-watch
 )
 
 ensure_launchd_commands() {
@@ -160,11 +139,22 @@ bootstrap_label() {
 }
 
 RETIRED_LABELS=(
+  com.jackm4.etf.morning-holdings-brief
   com.jackm4.etf.rrg-mono-scan
   com.jackm4.etf.vcp-intraday-watch
   com.jackm4.etf.morning-regime
   com.jackm4.etf.test-doc-bash
   com.jackm4.etf.c18acc-extension-overlay
+  com.jackm4.etf.weekly-deep
+  com.jackm4.etf.rrg-mono-intraday-watch
+  com.jackm4.etf.evening-holdings
+  com.jackm4.etf.mutual-fund-disclosure-watch
+  com.jackm4.etf.intraday-open-digest
+  com.jackm4.etf.intraday-midday-digest
+  com.jackm4.etf.intraday-1300-digest
+  com.jackm4.etf.vcp-funnel-specs
+  com.jackm4.etf.minervini-sepa-basket
+  com.jackm4.etf.intraday-exit-gate
 )
 
 uninstall_retired_agents() {
@@ -179,109 +169,50 @@ uninstall_retired_agents() {
   done
 }
 
+# macOS UserEventAgent-Aqua 的 StartCalendarInterval 在螢幕休眠／閒置後會整排停火
+# （2026-07-16 mini：09:41 後全 Order poll 全滅；改 Minute-only 仍不穩）。
+# 改用 launchd 原生 StartInterval=300；開盤窗由各 launcher 腳本過濾。
+generate_five_minute_clock_calendar() {
+  local out="$1"
+  {
+    printf '\t<key>StartInterval</key>\n'
+    printf '\t<integer>300</integer>\n'
+  } >"${out}"
+}
+
 generate_c18acc_calendar_intervals() {
   local out="/tmp/com.jackm4.etf.c18acc-calendar.xml"
-  {
-    printf '\t<key>StartCalendarInterval</key>\n'
-    printf '\t<array>\n'
-    local wd hour minute
-    for wd in 1 2 3 4 5; do
-      for hour in 9 10 11 12 13; do
-        for minute in 0 5 10 15 20 25 30 35 40 45 50 55; do
-          if [[ "${hour}" -eq 13 && "${minute}" -gt 30 ]]; then
-            continue
-          fi
-          printf '\t\t<dict>\n'
-          printf '\t\t\t<key>Weekday</key><integer>%s</integer>\n' "${wd}"
-          printf '\t\t\t<key>Hour</key><integer>%s</integer>\n' "${hour}"
-          printf '\t\t\t<key>Minute</key><integer>%s</integer>\n' "${minute}"
-          printf '\t\t</dict>\n'
-        done
-      done
-    done
-    printf '\t</array>\n'
-  } >"${out}"
+  generate_five_minute_clock_calendar "${out}"
   C18ACC_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_buy_radar_calendar_intervals() {
   local out="/tmp/com.jackm4.etf.buy-radar-calendar.xml"
-  {
-    printf '\t<key>StartCalendarInterval</key>\n'
-    printf '\t<array>\n'
-    local wd hour minute
-    for wd in 1 2 3 4 5; do
-      for hour in 9 10 11 12 13; do
-        for minute in 0 5 10 15 20 25 30 35 40 45 50 55; do
-          if [[ "${hour}" -eq 13 && "${minute}" -gt 20 ]]; then
-            continue
-          fi
-          printf '\t\t<dict>\n'
-          printf '\t\t\t<key>Weekday</key><integer>%s</integer>\n' "${wd}"
-          printf '\t\t\t<key>Hour</key><integer>%s</integer>\n' "${hour}"
-          printf '\t\t\t<key>Minute</key><integer>%s</integer>\n' "${minute}"
-          printf '\t\t</dict>\n'
-        done
-      done
-    done
-    printf '\t</array>\n'
-  } >"${out}"
+  generate_five_minute_clock_calendar "${out}"
   BUY_RADAR_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_sell_radar_calendar_intervals() {
   local out="/tmp/com.jackm4.etf.sell-radar-calendar.xml"
-  {
-    printf '\t<key>StartCalendarInterval</key>\n'
-    printf '\t<array>\n'
-    local wd hour minute
-    for wd in 1 2 3 4 5; do
-      for hour in 9 10 11 12 13; do
-        for minute in 0 5 10 15 20 25 30 35 40 45 50 55; do
-          if [[ "${hour}" -eq 9 && "${minute}" -lt 6 ]]; then
-            continue
-          fi
-          if [[ "${hour}" -eq 13 && "${minute}" -gt 20 ]]; then
-            continue
-          fi
-          printf '\t\t<dict>\n'
-          printf '\t\t\t<key>Weekday</key><integer>%s</integer>\n' "${wd}"
-          printf '\t\t\t<key>Hour</key><integer>%s</integer>\n' "${hour}"
-          printf '\t\t\t<key>Minute</key><integer>%s</integer>\n' "${minute}"
-          printf '\t\t</dict>\n'
-        done
-      done
-    done
-    printf '\t</array>\n'
-  } >"${out}"
+  generate_five_minute_clock_calendar "${out}"
   SELL_RADAR_CALENDAR_INTERVALS_FILE="${out}"
+}
+
+generate_detach_gate_calendar_intervals() {
+  local out="/tmp/com.jackm4.etf.detach-gate-calendar.xml"
+  generate_five_minute_clock_calendar "${out}"
+  DETACH_GATE_CALENDAR_INTERVALS_FILE="${out}"
+}
+
+generate_leading_dip_calendar_intervals() {
+  local out="/tmp/com.jackm4.etf.leading-dip-calendar.xml"
+  generate_five_minute_clock_calendar "${out}"
+  LEADING_DIP_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_extension_calendar_intervals() {
   local out="/tmp/com.jackm4.etf.extension-calendar.xml"
-  {
-    printf '\t<key>StartCalendarInterval</key>\n'
-    printf '\t<array>\n'
-    local wd hour minute
-    for wd in 1 2 3 4 5; do
-      for hour in 9 10 11 12 13; do
-        for minute in $(seq 0 59); do
-          if [[ "${hour}" -eq 9 && "${minute}" -lt 6 ]]; then
-            continue
-          fi
-          if [[ "${hour}" -eq 13 && "${minute}" -gt 20 ]]; then
-            continue
-          fi
-          printf '\t\t<dict>\n'
-          printf '\t\t\t<key>Weekday</key><integer>%s</integer>\n' "${wd}"
-          printf '\t\t\t<key>Hour</key><integer>%s</integer>\n' "${hour}"
-          printf '\t\t\t<key>Minute</key><integer>%s</integer>\n' "${minute}"
-          printf '\t\t</dict>\n'
-        done
-      done
-    done
-    printf '\t</array>\n'
-  } >"${out}"
+  generate_five_minute_clock_calendar "${out}"
   EXTENSION_CALENDAR_INTERVALS_FILE="${out}"
 }
 
@@ -294,6 +225,7 @@ render_template() {
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -318,6 +250,7 @@ render_template() {
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -336,12 +269,66 @@ render_template() {
       >"${dest}"
     return
   fi
+  if grep -q '{{DETACH_GATE_CALENDAR_INTERVALS}}' "${template}"; then
+    generate_detach_gate_calendar_intervals
+    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
+        -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
+        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
+        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
+        -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
+        -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
+        -e "s|{{VCP_FUNNEL_LAUNCHER}}|${VCP_FUNNEL_LAUNCHER}|g" \
+        -e "s|{{RRG_MONO_INTRADAY_LAUNCHER}}|${RRG_MONO_INTRADAY_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_1300_DIGEST_LAUNCHER}}|${INTRADAY_1300_DIGEST_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_OPEN_DIGEST_LAUNCHER}}|${INTRADAY_OPEN_DIGEST_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_MIDDAY_DIGEST_LAUNCHER}}|${INTRADAY_MIDDAY_DIGEST_LAUNCHER}|g" \
+        -e "s|{{MUTUAL_FUND_LAUNCHER}}|${MUTUAL_FUND_LAUNCHER}|g" \
+        -e "s|{{MINERVINI_LAUNCHER}}|${MINERVINI_LAUNCHER}|g" \
+        -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
+        "${template}" \
+      | sed "/{{DETACH_GATE_CALENDAR_INTERVALS}}/r ${DETACH_GATE_CALENDAR_INTERVALS_FILE}" \
+      | sed '/{{DETACH_GATE_CALENDAR_INTERVALS}}/d' \
+      >"${dest}"
+    return
+  fi
+  if grep -q '{{LEADING_DIP_CALENDAR_INTERVALS}}' "${template}"; then
+    generate_leading_dip_calendar_intervals
+    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
+        -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
+        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
+        -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
+        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
+        -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
+        -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
+        -e "s|{{VCP_FUNNEL_LAUNCHER}}|${VCP_FUNNEL_LAUNCHER}|g" \
+        -e "s|{{RRG_MONO_INTRADAY_LAUNCHER}}|${RRG_MONO_INTRADAY_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_1300_DIGEST_LAUNCHER}}|${INTRADAY_1300_DIGEST_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_OPEN_DIGEST_LAUNCHER}}|${INTRADAY_OPEN_DIGEST_LAUNCHER}|g" \
+        -e "s|{{INTRADAY_MIDDAY_DIGEST_LAUNCHER}}|${INTRADAY_MIDDAY_DIGEST_LAUNCHER}|g" \
+        -e "s|{{MUTUAL_FUND_LAUNCHER}}|${MUTUAL_FUND_LAUNCHER}|g" \
+        -e "s|{{MINERVINI_LAUNCHER}}|${MINERVINI_LAUNCHER}|g" \
+        -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
+        "${template}" \
+      | sed "/{{LEADING_DIP_CALENDAR_INTERVALS}}/r ${LEADING_DIP_CALENDAR_INTERVALS_FILE}" \
+      | sed '/{{LEADING_DIP_CALENDAR_INTERVALS}}/d' \
+      >"${dest}"
+    return
+  fi
   if grep -q '{{C18ACC_CALENDAR_INTERVALS}}' "${template}"; then
     generate_c18acc_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -366,6 +353,7 @@ render_template() {
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -385,9 +373,13 @@ render_template() {
     return
   fi
   sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+      -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
       -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
       -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
       -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
+      -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
+      -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
+      -e "s|{{WINBOND_EXPERT_LAUNCHER}}|${WINBOND_EXPERT_LAUNCHER}|g" \
       -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
       -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
       -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -403,6 +395,26 @@ render_template() {
       "${template}" >"${dest}"
 }
 
+sync_order_env_mirror() {
+  # Mirror non-secret ORDER_/C18ACC_ keys for launchd (Documents .env may be TCC-blocked).
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local src_env="${PROJECT_ROOT}/.env"
+  local dest="${app_support}/order.env"
+  mkdir -p "${app_support}"
+  {
+    echo "# Generated by install-launchd.sh · $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "# Whitelist only · no passwords / cert paths"
+    if [[ -f "${src_env}" ]]; then
+      # shellcheck disable=SC2016
+      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|RUN_LEADING_DIP_|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
+        "${src_env}" 2>/dev/null \
+        | grep -Eiv '(PASSWORD|SECRET|TOKEN|CERT|KEY|PIN)=' || true
+    fi
+  } >"${dest}"
+  chmod 600 "${dest}"
+  echo "  order.env mirror → ${dest}"
+}
+
 install_c18acc_launcher() {
   local src="${LAUNCHD_SRC}/rrg-c18acc-poll-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
@@ -412,8 +424,10 @@ install_c18acc_launcher() {
     exit 1
   fi
   mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
   render_template "${src}" "${C18ACC_LAUNCHER}"
   chmod +x "${C18ACC_LAUNCHER}"
+  sync_order_env_mirror
 }
 
 install_extension_launcher() {
@@ -453,6 +467,45 @@ install_sell_radar_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${SELL_RADAR_LAUNCHER}"
   chmod +x "${SELL_RADAR_LAUNCHER}"
+}
+
+install_detach_gate_launcher() {
+  local src="${LAUNCHD_SRC}/detach-gate-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  DETACH_GATE_LAUNCHER="${app_support}/detach-gate.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${DETACH_GATE_LAUNCHER}"
+  chmod +x "${DETACH_GATE_LAUNCHER}"
+}
+
+install_leading_dip_launcher() {
+  local src="${LAUNCHD_SRC}/leading-dip-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  LEADING_DIP_LAUNCHER="${app_support}/leading-dip-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${LEADING_DIP_LAUNCHER}"
+  chmod +x "${LEADING_DIP_LAUNCHER}"
+}
+
+install_winbond_expert_launcher() {
+  local src="${LAUNCHD_SRC}/winbond-expert-pool-watch-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  WINBOND_EXPERT_LAUNCHER="${app_support}/winbond-expert-pool-watch.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${WINBOND_EXPERT_LAUNCHER}"
+  chmod +x "${WINBOND_EXPERT_LAUNCHER}"
 }
 
 install_evening_holdings_launcher() {
@@ -607,6 +660,7 @@ migrate_intraday_logs() {
   for f in \
     "${src_dir}"/launchd_buy-signal-radar* \
     "${src_dir}"/launchd_sell-signal-radar* \
+    "${src_dir}"/launchd_detach-gate* \
     "${src_dir}"/launchd_rrg-c18acc-poll* \
     "${src_dir}"/launchd_intraday-* \
     "${src_dir}"/launchd_rrg-mono-intraday-watch* \
@@ -615,6 +669,7 @@ migrate_intraday_logs() {
     "${src_dir}"/launchd_c18acc-extension-overlay* \
     "${src_dir}"/buy_signal_radar_*.log \
     "${src_dir}"/sell_signal_radar_*.log \
+    "${src_dir}"/detach_gate_*.log \
     "${src_dir}"/rrg_c18acc_poll_tick.log \
     "${src_dir}"/c18acc_extension_poll_tick.log \
     "${src_dir}"/intraday_exit_gate_*.log \
@@ -653,6 +708,9 @@ install_agents() {
   EXTENSION_LAUNCHER=""
   BUY_RADAR_LAUNCHER=""
   SELL_RADAR_LAUNCHER=""
+  DETACH_GATE_LAUNCHER=""
+  LEADING_DIP_LAUNCHER=""
+  WINBOND_EXPERT_LAUNCHER=""
   EVENING_HOLDINGS_LAUNCHER=""
   MORNING_BRIEF_LAUNCHER=""
   INTRADAY_GATE_LAUNCHER=""
@@ -665,20 +723,12 @@ install_agents() {
   MINERVINI_LAUNCHER=""
   WEEKLY_DEEP_LAUNCHER=""
   install_c18acc_launcher
-  install_extension_launcher
   install_buy_radar_launcher
   install_sell_radar_launcher
-  install_evening_holdings_launcher
-  install_morning_brief_launcher
-  install_intraday_gate_launcher
-  install_vcp_funnel_launcher
-  install_rrg_mono_intraday_launcher
-  install_intraday_1300_digest_launcher
-  install_intraday_open_digest_launcher
-  install_intraday_midday_digest_launcher
-  install_mutual_fund_launcher
-  install_minervini_launcher
-  install_weekly_deep_launcher
+  install_detach_gate_launcher
+  install_leading_dip_launcher
+  install_winbond_expert_launcher
+  # morning-holdings-brief retired 2026-07-16 · not installed
 
   echo "專案：${PROJECT_ROOT}"
   echo "安裝至：${AGENT_DIR}"
@@ -698,18 +748,23 @@ install_agents() {
 
     bootout_label "${label}"
     render_template "${src}" "${dest}"
+    # calendar-branch sed may leave {{HOME}}; resolve for Library/Logs paths
+    sed -i '' "s|{{HOME}}|${HOME}|g" "${dest}" 2>/dev/null \
+      || sed -i "s|{{HOME}}|${HOME}|g" "${dest}"
     bootstrap_label "${dest}"
     echo "✓ ${label}"
   done
+
+  mkdir -p "${HOME}/Library/Logs/com.jackm4.etf"
 
   echo ""
   verify_documents_launch
   echo ""
   echo "完成。檢查："
   echo "  launchctl list | grep jackm4.etf"
-  echo "  tail -f ${PROJECT_ROOT}/logs/intraday/launchd_buy-signal-radar.log"
-  echo "  tail -f ${PROJECT_ROOT}/logs/launchd_evening-holdings.log"
-  echo "  tail -f ${PROJECT_ROOT}/logs/daily_sync_\$(date +%Y%m%d).log"
+  echo "  # launchd stdout（避開 Documents TCC）：~/Library/Logs/com.jackm4.etf/"
+  echo "  # 業務 tick log 仍在：${PROJECT_ROOT}/logs/intraday/"
+  echo "  tail -f ${PROJECT_ROOT}/logs/intraday/leading_dip_\$(date +%Y%m%d).log"
 }
 
 uninstall_agents() {
