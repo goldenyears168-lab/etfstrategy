@@ -39,6 +39,24 @@ if [[ ! -x "${PY}" ]]; then
   echo "✗ missing venv python: ${PY}"
   EXIT=1
 else
+  # 09:00 溫度計常用「昨收」asof（當日 bars/分點尚未齊）。收盤後重算今日讀數並寄信／上牆。
+  set +e
+  "${PY}" "${ROOT}/scripts/research/backfill_broker_branch_tape.py" \
+    --universe-json "${ROOT}/reports/research/branch-footprint-screen/crash_thermometer_panel_universe.json" \
+    --start "$(date -v-5d '+%Y-%m-%d' 2>/dev/null || date -d '5 days ago' '+%Y-%m-%d')" \
+    --end "$(date '+%Y-%m-%d')" \
+    --force --fetch-workers 2 --delay 0.6 \
+    2>&1 | tee -a "${RUN_LOG}"
+  "${PY}" "${ROOT}/scripts/research/run_market_crash_thermometer_dashboard.py" \
+    --notify \
+    2>&1 | tee -a "${RUN_LOG}"
+  rc_thermo=${PIPESTATUS[0]}
+  set -e
+  if [[ "${rc_thermo}" -ne 0 ]]; then
+    echo "✗ crash thermometer evening refresh exit=${rc_thermo}"
+    EXIT=1
+  fi
+
   set +e
   "${PY}" "${ROOT}/scripts/order/write_ops_console_snapshot.py" \
     --kind all --also-digest \

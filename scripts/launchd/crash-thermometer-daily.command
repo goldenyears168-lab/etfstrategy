@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # launchd / 手動：大跌溫度計（加權8家 + 共識家數）
-# 週一至五 09:00 · email 每日一封（含正常讀數）· 不下單
+# 週一至五 09:00 · 通常 asof＝上一交易日（當日 bars/分點尚未齊）
+# 當日收盤後讀數：由 ops-console-evening-sync（20:40）重算＋寄信／上牆
+# email 每日（含正常讀數）· 不下單
 
 set -euo pipefail
 
