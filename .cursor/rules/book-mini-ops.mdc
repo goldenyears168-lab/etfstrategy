@@ -47,7 +47,7 @@ Sync only when user asks (or clearly wants production effect):
 
 ```bash
 # preferred
-ssh mac-mini 'cd ~/Documents/股票研究 && git pull'
+ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull'
 # or same-LAN rsync of the working tree (exclude .venv*)
 ```
 

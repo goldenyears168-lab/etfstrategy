@@ -21,7 +21,7 @@
 | 檢查項 | Book（MacBook Air） | Mac mini |
 |--------|---------------------|----------|
 | 主機名 | `JackM4deMacBook-Air` | `minim4deMac-mini` |
-| 路徑／使用者 | `/Users/jackm4/Documents/股票研究` · `jackm4` | 同左 |
+| 路徑／使用者 | `/Users/jackm4/Documents/ETF/股票研究` · `jackm4` | 同左 |
 | `com.jackm4.etf.*` launchd | **0 支**（禁止 live） | **≈16 支已載入**（含 `order-wake`） |
 | Order live（送單） | 不送單 | **C18acc** + **Leading Dip** + **Songshan copytrade** + **timed-limit** + **expert-pool-staged-gate** |
 | 觀測／不下單 | — | **Detach = RED 寄信、不半砍**；buy/sell radar 不下單 |
@@ -103,7 +103,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 | 生產機 | **Mac mini**（無頭；**不裝 Cursor App**；可裝 Cursor CLI + My Machines worker） |
 | 研究機 | **MacBook**（唯一 IDE · 平常主入口） |
 | 手機遙控 | **Cursor iOS App**（或 `cursor.com/agents`）→ worker=`mac-mini` |
-| 路徑 | `/Users/jackm4/Documents/股票研究`（兩台相同） |
+| 路徑 | `/Users/jackm4/Documents/ETF/股票研究`（兩台相同） |
 | 使用者 | `jackm4` |
 | 網路 | mini **乙太網**；Book Wi‑Fi；同網 SSH 別名 `mac-mini`（見 §3） |
 | Tailscale | **建議**（出國 SSH 備用）；日常手機／Book 指揮 mini **不需**同 Wi‑Fi（worker outbound） |
@@ -230,7 +230,7 @@ CURSOR_AGENT_WORKER_NAME=mac-mini
 4. 同步程式後安裝 KeepAlive：
 
 ```bash
-ssh mac-mini 'cd ~/Documents/股票研究 && git pull && bash scripts/install-cursor-agent-worker-launchd.sh'
+ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull && bash scripts/install-cursor-agent-worker-launchd.sh'
 ssh mac-mini 'bash scripts/install-cursor-agent-worker-launchd.sh --status'
 ```
 
@@ -299,8 +299,8 @@ ssh mac-mini 'hostname; launchctl list | grep jackm4.etf'
 rsync -az --progress -e "ssh -o BatchMode=yes" \
   --exclude '.venv/' --exclude '.venv-fubon/' \
   --exclude '__pycache__/' --exclude '.pytest_cache/' \
-  "/Users/jackm4/Documents/股票研究/" \
-  "mac-mini:Documents/股票研究/"
+  "/Users/jackm4/Documents/ETF/股票研究/" \
+  "mac-mini:Documents/ETF/股票研究/"
 ```
 
 必含：`.env`、`CAFubon/`、`data/`（含 `stocks.db`、C18 slots、Leading Dip／Detach ledger）。  
@@ -311,7 +311,7 @@ rsync -az --progress -e "ssh -o BatchMode=yes" \
 ```bash
 ssh mac-mini 'bash -lc "
 eval \"\$(/opt/homebrew/bin/brew shellenv)\"
-cd ~/Documents/股票研究
+cd ~/Documents/ETF/股票研究
 python3.13 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -r requirements.txt
 python3.13 -m venv .venv-fubon && .venv-fubon/bin/pip install -U pip
 .venv-fubon/bin/pip install CAFubon/fubon_neo-*-macosx_*_arm64.whl PyYAML
@@ -386,7 +386,7 @@ ORDER_LAUNCHD_ENABLED=1
 
 ```bash
 ssh mac-mini 'bash -lc "
-cd ~/Documents/股票研究
+cd ~/Documents/ETF/股票研究
 export ROOT=\"\$(pwd)\" PYTHONPATH=src
 .venv-fubon/bin/python scripts/order/fubon_login_test.py --snapshot
 # C18 實際入口（計劃舊名 run_rrg_c18acc_screen.py 已廢）
@@ -402,7 +402,7 @@ RUN_BUY_SIGNAL_RADAR=1 .venv/bin/python scripts/run_buy_signal_radar.py
 
 ```bash
 ssh mac-mini 'bash -lc "
-cd ~/Documents/股票研究
+cd ~/Documents/ETF/股票研究
 bash scripts/install-launchd.sh
 bash scripts/install-order-launchd.sh
 # 不裝開盤追價
@@ -419,7 +419,7 @@ launchctl list | grep jackm4.etf
 ### 4.7 MacBook 停用 live
 
 ```bash
-cd ~/Documents/股票研究
+cd ~/Documents/ETF/股票研究
 bash scripts/install-launchd.sh --uninstall
 bash scripts/install-order-launchd.sh --uninstall
 launchctl list | grep jackm4.etf || echo "OK: none"
@@ -460,7 +460,7 @@ Book `.env` 已於 2026-07-16 套用上表（Leading Dip／Detach `DRY_RUN=1`）
 git push
 
 # mini（交易日開盤前，或從 Book 代拉）
-ssh mac-mini 'cd ~/Documents/股票研究 && git pull'
+ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull'
 # 或未 push 的工作樹：同網 rsync（§4.2）
 # 本文件若未進 git：另 rsync deploy/mac-mini/MIGRATION_PLAN.md
 ```
@@ -470,13 +470,13 @@ Ledger／slots／`stocks.db`／`logs/intraday/` **以 mini 為準**，無需回�
 ### 5.2 盤中監看
 
 ```bash
-ssh mac-mini 'cd ~/Documents/股票研究 && scripts/launchd_status_dashboard.sh'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/intraday/launchd_rrg-c18acc-poll.log'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/intraday/launchd_leading-dip-poll.log'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/intraday/launchd_buy-signal-radar.log'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/intraday/launchd_sell-signal-radar.log'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/intraday/launchd_detach-gate.log'
-ssh mac-mini 'tail -f ~/Documents/股票研究/logs/launchd_order-wake.log'
+ssh mac-mini 'cd ~/Documents/ETF/股票研究 && scripts/launchd_status_dashboard.sh'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_rrg-c18acc-poll.log'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_leading-dip-poll.log'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_buy-signal-radar.log'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_sell-signal-radar.log'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_detach-gate.log'
+ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/launchd_order-wake.log'
 ```
 
 快速重驗（開盤後／異動後）：
@@ -493,7 +493,7 @@ ssh mac-mini 'launchctl list | grep jackm4.etf'
 # mini
 sqlite3 data/stocks.db "VACUUM INTO 'data/replica_export/stocks_snap.db';"
 # Book
-rsync -az --progress mac-mini:Documents/股票研究/data/replica_export/stocks_snap.db \
+rsync -az --progress mac-mini:Documents/ETF/股票研究/data/replica_export/stocks_snap.db \
   data/replica/stocks.db
 ```
 
