@@ -25,7 +25,9 @@
 - 盤中 ops：`ops-live-ta-poll`（08:50–13:35 · 45s）
 - 另有 `order-wake`（`install-order-launchd.sh` · 防睡眠）
 
-夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬（淺色 HTML · `scripts/order/run_holdings_branch_sell_monitor.py` · 不下單）；`ops-console-evening-sync`＝20:40 把 watch／risk／thermo／branches／today + sleeve + holdings 寫入 Supabase `ops.*`。
+夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬（淺色 HTML · `scripts/order/run_holdings_branch_sell_monitor.py` · 不下單）；`ops-console-evening-sync`＝20:40 **先重算大跌溫度計（當日 asof）再**把 watch／risk／thermo／branches／today + sleeve + holdings 寫入 Supabase `ops.*`。
+
+溫度計時序：`crash-thermometer-daily` 09:00 多半是**昨收** asof（當日 bars／分點尚未齊）；**當日讀數**以 20:40 evening sync 為準。
 
 ## Python · daily
 
