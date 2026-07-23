@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 週一至五 09:00 · 大跌溫度計（加權8家瑞銀/野村/高盛亞/麥格理/館前/民生/統一/仁愛
+# + 共識家數）· email 每日一封（含正常讀數）· 不下單
+#
+# 方法／驗證依據見腳本 docstring：
+#   scripts/research/run_market_crash_thermometer_dashboard.py
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${ROOT}/logs/crash_thermometer_${STAMP}.log"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd crash-thermometer-daily 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${ROOT}/.env"
+
+PYTHON="${ROOT}/.venv/bin/python"
+NOTIFY_PY="${ROOT}/.venv/bin/python"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  # 溫度計8家分點需要「全市場」net(股)覆蓋（非 branch-tape-prewarm 的
+  # POOLS∪持倉窄範圍），否則會像 2026-07-17~22 那樣被悄悄截斷成30~50檔、
+  # 讀數失真（見 2026-07-23 修正）。這裡先用近7個交易日的視窗、強制重抓，
+  # 確保這8家每天都有完整覆蓋（8家×約7天≈56次FinMind呼叫，成本很小）。
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/backfill_broker_branch_tape.py" \
+    --universe-json "${ROOT}/reports/research/branch-footprint-screen/crash_thermometer_panel_universe.json" \
+    --start "$(date -v-7d '+%Y-%m-%d' 2>/dev/null || date -d '7 days ago' '+%Y-%m-%d')" \
+    --end "$(date '+%Y-%m-%d')" \
+    --force --fetch-workers 2 --delay 0.6 \
+    2>&1 | tee -a "${RUN_LOG}"
+  set -e
+
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/run_market_crash_thermometer_dashboard.py" \
+    --notify \
+    2>&1 | tee -a "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd crash-thermometer-daily 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${NOTIFY_PY}" ]]; then
+  set +e
+  "${NOTIFY_PY}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="大跌溫度計" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="大跌溫度計 dashboard 執行失敗，詳見 log" \
+    --env-flag="RUN_CRASH_THERMOMETER_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

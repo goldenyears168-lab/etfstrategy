@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 週一至五 20:35 · 處置股專家池跟單觀測 · email · 不下單
+# 知識庫：reports/research/branch-footprint-screen/second_disp_top30_l1h7/處置股專家池跟單策略.md
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${ROOT}/logs/second_disp_expert_pool_watch_${STAMP}.log"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd second-disp-expert-pool-watch 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
+PYTHON="${ROOT}/.venv/bin/python"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${ROOT}/.env"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/run_second_disp_expert_pool_watch.py" \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd second-disp-expert-pool-watch 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="處置股專家池" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="處置股專家池觀測失敗，詳見 log" \
+    --env-flag="RUN_SECOND_DISP_EXPERT_POOL_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 專家池漏斗閘門 · gap→09:05→09:25（config/order.yaml expert_pool_staged_gate）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday" "${APP_SUPPORT}"
+
+WD="$(date '+%u')"
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+
+LOCKDIR="${APP_SUPPORT}/expert-pool-staged-gate.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 900 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous expert-pool-staged-gate still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${ROOT}/logs/intraday/expert_pool_staged_gate_${STAMP}.log"
+
+echo ""
+echo "=== launchd expert-pool-staged-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
+export RUN_EP_STAGED_GATE="${RUN_EP_STAGED_GATE:-1}"
+export ORDER_EP_STAGED_GATE_ENABLED="${ORDER_EP_STAGED_GATE_ENABLED:-1}"
+export ORDER_EP_STAGED_GATE_DRY_RUN="${ORDER_EP_STAGED_GATE_DRY_RUN:-1}"
+
+if [[ "${RUN_EP_STAGED_GATE}" != "1" ]]; then
+  echo "skip: RUN_EP_STAGED_GATE=${RUN_EP_STAGED_GATE}"
+  exit 0
+fi
+
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv-fubon python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_expert_pool_staged_gate.py" 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd expert-pool-staged-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+  echo "${OUT}"
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+
+if echo "${OUT}" | grep -qE '"status": "(bought|dry_run_buy|skipped|wait_05|wait_25|cancelled_unfilled|filled_or_done)"'; then
+  EXTRA_LINES="$(echo "${OUT}" | grep -E 'EP_STAGED_GATE|job_id|decision|gap_pct|"symbol"' || true)"
+  EXTRA=$'專家池漏斗閘門（gap／05／25）\n'"${EXTRA_LINES}"$'\n'
+  set +e
+  "${ROOT}/.venv/bin/python" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="Expert-pool staged gate" \
+    --exit-code="${EXIT}" \
+    --log-path="${ROOT}/logs/intraday/launchd_expert-pool-staged-gate.log" \
+    --extra="${EXTRA}" \
+    --env-flag="ORDER_EP_STAGED_GATE_SUBMIT_EMAIL"
+  set -e
+fi
+
+END_LINE="=== launchd expert-pool-staged-gate end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "${END_LINE}" >>"${TICK_LOG}"
+echo "${END_LINE}"
+exit "${EXIT}"

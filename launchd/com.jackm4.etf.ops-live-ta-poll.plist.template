@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.ops-live-ta-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{OPS_LIVE_TA_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>OPS_LIVE_TA_STOCKS</key>
+		<string>2492:華新科</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 每 45 秒；實際窗由 .command 過濾 -->
+	<key>StartInterval</key>
+	<integer>45</integer>
+	<key>ExitTimeOut</key>
+	<integer>120</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-live-ta-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-live-ta-poll.launchd.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

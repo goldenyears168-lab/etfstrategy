@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# Detach Gate（台美脫鉤閘門）· 內嵌 Python（不 exec Documents 內 .command）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday"
+
+WD="$(date '+%u')"
+H=$((10#$(date '+%H')))
+M=$((10#$(date '+%M')))
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+# Arm window 09:40–12:30 inclusive on 5m grid
+if [[ "${H}" -lt 9 ]] || [[ "${H}" -gt 12 ]]; then
+  exit 0
+fi
+if [[ "${H}" -eq 9 && "${M}" -lt 40 ]]; then
+  exit 0
+fi
+if [[ "${H}" -eq 12 && "${M}" -gt 30 ]]; then
+  exit 0
+fi
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${ROOT}/logs/intraday/detach_gate_${STAMP}.log"
+
+echo ""
+echo "=== launchd detach-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
+export RUN_DETACH_GATE="${RUN_DETACH_GATE:-1}"
+export RUN_DETACH_GATE_EMAIL="${RUN_DETACH_GATE_EMAIL:-1}"
+export ORDER_DETACH_GATE_DRY_RUN="${ORDER_DETACH_GATE_DRY_RUN:-1}"
+export ORDER_DETACH_GATE_ORDER_ENABLED="${ORDER_DETACH_GATE_ORDER_ENABLED:-1}"
+export ORDER_DETACH_GATE_AUTO_SUBMIT="${ORDER_DETACH_GATE_AUTO_SUBMIT:-1}"
+
+if [[ "${RUN_DETACH_GATE}" != "1" ]]; then
+  echo "skip: RUN_DETACH_GATE=${RUN_DETACH_GATE}"
+  exit 0
+fi
+
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_detach_gate_poll.py" 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd detach-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+  echo "${OUT}"
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+
+# Notify on first RED and/or first order attempt（job_notify · once per latch）
+if echo "${OUT}" | grep -qE 'DETACH_GATE_SIGNAL=1|DETACH_GATE_ORDER=1'; then
+  EXTRA_LINES="$(echo "${OUT}" | grep -E 'DETACH_GATE_|level=|RED|dry_run|sell=' || true)"
+  EXTRA=$'Detach Gate（台美脫鉤閘門）· RED / 半倉下單\n'"${EXTRA_LINES}"$'\n'
+  for rel in \
+    "reports/order/snapshots/us_tw_5m_sell_gate_latest.json" \
+    "reports/order/snapshots/detach_gate_orders_${STAMP}.json"; do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="Detach Gate" \
+    --exit-code="${EXIT}" \
+    --log-path="${TICK_LOG}" \
+    --extra="${EXTRA}" \
+    --env-flag="RUN_DETACH_GATE_EMAIL"
+  set -e
+fi
+
+END_LINE="=== launchd detach-gate end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "${END_LINE}" >>"${TICK_LOG}"
+echo "${END_LINE}"
+exit "${EXIT}"

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 限時限價單 · 09:05 送單 · timeout 後撤（見 config/order.yaml timed_limit_orders）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday" "${APP_SUPPORT}"
+
+WD="$(date '+%u')"
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+
+LOCKDIR="${APP_SUPPORT}/timed-limit-orders.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 900 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous timed-limit-orders still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${ROOT}/logs/intraday/timed_limit_orders_${STAMP}.log"
+
+echo ""
+echo "=== launchd timed-limit-orders tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
+export RUN_TIMED_LIMIT_ORDERS="${RUN_TIMED_LIMIT_ORDERS:-1}"
+export ORDER_TIMED_LIMIT_DRY_RUN="${ORDER_TIMED_LIMIT_DRY_RUN:-1}"
+export ORDER_TIMED_LIMIT_SUBMIT_EMAIL="${ORDER_TIMED_LIMIT_SUBMIT_EMAIL:-1}"
+
+if [[ "${RUN_TIMED_LIMIT_ORDERS}" != "1" ]]; then
+  echo "skip: RUN_TIMED_LIMIT_ORDERS=${RUN_TIMED_LIMIT_ORDERS}"
+  exit 0
+fi
+
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv-fubon python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_timed_limit_orders.py" 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd timed-limit-orders tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+  echo "${OUT}"
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+
+END_LINE="=== launchd timed-limit-orders end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "${END_LINE}" >>"${TICK_LOG}"
+echo "${END_LINE}"
+exit "${EXIT}"

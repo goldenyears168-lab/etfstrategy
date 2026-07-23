@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 跟單松山 Order · 五日累積淨比95 ∩ !mega + entry_25m_nonfail · 買 1 張
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday" "${APP_SUPPORT}"
+
+WD="$(date '+%u')"
+H=$((10#$(date '+%H')))
+M=$((10#$(date '+%M')))
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+# 09:25–09:40 inclusive on 5m grid
+if [[ "${H}" -ne 9 ]]; then
+  exit 0
+fi
+if [[ "${M}" -lt 25 || "${M}" -gt 40 ]]; then
+  exit 0
+fi
+
+LOCKDIR="${APP_SUPPORT}/songshan-copytrade-poll.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 240 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous songshan-copytrade-poll still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${ROOT}/logs/intraday/songshan_copytrade_${STAMP}.log"
+
+echo ""
+echo "=== launchd songshan-copytrade-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
+export RUN_SONGSHAN_COPYTRADE_POLL="${RUN_SONGSHAN_COPYTRADE_POLL:-1}"
+export ORDER_SONGSHAN_COPYTRADE_ENABLED="${ORDER_SONGSHAN_COPYTRADE_ENABLED:-1}"
+export ORDER_SONGSHAN_COPYTRADE_DRY_RUN="${ORDER_SONGSHAN_COPYTRADE_DRY_RUN:-1}"
+export ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT="${ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT:-0}"
+
+if [[ "${RUN_SONGSHAN_COPYTRADE_POLL}" != "1" ]]; then
+  echo "skip: RUN_SONGSHAN_COPYTRADE_POLL=${RUN_SONGSHAN_COPYTRADE_POLL}"
+  exit 0
+fi
+
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv-fubon python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_songshan_copytrade_poll.py" 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd songshan-copytrade-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+  echo "${OUT}"
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+
+if echo "${OUT}" | grep -qE 'SONGSHAN_COPYTRADE_ENTRY=1|SONGSHAN_COPYTRADE_FAIL_SKIP=1'; then
+  EXTRA_LINES="$(echo "${OUT}" | grep -E 'SONGSHAN_COPYTRADE_|status=|"symbol"' || true)"
+  EXTRA=$'跟單松山（五日累積淨比95 ∩ !mega + 25m nonfail）· 活動\n'"${EXTRA_LINES}"$'\n'
+  for rel in \
+    "reports/order/snapshots/songshan_copytrade_latest.json" \
+    "reports/order/snapshots/songshan_copytrade_${STAMP}.json"; do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${ROOT}/.venv/bin/python" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="Songshan copytrade poll" \
+    --exit-code="${EXIT}" \
+    --log-path="${ROOT}/logs/intraday/launchd_songshan-copytrade-poll.log" \
+    --extra="${EXTRA}" \
+    --env-flag="ORDER_SONGSHAN_COPYTRADE_SUBMIT_EMAIL"
+  set -e
+fi
+
+END_LINE="=== launchd songshan-copytrade-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "${END_LINE}" >>"${TICK_LOG}"
+echo "${END_LINE}"
+exit "${EXIT}"

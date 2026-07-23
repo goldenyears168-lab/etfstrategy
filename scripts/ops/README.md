@@ -21,10 +21,11 @@
 > **Live 排程 SSOT**：[deploy/mac-mini/MIGRATION_PLAN.md §0](../../deploy/mac-mini/MIGRATION_PLAN.md)（時間／開關以該文為準）。
 
 - 盤中 Order／觀測：`rrg-c18acc-poll`（live）· `leading-dip-poll`（live）· `songshan-copytrade-poll`（live）· `timed-limit-orders`（live once）· `expert-pool-staged-gate`（live）· `detach-gate`（RED 只寄信 · `ORDER_ENABLED=0`）· `buy-signal-radar`／`sell-signal-radar`（不送單）
-- 晨間／夜間（不下單）：`crash-thermometer-daily` 09:00 · `branch-tape-prewarm` 18:30 · `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35
+- 晨間／夜間（不下單）：`crash-thermometer-daily` 09:00 · `branch-tape-prewarm` 18:30 · `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35 · `ops-console-evening-sync` 20:40
+- 盤中 ops：`ops-live-ta-poll`（08:50–13:35 · 45s）
 - 另有 `order-wake`（`install-order-launchd.sh` · 防睡眠）
 
-夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬（淺色 HTML · `scripts/order/run_holdings_branch_sell_monitor.py` · 不下單）。
+夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬（淺色 HTML · `scripts/order/run_holdings_branch_sell_monitor.py` · 不下單）；`ops-console-evening-sync`＝20:40 把 watch／risk／thermo／branches／today + sleeve + holdings 寫入 Supabase `ops.*`。
 
 ## Python · daily
 
@@ -46,15 +47,19 @@
 
 前端：https://haoshi-quant-ops.pages.dev · 封存索引見 [`archives/PUBLIC_SITE_RETIRED.md`](../../archives/PUBLIC_SITE_RETIRED.md)。
 
-| 腳本 | 用途 | mini 建議 |
+| 腳本 | 用途 | mini 自動 |
 |------|------|-----------|
-| `scripts/order/run_ops_live_ta_poll.py` | 處置 ~20分撮合狀態 → `ops.live_ta` | launchd 模板 `ops-live-ta-poll`（45s） |
-| `scripts/order/run_ops_holdings_sync.py` | 富邦持倉 → `ops.holdings` | `.venv-fubon` · 手動／晨間 |
-| `scripts/order/write_ops_digest_from_file.py` | 檔案／正文 → `ops.digests` | 並行上牆 |
-| `scripts/order/write_ops_sleeve_status.py` | `order.yaml`+env → `ops.sleeve_status` | 開盤前一次 |
-| `scripts/order/write_ops_console_snapshot.py` | watch／risk／thermo／branches／today → `ops.snapshots` | 手動 one-shot（無 Book launchd） |
-| `scripts/notify_job_result.py` | email **且**（`RUN_OPS_DIGEST_SYNC=1`）寫 `ops.digests` | 既有 job_notify |
+| `scripts/order/run_ops_live_ta_poll.py` | 處置 ~20分撮合狀態 → `ops.live_ta` | `com.jackm4.etf.ops-live-ta-poll`（08:50–13:35 · 45s） |
+| `scripts/order/write_ops_console_snapshot.py` | watch／risk／thermo／branches／today → `ops.snapshots`（可 `--also-digest`） | `com.jackm4.etf.ops-console-evening-sync`（20:40） |
+| `scripts/order/write_ops_sleeve_status.py` | `order.yaml`+env → `ops.sleeve_status` | 同上 20:40 |
+| `scripts/order/run_ops_holdings_sync.py` | 富邦持倉 → `ops.holdings` | 同上 20:40（`.venv-fubon`） |
+| `src/notify_email.send_alert` / `scripts/notify_job_result.py` | email **且**（`RUN_OPS_DIGEST_SYNC=1`，預設開）寫 `ops.digests` | 夜間／晨間 email jobs 並行上牆 |
+| `scripts/order/write_ops_digest_from_file.py` | 檔案／正文 → `ops.digests` | 手動／補檔 |
 
-Helpers：`src/ops_console_sync.py` · `src/ops_live_ta.py`。勿在 Book 安裝 live launchd。
+Helpers：`src/ops_console_sync.py` · `src/ops_console_snapshots.py` · `src/ops_live_ta.py`。
+
+**環境**：mini `.env` 須有 `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`；`RUN_OPS_DIGEST_SYNC=1`（launchd `ops-console-evening-sync` plist 亦硬設 1）。勿在 Book 安裝 live Order／ops launchd。
+
+**明日自檢（不必手動 backfill）**：`launchctl list | grep ops-console` 有 label；站上 Inbox／Today／Watch／Risk／Thermo／Holdings 的 asof 為當日；盤中 Live 頁跟 `ops-live-ta-poll`。
 
 寫入走 `public.ops_*` view（PostgREST 未 expose `ops` schema）· DB 有 INSTEAD OF trigger 轉入 `ops.*`。

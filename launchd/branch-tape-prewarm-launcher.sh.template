@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 週一至五 18:30 · 分點 tape 補檔（POOLS ∪ 富邦持倉）· 不下單
+#
+# 目的：讓 20:00 起的專家池／持倉賣方監控排程改用 --no-refresh 純讀 DB，
+# 不用各自重複打 FinMind。補檔異常（真的出錯，或當日 0 筆股票過半）
+# 由本腳本自己寄信；一般執行失敗（venv 缺失等）走下方 job_notify 保險。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${ROOT}/logs/branch_tape_prewarm_${STAMP}.log"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd branch-tape-prewarm 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research:${ROOT}/scripts/order"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${ROOT}/.env"
+
+# 富邦 inventory 需 .venv-fubon
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+NOTIFY_PY="${ROOT}/.venv/bin/python"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv-fubon python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/order/run_branch_tape_prewarm.py" \
+    --refresh-days 2 \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd branch-tape-prewarm 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${NOTIFY_PY}" ]]; then
+  set +e
+  "${NOTIFY_PY}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="分點補檔" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="分點 tape 補檔失敗，詳見 log" \
+    --env-flag="RUN_BRANCH_TAPE_PREWARM_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.ops-console-evening-sync</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{OPS_CONSOLE_EVENING_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>PYTHONPATH</key>
+		<string>{{PROJECT_ROOT}}/src</string>
+		<key>RUN_OPS_DIGEST_SYNC</key>
+		<string>1</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>1</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>40</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>2</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>40</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>3</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>40</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>4</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>40</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>5</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>40</integer>
+		</dict>
+	</array>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_ops-console-evening-sync.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_ops-console-evening-sync.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

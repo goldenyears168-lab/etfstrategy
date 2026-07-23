@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# Leading Dip Order poll · 內嵌 Python（不 exec Documents 內 .command）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${ROOT}/logs/intraday" "${APP_SUPPORT}"
+
+WD="$(date '+%u')"
+H=$((10#$(date '+%H')))
+M=$((10#$(date '+%M')))
+if [[ "${WD}" -gt 5 ]]; then
+  exit 0
+fi
+# 09:05–13:25 inclusive on 5m grid
+if [[ "${H}" -lt 9 ]] || [[ "${H}" -gt 13 ]]; then
+  exit 0
+fi
+if [[ "${H}" -eq 9 && "${M}" -lt 5 ]]; then
+  exit 0
+fi
+if [[ "${H}" -eq 13 && "${M}" -gt 25 ]]; then
+  exit 0
+fi
+
+# Presync 可超過 5 分；避免重疊 tick 疊加 Yahoo（macOS 無 flock → mkdir 鎖）
+LOCKDIR="${APP_SUPPORT}/leading-dip-poll.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 720 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous leading-dip-poll still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${ROOT}/logs/intraday/leading_dip_${STAMP}.log"
+
+echo ""
+echo "=== launchd leading-dip-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
+export RUN_LEADING_DIP_POLL="${RUN_LEADING_DIP_POLL:-1}"
+export RUN_LEADING_DIP_SUBMIT_EMAIL="${RUN_LEADING_DIP_SUBMIT_EMAIL:-1}"
+export ORDER_LEADING_DIP_ORDER_ENABLED="${ORDER_LEADING_DIP_ORDER_ENABLED:-1}"
+export ORDER_LEADING_DIP_DRY_RUN="${ORDER_LEADING_DIP_DRY_RUN:-1}"
+export ORDER_LEADING_DIP_AUTO_SUBMIT="${ORDER_LEADING_DIP_AUTO_SUBMIT:-0}"
+export ORDER_LEADING_DIP_EXCLUDE_C18ACC="${ORDER_LEADING_DIP_EXCLUDE_C18ACC:-1}"
+export ORDER_LEADING_DIP_EXCLUDE_ABC_LEDGER="${ORDER_LEADING_DIP_EXCLUDE_ABC_LEDGER:-1}"
+
+if [[ "${RUN_LEADING_DIP_POLL}" != "1" ]]; then
+  echo "skip: RUN_LEADING_DIP_POLL=${RUN_LEADING_DIP_POLL}"
+  exit 0
+fi
+
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_leading_dip_poll.py" 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd leading-dip-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
+  echo "${OUT}"
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+
+# Notify on entry/exit activity
+if echo "${OUT}" | grep -qE 'LEADING_DIP_ENTRY=1|LEADING_DIP_EXIT=1'; then
+  EXTRA_LINES="$(echo "${OUT}" | grep -E 'LEADING_DIP_|status=|open=|picks=|entries=|exits=' || true)"
+  EXTRA=$'Leading Dip（下單層獨立袖套）· 進／出場活動\n'"${EXTRA_LINES}"$'\n'
+  for rel in \
+    "reports/order/snapshots/leading_dip_latest.json" \
+    "reports/order/snapshots/leading_dip_${STAMP}.json"; do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="Leading Dip poll" \
+    --exit-code="${EXIT}" \
+    --log-path="${ROOT}/logs/intraday/launchd_leading-dip-poll.log" \
+    --extra="${EXTRA}" \
+    --env-flag="RUN_LEADING_DIP_SUBMIT_EMAIL"
+  set -e
+fi
+
+END_LINE="=== launchd leading-dip-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "${END_LINE}" >>"${TICK_LOG}"
+echo "${END_LINE}"
+exit "${EXIT}"

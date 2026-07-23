@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.detach-gate</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{DETACH_GATE_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>detach-gate</string>
+		<key>RUN_DETACH_GATE</key>
+		<string>1</string>
+		<key>RUN_DETACH_GATE_EMAIL</key>
+		<string>1</string>
+		<key>ORDER_DETACH_GATE_DRY_RUN</key>
+		<string>1</string>
+		<key>ORDER_DETACH_GATE_ORDER_ENABLED</key>
+		<string>1</string>
+		<key>ORDER_DETACH_GATE_AUTO_SUBMIT</key>
+		<string>1</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- Mon–Fri 09:40–12:30 每 5 分鐘 Asia/Taipei -->
+{{DETACH_GATE_CALENDAR_INTERVALS}}
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/detach-gate.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/detach-gate.launchd.err.log</string>
+	<key>ExitTimeOut</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

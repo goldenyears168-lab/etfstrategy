@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.songshan-copytrade-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{SONGSHAN_COPYTRADE_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>songshan-copytrade-poll</string>
+		<key>RUN_SONGSHAN_COPYTRADE_POLL</key>
+		<string>1</string>
+		<key>ORDER_SONGSHAN_COPYTRADE_ENABLED</key>
+		<string>1</string>
+		<!-- Safe defaults; .env / order.env override live -->
+		<key>ORDER_SONGSHAN_COPYTRADE_DRY_RUN</key>
+		<string>1</string>
+		<key>ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT</key>
+		<string>0</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 鐘面每 5 分；實際窗 09:25–09:40 由 launcher 過濾 -->
+{{SONGSHAN_COPYTRADE_CALENDAR_INTERVALS}}
+	<key>ExitTimeOut</key>
+	<integer>300</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/songshan-copytrade-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/songshan-copytrade-poll.launchd.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.leading-dip-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{LEADING_DIP_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>leading-dip-poll</string>
+		<key>RUN_LEADING_DIP_POLL</key>
+		<string>1</string>
+		<key>RUN_LEADING_DIP_SUBMIT_EMAIL</key>
+		<string>1</string>
+		<key>ORDER_LEADING_DIP_ORDER_ENABLED</key>
+		<string>1</string>
+		<!-- Safe defaults in plist; .env / order.env can override live -->
+		<key>ORDER_LEADING_DIP_DRY_RUN</key>
+		<string>1</string>
+		<key>ORDER_LEADING_DIP_AUTO_SUBMIT</key>
+		<string>0</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 鐘面每 5 分；實際窗 09:05–13:25 由 launcher 過濾 -->
+{{LEADING_DIP_CALENDAR_INTERVALS}}
+	<!-- Yahoo presync 可 >1 分；避免預設 ExitTimeOut=5 誤殺 -->
+	<key>ExitTimeOut</key>
+	<integer>900</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/leading-dip-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/leading-dip-poll.launchd.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

@@ -17,13 +17,24 @@ AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 
+# 研究層 collect job（fubon-premarket/fubon-intraday-quote-collect · pre-market-auction-collect）刻意不在此陣列：plist 佔位符無 launcher template，安裝方式見各 scripts/launchd/*collect*.command 檔頭（一次性手動 sed + bootstrap）。
 LABELS=(
   com.jackm4.etf.rrg-c18acc-poll
   com.jackm4.etf.buy-signal-radar
   com.jackm4.etf.sell-signal-radar
   com.jackm4.etf.detach-gate
   com.jackm4.etf.leading-dip-poll
+  com.jackm4.etf.songshan-copytrade-poll
+  com.jackm4.etf.timed-limit-orders
+  com.jackm4.etf.expert-pool-staged-gate
   com.jackm4.etf.winbond-expert-pool-watch
+  com.jackm4.etf.second-disp-expert-pool-watch
+  com.jackm4.etf.expert-pool-chart-digest
+  com.jackm4.etf.holdings-branch-sell-monitor
+  com.jackm4.etf.branch-tape-prewarm
+  com.jackm4.etf.crash-thermometer-daily
+  com.jackm4.etf.ops-live-ta-poll
+  com.jackm4.etf.ops-console-evening-sync
 )
 
 TEMPLATES=(
@@ -32,7 +43,17 @@ TEMPLATES=(
   com.jackm4.etf.sell-signal-radar.plist.template
   com.jackm4.etf.detach-gate.plist.template
   com.jackm4.etf.leading-dip-poll.plist.template
+  com.jackm4.etf.songshan-copytrade-poll.plist.template
+  com.jackm4.etf.timed-limit-orders.plist.template
+  com.jackm4.etf.expert-pool-staged-gate.plist.template
   com.jackm4.etf.winbond-expert-pool-watch.plist.template
+  com.jackm4.etf.second-disp-expert-pool-watch.plist.template
+  com.jackm4.etf.expert-pool-chart-digest.plist.template
+  com.jackm4.etf.holdings-branch-sell-monitor.plist.template
+  com.jackm4.etf.branch-tape-prewarm.plist.template
+  com.jackm4.etf.crash-thermometer-daily.plist.template
+  com.jackm4.etf.ops-live-ta-poll.plist.template
+  com.jackm4.etf.ops-console-evening-sync.plist.template
 )
 
 usage() {
@@ -42,15 +63,26 @@ usage() {
   預設：將 launchd/*.plist.template 渲染後安裝到
         ~/Library/LaunchAgents/ 並 launchctl load。
 
-  現行排程（Order layer · C18acc / Leading Dip；本地時間）：
+  現行排程（Order layer · C18acc / Leading Dip / Songshan；本地時間）：
     rrg-c18acc-poll         週一至五 09:00–13:30 每 5 分（C18acc swap · auto-submit）
     buy-signal-radar        週一至五 09:00–13:20 每 5 分（notify；ABC Order 已退役）
     sell-signal-radar       週一至五 09:06–13:20 每 5 分（extension 持倉賣出 advisory）
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
-    winbond-expert-pool-watch  週一至五 20:00（華邦電專家池共識 · 達標才寄信 · 不下單）
+    songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 1 張）
+    timed-limit-orders      週一至五 09:05（config timed_limit_orders · 逾時撤；6451 once_date）
+    expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
+    winbond-expert-pool-watch  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
+    second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
+    expert-pool-chart-digest   週一至五 20:05（專家池達標 HTML 圖文 · 無達標不寄 · 不下單）
+    holdings-branch-sell-monitor  週一至五 20:10（富邦持倉×專家分點淨賣預警 · 不下單）
+    branch-tape-prewarm        週一至五 18:30（分點 tape 補檔 POOLS∪持倉 · 讓 20:00 起純讀 DB · 不下單）
+    crash-thermometer-daily    週一至五 09:00（大跌溫度計 · 加權8家+共識 · email · 不下單）
+    ops-live-ta-poll           週一至五 08:50–13:35 每 45 秒（處置 Live TA → ops.live_ta · 不下單）
+    ops-console-evening-sync   週一至五 20:40（ops.snapshots／sleeve／holdings 上牆 · 不下單）
 
   已退役（不再安裝；手動仍可用 scripts/launchd/*.command 或 1630收盤雷達）：
+    specialty-expert-pool-watch（已併入 winbond-expert-pool-watch 統一入口）·
     morning-holdings-brief（2026-07-16 退役 · 手動仍可用 scripts/order/morning_holdings_brief.py）·
     ABC v3+f1 Order（buy-radar 不再送單）·
     intraday-exit-gate（結構停損閘門 · 已退回 Research）·
@@ -74,7 +106,17 @@ LAUNCHD_COMMANDS=(
   sell-signal-radar
   detach-gate
   leading-dip-poll
+  songshan-copytrade-poll
+  timed-limit-orders
+  expert-pool-staged-gate
   winbond-expert-pool-watch
+  second-disp-expert-pool-watch
+  expert-pool-chart-digest
+  holdings-branch-sell-monitor
+  branch-tape-prewarm
+  crash-thermometer-daily
+  ops-live-ta-poll
+  ops-console-evening-sync
 )
 
 ensure_launchd_commands() {
@@ -155,6 +197,7 @@ RETIRED_LABELS=(
   com.jackm4.etf.vcp-funnel-specs
   com.jackm4.etf.minervini-sepa-basket
   com.jackm4.etf.intraday-exit-gate
+  com.jackm4.etf.specialty-expert-pool-watch
 )
 
 uninstall_retired_agents() {
@@ -208,6 +251,12 @@ generate_leading_dip_calendar_intervals() {
   local out="/tmp/com.jackm4.etf.leading-dip-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   LEADING_DIP_CALENDAR_INTERVALS_FILE="${out}"
+}
+
+generate_songshan_copytrade_calendar_intervals() {
+  local out="/tmp/com.jackm4.etf.songshan-copytrade-calendar.xml"
+  generate_five_minute_clock_calendar "${out}"
+  SONGSHAN_COPYTRADE_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_extension_calendar_intervals() {
@@ -304,6 +353,9 @@ render_template() {
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
+        -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
+        -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
+        -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -319,6 +371,20 @@ render_template() {
         "${template}" \
       | sed "/{{LEADING_DIP_CALENDAR_INTERVALS}}/r ${LEADING_DIP_CALENDAR_INTERVALS_FILE}" \
       | sed '/{{LEADING_DIP_CALENDAR_INTERVALS}}/d' \
+      >"${dest}"
+    return
+  fi
+  if grep -q '{{SONGSHAN_COPYTRADE_CALENDAR_INTERVALS}}' "${template}"; then
+    generate_songshan_copytrade_calendar_intervals
+    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
+        -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
+        -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
+        -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
+        "${template}" \
+      | sed "/{{SONGSHAN_COPYTRADE_CALENDAR_INTERVALS}}/r ${SONGSHAN_COPYTRADE_CALENDAR_INTERVALS_FILE}" \
+      | sed '/{{SONGSHAN_COPYTRADE_CALENDAR_INTERVALS}}/d' \
       >"${dest}"
     return
   fi
@@ -379,7 +445,17 @@ render_template() {
       -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
+      -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
+      -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
+      -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
       -e "s|{{WINBOND_EXPERT_LAUNCHER}}|${WINBOND_EXPERT_LAUNCHER}|g" \
+      -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
+      -e "s|{{EXPERT_POOL_CHART_LAUNCHER}}|${EXPERT_POOL_CHART_LAUNCHER}|g" \
+      -e "s|{{HOLDINGS_BRANCH_SELL_LAUNCHER}}|${HOLDINGS_BRANCH_SELL_LAUNCHER}|g" \
+      -e "s|{{BRANCH_TAPE_PREWARM_LAUNCHER}}|${BRANCH_TAPE_PREWARM_LAUNCHER}|g" \
+      -e "s|{{CRASH_THERMOMETER_LAUNCHER}}|${CRASH_THERMOMETER_LAUNCHER}|g" \
+      -e "s|{{OPS_LIVE_TA_LAUNCHER}}|${OPS_LIVE_TA_LAUNCHER}|g" \
+      -e "s|{{OPS_CONSOLE_EVENING_LAUNCHER}}|${OPS_CONSOLE_EVENING_LAUNCHER}|g" \
       -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
       -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
       -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -406,7 +482,7 @@ sync_order_env_mirror() {
     echo "# Whitelist only · no passwords / cert paths"
     if [[ -f "${src_env}" ]]; then
       # shellcheck disable=SC2016
-      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|RUN_LEADING_DIP_|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
+      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_TIMED_LIMIT_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_TIMED_LIMIT_|RUN_EP_STAGED_GATE|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
         "${src_env}" 2>/dev/null \
         | grep -Eiv '(PASSWORD|SECRET|TOKEN|CERT|KEY|PIN)=' || true
     fi
@@ -495,6 +571,48 @@ install_leading_dip_launcher() {
   chmod +x "${LEADING_DIP_LAUNCHER}"
 }
 
+install_songshan_copytrade_launcher() {
+  local src="${LAUNCHD_SRC}/songshan-copytrade-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  SONGSHAN_COPYTRADE_LAUNCHER="${app_support}/songshan-copytrade-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${SONGSHAN_COPYTRADE_LAUNCHER}"
+  chmod +x "${SONGSHAN_COPYTRADE_LAUNCHER}"
+}
+
+install_timed_limit_launcher() {
+  local src="${LAUNCHD_SRC}/timed-limit-orders-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  TIMED_LIMIT_LAUNCHER="${app_support}/timed-limit-orders.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${TIMED_LIMIT_LAUNCHER}"
+  chmod +x "${TIMED_LIMIT_LAUNCHER}"
+}
+
+install_ep_staged_gate_launcher() {
+  local src="${LAUNCHD_SRC}/expert-pool-staged-gate-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  EP_STAGED_GATE_LAUNCHER="${app_support}/expert-pool-staged-gate.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${EP_STAGED_GATE_LAUNCHER}"
+  chmod +x "${EP_STAGED_GATE_LAUNCHER}"
+}
+
 install_winbond_expert_launcher() {
   local src="${LAUNCHD_SRC}/winbond-expert-pool-watch-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
@@ -506,6 +624,97 @@ install_winbond_expert_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${WINBOND_EXPERT_LAUNCHER}"
   chmod +x "${WINBOND_EXPERT_LAUNCHER}"
+}
+
+install_second_disp_expert_launcher() {
+  local src="${LAUNCHD_SRC}/second-disp-expert-pool-watch-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  SECOND_DISP_EXPERT_LAUNCHER="${app_support}/second-disp-expert-pool-watch.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${SECOND_DISP_EXPERT_LAUNCHER}"
+  chmod +x "${SECOND_DISP_EXPERT_LAUNCHER}"
+}
+
+install_expert_pool_chart_launcher() {
+  local src="${LAUNCHD_SRC}/expert-pool-chart-digest-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  EXPERT_POOL_CHART_LAUNCHER="${app_support}/expert-pool-chart-digest.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${EXPERT_POOL_CHART_LAUNCHER}"
+  chmod +x "${EXPERT_POOL_CHART_LAUNCHER}"
+}
+
+install_holdings_branch_sell_launcher() {
+  local src="${LAUNCHD_SRC}/holdings-branch-sell-monitor-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  HOLDINGS_BRANCH_SELL_LAUNCHER="${app_support}/holdings-branch-sell-monitor.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${HOLDINGS_BRANCH_SELL_LAUNCHER}"
+  chmod +x "${HOLDINGS_BRANCH_SELL_LAUNCHER}"
+}
+
+install_branch_tape_prewarm_launcher() {
+  local src="${LAUNCHD_SRC}/branch-tape-prewarm-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  BRANCH_TAPE_PREWARM_LAUNCHER="${app_support}/branch-tape-prewarm.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${BRANCH_TAPE_PREWARM_LAUNCHER}"
+  chmod +x "${BRANCH_TAPE_PREWARM_LAUNCHER}"
+}
+
+install_crash_thermometer_launcher() {
+  local src="${LAUNCHD_SRC}/crash-thermometer-daily-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  CRASH_THERMOMETER_LAUNCHER="${app_support}/crash-thermometer-daily.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${CRASH_THERMOMETER_LAUNCHER}"
+  chmod +x "${CRASH_THERMOMETER_LAUNCHER}"
+}
+
+install_ops_live_ta_launcher() {
+  local src="${LAUNCHD_SRC}/ops-live-ta-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  OPS_LIVE_TA_LAUNCHER="${app_support}/ops-live-ta-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${OPS_LIVE_TA_LAUNCHER}"
+  chmod +x "${OPS_LIVE_TA_LAUNCHER}"
+}
+
+install_ops_console_evening_launcher() {
+  local src="${LAUNCHD_SRC}/ops-console-evening-sync-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  OPS_CONSOLE_EVENING_LAUNCHER="${app_support}/ops-console-evening-sync.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${OPS_CONSOLE_EVENING_LAUNCHER}"
+  chmod +x "${OPS_CONSOLE_EVENING_LAUNCHER}"
 }
 
 install_evening_holdings_launcher() {
@@ -710,7 +919,17 @@ install_agents() {
   SELL_RADAR_LAUNCHER=""
   DETACH_GATE_LAUNCHER=""
   LEADING_DIP_LAUNCHER=""
+  SONGSHAN_COPYTRADE_LAUNCHER=""
+  TIMED_LIMIT_LAUNCHER=""
+  EP_STAGED_GATE_LAUNCHER=""
   WINBOND_EXPERT_LAUNCHER=""
+  SECOND_DISP_EXPERT_LAUNCHER=""
+  EXPERT_POOL_CHART_LAUNCHER=""
+  HOLDINGS_BRANCH_SELL_LAUNCHER=""
+  BRANCH_TAPE_PREWARM_LAUNCHER=""
+  CRASH_THERMOMETER_LAUNCHER=""
+  OPS_LIVE_TA_LAUNCHER=""
+  OPS_CONSOLE_EVENING_LAUNCHER=""
   EVENING_HOLDINGS_LAUNCHER=""
   MORNING_BRIEF_LAUNCHER=""
   INTRADAY_GATE_LAUNCHER=""
@@ -727,7 +946,18 @@ install_agents() {
   install_sell_radar_launcher
   install_detach_gate_launcher
   install_leading_dip_launcher
+  install_songshan_copytrade_launcher
+  install_timed_limit_launcher
+  install_ep_staged_gate_launcher
   install_winbond_expert_launcher
+  install_second_disp_expert_launcher
+  install_expert_pool_chart_launcher
+  install_holdings_branch_sell_launcher
+  install_branch_tape_prewarm_launcher
+  install_crash_thermometer_launcher
+  install_ops_live_ta_launcher
+  install_ops_console_evening_launcher
+  # specialty-expert-pool-watch retired 2026-07-20 · merged into winbond-expert-pool-watch
   # morning-holdings-brief retired 2026-07-16 · not installed
 
   echo "專案：${PROJECT_ROOT}"

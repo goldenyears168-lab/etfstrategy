@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 週一至五 20:05 · 專家池達標 HTML 圖文（K＋RRG）· 無達標不寄 · 不下單
+# 緊接 20:00 輕量 digest 之後；與 20:10 持倉賣方分開。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${ROOT}/logs/expert_pool_chart_digest_${STAMP}.log"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd expert-pool-chart-digest 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
+PYTHON="${ROOT}/.venv/bin/python"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${ROOT}/.env"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  # 僅最新 1 個交易日（與夜間 digest asof 對齊）；無達標則不寄
+  "${PYTHON}" "${ROOT}/scripts/research/send_expert_pool_chart_digest.py" \
+    --lookback-days 1 \
+    --skip-if-empty \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd expert-pool-chart-digest 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="專家池圖文" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="專家池達標 HTML digest 失敗，詳見 log" \
+    --env-flag="RUN_EXPERT_POOL_CHART_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

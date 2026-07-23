@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.timed-limit-orders</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{TIMED_LIMIT_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>timed-limit-orders</string>
+		<key>RUN_TIMED_LIMIT_ORDERS</key>
+		<string>1</string>
+		<!-- Safe defaults; .env / order.env override live for once_date jobs -->
+		<key>ORDER_TIMED_LIMIT_DRY_RUN</key>
+		<string>1</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 週一至五 09:05 · job timeout 可至 10m+ → ExitTimeOut 900 -->
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>1</integer>
+			<key>Hour</key><integer>9</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>2</integer>
+			<key>Hour</key><integer>9</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>3</integer>
+			<key>Hour</key><integer>9</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>4</integer>
+			<key>Hour</key><integer>9</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>5</integer>
+			<key>Hour</key><integer>9</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+	</array>
+	<key>ExitTimeOut</key>
+	<integer>900</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/timed-limit-orders.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/timed-limit-orders.launchd.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

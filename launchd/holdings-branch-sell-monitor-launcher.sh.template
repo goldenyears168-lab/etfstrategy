@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 週一至五 20:10 · 持倉專家／大戶分點淨賣預警 · 不下單
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${ROOT}/logs/holdings_branch_sell_${STAMP}.log"
+
+mkdir -p "${ROOT}/logs"
+
+echo ""
+echo "=== launchd holdings-branch-sell-monitor 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${ROOT}/.env"
+
+# 富邦 inventory 需 .venv-fubon；--no-refresh 純讀 DB
+# （18:30 branch-tape-prewarm 已補 POOLS∪持倉當日 tape，此處不再重複打 FinMind）
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+NOTIFY_PY="${ROOT}/.venv/bin/python"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv-fubon python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/order/run_holdings_branch_sell_monitor.py" \
+    --no-refresh --write \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd holdings-branch-sell-monitor 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${NOTIFY_PY}" ]]; then
+  set +e
+  "${NOTIFY_PY}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="持倉分點淨賣" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="持倉分點淨賣監控失敗，詳見 log" \
+    --env-flag="RUN_HOLDINGS_BRANCH_SELL_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"
