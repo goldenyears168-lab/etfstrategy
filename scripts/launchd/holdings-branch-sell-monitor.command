@@ -28,6 +28,8 @@ if [[ -r "${ROOT}/.env" ]]; then
 fi
 
 # --no-refresh 純讀 DB（18:30 branch-tape-prewarm 已補 POOLS∪持倉當日 tape）
+export RUN_OPS_DIGEST_SYNC="${RUN_OPS_DIGEST_SYNC:-1}"
+export RUN_ALERT_EMAIL=0
 PYTHON="${ROOT}/.venv-fubon/bin/python"
 EXIT=0
 if [[ ! -x "${PYTHON}" ]]; then

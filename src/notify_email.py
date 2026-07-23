@@ -143,11 +143,16 @@ def send_alert(
 ) -> None:
     """短訊息通知（Gmail SMTP 或 NOTIFY_WEBHOOK_URL）。
 
-    html_body / inline_images / to 僅走 SMTP；若同時設了 webhook 且需要圖文，改走 SMTP。
+    html_body / inline_images / to 僅走 SMTP；若同時設了 webhook 且需要圖文，改走 SMTP.
     When RUN_OPS_DIGEST_SYNC=1 and ops credentials exist, also upsert ops.digests
     (before SMTP so a mail failure can still leave an Inbox trail).
+
+    RUN_ALERT_EMAIL=0 → skip SMTP/webhook（仍可上牆）；用於夜間觀測波收斂成 20:40 一封摘要。
     """
     _maybe_ops_digest_alert(subject, body)
+    if _env("RUN_ALERT_EMAIL") in ("0", "false", "False"):
+        print(f"email skipped: RUN_ALERT_EMAIL=0 · subject={subject}")
+        return
     rich = bool(html_body or inline_images or to)
     if _env("NOTIFY_WEBHOOK_URL") and not rich:
         _webhook_send(subject, body, success=True)

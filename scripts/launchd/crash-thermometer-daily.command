@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # launchd / 手動：大跌溫度計（加權8家 + 共識家數）
-# 週一至五 09:00 · 通常 asof＝上一交易日（當日 bars/分點尚未齊）
-# 當日收盤後讀數：由 ops-console-evening-sync（20:40）重算＋寄信／上牆
-# email 每日（含正常讀數）· 不下單
+# 週一至五 09:00 · 通常 asof＝上一交易日（當日 bars/分點尚未齊）· **不寄信**
+# 當日收盤後讀數＋郵件：ops-console-evening-sync（20:40）重算＋夜間一封摘要
+# 不下單
 
 set -euo pipefail
 
@@ -47,8 +47,8 @@ else
   set -e
 
   set +e
+  # 晨間多半只有昨收資料；不寄信（當日讀數＋郵件改 20:40 evening sync）
   "${PYTHON}" "${ROOT}/scripts/research/run_market_crash_thermometer_dashboard.py" \
-    --notify \
     2>&1 | tee -a "${RUN_LOG}"
   EXIT=${PIPESTATUS[0]}
   set -e

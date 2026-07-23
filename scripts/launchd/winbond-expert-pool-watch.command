@@ -28,6 +28,8 @@ if [[ -r "${ROOT}/.env" ]]; then
   set -e
 fi
 export RUN_OPS_DIGEST_SYNC="${RUN_OPS_DIGEST_SYNC:-1}"
+# 夜間觀測波：細節只上牆，SMTP 收斂到 20:40 一封摘要（重大／RED 另寄）
+export RUN_ALERT_EMAIL=0
 
 EXIT=0
 if [[ ! -x "${PYTHON}" ]]; then

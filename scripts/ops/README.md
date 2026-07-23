@@ -25,19 +25,20 @@
 - `branch-tape-prewarm` — 分點 tape 補檔（POOLS∪持倉）
 
 #### 20:00–20:40 · 夜間觀測波（當日結論）
-- `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35 · `ops-console-evening-sync` **20:40**（重算當日溫度計＋上牆）
+- `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35 · `ops-console-evening-sync` **20:40**
+- **郵件政策（2026-07-23）**：20:00–20:35 設 `RUN_ALERT_EMAIL=0`（細節只上 Inbox）；**20:40 寄一封夜間摘要**（`send_ops_evening_summary.py`，含當日溫度計重算）。重大／Detach RED 仍即時另寄。
 
 #### 08:50–09:05 · 開盤前
-- `ops-live-ta-poll` 08:50 起 · `crash-thermometer-daily` 09:00（多半昨收）· Order 窗開啟
+- `ops-live-ta-poll` 08:50 起 · `crash-thermometer-daily` 09:00（多半昨收、**只算不寄**）· Order 窗開啟
 
 #### 盤中 · Order／觀測
 - live：`rrg-c18acc-poll` · `leading-dip-poll` · `songshan-copytrade-poll` · `timed-limit-orders` · `expert-pool-staged-gate`
-- 觀測：`detach-gate`（RED）· `buy/sell-signal-radar`（不下單）· `ops-live-ta-poll`
+- 觀測：`detach-gate`（RED 仍即時寄）· `buy/sell-signal-radar`（不下單）· `ops-live-ta-poll`
 - 另有 `order-wake`（`install-order-launchd.sh` · 防睡眠）
 
-夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬；`ops-console-evening-sync`＝20:40 **先重算大跌溫度計（當日 asof）再**上牆。
+夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬；`ops-console-evening-sync`＝20:40 重算大跌溫度計（當日 asof）→ snapshots／sleeve／holdings → `send_ops_evening_summary.py` 一封摘要。
 
-溫度計時序：09:00 多半**昨收**；**當日讀數以 20:40 為準**。
+溫度計時序：09:00 多半**昨收、不寄信**；**當日讀數＋郵件以 20:40 為準**。
 
 ## Python · daily
 

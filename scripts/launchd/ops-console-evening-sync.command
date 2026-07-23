@@ -30,6 +30,8 @@ fi
 
 # Digests parallel wall · default on if unset
 export RUN_OPS_DIGEST_SYNC="${RUN_OPS_DIGEST_SYNC:-1}"
+# 本 job 尾端會寄「夜間一封摘要」；過程中勿被 wave 的 RUN_ALERT_EMAIL=0 影響
+unset RUN_ALERT_EMAIL
 
 PY="${ROOT}/.venv/bin/python"
 PY_FUBON="${ROOT}/.venv-fubon/bin/python"
@@ -39,7 +41,7 @@ if [[ ! -x "${PY}" ]]; then
   echo "✗ missing venv python: ${PY}"
   EXIT=1
 else
-  # 09:00 溫度計常用「昨收」asof（當日 bars/分點尚未齊）。收盤後重算今日讀數並寄信／上牆。
+  # 09:00 溫度計常用「昨收」asof。收盤後重算今日讀數（不上個別信；併入夜間一封摘要）。
   set +e
   "${PY}" "${ROOT}/scripts/research/backfill_broker_branch_tape.py" \
     --universe-json "${ROOT}/reports/research/branch-footprint-screen/crash_thermometer_panel_universe.json" \
@@ -48,7 +50,6 @@ else
     --force --fetch-workers 2 --delay 0.6 \
     2>&1 | tee -a "${RUN_LOG}"
   "${PY}" "${ROOT}/scripts/research/run_market_crash_thermometer_dashboard.py" \
-    --notify \
     2>&1 | tee -a "${RUN_LOG}"
   rc_thermo=${PIPESTATUS[0]}
   set -e
@@ -89,6 +90,19 @@ else
   set -e
   if [[ "${rc}" -ne 0 ]]; then
     echo "✗ run_ops_holdings_sync exit=${rc}"
+    EXIT=1
+  fi
+fi
+
+# 夜間一封摘要（強制 SMTP；波段細節已上牆）
+if [[ -x "${PY}" ]]; then
+  set +e
+  "${PY}" "${ROOT}/scripts/order/send_ops_evening_summary.py" \
+    2>&1 | tee -a "${RUN_LOG}"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "✗ send_ops_evening_summary exit=${rc}"
     EXIT=1
   fi
 fi
