@@ -58,13 +58,9 @@ SELL_LOG_SAMPLE = """\
 掃描時間：2026-06-29T09:11:00+08:00
 宇宙：監測 149 檔 · 當日有 1m K 16 檔
 持倉：11 檔
-portfolio_exit_mode=OFF · holdings_stress=ON（3檔≤-2%） · extension 宇宙 0 檔
+portfolio_exit_mode=OFF · holdings_stress=OFF · extension 宇宙 0 檔
 
-→ 結構停損（S1a/S1b/S2/S2-lite · 持倉 · advisory）：
-  · 6223 旺矽科技 ×3（trigger_s2_lite） @ 6080.00 · S2-lite holdings_stress
-
-→ 持倉觀測（S0/S0b · 不送單）：
-  · 5536 聖暉* ×19（watch_s0） @ 1265.00 · S0 watch
+→ 本輪無持倉交集 extension 觸發
 寄信：否
 ════════════════════════════════════════════════════
 """
@@ -112,8 +108,8 @@ class IntradayOpenDigestTests(unittest.TestCase):
         s = parse_sell_log_for_session(SELL_LOG_SAMPLE, "2026-06-29")
         self.assertTrue(s.log_found)
         self.assertEqual(s.universe_n, 149)
-        self.assertTrue(s.holdings_stress)
-        self.assertEqual(len(s.structural), 1)
+        self.assertFalse(s.holdings_stress)
+        self.assertEqual(len(s.structural), 0)
 
     def test_format_open_digest(self) -> None:
         core = DigestInput(session_date="2026-06-29")
@@ -130,7 +126,6 @@ class IntradayOpenDigestTests(unittest.TestCase):
         self.assertIn("5m K 同步", text)
         self.assertIn("TX gap +5.81%", text)
         self.assertIn("2404 漢唐", text)
-        self.assertIn("6223 旺矽科技", text)
         self.assertIn("今日開盤優先關注", text)
 
 

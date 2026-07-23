@@ -69,10 +69,10 @@ fi
 run_site() {
   echo "=== [1/2] site_content ← supabase/site/*.md ==="
   if [[ -d "${ROOT}/supabase/site" ]]; then
-    "${PYTHON}" "${ROOT}/scripts/sync_site_content_to_supabase.py"
+    "${PYTHON}" "${ROOT}/scripts/tools/sync_site_content_to_supabase.py"
   else
     echo "本機無 supabase/site/ · 改從 git HEAD 推送"
-    "${PYTHON}" "${ROOT}/scripts/push_site_content_md.py"
+    "${PYTHON}" "${ROOT}/scripts/tools/push_site_content_md.py"
   fi
 }
 
@@ -82,13 +82,13 @@ run_highlight() {
   if [[ "${LATEST_ONLY}" -eq 1 ]]; then
     days=1
   fi
-  "${PYTHON}" "${ROOT}/scripts/backfill_stock_daily_lens.py" --days "${days}"
+  "${PYTHON}" "${ROOT}/scripts/tools/backfill_stock_daily_lens.py" --days "${days}"
 }
 
 FAILED=0
 
 echo "=== [0] uiCopy.generated.ts ← home_ui_copy.py + daily_ui_copy.py ==="
-"${PYTHON}" "${ROOT}/scripts/generate_readdy_ui_copy.py" || FAILED=1
+"${PYTHON}" "${ROOT}/scripts/tools/generate_readdy_ui_copy.py" || FAILED=1
 
 if [[ "${HIGHLIGHT_ONLY}" -eq 0 ]]; then
   run_site || FAILED=1

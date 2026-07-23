@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""持倉 RRG 位置圖 · 每檔一頁 PDF · 盤中 WMA20/5/3 三腿 + 評語 + 數據依據。
+"""持倉 RRG 位置圖 · 單頁 HTML · 盤中 WMA20/5/3 三腿 + 評語 + 持倉狀態。
 
-讀 holdings_pulse 匯出的精簡 JSON（持倉清單、下單當下現價），以 stock_daily_bars
+讀 holdings_pulse 匯出的精簡 JSON（帳戶／持倉狀態、現價），以 stock_daily_bars
 （finmind 日線）為歷史、以 JSON 內 current_price 合成「今日 provisional close」，
 再以 IX0001 基準（盤中 1m K；缺則沿用昨收）計算 JdK RS-Ratio / RS-Momentum。
 
 輸出：
-  1) 每檔一頁的 PDF（第 1 頁全持倉總覽 + 之後每檔一頁的三腿合併 RRG 圖 + 評語）。
+  1) 單檔 HTML（總覽圖 + 持倉狀態 + 每檔 RRG 圖／評語／持倉狀態）。
   2) RRG 數值 md 表（SSOT，可 grep 存查）。
 
 須以主環境 .venv 執行（含 pandas / matplotlib）；富邦 .venv-fubon 無這些套件。
@@ -19,10 +19,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import html
+import io
 import json
 import subprocess
 import sys
-import textwrap
 from datetime import date
 from pathlib import Path
 
@@ -31,7 +33,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -76,6 +77,36 @@ _LEG_COLOR = {20: "#1a237e", 5: "#ef6c00", 3: "#c62828"}
 _LEG_NAME = {20: "W20 長線", 5: "W5 中線", 3: "W3 短線"}
 _FALLBACK_COLOR = "#455a64"
 
+# Dark theme kept for optional dark surfaces; email digest uses light.
+_THEME_LIGHT = "light"
+_THEME_DARK = "dark"
+_DARK = {
+    "fig_bg": "#1a1b26",
+    "ax_bg": "#0f1419",
+    "label": "#a9b1d6",
+    "title": "#c0caf5",
+    "spine": "#3b4261",
+    "grid": "#1f2335",
+    "cross": "#565f89",
+    "caption": "#565f89",
+    "structure": "#7aa2f7",
+    "marker_edge": "#1a1b26",
+    "quad_bg": {
+        "leading": "#1a3a2a",
+        "weakening": "#3a3218",
+        "lagging": "#3a1a1a",
+        "improving": "#1a2740",
+    },
+    "quad_label": {
+        "leading": "#3dd68c",
+        "weakening": "#e0af68",
+        "lagging": "#f07178",
+        "improving": "#7aa2f7",
+    },
+    "leg": {20: "#7aa2f7", 5: "#e0af68", 3: "#f07178"},
+    "leg_fallback": "#a9b1d6",
+}
+
 # 評語嚴重度色（避免 emoji 在 CJK 字型缺字，改用 ● 前綴 + 文字色）
 _TAG_RED = "#c62828"
 _TAG_ORANGE = "#ef6c00"
@@ -83,7 +114,15 @@ _TAG_GREEN = "#2e7d32"
 _TAG_GREY = "#616161"
 
 
-def _leg_color(length: int) -> str:
+def _normalize_theme(theme: str | None = None, *, dark: bool = False) -> str:
+    if dark or theme in ("dark", "email"):
+        return _THEME_DARK
+    return _THEME_LIGHT
+
+
+def _leg_color(length: int, *, theme: str = _THEME_LIGHT) -> str:
+    if theme == _THEME_DARK:
+        return _DARK["leg"].get(length, _DARK["leg_fallback"])
     return _LEG_COLOR.get(length, _FALLBACK_COLOR)
 
 
@@ -102,7 +141,7 @@ def _caliber_desc(caliber: dict) -> str:
     if caliber.get("mode") == "close":
         return f"收盤口徑（截至 {caliber['panel_last']}）"
     if caliber.get("bench_intraday"):
-        return f"盤中 {caliber['poll_minute']}（基準：盤中1mK）"
+        return f"盤中 {caliber['poll_minute']}（基準：盤中5mK）"
     return f"盤中 {caliber['poll_minute']}（基準：⚠沿用昨收，相對值可能偏差）"
 
 
@@ -147,7 +186,7 @@ def _to_float(val: object) -> float | None:
 
 
 def _holding_exit_meta(h: dict) -> dict:
-    """從 pulse JSON 持倉列取出 exit playbook 摘要欄位。"""
+    """從 pulse JSON 取出結構／旗標欄位（md 表用；PDF 不再畫 playbook）。"""
     flags = h.get("structural_flags")
     if flags is None:
         flags = []
@@ -155,8 +194,6 @@ def _holding_exit_meta(h: dict) -> dict:
         flags = [str(flags)]
     return {
         "tier": str(h.get("structure_tier") or "").strip() or None,
-        "vcp_composite": _to_float(h.get("vcp_composite")),
-        "vcp_state": str(h.get("vcp_state") or "").strip() or None,
         "hold_days": h.get("hold_days"),
         "gate_2pct": _to_float(h.get("gate_2pct")),
         "trigger_s1b": _to_float(h.get("trigger_s1b")),
@@ -169,8 +206,80 @@ def _holding_exit_meta(h: dict) -> dict:
     }
 
 
+def _holding_account_fields(h: dict) -> dict:
+    """帳戶／持倉狀態欄位（與 fill email 【持倉狀態】對齊）。"""
+    cost = _to_float(h.get("cost_price"))
+    shares = int(h.get("shares") or 0)
+    cost_basis = (cost * shares) if cost is not None and shares else None
+    market_value = _to_float(h.get("market_value"))
+    if market_value is None:
+        px = _to_float(h.get("current_price"))
+        if px is not None and shares:
+            market_value = px * shares
+    return {
+        "shares": shares,
+        "cost_price": cost,
+        "cost_basis": cost_basis,
+        "prev_close": _to_float(h.get("prev_close")),
+        "market_value": market_value,
+        "unrealized_pnl": _to_float(h.get("unrealized_pnl")),
+        "price_source": str(h.get("price_source") or "").strip() or None,
+    }
+
+
 def _fmt_pct(val: float | None) -> str:
     return f"{val:+.2f}%" if val is not None else "—"
+
+
+def _fmt_px(val: float | None) -> str:
+    if val is None:
+        return "—"
+    if abs(val) >= 100:
+        return f"{val:.1f}"
+    return f"{val:.2f}"
+
+
+def _fmt_money(val: float | int | None) -> str:
+    if val is None:
+        return "—"
+    try:
+        return f"{float(val):,.0f}"
+    except (TypeError, ValueError):
+        return str(val)
+
+
+def _account_summary_line(account: dict | None) -> str | None:
+    if not account:
+        return None
+    bits: list[str] = []
+    if account.get("cash_available") is not None:
+        bits.append(f"可用現金 NT$ {_fmt_money(account['cash_available'])}")
+    if account.get("total_market_value") is not None:
+        bits.append(f"持倉市值 NT$ {_fmt_money(account['total_market_value'])}")
+    if account.get("total_unrealized_pnl") is not None:
+        bits.append(f"未實現 {_fmt_money(account['total_unrealized_pnl'])}")
+    return " · ".join(bits) if bits else None
+
+
+def _holding_status_lines(info: dict) -> list[str]:
+    """單檔持倉狀態（PDF 右欄／總覽用）。"""
+    return [
+        (
+            f"持股 {int(info.get('shares') or 0)} 股 · 現價 {_fmt_px(info.get('current_price'))}"
+            f" · 今日漲跌 {_fmt_pct(info.get('daily_pct'))}"
+        ),
+        (
+            f"成本均價 {_fmt_px(info.get('cost_price'))}"
+            f" · 投資成本 NT$ {_fmt_money(info.get('cost_basis'))}"
+            f" · 市值 NT$ {_fmt_money(info.get('market_value'))}"
+        ),
+        (
+            f"損益 NT$ {_fmt_money(info.get('unrealized_pnl'))}"
+            f" · 損益率 {_fmt_pct(info.get('pnl_pct'))}"
+            f" · 昨收 {_fmt_px(info.get('prev_close'))}"
+            f" · 報價來源 {info.get('price_source') or '—'}"
+        ),
+    ]
 
 
 def _compute_positions(
@@ -182,6 +291,7 @@ def _compute_positions(
     lengths: list[int],
     trail: int,
     caliber_mode: str = "auto",
+    asof_cap: str | None = None,
 ) -> tuple[dict, str, dict]:
     """回傳 (positions, panel_last, caliber)。
 
@@ -192,9 +302,13 @@ def _compute_positions(
     - caliber_mode="auto"：能取到盤中基準（IX0001 1m K）才走盤中，否則退回收盤。
     - caliber_mode="close"：強制收盤（不代入現價、基準停在昨收）。
     - caliber_mode="intraday"：強制盤中（即使基準沿用昨收，頁面會標警告）。
+    - asof_cap：若給定，僅用 trade_date ≤ asof 的日線（PIT；研究／訊號日回放用）。
     """
     close, _, _ = load_price_panels(conn)
     bench = load_benchmark_close(conn)
+    if asof_cap:
+        close = close.loc[close.index <= asof_cap]
+        bench = bench.loc[bench.index <= asof_cap]
 
     hold_ids = [str(h.get("stock_id") or "").strip() for h in holdings]
     hold_ids = [sid for sid in hold_ids if sid]
@@ -262,7 +376,10 @@ def _compute_positions(
             r_last = float(r.loc[last])
             m_last = float(m.loc[last])
             tail_idx = common[-trail:]
-            trail_pts = [(float(r.loc[i]), float(m.loc[i])) for i in tail_idx]
+            # (trade_date, RS-Ratio, RS-Mom)；末點日期＝當前口徑日
+            trail_pts = [
+                (str(i), float(r.loc[i]), float(m.loc[i])) for i in tail_idx
+            ]
             per_length[length] = {
                 "ratio": r_last,
                 "mom": m_last,
@@ -277,6 +394,7 @@ def _compute_positions(
             "weight_pct": _to_float(h.get("weight_pct")),
             "intraday": sid in stock_ticks,
             "per_length": per_length,
+            **_holding_account_fields(h),
             **_holding_exit_meta(h),
         }
 
@@ -319,8 +437,8 @@ def _verdict(info: dict, lengths: list[int]) -> tuple[str, str, list[str]]:
     elif q5 == "lagging" and q20 == "leading":
         tag, color = "W5 掉隊警報", _TAG_ORANGE
         lines.append(
-            "中線 W5 掉進 Lagging，屬領先出場訊號（歷史約領先 S2 強制出場 ~2 日）"
-            "→ 提高警覺；跌破 VCP 停損即出。"
+            "中線 W5 掉進 Lagging，屬領先出場訊號（歷史約領先強制出場 ~2 日）"
+            "→ 提高警覺；收緊停損或分批減碼。"
         )
     elif q20 == "leading" and q5 in ("weakening", "lagging"):
         if m3 is not None and m5 is not None and m3 > m5:
@@ -347,7 +465,7 @@ def _verdict(info: dict, lengths: list[int]) -> tuple[str, str, list[str]]:
             )
     else:
         tag, color = "中性觀察", _TAG_GREY
-        lines.append("三腿型態混合 → 依 VCP 停損與大盤閘門處置。")
+        lines.append("三腿型態混合 → 依 RRG 三腿與大盤閘門處置。")
 
     pnl = info.get("pnl_pct")
     day = info.get("daily_pct")
@@ -360,43 +478,6 @@ def _verdict(info: dict, lengths: list[int]) -> tuple[str, str, list[str]]:
         lines.append(" · ".join(parts))
 
     return tag, color, lines
-
-
-def _exit_playbook_lines(info: dict) -> list[str]:
-    """Exit playbook 摘要（持倉頁／PDF 右欄）。"""
-    lines: list[str] = []
-    tier = info.get("tier")
-    if tier:
-        lines.append(f"tier={tier}")
-    vcp_c = info.get("vcp_composite")
-    vcp_s = info.get("vcp_state")
-    if vcp_c is not None or vcp_s:
-        lines.append(f"VCP {vcp_c if vcp_c is not None else '—'} · {vcp_s or '—'}")
-    hd = info.get("hold_days")
-    if hd is not None:
-        lines.append(f"持有 {hd} 日")
-    d2 = info.get("dist_gate_2pct_pct")
-    if d2 is not None:
-        lines.append(f"距 -2% gate {_fmt_pct(d2)}")
-    s1b = info.get("dist_s1b_pct")
-    if s1b is not None:
-        lines.append(f"距 S1b（弱檔 -3%）{_fmt_pct(s1b)}")
-    ext = info.get("dist_extension_pct")
-    if ext is not None:
-        lines.append(f"距 extension spike {_fmt_pct(ext)}")
-    flags = info.get("structural_flags") or []
-    if flags:
-        lines.append("旗標：" + " · ".join(flags))
-    rq_close = info.get("rrg_close_quadrant")
-    rq_intra = info.get("rrg_intraday_quadrant")
-    if rq_close or rq_intra:
-        parts = []
-        if rq_close:
-            parts.append(f"收盤 {rq_close}")
-        if rq_intra:
-            parts.append(f"盤中 {rq_intra}")
-        lines.append("DB RRG：" + " / ".join(parts))
-    return lines
 
 
 def _sorted_positions(positions: dict, lengths: list[int]) -> list[tuple[str, dict]]:
@@ -417,23 +498,101 @@ def _axis_bounds(pts_xy: list[tuple[float, float]]) -> tuple[float, float, float
     return 100 - span_x, 100 + span_x, 100 - span_y, 100 + span_y
 
 
-def _draw_quadrants(ax, xlo, xhi, ylo, yhi) -> None:
-    ax.axhspan(100, yhi, xmin=0.5, xmax=1.0, color=_QUAD_BG["leading"], zorder=0)
-    ax.axhspan(ylo, 100, xmin=0.5, xmax=1.0, color=_QUAD_BG["weakening"], zorder=0)
-    ax.axhspan(ylo, 100, xmin=0.0, xmax=0.5, color=_QUAD_BG["lagging"], zorder=0)
-    ax.axhspan(100, yhi, xmin=0.0, xmax=0.5, color=_QUAD_BG["improving"], zorder=0)
-    ax.axhline(100, color="#888", linewidth=0.8, linestyle="--", zorder=1)
-    ax.axvline(100, color="#888", linewidth=0.8, linestyle="--", zorder=1)
-    ax.text(xhi, yhi, "Leading 領先", ha="right", va="top", color="#2e7d32", fontsize=9, alpha=0.7)
-    ax.text(xhi, ylo, "Weakening 轉弱", ha="right", va="bottom", color="#b8860b", fontsize=9, alpha=0.7)
-    ax.text(xlo, ylo, "Lagging 落後", ha="left", va="bottom", color="#c62828", fontsize=9, alpha=0.7)
-    ax.text(xlo, yhi, "Improving 改善", ha="left", va="top", color="#1565c0", fontsize=9, alpha=0.7)
-    ax.set_xlabel("RS-Ratio（相對強弱）")
-    ax.set_ylabel("RS-Momentum（相對動能）")
-    ax.grid(True, linewidth=0.3, alpha=0.4)
+def _draw_quadrants(ax, xlo, xhi, ylo, yhi, *, theme: str = _THEME_LIGHT) -> None:
+    if theme == _THEME_DARK:
+        qbg = _DARK["quad_bg"]
+        qlab = _DARK["quad_label"]
+        cross = _DARK["cross"]
+        label_c = _DARK["label"]
+        grid_c = _DARK["grid"]
+        alpha_quad = 0.85
+        alpha_lab = 0.85
+        grid_lw, grid_a = 0.6, 1.0
+    else:
+        qbg = _QUAD_BG
+        qlab = {
+            "leading": "#2e7d32",
+            "weakening": "#b8860b",
+            "lagging": "#c62828",
+            "improving": "#1565c0",
+        }
+        cross = "#9aa0a6"
+        label_c = "#1a1b26"
+        grid_c = "#e8eaef"
+        alpha_quad = 1.0
+        alpha_lab = 0.7
+        grid_lw, grid_a = 0.5, 1.0
+
+    ax.axhspan(100, yhi, xmin=0.5, xmax=1.0, color=qbg["leading"], alpha=alpha_quad, zorder=0)
+    ax.axhspan(ylo, 100, xmin=0.5, xmax=1.0, color=qbg["weakening"], alpha=alpha_quad, zorder=0)
+    ax.axhspan(ylo, 100, xmin=0.0, xmax=0.5, color=qbg["lagging"], alpha=alpha_quad, zorder=0)
+    ax.axhspan(100, yhi, xmin=0.0, xmax=0.5, color=qbg["improving"], alpha=alpha_quad, zorder=0)
+    ax.axhline(100, color=cross, linewidth=0.8, linestyle="--", zorder=1)
+    ax.axvline(100, color=cross, linewidth=0.8, linestyle="--", zorder=1)
+    ax.text(xhi, yhi, "Leading 領先", ha="right", va="top", color=qlab["leading"], fontsize=9, alpha=alpha_lab)
+    ax.text(xhi, ylo, "Weakening 轉弱", ha="right", va="bottom", color=qlab["weakening"], fontsize=9, alpha=alpha_lab)
+    ax.text(xlo, ylo, "Lagging 落後", ha="left", va="bottom", color=qlab["lagging"], fontsize=9, alpha=alpha_lab)
+    ax.text(xlo, yhi, "Improving 改善", ha="left", va="top", color=qlab["improving"], fontsize=9, alpha=alpha_lab)
+    ax.set_xlabel("RS-Ratio（相對強弱）", color=label_c)
+    ax.set_ylabel("RS-Momentum（相對動能）", color=label_c)
+    if theme == _THEME_DARK:
+        ax.set_facecolor(_DARK["ax_bg"])
+        ax.tick_params(colors=_DARK["label"], labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color(_DARK["spine"])
+        ax.grid(True, color=grid_c, linewidth=grid_lw, alpha=grid_a)
+    else:
+        ax.set_facecolor("#ffffff")
+        ax.tick_params(colors="#565f89", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color("#d0d5de")
+        ax.grid(True, color=grid_c, linewidth=grid_lw, alpha=grid_a)
 
 
-def _draw_stock_rrg(ax, info: dict, lengths: list[int]) -> None:
+def _trail_xy(trail_pts: list) -> list[tuple[float, float]]:
+    """trail 點格式：(date, ratio, mom) 或舊版 (ratio, mom)。"""
+    out: list[tuple[float, float]] = []
+    for t in trail_pts or []:
+        if len(t) >= 3:
+            out.append((float(t[1]), float(t[2])))
+        elif len(t) >= 2:
+            out.append((float(t[0]), float(t[1])))
+    return out
+
+
+def _trail_date_span(info: dict, lengths: list[int]) -> tuple[str | None, str | None, int]:
+    """取最長可用尾跡的起迄交易日（優先 W20）。回傳 (start, end, n_points)。"""
+    best: list = []
+    for length in sorted(lengths, reverse=True):
+        pl = info["per_length"].get(length) or {}
+        trail = pl.get("trail") or []
+        if len(trail) > len(best):
+            best = trail
+    if not best:
+        return None, None, 0
+    dates = []
+    for t in best:
+        if len(t) >= 3:
+            dates.append(str(t[0]))
+    if not dates:
+        return None, None, len(best)
+    return dates[0], dates[-1], len(dates)
+
+
+def _trail_span_label(info: dict, caliber: dict, lengths: list[int]) -> str | None:
+    """人類可讀：尾跡起點日 → 終點日（盤中含 poll 時刻）。"""
+    start, end, n = _trail_date_span(info, lengths)
+    if not start or not end:
+        return None
+    end_label = end
+    if caliber.get("mode") == "intraday" and end == str(caliber.get("panel_last") or ""):
+        poll = str(caliber.get("poll_minute") or "").strip()
+        if poll and poll != "—":
+            end_label = f"{end} {poll}"
+    return f"{start} → {end_label}（{n} 個交易日）"
+
+
+def _draw_stock_rrg(ax, info: dict, lengths: list[int], *, theme: str = _THEME_LIGHT) -> None:
     """單檔三腿合併 RRG：長→中→短連線 + 各腿尾跡。"""
     ordered = sorted(lengths, reverse=True)  # 20, 5, 3
     legs = [(L, info["per_length"].get(L)) for L in ordered]
@@ -442,20 +601,31 @@ def _draw_stock_rrg(ax, info: dict, lengths: list[int]) -> None:
     all_xy: list[tuple[float, float]] = []
     for _, pl in legs:
         all_xy.append((pl["ratio"], pl["mom"]))
-        all_xy.extend(pl["trail"])
+        all_xy.extend(_trail_xy(pl["trail"]))
     xlo, xhi, ylo, yhi = _axis_bounds(all_xy)
-    _draw_quadrants(ax, xlo, xhi, ylo, yhi)
+    _draw_quadrants(ax, xlo, xhi, ylo, yhi, theme=theme)
+
+    edge = _DARK["marker_edge"] if theme == _THEME_DARK else "white"
+    structure = _DARK["structure"] if theme == _THEME_DARK else "#607d8b"
+    trail_alpha = 0.55 if theme == _THEME_DARK else 0.35
 
     # 尾跡 + 標記
     for length, pl in legs:
-        color = _leg_color(length)
-        trail_pts = pl["trail"]
-        if len(trail_pts) >= 2:
-            tx = [t[0] for t in trail_pts]
-            ty = [t[1] for t in trail_pts]
-            ax.plot(tx, ty, color=color, linewidth=1.0, alpha=0.35, zorder=2)
-        ax.scatter([pl["ratio"]], [pl["mom"]], s=110, color=color, zorder=4,
-                   edgecolors="white", linewidths=1.0)
+        color = _leg_color(length, theme=theme)
+        trail_xy = _trail_xy(pl["trail"])
+        if len(trail_xy) >= 2:
+            tx = [t[0] for t in trail_xy]
+            ty = [t[1] for t in trail_xy]
+            ax.plot(tx, ty, color=color, linewidth=1.2, alpha=trail_alpha, zorder=2)
+        ax.scatter(
+            [pl["ratio"]],
+            [pl["mom"]],
+            s=110,
+            color=color,
+            zorder=4,
+            edgecolors=edge,
+            linewidths=1.0,
+        )
         ax.annotate(
             _leg_name(length),
             (pl["ratio"], pl["mom"]),
@@ -472,7 +642,7 @@ def _draw_stock_rrg(ax, info: dict, lengths: list[int]) -> None:
     if len(main) >= 2:
         ax.plot(
             [p[0] for p in main], [p[1] for p in main],
-            color="#607d8b", alpha=0.55, linewidth=1.3,
+            color=structure, alpha=0.7 if theme == _THEME_DARK else 0.55, linewidth=1.3,
             linestyle=(0, (4, 3)), zorder=3,
         )
 
@@ -486,109 +656,41 @@ def _fmt_cell(pl: dict | None) -> str:
     return f"{_QUAD_LABEL.get(pl['quad'] or '', '—')} ({pl['ratio']:.1f},{pl['mom']:.1f})"
 
 
-def _data_basis_text(info: dict, caliber: dict, lengths: list[int]) -> str:
+def _data_basis_lines(info: dict, caliber: dict, lengths: list[int]) -> list[str]:
     length_s = "/".join(f"W{L}" for L in lengths)
     if caliber.get("mode") == "close":
-        caliber_line = f"· 口徑：{_caliber_desc(caliber)}"
+        caliber_line = f"口徑：{_caliber_desc(caliber)}"
     else:
         px = info.get("current_price")
         px_s = f"{px:.2f}" if px is not None else "—"
-        caliber_line = f"· 口徑：{_caliber_desc(caliber)}（現價 {px_s}）"
-    trail = caliber.get("trail")
-    trail_line = (
-        f"· 尾跡＝近{trail}日收盤軌跡，末點為當前口徑\n" if trail else ""
-    )
-    return (
-        "數據依據\n"
-        f"· session {caliber['session_date']}（面板最後 {caliber['panel_last']}）\n"
-        f"{caliber_line}\n"
-        f"· 三腿：{length_s} · JdK RS-Ratio/RS-Mom（基準 100）\n"
-        f"{trail_line}"
-        "· 來源：finmind 日線 + 今日 provisional close"
-    )
+        caliber_line = f"口徑：{_caliber_desc(caliber)}（現價 {px_s}）"
+    lines = [
+        f"session {caliber['session_date']}（面板最後 {caliber['panel_last']}）",
+        caliber_line,
+        f"三腿：{length_s} · JdK RS-Ratio/RS-Mom（基準 100）",
+    ]
+    span = _trail_span_label(info, caliber, lengths)
+    if span:
+        lines.append(f"彩線尾跡（時間）：{span}")
+    elif caliber.get("trail"):
+        lines.append(f"尾跡＝近{caliber['trail']}日收盤軌跡，末點為當前口徑")
+    lines.append("來源：finmind 日線 + 今日 provisional close")
+    return lines
 
 
-def _add_stock_page(pdf: PdfPages, sid: str, info: dict, caliber: dict, lengths: list[int]) -> None:
-    fig = plt.figure(figsize=(11.69, 8.27))  # A4 橫
-    tag, color, lines = _verdict(info, lengths)
-
-    fig.text(0.06, 0.945, _label(sid, info["name"]), fontsize=20, fontweight="bold", va="top")
-    fig.text(0.06, 0.905, f"● {tag}", fontsize=15, va="top", color=color, fontweight="bold")
-
-    has_data = any(info["per_length"].get(L) for L in lengths)
-    ax = fig.add_axes([0.06, 0.13, 0.55, 0.74])
-    if has_data:
-        _draw_stock_rrg(ax, info, lengths)
-        # A4：連線語意圖例（同一時刻不同平滑長度，非時間順序）
-        fig.text(
-            0.335, 0.055,
-            "連線＝長→短 期限結構（W20→W5→W3），非時間順序",
-            ha="center", va="top", fontsize=8, color="#607d8b",
-        )
-    else:
-        ax.axis("off")
-        ax.text(0.5, 0.5, "無 RRG 資料（缺 finmind 日線）", ha="center", va="center", fontsize=13)
-
-    # 右欄：評語（手動換行，避免長句疊到下一條）+ 數據依據
-    y = 0.86
-    fig.text(0.66, y, "評語解說", fontsize=14, fontweight="bold", va="top")
-    y -= 0.048
-    line_h = 0.030
-    for ln in lines:
-        wrapped = textwrap.wrap(ln, width=22) or [""]
-        for i, seg in enumerate(wrapped):
-            prefix = "• " if i == 0 else "\u3000\u3000"  # 續行以全形空白縮排對齊
-            fig.text(0.66, y, f"{prefix}{seg}", fontsize=11.5, va="top")
-            y -= line_h
-        y -= 0.010  # bullet 間距
-
-    # A2：F 門檻是進場濾網，非持倉訊號 → 中性灰字，不帶佳/差判斷
-    m5 = (info["per_length"].get(5) or {}).get("mom")
-    m3 = (info["per_length"].get(3) or {}).get("mom")
-    if m3 is not None and m5 is not None:
-        y -= 0.006
-        fig.text(
-            0.66, y,
-            f"進場濾網參考（非持倉訊號）：W3 MV {m3:.1f} vs W5 MV {m5:.1f}",
-            fontsize=9.5, va="top", color=_TAG_GREY,
-        )
-        y -= line_h
-
-    exit_lines = _exit_playbook_lines(info)
-    if exit_lines:
-        y -= 0.012
-        fig.text(0.66, y, "出場參考（playbook）", fontsize=12, fontweight="bold", va="top")
-        y -= 0.040
-        for ln in exit_lines:
-            wrapped = textwrap.wrap(ln, width=22) or [""]
-            for i, seg in enumerate(wrapped):
-                prefix = "• " if i == 0 else "\u3000\u3000"
-                fig.text(0.66, y, f"{prefix}{seg}", fontsize=10, va="top", color="#37474f")
-                y -= line_h * 0.92
-            y -= 0.006
-
-    fig.text(
-        0.66, max(y - 0.02, 0.10),
-        _data_basis_text(info, caliber, lengths),
-        fontsize=9.5, va="top", color="#37474f",
-    )
-    pdf.savefig(fig)
+def _fig_to_data_uri(fig, *, theme: str = _THEME_LIGHT) -> str:
+    buf = io.BytesIO()
+    face = _DARK["fig_bg"] if theme == _THEME_DARK else "white"
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor=face)
     plt.close(fig)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 
-def _add_overview_page(pdf: PdfPages, positions: dict, caliber: dict, lengths: list[int]) -> None:
-    fig = plt.figure(figsize=(11.69, 8.27))
-    fig.text(
-        0.06, 0.95,
-        f"持倉 RRG 總覽 · session {caliber['session_date']} · {caliber['poll_minute']}",
-        fontsize=18, fontweight="bold", va="top",
-    )
-    caliber_note = f"口徑：{_caliber_desc(caliber)} · 面板最後 {caliber['panel_last']}"
-    fig.text(0.06, 0.915, caliber_note, fontsize=10, va="top", color="#37474f")
-
-    # 左：全持倉 W20 位置
+def _render_overview_chart(positions: dict, lengths: list[int]) -> str:
+    """全持倉 W20（或缺則最長腿）位置圖 → data URI。"""
     overview_len = 20 if 20 in lengths else lengths[0]
-    ax = fig.add_axes([0.05, 0.08, 0.52, 0.78])
+    fig, ax = plt.subplots(figsize=(7.2, 6.2))
     pts = [
         (sid, info["name"], info["per_length"].get(overview_len))
         for sid, info in positions.items()
@@ -599,47 +701,358 @@ def _add_overview_page(pdf: PdfPages, positions: dict, caliber: dict, lengths: l
     span_x = max(xhi - xlo, 1e-6)
     span_y = max(yhi - ylo, 1e-6)
     _draw_quadrants(ax, xlo, xhi, ylo, yhi)
-    # B2：相近點的標籤上下錯開，避免重疊（簡單避讓，非完美防疊）
     placed: list[tuple[float, float]] = []
     for sid, name, pl in sorted(pts, key=lambda p: (p[2]["ratio"], p[2]["mom"])):
         x, yv = pl["ratio"], pl["mom"]
         near = sum(
-            1 for px, py in placed
+            1
+            for px, py in placed
             if abs(px - x) < span_x * 0.14 and abs(py - yv) < span_y * 0.10
         )
-        dy = 4 + near * 12  # 每多一個相近點，標籤再往上錯開一格
+        dy = 4 + near * 12
         ax.scatter([x], [yv], s=70, color="#1a237e", zorder=3)
         ax.annotate(
-            _label(sid, name), (x, yv),
-            textcoords="offset points", xytext=(6, dy), fontsize=8.5, zorder=4,
+            _label(sid, name),
+            (x, yv),
+            textcoords="offset points",
+            xytext=(6, dy),
+            fontsize=8.5,
+            zorder=4,
         )
         placed.append((x, yv))
     ax.set_xlim(xlo, xhi)
     ax.set_ylim(ylo, yhi)
     ax.set_title(f"全持倉 {_leg_name(overview_len)} 位置", fontsize=12)
+    fig.tight_layout()
+    return _fig_to_data_uri(fig)
 
-    # 右：摘要表（每檔三腿象限 + 損益 + 標題）
-    y = 0.87
-    fig.text(0.60, y, "持倉摘要", fontsize=14, fontweight="bold", va="top")
-    y -= 0.05
-    for sid, info in _sorted_positions(positions, lengths):
-        tag, color, _ = _verdict(info, lengths)
-        pnl = info.get("pnl_pct")
-        pnl_s = f"{pnl:+.2f}%" if pnl is not None else "—"
-        quads = " / ".join(
-            (_QUAD_LABEL.get((info["per_length"].get(L) or {}).get("quad") or "", "—").split()[0]
-             if info["per_length"].get(L) else "—")
-            for L in sorted(lengths, reverse=True)
-        )
-        fig.text(0.60, y, f"● {_label(sid, info['name'])}  {tag}", fontsize=11, fontweight="bold",
-                 va="top", color=color)
-        y -= 0.032
-        fig.text(0.62, y, f"W20/5/3：{quads} · 損益 {pnl_s}", fontsize=9.5, va="top", color="#37474f")
-        y -= 0.05
-        if y < 0.08:
-            break
-    pdf.savefig(fig)
+
+def _render_stock_chart(
+    info: dict,
+    caliber: dict,
+    lengths: list[int],
+    *,
+    title: str | None = None,
+) -> str | None:
+    """單檔三腿 RRG → data URI；無資料則 None。"""
+    fig = _make_stock_rrg_fig(info, caliber, lengths, title=title)
+    if fig is None:
+        return None
+    return _fig_to_data_uri(fig)
+
+
+def _make_stock_rrg_fig(
+    info: dict,
+    caliber: dict,
+    lengths: list[int],
+    *,
+    title: str | None = None,
+    theme: str = _THEME_LIGHT,
+):
+    """單檔三腿 RRG figure；無資料則 None（呼叫端負責 close）。"""
+    if not any(info["per_length"].get(L) for L in lengths):
+        return None
+    fig, ax = plt.subplots(figsize=(7.0, 5.8))
+    if theme == _THEME_DARK:
+        fig.patch.set_facecolor(_DARK["fig_bg"])
+        ax.set_facecolor(_DARK["ax_bg"])
+    else:
+        fig.patch.set_facecolor("#ffffff")
+        ax.set_facecolor("#ffffff")
+    _draw_stock_rrg(ax, info, lengths, theme=theme)
+    if title:
+        title_c = _DARK["title"] if theme == _THEME_DARK else "#1a1b26"
+        ax.set_title(title, fontsize=11, pad=8, color=title_c)
+    span = _trail_span_label(info, caliber, lengths)
+    caption = f"彩線尾跡＝{span}" if span else "彩線尾跡＝時間順序"
+    cap_c = _DARK["caption"] if theme == _THEME_DARK else "#607d8b"
+    fig.text(
+        0.5,
+        0.02,
+        f"{caption}\n灰虛線＝長→短期限結構（W20→W5→W3），非時間順序",
+        ha="center",
+        va="bottom",
+        fontsize=8,
+        color=cap_c,
+    )
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    return fig
+
+
+def compute_close_rrg_positions_asof(
+    conn,
+    stock_ids: list[str],
+    *,
+    asof: str,
+    names: dict[str, str] | None = None,
+    lengths: list[int] | None = None,
+    trail: int = 8,
+) -> tuple[dict[str, dict], dict]:
+    """收盤口徑 · PIT RRG（僅 date≤asof）· 回傳 (positions, caliber)。
+
+    與持倉脈動 HTML 同一套 ``compute_rrg_panel`` / 三腿尾跡邏輯；供研究信／digest 重用。
+    """
+    lengths = list(lengths or [20, 5, 3])
+    names = names or {}
+    holdings = [
+        {
+            "stock_id": sid,
+            "stock_name": names.get(sid, ""),
+            "current_price": None,
+        }
+        for sid in stock_ids
+        if str(sid).strip()
+    ]
+    positions, _panel_last, caliber = _compute_positions(
+        conn,
+        holdings,
+        session_date=asof,
+        poll_minute="—",
+        lengths=lengths,
+        trail=trail,
+        caliber_mode="close",
+        asof_cap=asof,
+    )
+    return positions, caliber
+
+
+def save_stock_rrg_png(
+    info: dict,
+    caliber: dict,
+    out_path: Path,
+    *,
+    lengths: list[int] | None = None,
+    title: str | None = None,
+    theme: str | None = None,
+    dark: bool = False,
+) -> bool:
+    """寫入單檔 WMA20/5/3 RRG PNG（與持倉脈動視覺語言一致）。無資料回傳 False。
+
+    預設 theme=\"light\"（email digest／持倉脈動）。
+    theme=\"dark\" / \"email\" 或 dark=True：深色底（可選）。
+    """
+    lengths = list(lengths or [20, 5, 3])
+    theme_n = _normalize_theme(theme, dark=dark)
+    cjk = _pick_cjk_font()
+    if cjk:
+        plt.rcParams["font.family"] = cjk
+        plt.rcParams["axes.unicode_minus"] = False
+    fig = _make_stock_rrg_fig(info, caliber, lengths, title=title, theme=theme_n)
+    if fig is None:
+        return False
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    face = _DARK["fig_bg"] if theme_n == _THEME_DARK else "white"
+    fig.savefig(out_path, format="png", dpi=140, bbox_inches="tight", facecolor=face)
     plt.close(fig)
+    return True
+
+
+def _ul(items: list[str], *, cls: str = "") -> str:
+    cls_attr = f' class="{cls}"' if cls else ""
+    lis = "".join(f"<li>{html.escape(x)}</li>" for x in items if x)
+    return f"<ul{cls_attr}>{lis}</ul>" if lis else ""
+
+
+def _render_holdings_rrg_html(
+    positions: dict,
+    *,
+    lengths: list[int],
+    caliber: dict,
+    account: dict | None = None,
+    meta: dict | None = None,
+) -> str:
+    """組裝單檔 HTML（總覽 + 每檔區塊）。"""
+    meta = meta or {}
+    acct = _account_summary_line(account)
+    title = (
+        f"持倉 RRG · {caliber['session_date']} · {caliber['poll_minute']}"
+    )
+    overview_uri = _render_overview_chart(positions, lengths)
+    sorted_pos = _sorted_positions(positions, lengths)
+
+    nav_bits = []
+    status_cards = []
+    stock_sections = []
+    for sid, info in sorted_pos:
+        tag, color, verdict_lines = _verdict(info, lengths)
+        label = _label(sid, info["name"])
+        anchor = f"s-{sid}"
+        nav_bits.append(
+            f'<a href="#{html.escape(anchor)}">{html.escape(label)}</a>'
+        )
+        status_cards.append(
+            "<article class='status-card'>"
+            f"<h3><a href='#{html.escape(anchor)}'>"
+            f"<span class='tag' style='color:{html.escape(color)}'>●</span> "
+            f"{html.escape(label)} · {html.escape(tag)}</a></h3>"
+            f"{_ul(_holding_status_lines(info), cls='status-lines')}"
+            "</article>"
+        )
+
+        chart_uri = _render_stock_chart(info, caliber, lengths)
+        if chart_uri:
+            chart_html = (
+                f'<img class="rrg-chart" src="{chart_uri}" '
+                f'alt="{html.escape(label)} RRG">'
+            )
+        else:
+            chart_html = '<p class="muted">無 RRG 資料（缺 finmind 日線）</p>'
+
+        m5 = (info["per_length"].get(5) or {}).get("mom")
+        m3 = (info["per_length"].get(3) or {}).get("mom")
+        filter_note = ""
+        if m3 is not None and m5 is not None:
+            filter_note = (
+                f'<p class="muted">進場濾網參考（非持倉訊號）：'
+                f"W3 MV {m3:.1f} vs W5 MV {m5:.1f}</p>"
+            )
+
+        stock_sections.append(
+            f'<section class="stock" id="{html.escape(anchor)}">'
+            f"<h2>{html.escape(label)} "
+            f"<span class='tag' style='color:{html.escape(color)}'>"
+            f"● {html.escape(tag)}</span></h2>"
+            '<div class="stock-grid">'
+            f"<div class='chart-wrap'>{chart_html}</div>"
+            "<aside>"
+            "<h3>評語解說</h3>"
+            f"{_ul(verdict_lines)}"
+            f"{filter_note}"
+            "<h3>持倉狀態</h3>"
+            f"{_ul(_holding_status_lines(info), cls='status-lines')}"
+            "<h3>數據依據</h3>"
+            f"{_ul(_data_basis_lines(info, caliber, lengths), cls='basis')}"
+            "</aside>"
+            "</div>"
+            "</section>"
+        )
+
+    sync_err = meta.get("rrg_intraday_sync_error")
+    sync_html = (
+        f'<p class="warn">⚠ RRG 盤中同步：{html.escape(str(sync_err))}</p>'
+        if sync_err
+        else ""
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+:root {{
+  --ink: #1c1c1c;
+  --muted: #5c6570;
+  --line: #d9dee5;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --accent: #1a237e;
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  margin: 0;
+  font-family: "PingFang TC", "Noto Sans TC", "Helvetica Neue", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.5;
+}}
+header {{
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  padding: 1.25rem 1.5rem 1rem;
+}}
+header h1 {{ margin: 0 0 0.35rem; font-size: 1.45rem; }}
+.account {{ margin: 0.2rem 0; font-weight: 650; color: var(--accent); }}
+.meta, .muted {{ color: var(--muted); font-size: 0.92rem; }}
+.warn {{ color: #b71c1c; }}
+nav {{
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+}}
+nav a {{ color: var(--accent); text-decoration: none; }}
+nav a:hover {{ text-decoration: underline; }}
+main {{ max-width: 1180px; margin: 0 auto; padding: 1rem 1.25rem 3rem; }}
+.overview {{
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}}
+@media (max-width: 900px) {{
+  .overview, .stock-grid {{ grid-template-columns: 1fr; }}
+}}
+.panel {{
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}}
+.panel h2, .stock h2 {{ margin: 0 0 0.65rem; font-size: 1.15rem; }}
+.panel h3, aside h3 {{ margin: 0.7rem 0 0.35rem; font-size: 0.98rem; }}
+.rrg-chart {{ width: 100%; height: auto; display: block; }}
+.status-card {{
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}}
+.status-card:last-child {{ border-bottom: 0; }}
+.status-card h3 {{ margin: 0 0 0.25rem; font-size: 0.98rem; }}
+.status-card h3 a {{ color: inherit; text-decoration: none; }}
+.status-card h3 a:hover {{ text-decoration: underline; }}
+ul {{ margin: 0.15rem 0 0.35rem 1.1rem; padding: 0; }}
+ul.status-lines li, ul.basis li {{ margin: 0.12rem 0; }}
+.tag {{ font-weight: 700; }}
+.stock {{
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem 1.1rem 1.2rem;
+  margin: 1rem 0;
+}}
+.stock-grid {{
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}}
+aside {{ font-size: 0.95rem; }}
+.footnote {{
+  margin-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}}
+</style>
+</head>
+<body>
+<header>
+  <h1>{html.escape(title)}</h1>
+  {f'<p class="account">{html.escape(acct)}</p>' if acct else ''}
+  <p class="meta">口徑：{html.escape(_caliber_desc(caliber))} · 面板最後 {html.escape(str(caliber['panel_last']))}</p>
+  <p class="meta">advisory · 人工確認後下單 · 不含出場 playbook／自動賣訊</p>
+  {sync_html}
+  <nav>{''.join(nav_bits)}</nav>
+</header>
+<main>
+  <section class="overview">
+    <div class="panel">
+      <h2>全持倉位置</h2>
+      <img class="rrg-chart" src="{overview_uri}" alt="全持倉 RRG 總覽">
+    </div>
+    <div class="panel">
+      <h2>持倉狀態</h2>
+      {''.join(status_cards)}
+    </div>
+  </section>
+  {''.join(stock_sections)}
+  <p class="footnote">圖：matplotlib · 文：與 fill email【持倉狀態】同欄位</p>
+</main>
+</body>
+</html>
+"""
 
 
 def _format_table(
@@ -656,15 +1069,22 @@ def _format_table(
     lines.append("")
     lines.append("> **性質**：RRG 結構快照 + 評語摘要 · advisory · 人工確認後下單")
     lines.append(
-        f"> **搭配閱讀**：同 session 的 `{pulse_md}`（現價來源、組合閘門、完整 playbook）"
+        f"> **搭配閱讀**：同 session 的 `{pulse_md}`（完整【持倉狀態】）"
     )
-    lines.append("> **本表含**：三腿 RRG、評語、tier、旗標、損益；PDF 含合併圖 + 出場參考")
-    lines.append("> **本表不含**：VCP 停損絕對價、自動賣出指令")
+    lines.append("> **本表含**：三腿 RRG、評語、持股／成本／市值／損益；HTML 含合併圖 + 持倉狀態")
+    lines.append("> **本表不含**：出場 playbook、自動賣出指令")
     lines.append("")
+    acct = _account_summary_line(
+        {
+            "cash_available": meta.get("cash_available"),
+            "total_market_value": meta.get("total_market_value"),
+            "total_unrealized_pnl": meta.get("total_unrealized_pnl"),
+        }
+    )
+    if acct:
+        lines.append(f"**持倉狀態**：{acct}")
+        lines.append("")
     lines.append(f"口徑：{_caliber_desc(caliber)} · 面板最後 {caliber['panel_last']}")
-    if meta.get("portfolio_exit_mode") is not None:
-        mode = "ON" if meta["portfolio_exit_mode"] else "OFF"
-        lines.append(f"組合 exit_mode（09:05 gate）：**{mode}**")
     sync_err = meta.get("rrg_intraday_sync_error")
     if sync_err:
         lines.append(f"⚠ RRG 盤中同步：{sync_err}")
@@ -672,8 +1092,8 @@ def _format_table(
     lines.append("RS-Ratio（X）· RS-Momentum（Y）· baseline 100。>100 相對強／加速。")
     lines.append("評語依三腿象限排序（結構差→好）。")
     lines.append("")
-    header = "| 代號 | 名稱 | 評語 | 損益% | 當日% | tier | 旗標 |"
-    sep = "|------|------|------|------:|------:|------|------|"
+    header = "| 代號 | 名稱 | 評語 | 股數 | 成本 | 現價 | 損益 | 損益% | 當日% | 報價 |"
+    sep = "|------|------|------|-----:|-----:|-----:|-----:|------:|------:|------|"
     for length in lengths:
         header += f" WMA{length} RS-Ratio | WMA{length} RS-Mom | WMA{length} 象限 |"
         sep += "------:|------:|------|"
@@ -681,11 +1101,11 @@ def _format_table(
     lines.append(sep)
     for sid, info in _sorted_positions(positions, lengths):
         tag, _, _ = _verdict(info, lengths)
-        flags = info.get("structural_flags") or []
-        flag_s = " · ".join(flags) if flags else "—"
         row = (
-            f"| {sid} | {info['name'] or sid} | {tag} | {_fmt_pct(info.get('pnl_pct'))} "
-            f"| {_fmt_pct(info.get('daily_pct'))} | {info.get('tier') or '—'} | {flag_s} |"
+            f"| {sid} | {info['name'] or sid} | {tag} | {int(info.get('shares') or 0)} "
+            f"| {_fmt_px(info.get('cost_price'))} | {_fmt_px(info.get('current_price'))} "
+            f"| {_fmt_money(info.get('unrealized_pnl'))} | {_fmt_pct(info.get('pnl_pct'))} "
+            f"| {_fmt_pct(info.get('daily_pct'))} | {info.get('price_source') or '—'} |"
         )
         for length in lengths:
             pl = info["per_length"].get(length)
@@ -710,7 +1130,7 @@ def _open_file(path: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="持倉 RRG 每檔一頁 PDF · WMA20/5/3 盤中三腿")
+    parser = argparse.ArgumentParser(description="持倉 RRG HTML · WMA20/5/3 盤中三腿")
     parser.add_argument("--date", metavar="YYYY-MM-DD", help="Session date（預設今日／JSON）")
     parser.add_argument("--json", type=Path, help="holdings_pulse JSON 路徑（預設最新）")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
@@ -721,7 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
         "--caliber", choices=("auto", "intraday", "close"), default="auto",
         help="口徑：auto=有盤中基準才走盤中否則收盤；close=強制收盤；intraday=強制盤中",
     )
-    parser.add_argument("--open", dest="open_pdf", action="store_true", help="產出後自動開啟 PDF")
+    parser.add_argument("--open", dest="open_html", action="store_true", help="產出後自動開啟 HTML")
     args = parser.parse_args(argv)
 
     session_date = args.date or date.today().isoformat()
@@ -738,10 +1158,18 @@ def main(argv: list[str] | None = None) -> int:
     meta = {
         k: payload.get(k)
         for k in (
+            "cash_available",
+            "total_market_value",
+            "total_unrealized_pnl",
             "portfolio_exit_mode",
             "rrg_intraday_sync_error",
             "generated_at",
         )
+    }
+    account = {
+        "cash_available": meta.get("cash_available"),
+        "total_market_value": meta.get("total_market_value"),
+        "total_unrealized_pnl": meta.get("total_unrealized_pnl"),
     }
     if not holdings:
         print("✗ JSON 內無持倉", file=sys.stderr)
@@ -757,7 +1185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = connect(args.db)
     try:
-        positions, panel_last, caliber = _compute_positions(
+        positions, _panel_last, caliber = _compute_positions(
             conn,
             holdings,
             session_date=session_date,
@@ -777,18 +1205,24 @@ def main(argv: list[str] | None = None) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     stamp = session_date.replace("-", "")
 
-    pdf_path = outdir / f"holdings_rrg_{stamp}.pdf"
-    with PdfPages(pdf_path) as pdf:
-        _add_overview_page(pdf, positions, caliber, args.lengths)
-        for sid, info in _sorted_positions(positions, args.lengths):
-            _add_stock_page(pdf, sid, info, caliber, args.lengths)
+    html_path = outdir / f"holdings_rrg_{stamp}.html"
+    html_path.write_text(
+        _render_holdings_rrg_html(
+            positions,
+            lengths=args.lengths,
+            caliber=caliber,
+            account=account,
+            meta=meta,
+        ),
+        encoding="utf-8",
+    )
 
     table = _format_table(positions, lengths=args.lengths, caliber=caliber, meta=meta)
     table_path = outdir / f"holdings_rrg_{stamp}.md"
     table_path.write_text(table, encoding="utf-8")
 
     print(table)
-    print(f"\nPDF（每檔一頁）：{pdf_path}")
+    print(f"\nHTML：{html_path}")
     print(f"數值表：{table_path}")
     missing = [
         _label(sid, info["name"])
@@ -798,8 +1232,8 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"\n⚠ 無 RRG 資料（缺 finmind 日線）：{', '.join(missing)}")
 
-    if args.open_pdf:
-        _open_file(pdf_path)
+    if args.open_html:
+        _open_file(html_path)
     return 0
 
 

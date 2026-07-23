@@ -9,8 +9,10 @@ from research.backtest.rrg_mono_intraday_ab import (
     CVariantConfig,
     _apply_intraday_entries,
     _expert_fill_mode,
+    champion_entry_c_config,
     close_shortlist,
     intraday_price_scale,
+    rank_shortlist_avg_accel,
     rank_shortlist_scale,
     scaled_seg_last,
     vcp_close_shortlist,
@@ -43,6 +45,45 @@ class TestRrgMonoIntradayAb(unittest.TestCase):
 
     def test_scaled_seg_last(self) -> None:
         self.assertAlmostEqual(scaled_seg_last(_row("1", 2.0), 1.5), 3.0)
+
+    def test_champion_entry_c_config_avg_accel(self) -> None:
+        cfg = champion_entry_c_config()
+        self.assertEqual(cfg.variant_id, "C3a")
+        self.assertEqual(cfg.score_mode, "avg_accel")
+        self.assertEqual(cfg.confirm_bars, 2)
+        one = champion_entry_c_config(confirm_bars=1)
+        self.assertEqual(one.score_mode, "avg_accel")
+        self.assertEqual(one.confirm_bars, 1)
+
+    def test_rank_shortlist_avg_accel_orders_by_scalar(self) -> None:
+        import pandas as pd
+
+        dates = [f"2026-01-{d:02d}" for d in range(1, 12)]
+        # Build simple RS panels where 2330 has rising accel vs 2454 flat.
+        rs_ratio = pd.DataFrame(
+            {
+                "2330": [100 + i * 0.5 for i in range(len(dates))],
+                "2454": [100.0] * len(dates),
+            },
+            index=dates,
+        )
+        rs_mom = pd.DataFrame(
+            {
+                "2330": [100 + i * 0.8 for i in range(len(dates))],
+                "2454": [100.0] * len(dates),
+            },
+            index=dates,
+        )
+        rows = [_row("2454", 9.0), _row("2330", 1.0)]
+        ranked = rank_shortlist_avg_accel(
+            rows,
+            rs_ratio=rs_ratio,
+            rs_mom=rs_mom,
+            full_dates=dates,
+            trade_date=dates[-1],
+            accel_lookback=4,
+        )
+        self.assertEqual([r.stock_id for r in ranked], ["2330", "2454"])
 
     def test_intraday_price_scale_clamps(self) -> None:
         self.assertEqual(intraday_price_scale(100.0, 300.0), 2.5)

@@ -200,6 +200,63 @@ def _patch_intraday_close(
     return priced
 
 
+def spread_class_snapshots_at_minute(
+    conn: sqlite3.Connection,
+    *,
+    close: pd.DataFrame,
+    bench: pd.Series,
+    trade_date: str,
+    minute: str,
+    stock_ids: list[str],
+    short_length: int = WMA_SHORT_LENGTH,
+    long_length: int = WMA_LONG_LENGTH,
+    lookback_bars: int | None = None,
+) -> dict[str, str]:
+    """Per-stock WMA spread_class at one intraday poll (daily history + kbar patch).
+
+    Only computes RRG for ``stock_ids``. Optional ``lookback_bars`` trims history;
+    default uses ``LOOKBACK_TRADING_DAYS`` (≥ 3×WMA_LONG so terminal class matches
+    full-history rolling WMA).
+    """
+    ids = [sid for sid in stock_ids if sid in close.columns]
+    if not ids or trade_date not in close.index.astype(str):
+        return {}
+    mask = close.index.astype(str) <= trade_date
+    prov = close.loc[mask, ids].copy()
+    lb = LOOKBACK_TRADING_DAYS if lookback_bars is None else lookback_bars
+    if lb > 0 and len(prov.index) > lb:
+        # Keep session row: trim older history only.
+        if trade_date in prov.index.astype(str):
+            hist = prov.loc[prov.index.astype(str) < trade_date]
+            session_row = prov.loc[[trade_date]]
+            if len(hist.index) > lb - 1:
+                hist = hist.iloc[-(lb - 1) :]
+            prov = pd.concat([hist, session_row])
+        else:
+            prov = prov.iloc[-lb:]
+    bench_p = bench.reindex(prov.index).astype(float)
+    if trade_date not in prov.index:
+        return {}
+    priced = _patch_intraday_close(prov, bench_p, conn, trade_date, minute, ids)
+    rs5, mom5, _ = compute_rrg_panel(prov, bench_p, length=short_length)
+    rs20, mom20, _ = compute_rrg_panel(prov, bench_p, length=long_length)
+    if trade_date not in rs5.index or trade_date not in rs20.index:
+        return {}
+    out: dict[str, str] = {}
+    for sid in priced:
+        if sid not in rs5.columns or sid not in rs20.columns:
+            continue
+        rv5 = rs5.at[trade_date, sid]
+        mv5 = mom5.at[trade_date, sid]
+        rv20 = rs20.at[trade_date, sid]
+        mv20 = mom20.at[trade_date, sid]
+        if any(v != v for v in (rv5, mv5, rv20, mv20)):
+            continue
+        sc, _, _, _ = classify_wma_spread(rv5, mv5, rv20, mv20)
+        out[sid] = sc
+    return out
+
+
 def _densify_intraday_points(
     sparse: list[dict[str, Any]],
     frames: list[dict[str, str]],
@@ -869,19 +926,26 @@ def _build_abc_v3_family_observation_pool(
     poll_minute: str,
     matcher: Callable[[dict[str, Any]], bool],
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
+    require_w20_lead_firm: bool = False,
 ) -> tuple[list[Any], str]:
-    """單 poll 快掃 · ABC v3 家族 matcher（skip09 · 4 週期）· observe-only radar。
+    """單 poll 快掃 · ABC v3 家族 matcher（skip09 · 4 週期）· observe/order radar。
 
     `matcher` 決定是否為 v3（`matches_w3_rv_hl_abc_v3`）或 v3+f1
     （`matches_w3_rv_hl_abc_v3_f1`）；其餘掃描邏輯共用。
+
+    ``require_w20_lead_firm``：gate G · ``w20_lead_firm`` · W20 MV ≥ 前一 poll
+    （否則 T−1 EOD）。
     """
+    from market_benchmark import previous_trading_date
+    from research.backtest.triple_wma_pullback_sweep import matches_w20_lead_firm
     from research.backtest.w3_rv_hl_winner_profile import ABC_V3_ADOPTED_MIN_POLL_IDX
     from rrg_mono_daily_brief import ScanRow
 
     polls = intraday_poll_minutes()
     if poll_minute not in polls:
         return [], session
-    if polls.index(poll_minute) < ABC_V3_ADOPTED_MIN_POLL_IDX:
+    poll_idx = polls.index(poll_minute)
+    if poll_idx < ABC_V3_ADOPTED_MIN_POLL_IDX:
         return [], session
 
     watch = load_etf_constituent_watchlist(conn, etf_codes)
@@ -914,6 +978,20 @@ def _build_abc_v3_family_observation_pool(
     if session not in rs5.index or session not in rs20.index:
         return [], session
 
+    mom20_ref = mom20
+    ref_date = session
+    if require_w20_lead_firm:
+        if poll_idx > ABC_V3_ADOPTED_MIN_POLL_IDX:
+            prev_minute = polls[poll_idx - 1]
+            prov0, bench0, _ = _slice_panels_for_date(close, bench, session)
+            prov_ref = prov0.copy()
+            bench_ref = bench0.copy()
+            _patch_intraday_close(prov_ref, bench_ref, conn, session, prev_minute, universe_ids)
+            _, mom20_ref, _ = compute_rrg_panel(prov_ref, bench_ref, length=WMA_LONG_LENGTH)
+        else:
+            t1 = previous_trading_date(conn, session)
+            ref_date = t1 if t1 and t1 in mom20.index else ""
+
     rows: list[ScanRow] = []
     for sid in priced:
         if sid not in rs5.columns or sid not in rs20.columns:
@@ -942,6 +1020,14 @@ def _build_abc_v3_family_observation_pool(
         _annotate_trade_signals([pt])
         if not matcher(pt):
             continue
+        if require_w20_lead_firm:
+            if not ref_date or sid not in mom20_ref.columns or ref_date not in mom20_ref.index:
+                continue
+            mv_ref = mom20_ref.at[ref_date, sid]
+            if mv_ref != mv_ref:
+                continue
+            if not matches_w20_lead_firm(pt, {"w20": {"rs_momentum": float(mv_ref)}}):
+                continue
         w20q = pt["w20"]["quadrant"]
         w5q = pt["w5"]["quadrant"]
         spread_dist = float(pt["spread_dist"])
@@ -977,7 +1063,7 @@ def build_abc_v3_f1_observation_pool(
     poll_minute: str,
     etf_codes: tuple[str, ...] = DEFAULT_ETF_CODES,
 ) -> tuple[list[Any], str]:
-    """單 poll 快掃 · ABC v3+f1 matcher（skip09 · F gate）· observe-only radar."""
+    """單 poll 快掃 · ABC v3+f1 + ``w20_lead_firm``（skip09 · F∧G）· observe/order radar."""
     from research.backtest.triple_wma_pullback_sweep import matches_w3_rv_hl_abc_v3_f1
 
     return _build_abc_v3_family_observation_pool(
@@ -986,6 +1072,7 @@ def build_abc_v3_f1_observation_pool(
         poll_minute=poll_minute,
         matcher=matches_w3_rv_hl_abc_v3_f1,
         etf_codes=etf_codes,
+        require_w20_lead_firm=True,
     )
 
 

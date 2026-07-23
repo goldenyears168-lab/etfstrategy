@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# C18acc 盤中 screen · 有 entry/swap/exit 動作時寄信（launchd rrg-c18acc-poll）
+# C18acc · fallback notify when fill report was not sent from Python
 
 set -euo pipefail
 
 ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-STAMP="$(date '+%Y%m%d')"
 
-exec "${ROOT}/scripts/job_notify.sh" \
-  "C18acc 盤中訊號" "${1:-0}" "logs/intraday/launchd_rrg-c18acc-poll.log" RUN_RRG_C18ACC_EMAIL \
-  "reports/daily/${STAMP}_rrg_c18acc_screen.md" \
-  "reports/daily/rrg_c18acc_screen.md" \
-  "logs/intraday/rrg_c18acc_poll_tick.log"
+# /bin/bash 讀腳本（勿直接 exec · launchd 對 Documents/*.sh 可能 Operation not permitted）
+exec /bin/bash "${ROOT}/scripts/job_notify.sh" \
+  "C18acc 動作（無成交報告）" "${1:-0}" "logs/intraday/launchd_rrg-c18acc-poll.log" RUN_RRG_C18ACC_EMAIL

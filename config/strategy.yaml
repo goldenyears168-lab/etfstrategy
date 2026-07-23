@@ -53,7 +53,7 @@ strategies:
     kind: competition
     schedule: daily_sync
     schedule_time: "16:30 Asia/Taipei Mon-Fri"
-    enabled: true
+    enabled: false
     n_slots: 3
     hold_days: 7
     module: rrg_mono_daily_brief
@@ -61,7 +61,8 @@ strategies:
     run_script: scripts/run_rrg_mono_daily_brief.py
     screen_script: scripts/run_rrg_mono_intraday_watch.py
     description: >
-      RRG mono fresh · seg_last · 3 槽 hold7 · 併入 daily_sync 16:30（原 16:40 launchd 已退役）。
+      Legacy baseline · superseded by rrg-mono-swap-accel (C18acc) for live slots ·
+      spec/backtest retained · manual rerun via run_script · daily_sync step skipped when disabled.
     backtest:
       spec_type: slot_strategy_backtest
       source_module: rrg_mono_backtest
@@ -94,20 +95,28 @@ strategies:
     run_script: scripts/run_rrg_mono_swap_accel_daily_brief.py
     screen_script: scripts/run_rrg_mono_swap_accel_screen.py
     description: >
-      RRG mono fresh∪accel 全池 · C0 盘中 scale 进 · 5m poll 换仓 · 四日加速卖弱买强 · margin=0.05 ·
-      16:30 Scheme A 收盤診斷 + 盤中 live screen（C18acc · RUN_RRG_C18ACC_SCREEN）。
+      RRG mono fresh 全池 · avg_accel 盤中進 · confirm_bars=1 · 同日近收盤 ≥13:00 開窗 · 5m poll 換倉 ·
+      四日加速卖弱买强 · margin=0.05 · underwater_rebound pyramid 採納 ·
+      16:30 Scheme A 收盤診斷 + 盤中 live screen（C18acc）。
     funnel:
       pool:
         - "ETF 成分 watchlist"
         - "mono tier2: up_right + leading + disp∈[1,2) + mono_up"
-        - "fresh: 昨日非 mono tier2、今日新进"
-        - "fresh∪accel: fresh ∪ (mono_tier2 ∧ 4d avg accel>0) · POOL1 採納 2026-07-05"
+        - "fresh: 同日近收盤（≥13:00 kbar 暫定 ≈EOD）新进 · 全池 passthrough（採納 2026-07-12 · 取代 POOL1）"
         - "seg_last 排序 · 全池（不裁 top10 · passthrough）"
       entry:
         leg: C0
         timing: poll_5m
-        score_mode: scale
-        confirm_bars: "0|1"
+        score_mode: avg_accel
+        confirm_bars: 1  # live SSOT · C18ACC_CONFIRM_BARS=1（ops alpha；≠ research baseline 2）
+        avoid_spread_mixed: true
+        spread_gate:
+          anchor: first_poll_ge_no_trade_before
+          no_trade_before: "13:00"
+          wma: W5/W20
+          scope: entry_and_swap
+        entry_window: "13:00–13:30 Asia/Taipei"
+        adoption: reports/research/rrg/20260714_c18acc_entry_e1300_adoption.md
       swap:
         timing_mode: poll_5m
         min_hold_days: 5
@@ -129,6 +138,17 @@ strategies:
       removed_no_op:
         - top10_crop
         - shortlist_refilter
+      score_keys:
+        pool_rank: seg_last
+        entry_sort: avg_accel_decel
+        swap_sell: avg_accel_decel
+        swap_buy: avg_accel_decel
+        swap_margin: seg_last
+        swap_margin_delta: 0.05
+        note: >
+          双指标漏斗（勿全程单一 key）。20260712 entry-rank：進場改 avg_accel_decel（R2 · OOS +0.66pp）；
+          20260709 unified-key audit（poll_5m·POOL1·607td）：champion 5.64% mean_excess；
+          pool+swap 全 avg_accel ≡ champion；全程 seg_last 换仓 4.05%（−1.6pp）。
     backtest:
       spec_type: slot_strategy_backtest
       source_module: rrg_mono_score_swap_c
@@ -154,13 +174,26 @@ strategies:
       quad_force_exit_min_days: 2
       quad_force_exit_loss_pct: -0.05
       quad_force_exit_requires_min_hold: true
-      candidate_pool: fresh_union_accel
+      candidate_pool: fresh
       accel_sell_bypass_on_spread_lost: true
-      source_summary: reports/research/rrg/20260705_c18acc_w20_conditional_accel_sweep.json
+      source_summary: reports/research/rrg/20260712_c18acc_fresh_pool_adoption.md
       notes: >
-        POOL1 amendment · fresh∪accel candidate pool · S2 exit unchanged ·
-        spread_lost bypass (+0.11pp FULL excess · total ret 311% vs 303% · OOS neutral) ·
-        採納 2026-07-05 · Phase4 W4P4-bypass
+        fresh-only candidate pool · 簡化 POOL1 fresh∪accel（2026-07-12 adoption）·
+        entry no_trade_before=13:00 same-day near-close（2026-07-14 採納 · ops ≥30m-to-close）·
+        confirm_bars=1 live（與 order.yaml / C18ACC_CONFIRM_BARS 對齊）·
+        S2 exit unchanged · spread_lost bypass · avoid spread_mixed @ 13:00 anchor.
+    pyramid_add:
+      enabled: true
+      hypothesis: H-C18-PYRAMID-1
+      condition: underwater_rebound
+      rebound_min: 0.3
+      sizing: equal_weight_second_unit
+      exit_convention: sync_exit
+      notes: >
+        採納 2026-07-16 · Order c18acc_pyramid_add.enabled=true ·
+        live via rrg-c18acc-poll（scan_c18acc_pyramid_adds · O3-7）·
+        env C18ACC_PYRAMID_ADD_ENABLED=1 · sync_exit with leg1 S2/sim exit.
+        Evidence: IS Δ +0.901pp · OOS +1.189pp（313 legs）· slot OOS +0.548pp.
 
   vcp-pivot-gate:
     title: VCP Pivot Gate
@@ -313,7 +346,8 @@ strategies:
     description: >
       Triple-WMA ABC v3+f1 event-level spec · skip09 poll · hold 3d → 13:30 ·
       matcher w3_rv_hl_abc_v3_f1 (A∩B∩C∩D∩E∩F) · F gate avoid W5 MV>W3 MV ·
-      5-slot portfolio val NOT passed · slot sizing pending · observe-only on buy-signal-radar.
+      5-slot portfolio val NOT passed · slot sizing pending ·
+      Order sleeve retired 2026-07-16（enabled:false · 無自動送單；舊倉當手動單）。
     matcher:
       id: w3_rv_hl_abc_v3_f1
       parent: w3_rv_hl_abc_v3
@@ -353,6 +387,86 @@ strategies:
         Event-level 採納 2026-07-08 · f1 n=170 ret=2.845% vs v3 n=220 ret=2.229% ·
         val event passed · 5-slot val failed · portfolio/slot sizing NOT validated.
 
+  abc-v3-f1-champion-tp:
+    title: ABC v3+f1 · raw entry · champion TP-only exit · hold 5d
+    kind: research_adopted
+    schedule: none
+    enabled: false
+    parent_strategy: abc-v3-f1-pullback
+    module: triple_wma_pullback_sweep
+    backtest_module: abc_v3_f1_entry_gate_tp_sweep
+    description: >
+      Frozen research stack after RP-1..RP-5: raw ABC v3+F1 first-trigger (no Tier-2 entry
+      overlay) · champion TP-only intraday exit · hold 5d cap · NEVER_SL · optional
+      underwater_rebound pyramid add (H-ENTRY-PYRAMID-1 · research-only).
+      Distinct from abc-v3-f1-pullback (hold 3d · 13:30). Strategy contract only ·
+      Order sleeve retired 2026-07-16（無 live monitor／送單）。
+    matcher:
+      id: w3_rv_hl_abc_v3_f1
+      parent: w3_rv_hl_abc_v3
+      gates:
+        A: "W20−W3 RV ≤ 6.0"
+        B: "W20 Leading · W5 Weakening"
+        C: "W5 RV ≤ 101.0"
+        D: "W20 RV ≤ 104.0"
+        E: "trade_signal = lead_pullback_buy"
+        F: "W5−W3 MV < 0.01 (avoid W5 MV > W3 MV)"
+    entry:
+      overlay: none
+      notes: >
+        No gap-band / W3-improving / poll≥2 overlay — RP-5 showed Tier-2 filters do not
+        stably beat raw F1 on full-window portfolio mean.
+    execution:
+      min_poll_idx: 1
+      skip_poll: "09:00"
+      entry_timing: intraday_poll
+    exit:
+      rule: champion_tp_only
+      variant_id: TP_or_g54_g31_rvw3poll_drop_d25_r5_c1
+      tp_mode: gap_rv
+      gap_logic: or
+      gw5_min: 4.0
+      gw3_min: 1.0
+      rv_leg: w3
+      rv_mode: poll_drop
+      drv_min: 0.25
+      min_ret_pct: 5.0
+      stop_loss: NEVER_SL
+      hold_days_cap: 5
+      exit_timing: intraday_poll
+    pyramid_add:
+      enabled: false
+      hypothesis: H-ENTRY-PYRAMID-1
+      condition: underwater_rebound
+      rebound_min: 0.3
+      sizing: equal_weight_second_unit
+      exit_convention: sync_exit
+      notes: >
+        RP-2 passed IS/OOS (blended +0.98pp OOS vs leg1-only). Research-only ·
+        Order ABC pyramid_add retired_from_order（2026-07-16）；非 live.
+    portfolio:
+      validated: false
+      notes: >
+        Event-level unconstrained (no slot cap). Full window 2024-01..2026-07 TP-only mean
+        ~2.1% (723 legs). 8% portfolio target not met; stack adopted as best-evidence spec.
+    backtest:
+      spec_type: event_level_intraday
+      source_module: abc_v3_f1_entry_gate_tp_sweep
+      matcher: w3_rv_hl_abc_v3_f1
+      metrics:
+        - n
+        - tp_only_mean_ret_pct
+        - hold_only_mean_ret_pct
+        - win_rate_pct
+      date_start: "2024-01-02"
+      date_end: "2026-07-01"
+      hold_days: 5
+      execution_gate: "min_poll_idx>=1"
+      source_summary: reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
+      notes: >
+        Adopted 2026-07-11 after RP-1..RP-5 · raw F1 + champion TP beats Tier-2 overlays on
+        cross-segment stability · pyramid add optional.
+
   abc-v3-skip09-pullback:
     title: ABC v3 skip09 intraday pullback · slot-capable base
     kind: research_adopted
@@ -365,7 +479,7 @@ strategies:
       Triple-WMA ABC v3 event-level spec · skip09 poll · hold 3d → 13:30 ·
       matcher w3_rv_hl_abc_v3 (A∩B∩C∩D∩E · 無 F gate) · parent of abc-v3-f1-pullback ·
       5-slot portfolio val PASSED (daily 0.561%) · slot sizing not yet enabled ·
-      observe-only on buy-signal-radar (broader coverage than f1).
+      Order sleeve retired 2026-07-16 · buy-observation 池 enabled:false。
     matcher:
       id: w3_rv_hl_abc_v3
       parent: w3_rv_hl_abc_v2
@@ -419,9 +533,8 @@ strategies:
     description: >
       多池買入觀測板 · config/buy_observation.yaml · C0 scale 5m ·
       fresh-mono + mono-tier2 寄信（來源池標示 · 同檔合併）·
-      abc-v3-f1-pullback + abc-v3-skip09-pullback
-      回踩（observe-only · abc-v3-f1 命中自動下單 2萬/檔 · 單日最多5檔 · re-entry 見 order.yaml）·
-      不更新 rrg_c18acc_slots · 不送單。
+      ABC 回踩池定義保留但 enabled:false（Order 已退役 · 不跑／不寄／不送單）·
+      不更新 rrg_c18acc_slots · 全程不送單。
     config_ref: config/buy_observation.yaml
     backtest:
       spec_type: advisory_live
@@ -440,10 +553,152 @@ strategies:
     module: strategy_signal_radar
     screen_script: scripts/run_sell_signal_radar.py
     description: >
-      持倉 extension combo_spike + intraday-exit v2.1（S0/S1a/S1b/S2/S2-lite ·
-      08:50 snapshot · 09:06 gate · holdings_stress）· 5m poll ·
+      持倉 extension combo_spike · 5m poll ·
       持倉交集寄信（SIGNAL_RADAR_SELL_HELD_ONLY）· 人工下單。
+      結構停損 playbook 已退回 Research（非本策略）。
     backtest:
       spec_type: advisory_live
       parent_strategy: rrg-mono-swap-accel-extension
       notes: "Human-in-the-loop · no slot state · no auto orders"
+
+  detach-gate:
+    title: Detach Gate · 台美脫鉤閘門
+    kind: operational
+    schedule: launchd
+    launchd_label: com.jackm4.etf.detach-gate
+    schedule_time: "09:40–12:30 Asia/Taipei Mon-Fri · 5m"
+    env_flag: RUN_DETACH_GATE
+    enabled: true
+    module: order.us_tw_5m_sell_gate
+    screen_script: scripts/order/run_detach_gate_poll.py
+    description: >
+      TW↔NQ 5m Detach Gate（trough-first）· RED 寄信 ·
+      範圍＝券商全帳戶持倉（非僅 C18／LD 袖）· 各檔買一價 floor(qty/2) ·
+      一日一次 idempotent · 不自動接回 · ORDER_DETACH_GATE_*。
+    research_topic: us-tw-rolling-10m-poll
+    trough_research_topic: detach-gate-trough-find
+    config_ref: config/order.yaml
+    backtest:
+      spec_type: live_risk_gate
+      artifact: reports/research/rrg/20260715_us_tw_5m_sell_gate_ready.md
+      frozen_rule: s5_w-0.6_c1_down-0.5_arm0940-1230
+      objective: trough_headroom_first
+      scope: broker_all_holdings
+      notes: >
+        sell_near=0 · med headroom≈1.6% · 7/14 RED@09:40 headroom≈+2.13%.
+        Half-flatten @ bid1 · full-account scope（confirmed 2026-07-16）·
+        rebuy is separate research (detach-gate-trough-find).
+
+  leading-dip:
+    title: Leading Dip · coverage · gap∩excess(昨收)
+    kind: research_adopted
+    schedule: launchd
+    launchd_label: com.jackm4.etf.leading-dip-poll
+    schedule_time: "09:05–13:25 Asia/Taipei Mon-Fri · 5m"
+    env_flag: RUN_LEADING_DIP_POLL
+    enabled: true
+    module: order.leading_dip_order
+    screen_script: scripts/order/run_leading_dip_poll.py
+    research_topic: leading-wma20-intraday-excess6-wma3-confirm
+    config_ref: config/order.yaml
+    description: >
+      Leading WMA20 昨收宇宙 · gap3≤−0.80 ∩ excess(昨收)≤−4 · notUR · W5_MV<100 ·
+      coverage（含開盤）· 日槽 deepest-ex ≤2（忙≥3∧rB_min≤−1.5 →≤4）· 總在外≤6 ·
+      hold T+3 · Order 隔離 ledger · 預算 2 萬/筆 · 採納 2026-07-16。
+    matcher:
+      id: leading_dip_cov
+      gates:
+        U: "T−1 WMA20 Leading (PIT rrg_universe_scores)"
+        S1: "T−1 W20_4d trend ≠ up_right"
+        S2: "T−1 W5_MV < 100"
+        G: "gap3 = (RS/WMA3(RS)−1)×100 ≤ −0.80"
+        E: "excess vs yday close ≤ −4pp"
+    execution:
+      entry_timing: first_hit_5m
+      excess_anchor: prev_close
+      require_t2: false
+    exit:
+      rule: hold_3d
+      exit_price: chase_bid
+    portfolio:
+      day_slot_default: 2
+      day_slot_busy_crash: 4
+      hard_day_cap: 4
+      total_open_cap: 6
+      budget_twd: 20000
+    backtest:
+      spec_type: event_level_intraday
+      source_module: leading_dip_sleeve_validate
+      frozen_id: leading_dip_cov
+      hold_days: 3
+      metrics:
+        - n
+        - hit
+        - med_ex3
+        - oos_hit
+        - oos_med
+      oos_cut: "2025-10-01"
+      date_start: "2025-01-02"
+      source_summary: reports/research/rrg/20260715_leading_wma20_excess6_wma3_confirm.md
+      companion:
+        - reports/research/rrg/20260715_leading_dip_time_sleeve_expand.md
+        - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md
+      notes: >
+        採納 2026-07-16 · coverage 主軌（含開盤）· Order live ·
+        mid 衛星見 leading-dip-mid。Self-validate soft gates passed on coverage track.
+
+  leading-dip-mid:
+    title: Leading Dip mid · ≥10:00 · gap∩excess(今開)
+    kind: research_adopted
+    schedule: launchd
+    launchd_label: com.jackm4.etf.leading-dip-poll
+    schedule_time: "10:00–13:25 Asia/Taipei Mon-Fri · 5m (via same poll)"
+    env_flag: RUN_LEADING_DIP_POLL
+    enabled: true
+    parent_strategy: leading-dip
+    module: order.leading_dip_order
+    screen_script: scripts/order/run_leading_dip_poll.py
+    research_topic: leading-wma20-intraday-excess6-wma3-confirm
+    config_ref: config/order.yaml
+    description: >
+      主軌互補衛星 · 同結構核 · excess 錨改今開 · minute≥10:00 ·
+      排除當日已觸 main(昨收錨) · 日槽≤1（忙跌≤2）· 總在外≤3 · hold T+3 ·
+      預算 2 萬/筆 · 採納 2026-07-16。
+    matcher:
+      id: leading_dip_mid_open
+      gates:
+        U: "T−1 WMA20 Leading"
+        S1: "T−1 W20_4d ≠ up_right"
+        S2: "T−1 W5_MV < 100"
+        G: "gap3 ≤ −0.80"
+        E: "excess vs session open ≤ −4pp"
+        W: "minute ≥ 10:00"
+        X: "sid not in same-day main yday-anchor hits"
+    execution:
+      entry_timing: first_hit_5m
+      excess_anchor: open
+      minute_lo: "10:00"
+      require_t2: false
+    exit:
+      rule: hold_3d
+      exit_price: chase_bid
+    portfolio:
+      day_slot_default: 1
+      day_slot_busy_crash: 2
+      hard_day_cap: 2
+      total_open_cap: 3
+      budget_twd: 20000
+    backtest:
+      spec_type: event_level_intraday
+      source_module: leading_dip_sleeve_validate
+      frozen_id: post_1000_open
+      hold_days: 3
+      metrics:
+        - n
+        - only_vs_cov
+        - hit
+        - med_ex3
+      source_summary: reports/research/rrg/20260715_leading_dip_time_sleeve_expand.md
+      notes: >
+        Complementary uplift vs coverage ≈ +15 (+18%) · only_new hit≈87% med≈+6.2 ·
+        採納為衛星袖 · 不取代 main。

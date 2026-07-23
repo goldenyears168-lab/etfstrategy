@@ -109,7 +109,10 @@ class TestHoldingsPulse(unittest.TestCase):
             notes=("CORE4",),
         )
         flags = _structural_flags(row, current_price=980.0, poll_minute="09:30", portfolio_exit_mode=False)
-        self.assertIn("S1b", flags)
+        self.assertIn("≤-2%gate", flags)
+        self.assertNotIn("S1b", flags)
+        # gate OFF → 不因弱檔 -3% 單獨掛賣出旗標
+        self.assertNotIn("S2", flags)
 
     def test_weak_reason_and_flag_hint(self) -> None:
         row = HoldingPulseRow(
@@ -143,14 +146,15 @@ class TestHoldingsPulse(unittest.TestCase):
             dist_gate_2pct_pct=7.0,
             dist_s1b_pct=8.0,
             dist_extension_pct=1.0,
-            vcp_composite=51.0,
-            vcp_state="Overextended",
+            vcp_composite=None,
+            vcp_state=None,
             hold_days=5,
             structural_flags=("ext≥4%",),
         )
-        self.assertIn("VCP Overextended", _weak_reason(row))
+        self.assertIn("tier=weak", _weak_reason(row))
+        self.assertNotIn("VCP", _weak_reason(row))
         self.assertIn("守利", _flag_action_hint("ext≥4%", tier="weak", portfolio_exit_mode=False))
-        self.assertIn("strong", _flag_action_hint("≤-2%gate", tier="strong", portfolio_exit_mode=False))
+        self.assertIn("非自動賣出", _flag_action_hint("≤-2%gate", tier="strong", portfolio_exit_mode=False))
 
     def test_format_priority_watch_after_close(self) -> None:
         pulse = HoldingsPulse(
@@ -275,12 +279,25 @@ class TestHoldingsPulse(unittest.TestCase):
 
         text = format_holdings_pulse(pulse)
         self.assertIn("持倉即時脈動", text)
-        self.assertIn("組合閘門", text)
+        self.assertIn("組合狀態", text)
+        self.assertIn("Research", text)
         self.assertIn("2327", text)
+        self.assertIn("【持倉狀態】", text)
+        self.assertIn("成本均價", text)
+        self.assertIn("投資成本", text)
+        self.assertIn("報價來源", text)
         self.assertIn("RRG收盤", text)
         self.assertIn("優先盯", text)
         self.assertIn("不等於出清指令", text)
-        self.assertIn("S2（-3% 環境減碼）不啟用", text)
+        self.assertIn("不執行結構賣訊", text)
+        self.assertNotIn("VCP", text)
+        self.assertNotIn("Overextended", text)
+
+        digest = format_holdings_pulse_digest(pulse)
+        self.assertIn("【持倉狀態】", digest)
+        self.assertIn("成本均價", digest)
+        self.assertIn("2327", digest)
+        self.assertIn("報價來源", digest)
 
     def test_holdings_pulse_to_dict_includes_exit_fields(self) -> None:
         base = HoldingBriefRow(
@@ -329,10 +346,10 @@ class TestHoldingsPulse(unittest.TestCase):
             dist_gate_2pct_pct=1.01,
             dist_s1b_pct=2.07,
             dist_extension_pct=-4.8,
-            vcp_composite=68.0,
-            vcp_state="Overextended",
+            vcp_composite=None,
+            vcp_state=None,
             hold_days=12,
-            structural_flags=("CORE4", "結構弱·S1b/S2候選"),
+            structural_flags=("CORE4", "結構弱"),
         )
         pulse = HoldingsPulse(
             generated_at="2026-07-08T13:15:00+08:00",
@@ -368,13 +385,73 @@ class TestHoldingsPulse(unittest.TestCase):
         )
         payload = holdings_pulse_to_dict(pulse)
         h = payload["holdings"][0]
+        self.assertEqual(payload["cash_available"], 100000)
+        self.assertEqual(payload["total_market_value"], 198694.0)
+        self.assertEqual(payload["total_unrealized_pnl"], -916)
+        self.assertEqual(h["shares"], 20)
+        self.assertEqual(h["cost_price"], 909.0)
+        self.assertEqual(h["market_value"], 17920.0)
+        self.assertEqual(h["unrealized_pnl"], -363)
+        self.assertEqual(h["price_source"], "fubon")
         self.assertEqual(h["structure_tier"], "weak")
-        self.assertEqual(h["vcp_state"], "Overextended")
+        self.assertIsNone(h["vcp_state"])
         self.assertEqual(h["hold_days"], 12)
         self.assertIn("CORE4", h["structural_flags"])
         self.assertEqual(h["rrg_close_quadrant"], "weakening")
         self.assertEqual(h["rrg_intraday_quadrant"], "lagging")
         self.assertFalse(payload["portfolio_exit_mode"])
+
+
+class TestSyncIntradayRrgWorker(unittest.TestCase):
+    def test_parse_rrg_sync_worker_stdout(self) -> None:
+        from order.holdings_pulse import _parse_rrg_sync_worker_stdout
+
+        self.assertEqual(
+            _parse_rrg_sync_worker_stdout(
+                "RRG 盤中同步 OK · rows=261 · priced=261 · kbar=15\n"
+            ),
+            (261, 261, 15),
+        )
+        self.assertIsNone(_parse_rrg_sync_worker_stdout("nope"))
+
+    def test_sync_intraday_rrg_uses_worker_counts_without_rerun(self) -> None:
+        """After main .venv worker succeeds, do not call impl in .venv-fubon."""
+        import os
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from order.holdings_pulse import sync_intraday_rrg
+
+        conn = sqlite3.connect(":memory:")
+        completed = SimpleNamespace(
+            returncode=0,
+            stdout="RRG 盤中同步 OK · rows=10 · priced=9 · kbar=3\n",
+            stderr="",
+        )
+        main_py = Path("/proj/.venv/bin/python")
+        worker_py = Path("/proj/scripts/order/sync_holdings_rrg_intraday_worker.py")
+
+        def _is_file(self: Path) -> bool:
+            return str(self) in {str(main_py), str(worker_py)}
+
+        with (
+            patch("order.holdings_pulse.PROJECT_ROOT", Path("/proj")),
+            patch.object(Path, "is_file", _is_file),
+            patch("subprocess.run", return_value=completed) as run_mock,
+            patch("order.holdings_pulse._sync_intraday_rrg_impl") as impl_mock,
+        ):
+            os.environ.pop("HOLDINGS_RRG_SYNC_WORKER", None)
+            n, priced, kbar, err = sync_intraday_rrg(
+                conn,
+                session_date="2026-07-16",
+                poll_minute="10:05",
+                holding_ids=["2330"],
+            )
+
+        self.assertEqual((n, priced, kbar, err), (10, 9, 3, None))
+        run_mock.assert_called_once()
+        impl_mock.assert_not_called()
+        conn.close()
 
 
 if __name__ == "__main__":

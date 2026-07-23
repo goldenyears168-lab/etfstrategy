@@ -35,7 +35,7 @@ HOME_BRIEF_HINT_ZH: dict[str, str] = {
     "vcp_funnel_specs": "VCP 漏斗研究對照，觀察哪些股票正在靠近 VCP 條件的門口。",
     "rrg_mono_intraday": "盤中先看輪動方向的變化，觀察強弱是否有轉折跡象。",
     "rrg_mono_swap_accel_daily": "收盤後看隔日 fresh mono 候選、持倉四日加速與換倉門檻接近度。",
-    "rrg_c18acc_screen": "盤中 C0 scale 進場與 5 分鐘 poll 換倉 live screen（C18acc）。",
+    "rrg_c18acc_screen": "盤中 avg_accel 進場與 5 分鐘 poll 換倉 live screen（C18acc）。",
 }
 
 

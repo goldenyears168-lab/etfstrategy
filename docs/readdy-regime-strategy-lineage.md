@@ -442,14 +442,14 @@ site_content（layer_id=strategy · strategy_id 有值）
 
 **模式 C score swap（2026-06 结论摘要）**
 
-- **骨架**：C0 进场 · `poll_5m` · min_hold=5 · max_hold=10 · fresh mono 全池（不裁 top10）· 每日最多 1 次换仓。
+- **骨架**：C0 进场 · `poll_5m` · min_hold=5 · max_hold=10 · **POOL1 fresh∪accel 全池**（seg_last passthrough · 不裁 top10）· 每日最多 1 次换仓。
 - **Baseline C18**：`sort_key=seg_last` · margin=0.10 · 无 structural gate → **4.89% · 45 swaps**（2024-01-01 ~ 2026-06-22）。
-- **Research champion · `rrg-mono-swap-accel`（簡稱 C18acc · 四日加速对称换仓）**：4 日 RRG **越转越快/越转越慢** · **卖**还在变弱且加速为负的最弱腿 · **买** seg_last 门槛 + margin=0.05 后取 **转强最快** · C0 盘中 + 5m poll → **5.38% · 41 swaps**（旧 ID `C18-acc4-05` · `C18-acel3-5-bavg`）。
+- **Research champion · `rrg-mono-swap-accel`（簡稱 C18acc · 四日加速对称换仓）**：POOL1 · **池序 seg_last** · **进场 C0×seg_last** · **换仓 avg_accel**（门槛 seg_last+0.05）· C0 盘中 + 5m poll → **5.38% · 41 swaps**（旧 ID `C18-acc4-05` · `C18-acel3-5-bavg`）。
 - **Research stable · C18-dls1**：**4 日位移 down_left** gate · 卖最低 `seg_last` · margin=0.08 → **5.19% · 33 swaps**（swap 更少 · 2025 分年较稳）。
 - **买方研究**：买排序改「四日加速最大」+0.07pp；`recent_accel_up` / v·a gate 多为 no-op。
 - **稳定性**（`20260624_c18_acc4_dls1_stability.json`）：全样本 **+0.20pp** · 2024 C18acc **+0.79pp** · 2025 dls1 +0.26pp · 子区间 C18acc 胜 **3/5**。
 - **Provenance**：`reports/research/rrg/20260624_c18_buy_accel_phase2_sweep.json` 等 · 说明见 `config/research.yaml` · `rrg-mono-score-swap-c`。
-- **Graduation**：breadth hold-out **已通过**（`20260624_rrg_mono_swap_accel_breadth_zones.json`）· 已採納 `rrg-mono-swap-accel`（`enabled: false`）。
+- **Graduation**：breadth hold-out **已通过**（`20260624_rrg_mono_swap_accel_breadth_zones.json`）· 已採納 `rrg-mono-swap-accel`（`enabled: true` · 20260709 文档对齐双指标漏斗）。
 
 ### 3.6 Registry 雙源對齊（易漏 · 新策略必查）
 
@@ -486,7 +486,7 @@ site_content（layer_id=strategy · strategy_id 有值）
 
 - [x] 模式 C score swap：`rrg-mono-swap-accel`（C18acc）vs C18-dls1 分年稳定性（见 `20260624_c18_acc4_dls1_stability.json`）
 - [x] breadth hold-out（见 `20260624_rrg_mono_swap_accel_breadth_zones.json`）
-- [x] 採納：`rrg-mono-swap-accel` · daily brief（Scheme A）· pipeline · `strategy.yaml`（enabled: false）
+- [x] 採納：`rrg-mono-swap-accel` · daily brief（Scheme A）· pipeline · `strategy.yaml`（enabled: true）
 
 ### 4.3 `vcp-pivot-gate` / `vcp-coil-close`
 
@@ -499,7 +499,7 @@ site_content（layer_id=strategy · strategy_id 有值）
 
 - [ ] 敘事：C18acc 四日加速對称换仓 · 由 `rrg-mono-score-swap-c` 畢業
 - [ ] **統計證明**：§3.5.1 sweep · breadth hold-out（`20260624_rrg_mono_swap_accel_breadth_zones.json`）
-- [ ] 凍結：`poll_5m` · min_hold=5 · max_hold=10 · fresh mono 全池 · 3 槽
+- [ ] 凍結：`poll_5m` · min_hold=5 · max_hold=10 · **POOL1 fresh∪accel** 全池 · 双指标（池 seg_last · 换 avg_accel）· 3 槽
 
 ---
 
@@ -705,7 +705,7 @@ RUN_STRATEGY_PERF_SYNC=1
 | `AUTO:vcp-sweep-top25` | `research_case_vcp_funnel` |
 | `AUTO:rrg-breadth` | `research_case_rrg_mono` |
 
-**待實作（P1 · 非 v1 阻塞）**：`scripts/push_site_content_md.py` · `scripts/sync_site_content_to_supabase.py`（已就緒 · 含 013 registry 欄位）— 研究產出 AUTO 表後執行推送。
+**待實作（P1 · 非 v1 阻塞）**：`scripts/tools/push_site_content_md.py` · `scripts/tools/sync_site_content_to_supabase.py`（已就緒 · 含 013 registry 欄位）— 研究產出 AUTO 表後執行推送。
 
 **勿做**：Dashboard 手改卻不同步 git；git 改 MD 卻不推 Supabase（雙源漂移）。
 
@@ -790,7 +790,7 @@ RUN_STRATEGY_PERF_SYNC=1
 | Supabase `site_content` | **公開文案 SSOT** · registry · 凍結規格 · 採納報告 · catalog 長文 |
 | `src/supabase_research_sync.py` | `daily_briefs` sync · `STRATEGY_SCREEN_META`（§3.6） |
 | `scripts/sync_strategy_performance.py` | 分年績效 → `strategy_performance_yearly` |
-| `scripts/backfill_supabase_research.py` | 歷史 `daily_briefs` backfill |
+| `scripts/tools/backfill_supabase_research.py` | 歷史 `daily_briefs` backfill |
 | `reports/research/` | 原始 JSON / 腳本 · provenance（不替代公開大表） |
 | [daily-operations.md](./daily-operations.md) | 排程 · `RUN_SUPABASE_*` 開關 |
 | `readdy-490731/src/hooks/useStrategies.ts` | **單一 registry hook** |
@@ -802,8 +802,8 @@ RUN_STRATEGY_PERF_SYNC=1
 | `readdy-490731/src/pages/strategies/lineage.tsx` | 採納報告 |
 | `supabase/migrations/013_site_content_strategy_meta.sql` | **已部署** · registry 欄位 |
 
-| `scripts/sync_site_content_to_supabase.py` | 本機 `supabase/site/` → `site_content` |
-| `scripts/push_site_content_md.py` | git HEAD MD → `site_content`（無本機 site/ 時） |
+| `scripts/tools/sync_site_content_to_supabase.py` | 本機 `supabase/site/` → `site_content` |
+| `scripts/tools/push_site_content_md.py` | git HEAD MD → `site_content`（無本機 site/ 時） |
 
 ---
 

@@ -32,7 +32,7 @@ fi
 
 set +e
 OUT="$("${PYTHON}" "${ROOT}/scripts/order/morning_holdings_brief.py" \
-  --sync-futures --sync-db --write 2>&1)"
+  --no-futures --sync-db --write 2>&1)"
 EXIT=$?
 set -e
 echo "${OUT}"

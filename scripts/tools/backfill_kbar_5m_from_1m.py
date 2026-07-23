@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """stock_kbar_1m → stock_kbar_5m · 主線歷史遷移（單次或增量）。
 
-  PYTHONPATH=src python scripts/backfill_kbar_5m_from_1m.py --report-only
-  PYTHONPATH=src python scripts/backfill_kbar_5m_from_1m.py --date-start 2024-01-01
+  PYTHONPATH=src python scripts/tools/backfill_kbar_5m_from_1m.py --report-only
+  PYTHONPATH=src python scripts/tools/backfill_kbar_5m_from_1m.py --date-start 2024-01-01
 """
 
 from __future__ import annotations

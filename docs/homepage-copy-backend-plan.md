@@ -197,7 +197,7 @@ HOME_SECTION_OVERVIEW_TITLE_ZH = "今天市場總覽"
 | B1.1 | `src/regime_interpret.py` | `interpret_market_structure` 改寫：白話結論 + 雙語術語 |
 | B1.2 | `src/regime_snapshot_json.py` | 新增 `overview_plain_zh`；`_context_line_zh` 可保留作技術列 |
 | B1.3 | 同上 `_home_kpis` | `label_zh` 雙語化；新增 `hint_zh` |
-| B1.4 | `scripts/backfill_supabase_research.py` 或 regime backfill | 重算歷史 `regime_daily` snapshot |
+| B1.4 | `scripts/tools/backfill_supabase_research.py` 或 regime backfill | 重算歷史 `regime_daily` snapshot |
 
 **驗收**：首頁不開前端 map，只顯示 `overview_plain_zh` + `home_kpis[].hint_zh` 即有完整說明。
 
@@ -223,7 +223,7 @@ HOME_SECTION_OVERVIEW_TITLE_ZH = "今天市場總覽"
 |------|------|
 | B4.1 | **新建** `src/home_ui_copy.py` | Hero、區塊標題、CTA、brief 區說明（若不放 snapshot） |
 | B4.2 | `supabase/site/strategies/*.md` front matter | `description_short` 改白話（雙語） |
-| B4.3 | `scripts/sync_site_content_to_supabase.py` | 推送後 `site_content.description_short` 更新 |
+| B4.3 | `scripts/tools/sync_site_content_to_supabase.py` | 推送後 `site_content.description_short` 更新 |
 
 ### Phase B5 · brief 入口說明（可選）
 
@@ -301,7 +301,7 @@ flowchart LR
 ```bash
 # 後端
 python -m pytest tests/ -k "regime_snapshot or screen_status or lens"  # 若有
-python scripts/backfill_supabase_research.py --help  # 確認 regime 可重算
+python scripts/tools/backfill_supabase_research.py --help  # 確認 regime 可重算
 
 # 前端
 cd readdy-490731 && npm run build

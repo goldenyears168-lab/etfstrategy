@@ -43,11 +43,14 @@ class FinmindClientTests(unittest.TestCase):
         mock_resp.json.return_value = {"status": 200, "data": [{"stock_id": "2330"}]}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("finmind_client.requests.get", return_value=mock_resp) as get:
-            rows = fetch_finmind_dataset("TaiwanStockInfo")
+        with patch("finmind_client.finmind_token", return_value="test-token"):
+            with patch("finmind_client.requests.get", return_value=mock_resp) as get:
+                rows = fetch_finmind_dataset("TaiwanStockInfo")
         self.assertEqual(rows, [{"stock_id": "2330"}])
         get.assert_called_once()
         self.assertEqual(get.call_args.kwargs["params"]["dataset"], "TaiwanStockInfo")
+        self.assertEqual(get.call_args.kwargs["params"]["token"], "test-token")
+        self.assertEqual(get.call_args.kwargs["headers"], {})
         self.assertEqual(get.call_args.args[0], FINMIND_DATA_URL)
 
     def test_fetch_futures_snapshots(self) -> None:

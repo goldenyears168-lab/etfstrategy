@@ -39,7 +39,7 @@ echo "${SYNC_OUT}"
 
 if [[ "${SYNC_EXIT}" -ne 0 ]]; then
   /usr/bin/osascript -e \
-    "display notification \"Supabase sync ${SLOT} 失敗（見 log）\" with title \"ETF研究\"" \
+    "display notification \"Supabase sync ${SLOT} 失敗（見 log）\" with title \"股票研究\"" \
     2>/dev/null || true
   exit "${SYNC_EXIT}"
 fi

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# launchd：Buy signal radar · 09:00–13:20 每 5 分 · advisory email only
+# launchd：Buy signal radar · 09:00–13:20 每 5 分 · observe advisory email only
+# Live Order sleeves：C18acc（rrg poll）+ Leading Dip（leading-dip-poll）。
+# ABC Order 已退役（2026-07-15）· radar 不再送單。
 
 set -euo pipefail
 
@@ -31,14 +33,6 @@ export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
 export RUN_BUY_SIGNAL_RADAR="${RUN_BUY_SIGNAL_RADAR:-1}"
 export RUN_BUY_SIGNAL_EMAIL="${RUN_BUY_SIGNAL_EMAIL:-1}"
-export RUN_ABC_V3_F1_SUBMIT_EMAIL="${RUN_ABC_V3_F1_SUBMIT_EMAIL:-1}"
-export ABC_V3_F1_ORDER_ENABLED="${ABC_V3_F1_ORDER_ENABLED:-1}"
-export ABC_V3_F1_AUTO_SUBMIT="${ABC_V3_F1_AUTO_SUBMIT:-1}"
-export ABC_V3_F1_BUDGET_TWD="${ABC_V3_F1_BUDGET_TWD:-20000}"
-export ABC_V3_F1_MAX_ENTRIES_DAY="${ABC_V3_F1_MAX_ENTRIES_DAY:-5}"
-export ABC_V3_F1_HOLD_DAYS="${ABC_V3_F1_HOLD_DAYS:-3}"
-export ABC_V3_F1_REENTRY_DISCOUNT_PCT="${ABC_V3_F1_REENTRY_DISCOUNT_PCT:-2.0}"
-export ABC_V3_F1_MAX_NOTIONAL_SYMBOL="${ABC_V3_F1_MAX_NOTIONAL_SYMBOL:-60000}"
 export C18ACC_KBAR_SYNC="${C18ACC_KBAR_SYNC:-1}"
 export SIGNAL_RADAR_USE_FUBON="${SIGNAL_RADAR_USE_FUBON:-1}"
 
@@ -54,17 +48,35 @@ EXIT=$?
 set -e
 echo "${OUT}"
 
+# 直接呼叫 venv python 寄信（勿 exec Documents/*.sh · launchd TCC 會擋）
+_notify_buy() {
+  local intro="$1"
+  local env_flag="$2"
+  local pattern="$3"
+  local EXTRA_LINES EXTRA rel STAMP
+  STAMP="$(date '+%Y%m%d')"
+  EXTRA_LINES="$(echo "${OUT}" | grep -E "${pattern}" || true)"
+  EXTRA="${intro}"$'\n'"${EXTRA_LINES}"$'\n'
+  for rel in \
+    "reports/daily/${STAMP}_buy_signal_radar.md" \
+    "reports/daily/buy_signal_radar.md"; do
+    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+  done
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="Buy signal radar" \
+    --exit-code="${EXIT}" \
+    --log-path="${LAUNCHD_LOG}" \
+    --extra="${EXTRA}" \
+    --env-flag="${env_flag}"
+  set -e
+}
+
 if echo "${OUT}" | grep -q 'BUY_SIGNAL_RADAR=1'; then
-  EXTRA_LINES="$(echo "${OUT}" | grep -E \
-    'BUY_SIGNAL_RADAR|買進|觀測命中|多軌重疊|▸ ABC v3|已送單|自動下單|· 略過|buy ' || true)"
-  export JOB_NOTIFY_EXTRA=$'買進 / ABC v3·f1 observe 命中（advisory · 已啟用自動下單）\n'"${EXTRA_LINES}"
-  "${ROOT}/scripts/buy_signal_notify.sh" "${EXIT}" || true
-elif echo "${OUT}" | grep -q 'ABC_V3_F1_SUBMIT=1'; then
-  EXTRA_LINES="$(echo "${OUT}" | grep -E \
-    'ABC_V3_F1_SUBMIT|▸ ABC v3|已送單|成交|略過' || true)"
-  export JOB_NOTIFY_EXTRA=$'ABC v3+f1 委託已送出（重試成功 · 非 observe 首次信）\n'"${EXTRA_LINES}"
-  RUN_BUY_SIGNAL_EMAIL="${RUN_ABC_V3_F1_SUBMIT_EMAIL:-1}" \
-    "${ROOT}/scripts/buy_signal_notify.sh" "${EXIT}" || true
+  _notify_buy \
+    $'買進 / observe 命中（ABC Order 已退役；radar 僅通知）' \
+    "RUN_BUY_SIGNAL_EMAIL" \
+    'BUY_SIGNAL_RADAR|買進|觀測命中|多軌重疊|· 略過|buy '
 fi
 
 echo "=== launchd buy-signal-radar end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="

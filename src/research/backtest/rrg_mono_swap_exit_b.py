@@ -171,6 +171,9 @@ def _fill_empty_slots(
     kbar_stats: dict[str, int],
     entry_c_config: Any | None = None,
     n_slots: int | None = None,
+    rs_ratio: pd.DataFrame | None = None,
+    rs_mom: pd.DataFrame | None = None,
+    accel_lookback: int = LOOKBACK,
 ) -> None:
     slot_cap = n_slots if n_slots is not None else MAX_SLOTS
     used = {int(p["slot"]) for p in slots}
@@ -200,6 +203,9 @@ def _fill_empty_slots(
             kbar_cache=kbar_cache,
             kbar_stats=kbar_stats,
             max_slots=slot_cap,
+            rs_ratio=rs_ratio,
+            rs_mom=rs_mom,
+            accel_lookback=accel_lookback,
         )
         for p in tmp["slots"]:
             if str(p["stock_id"]) in before:

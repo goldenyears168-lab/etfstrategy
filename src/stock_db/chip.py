@@ -171,6 +171,102 @@ def upsert_stock_branch_daily(conn: sqlite3.Connection, rows: list[dict]) -> int
     return len(payload)
 
 
+def upsert_stock_broker_branch_daily(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    """Persist per-branch (securities_trader) buy/sell aggregates by stock/date."""
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_broker_branch_daily (
+            trade_date, securities_trader_id, securities_trader, stock_id,
+            buy, sell, net, source, synced_at
+        ) VALUES (
+            :trade_date, :securities_trader_id, :securities_trader, :stock_id,
+            :buy, :sell, :net, :source, :synced_at
+        )
+        ON CONFLICT(trade_date, securities_trader_id, stock_id, source) DO UPDATE SET
+            securities_trader=excluded.securities_trader,
+            buy=excluded.buy,
+            sell=excluded.sell,
+            net=excluded.net,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def list_broker_branch_tape_dates(
+    conn: sqlite3.Connection,
+    securities_trader_id: str,
+    *,
+    source: str = "finmind",
+    window_start: str | None = None,
+    window_end: str | None = None,
+) -> list[str]:
+    sql = """
+        SELECT DISTINCT trade_date
+        FROM stock_broker_branch_daily
+        WHERE securities_trader_id = ? AND source = ?
+    """
+    params: list[object] = [securities_trader_id, source]
+    if window_start:
+        sql += " AND trade_date >= ?"
+        params.append(window_start)
+    if window_end:
+        sql += " AND trade_date <= ?"
+        params.append(window_end)
+    sql += " ORDER BY trade_date ASC"
+    return [str(r[0]) for r in conn.execute(sql, params).fetchall()]
+
+
+def load_broker_branch_nets_for_date(
+    conn: sqlite3.Connection,
+    securities_trader_id: str,
+    trade_date: str,
+    *,
+    source: str = "finmind",
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT stock_id, securities_trader, buy, sell, net
+        FROM stock_broker_branch_daily
+        WHERE securities_trader_id = ? AND trade_date = ? AND source = ?
+        ORDER BY net DESC, stock_id ASC
+        """,
+        (securities_trader_id, trade_date, source),
+    ).fetchall()
+
+
+def load_broker_branch_nets(
+    conn: sqlite3.Connection,
+    securities_trader_id: str,
+    *,
+    source: str = "finmind",
+    window_start: str | None = None,
+    window_end: str | None = None,
+    min_net: float | None = None,
+) -> list[sqlite3.Row]:
+    sql = """
+        SELECT trade_date, stock_id, securities_trader, buy, sell, net
+        FROM stock_broker_branch_daily
+        WHERE securities_trader_id = ? AND source = ?
+    """
+    params: list[object] = [securities_trader_id, source]
+    if window_start:
+        sql += " AND trade_date >= ?"
+        params.append(window_start)
+    if window_end:
+        sql += " AND trade_date <= ?"
+        params.append(window_end)
+    if min_net is not None:
+        sql += " AND net >= ?"
+        params.append(min_net)
+    sql += " ORDER BY trade_date ASC, net DESC, stock_id ASC"
+    return conn.execute(sql, params).fetchall()
+
+
 def upsert_stock_block_trade(conn: sqlite3.Connection, rows: list[dict]) -> int:
     if not rows:
         return 0

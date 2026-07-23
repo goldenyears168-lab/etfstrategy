@@ -819,7 +819,7 @@ def render_peak_analysis_md(payload: dict[str, Any]) -> str:
 
     lines += [
         "---",
-        "模組：`scripts/analyze_extension_peak_features.py`",
+        "模組：`scripts/tools/analyze_extension_peak_features.py`",
         "",
     ]
     return "\n".join(lines)
@@ -1346,7 +1346,7 @@ def render_phase_2c_md(payload: dict[str, Any]) -> str:
     lines += [
         "",
         "---",
-        "模組：`scripts/analyze_extension_peak_features_2c.py`",
+        "模組：`scripts/tools/analyze_extension_peak_features_2c.py`",
         "",
     ]
     return "\n".join(lines)

@@ -1,13 +1,11 @@
 # Cursor index / search exclusions — reduces agent noise & token burn.
 # Does NOT block @-mentioning a specific file when you need it.
 
-# Runtime data & artifacts
-data/
-*.db
-*.csv
 
-# Python / test caches
+
+# Python / test caches / local envs
 .venv/
+.venv-*/
 __pycache__/
 *.pyc
 htmlcov/
@@ -16,12 +14,13 @@ htmlcov/
 .coverage
 .coverage.*
 
+
+
 # Frontend / vendor / external clones
 node_modules/
 readdy-490731/node_modules/
 external/
 vendor/
-
 
 # Supabase CLI cache
 supabase/.temp/

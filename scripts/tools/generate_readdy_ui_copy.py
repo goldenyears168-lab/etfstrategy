@@ -63,7 +63,7 @@ def _export_module(mod: Any, names: list[str]) -> list[str]:
 
 def main() -> int:
     header = [
-        "/** AUTO-GENERATED — do not edit. Run: scripts/generate_readdy_ui_copy.py */",
+        "/** AUTO-GENERATED — do not edit. Run: scripts/tools/generate_readdy_ui_copy.py */",
         "",
     ]
 

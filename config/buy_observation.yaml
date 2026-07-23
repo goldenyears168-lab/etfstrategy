@@ -1,12 +1,14 @@
 # 買入觀測板 SSOT · 多池盤中 C0 scale · 對齊 strategy / research 軌
 # Phase C（2026-07-09）：RRG Improving 池 enabled=false（research archived · 保留定義供手動啟用）
+# 2026-07-16：ABC 回踩池 enabled=false（Order sleeve 已退役 · radar 不跑／不寄／不送單）
 # 術語：docs/terminology.md · 採納軌 notify=true 才觸發寄信去重
 
 version: buy-observation-v1
 layer: operational
 
 defaults:
-  top_n: 5
+  # 0 = 無上限 · 顯示/寄信池內全部命中（勿再截 top5）
+  top_n: 0
   confirm_bars: 1
   entry: c0_scale_5m
   notify: false
@@ -22,39 +24,41 @@ pools:
     source: rrg_fresh_mono
     strategy_ref: buy-signal-radar
     notify: true
-    top_n: 5
+    top_n: 0
 
   - id: rrg-mono-tier2
     title: RRG mono tier2
     role: research
     source: rrg_mono_tier2
     notify: true
-    top_n: 5
+    top_n: 0
 
   - id: rrg-mono-up-fresh
     title: RRG mono_up fresh
     role: research
     source: rrg_mono_up_fresh
     notify: false
-    top_n: 5
+    top_n: 0
 
   - id: abc-v3-f1-pullback
     title: ABC v3+f1 回踩
     role: research
     source: abc_v3_f1_pullback
     strategy_ref: buy-signal-radar
-    # observe-only 命中即寄信（獨立 advisory 軌 · 不與 C18acc 搶 slot）
-    notify: true
+    # Order 已移除 ABC（2026-07-16）· buy-radar 不再跑／寄此軌
+    enabled: false
+    notify: false
     observe_only: true
-    top_n: 0  # 0 = 無上限 · 顯示/寄信全部命中
+    top_n: 0
 
   - id: abc-v3-skip09-pullback
     title: ABC v3 skip09 回踩
     role: research
     source: abc_v3_skip09_pullback
     strategy_ref: abc-v3-skip09
-    # v3（無 F gate）· 覆蓋較廣 · observe-only 命中即寄信（不搶 slot）
-    notify: true
+    # Order 已移除 ABC（2026-07-16）· buy-radar 不再跑／寄此軌
+    enabled: false
+    notify: false
     observe_only: true
     top_n: 8
 

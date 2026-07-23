@@ -35,10 +35,10 @@ for attempt in 1 2 3; do
   set +e
   if ((${#NOTIFY_ARGS[@]})); then
     OUT="$("${PYTHON}" "${ROOT}/scripts/order/morning_holdings_brief.py" \
-      --sync-futures --sync-db --write --notify 2>&1)"
+      --no-futures --sync-db --write --notify 2>&1)"
   else
     OUT="$("${PYTHON}" "${ROOT}/scripts/order/morning_holdings_brief.py" \
-      --sync-futures --sync-db --write 2>&1)"
+      --no-futures --sync-db --write 2>&1)"
   fi
   EXIT=$?
   set -e

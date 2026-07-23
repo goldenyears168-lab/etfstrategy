@@ -2,8 +2,8 @@
 """Phase 2c · Extension radar · 交互 logit · 生存 · OOS · X6/X7/X8 回測。
 
 用法：
-  PYTHONPATH=src python scripts/analyze_extension_peak_features_2c.py
-  PYTHONPATH=src python scripts/analyze_extension_peak_features_2c.py --skip-backtest
+  PYTHONPATH=src python scripts/tools/analyze_extension_peak_features_2c.py
+  PYTHONPATH=src python scripts/tools/analyze_extension_peak_features_2c.py --skip-backtest
 """
 
 from __future__ import annotations

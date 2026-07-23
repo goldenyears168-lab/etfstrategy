@@ -30,7 +30,7 @@
 |------|------|------|
 | **Regime layer（環境層）** | 四軸市場環境診斷之一 | `regime-daily` 日報的 **RRG rotation（相對輪動）** 軸；描述性脈絡，**非** live gate |
 | **監控清單** | 個股 RRG 象限 | `stock_daily_lens` 每檔附 RS-Ratio / RS-Momentum / 象限 |
-| **Research / Strategy** | 選股與回測 | 例：`rrg-mono-hold7` 從 **fresh** 轉強軌跡定池 |
+| **Research / Strategy** | 選股與回測 | 例：`rrg-mono-hold7`（fresh · hold7）· **`rrg-mono-swap-accel`（C18acc · live SSOT）** |
 
 **本專案慣例**
 
@@ -385,6 +385,36 @@ def rs_ratio_momentum(
 ## 一句話記住 RRG
 
 > **RRG = 把 RS 相對其 WMA 的強弱水準當位移、把 RS-Ratio 相對其 WMA 的變化當速度，畫在以 100 為均衡中心的相平面上，看各標的如何相對輪動。**
+
+---
+
+## 採納策略範例 · C18acc（`rrg-mono-swap-accel`）
+
+本頁回測對齊 **現行可下單契約（live SSOT）**，不是舊站「早盤 cinema」上限故事。
+
+冠軍漏斗使用 **兩個分數**，勿混為「全程單一 key」：
+
+| 階段 | 分數鍵 | 白話 |
+|------|--------|------|
+| **定池 fresh** | `seg_last` | fresh-only · 同日近收盤（≥13:00 kbar 暫定 ≈EOD）· 全池 passthrough |
+| **進場** | `avg_accel` | poll_5m · confirm_bars=1 · 開窗 ≥13:00 · avoid_mixed · G_R5_12 |
+| **換倉賣** | `avg_accel_decel` | 四日平均加速最負且 <0（W5−W20 spread≤0 時正加速亦可賣） |
+| **換倉買** | `seg_last` 門檻 + `avg_accel` | challenger 須 seg_last > 持倉 +0.05，再取加速最大 |
+
+### 從 T−3 起的時間軸
+
+- **T−3～T**：四日加速窗（`accel_lookback=4`）· 用來比誰在加速／減速，**不是** T−3 下單。
+- **T 日 13:00 前**：觀測／持倉管理；live 不開新倉。
+- **T 日 13:00–13:30**：鎖當日暫定 fresh → confirm → 進場／換倉。
+- **持有**：min_hold≈5 日可輪動；max_hold≈10 日邊界。
+
+### 選股漏斗（寬→窄）
+
+ETF watchlist → mono 結構 → **fresh** → seg_last 排序 → 進場濾網（13:00 · avg_accel · confirm · avoid_mixed · G_R5_12）→ 最多 3 槽。
+
+- **回測／本頁**：訊號日 = 進場日 = 當交易日 · 近收盤開窗（可執行契約）。
+- **實盤 screen**：同日 ≥13:00 鎖暫定 fresh；buy-signal-radar 早盤信僅 advisory。
+- SSOT：`config/strategy.yaml` · `config/order.yaml` · `champion_score_swap_c_config()`。
 
 ---
 

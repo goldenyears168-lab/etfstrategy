@@ -6,11 +6,13 @@ from stock_db.connection import *  # noqa: F403
 from stock_db.corporate import *  # noqa: F403
 from stock_db.etf import *  # noqa: F403
 from stock_db.flow import *  # noqa: F403
+from stock_db.fubon_premarket_quote import *  # noqa: F403
 from stock_db.fundamentals import *  # noqa: F403
 from stock_db.kbar import *  # noqa: F403
 from stock_db.lens import *  # noqa: F403
 from stock_db.market import *  # noqa: F403
 from stock_db.order_holdings import *  # noqa: F403
+from stock_db.pre_market_auction import *  # noqa: F403
 from stock_db.rrg import *  # noqa: F403
 from stock_db.screener import *  # noqa: F403
 from stock_db.vcp import *  # noqa: F403

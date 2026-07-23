@@ -1,0 +1,112 @@
+# =============================================================================
+# ABC v3+F1 · Shape Registry（RP-6 · shape validation framework）
+#
+# 用途：RP-5（多訊號組合）與未來任何新 shape 提案的「掛牌名冊」。每個 shape
+#   一個條目，記錄定義、三階段（Discovery / Validation / Holdout）證據、
+#   多重檢定校正後 p-value、目前狀態與 walk-forward 檢查歷史。
+#
+# 載入 / 驗證：
+#   from research.backtest.abc_v3_f1_shape_validation_framework import load_shape_registry
+#   reg = load_shape_registry("config/abc_v3_f1_shape_registry.yaml")   # schema 不符會 raise
+#
+# 狀態機（status）：
+#   discovery       — 只有 IS 段證據；不得進組合
+#   validated       — Validation 段通過整批 FDR（q=0.10）與最低 n 門檻
+#   holdout_passed  — Holdout 一次性驗證通過（holdout.run_once_done 必須為 true）；
+#                     Holdout 只能跑一次，跑完即封存，不可回頭修改 shape 定義
+#   decayed         — walk-forward 連續 2 次低於門檻；黏性標記，不自動復活，
+#                     須重走 IS/Validation/Holdout 完整流程重新掛牌
+#   rejected        — 明確否決（例如效果為負或重複掛牌被合併）
+#
+# 條目 schema（validate_shape_registry 強制檢查的部分）：
+#   id          str   全 registry 唯一
+#   definition  map   matcher 模組/函式路徑 + 參數（能據以重跑）
+#   status      str   上列五值之一
+#   stages      map   必含 discovery / validation / holdout 三鍵（未做者填 null）
+#     每階段建議欄位：window, n, mean_ret_pct, baseline_mean_pct,
+#     n_candidates_tested（該批同時測試的候選總數，校正基準、必填申報）,
+#     p_raw, p_adjusted, fdr(method/q), passed, notes
+#     holdout 另須：run_once_done（bool；status=holdout_passed 時必為 true）
+#   walk_forward（選填）：threshold_pct, min_n, last_check_date,
+#     checks: [{check_date, n, mean_ret_pct}]  →  餵給 walk_forward_recheck()
+# =============================================================================
+
+schema: abc_v3_f1_shape_registry-v1
+
+# 全 registry 共用的驗證政策（審計用；程式呼叫時仍需顯式傳參）
+policy:
+  split: {is_ratio: 0.50, val_ratio: 0.25}   # holdout = 0.25，恆為時間最晚一段
+  fdr: {method: bh, q: 0.10}
+  power: {power: 0.80, alpha: 0.05, two_sided: true}
+  target_pct: 8.0
+  walk_forward: {cadence: quarterly, threshold_pct: 8.0, min_n: 15, fail_streak_to_decay: 2}
+
+shapes:
+  # ---------------------------------------------------------------------------
+  # 範例條目 1：H-ENTRY-MF-1 的最佳 overlay（W3 MV>100）。
+  # 回溯檢驗（20260710_abc_v3_f1_shape_validation_retrocheck.md）判定 not_passed
+  # （insufficient_n + not_significant_after_correction），故停在 discovery。
+  # ---------------------------------------------------------------------------
+  - id: w3_mv_gt_100_overlay_hold5d
+    definition:
+      module: research.backtest.w3_rv_hl_winner_profile
+      matcher: _trade_matches_filter
+      params:
+        filter_id: w3_improving        # W3 MV>100
+        base_gate: "gap20-5[2,8]·gap5-3[-1,2]·poll>=1·no_rebound"
+        exit_rule: "TP_or_g54_g31_rvw3poll_drop_d25_r5_c1 (NEVER_SL)"
+        hold_days: 5
+    status: discovery
+    stages:
+      discovery:
+        window: "2025-09-01..2026-07-01"
+        n: 8
+        mean_ret_pct: 10.057
+        baseline_mean_pct: 3.112       # 同窗口 base gate n=91
+        n_candidates_tested: 14        # 同批 overlay 掃描申報的候選總數（含 skipped，校正基準）
+        p_raw: null                    # summary-only，無逐筆報酬；σ∈[8,12]pp 敏感度下
+        p_adjusted: null               # Bonferroni 後 p≈0.6–1.0，均 > 0.05
+        passed: false
+        notes: >-
+          RP-6 回溯檢驗：n=8 遠低於最低 n（σ=10pp 時觀測效果量需 n≥19），
+          校正後不顯著。3m 窗口（n=4, mean 15.17%）同判 not_passed。
+      validation: null
+      holdout: null
+    walk_forward:
+      threshold_pct: 8.0
+      min_n: 15
+      last_check_date: null
+      checks: []
+
+  # ---------------------------------------------------------------------------
+  # 範例條目 2：H-ENTRY-NORM-1 相關性最強的因子變體之一（gap_w20_w5_z）。
+  # 12 個變體同批 BH FDR（q=0.10）後全數不顯著（最小 p_adj≈0.121），停在 discovery。
+  # ---------------------------------------------------------------------------
+  - id: gap_w20_w5_z_factor_hold5d
+    definition:
+      module: scripts.research.run_abc_v3_f1_entry_factor_scan
+      matcher: factor_variant
+      params:
+        factor: gap_w20_w5_z           # 對股票自身 trailing 歷史 z-score，無 lookahead
+        hold_days: 5
+        baseline_window_days: 60
+    status: discovery
+    stages:
+      discovery:
+        window: "2025-09-01..2026-07-01"
+        n: 274
+        pearson_r: -0.1403
+        spearman_rho: -0.0972
+        n_candidates_tested: 12        # 12 個因子變體同批比較
+        p_raw: 0.0202                  # Pearson r 之 t 近似（df=n-2）
+        p_adjusted: 0.121              # BH（m=12）後 > q=0.10
+        fdr: {method: bh, q: 0.10}
+        passed: false
+        notes: "RP-6 回溯檢驗：整批 12 變體 BH q=0.10 全數不顯著。"
+      validation: null
+      holdout: null
+    walk_forward:
+      threshold_pct: 8.0
+      min_n: 15
+      last_check_date: null
+      checks: []

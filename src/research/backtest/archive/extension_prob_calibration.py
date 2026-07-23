@@ -222,7 +222,7 @@ def render_calibration_md(payload: dict[str, Any]) -> str:
     lines += [
         "",
         "---",
-        "模組：`scripts/calibrate_extension_probs.py`",
+        "模組：`scripts/tools/calibrate_extension_probs.py`",
         "",
     ]
     return "\n".join(lines)

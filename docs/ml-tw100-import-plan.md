@@ -198,7 +198,7 @@ PoC / 骨架回測：**不必先補** — 現有 266 日 export 窗即可跑 `ru
 | ETF 排除 0050/0056 | ✅ | `exclude_stock_ids` · snapshot 100 檔 |
 | Hardened snapshot | ✅ | `min_constituent_count: 95` |
 | Qlib export 全窗 | ✅ | `data/qlib/tw100/` · 2796 calendar days |
-| 資料品質 gate | ✅ | `scripts/validate_tw100_data.py` |
+| 資料品質 gate | ✅ | `scripts/tools/validate_tw100_data.py` |
 | backfill 缺口修復 | ✅ | `market_sync_window` need_old 一次補齊（非 7 日 overlap） |
 | **adj_close 復權覆蓋** | ✅ | 同步判定改看 `adj_count_window` · export 輸出 adjusted OHLC |
 
@@ -213,7 +213,7 @@ PoC / 骨架回測：**不必先補** — 現有 266 日 export 窗即可跑 `ru
 **驗證指令：**
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/validate_tw100_data.py --warn-only
+PYTHONPATH=src .venv/bin/python scripts/tools/validate_tw100_data.py --warn-only
 # JSON → reports/research/tw100/tw100_data_quality_20260629.json
 ```
 
@@ -442,7 +442,7 @@ PYTHONPATH=src .venv/bin/python scripts/export_qlib_tw100.py \
 PYTHONPATH=src .venv/bin/python scripts/run_tw100_wfa_backtest.py
 
 # 5. 資料品質 gate
-PYTHONPATH=src .venv/bin/python scripts/validate_tw100_data.py --warn-only
+PYTHONPATH=src .venv/bin/python scripts/tools/validate_tw100_data.py --warn-only
 
 # 6. 測試
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_tw100_walk_forward.py tests/test_universe_tw100.py -q

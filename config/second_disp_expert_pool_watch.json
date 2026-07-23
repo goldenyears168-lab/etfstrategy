@@ -1,0 +1,66 @@
+{
+  "title": "處置股專家池跟單策略",
+  "layer": "research",
+  "status": "observe_only",
+  "protocol": {
+    "event": "2026 TWSE 第二次處置窗內 · 專家席當日買進達自適應金額門檻",
+    "hold": "L1H7 = T+1 open → H7 close · cost 30bps",
+    "excess": "stock − 1.15 × IX0001",
+    "dedupe_cal_days": 5,
+    "report_dir": "reports/research/branch-footprint-screen/second_disp_top30_l1h7",
+    "timeline_note": "訊號日=T0 收盤後判定；原協議進場=T+1 開盤；隔日「條件轉好」通知已偏離原進場窗（僅延遲評估）"
+  },
+  "t0_filters": {
+    "hard_skip": [],
+    "soft_flags": [
+      {
+        "id": "r3_ge15_and_ix_le0",
+        "label": "近3日漲≥15% 且 台指當日≤0%（短線熱＋大盤弱 · 提醒）",
+        "r3_pct_ge": 15.0,
+        "ix_day_pct_le": 0.0,
+        "track_improve": true
+      },
+      {
+        "id": "r10_ge40",
+        "label": "近10日漲≥40%（噴出處置 · 降權提醒）",
+        "r10_pct_ge": 40.0,
+        "track_improve": false
+      },
+      {
+        "id": "ix_day_le_m1p5",
+        "label": "台指當日跌≤−1.5%（大盤弱 · 提醒）",
+        "ix_day_pct_le": -1.5,
+        "track_improve": false
+      }
+    ]
+  },
+  "improve_recheck": {
+    "enabled": true,
+    "max_age_trading_days": 2,
+    "note": "僅對 track_improve=true 的提醒；隔日盤後重算。若已過 T+1 開盤＝錯過原 L1H7 進場窗。"
+  },
+  "open_filters": {
+    "hard_skip": [
+      {
+        "id": "gap_t1_gt5",
+        "label": "T+1 開盤相對昨收 > +5% → 不做（追價）",
+        "gap_t1_pct_gt": 5.0
+      }
+    ]
+  },
+  "seats": [
+    {"id": "1360", "name": "港商麥格理", "abs_floor_yi": 0.3, "tag": "外資", "source": "原"},
+    {"id": "9A9R", "name": "永豐金信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "新增"},
+    {"id": "9325", "name": "華南永昌-忠孝", "abs_floor_yi": 0.1, "tag": "本土", "source": "原"},
+    {"id": "9A81", "name": "永豐金-匯立", "abs_floor_yi": 0.7, "tag": "本土", "source": "原"},
+    {"id": "9217", "name": "凱基松山", "abs_floor_yi": 0.3, "tag": "本土·薄樣本", "source": "原"},
+    {"id": "779n", "name": "國票南京", "abs_floor_yi": 0.1, "tag": "本土·近帶", "source": "新增"},
+    {"id": "9227", "name": "凱基城中", "abs_floor_yi": 0.3, "tag": "本土", "source": "原"},
+    {"id": "9216", "name": "凱基-信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "原"},
+    {"id": "920F", "name": "凱基-站前", "abs_floor_yi": 0.1, "tag": "本土", "source": "原"}
+  ],
+  "email": {
+    "env_flag": "RUN_SECOND_DISP_EXPERT_POOL_EMAIL",
+    "subject_prefix": "處置股專家池"
+  }
+}

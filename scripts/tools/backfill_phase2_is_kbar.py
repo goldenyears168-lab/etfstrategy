@@ -5,9 +5,9 @@ Targets the 78-stock universe from cz_intraday_common._load_stock_ids()
 for the IS period (2024-01-01 to 2025-12-14).
 
 Usage:
-  python scripts/backfill_phase2_is_kbar.py              # 2025 only (~75 min)
-  python scripts/backfill_phase2_is_kbar.py --year 2024  # 2024 only (~75 min)
-  python scripts/backfill_phase2_is_kbar.py --year all   # full 2024+2025 (~150 min)
+  python scripts/tools/backfill_phase2_is_kbar.py              # 2025 only (~75 min)
+  python scripts/tools/backfill_phase2_is_kbar.py --year 2024  # 2024 only (~75 min)
+  python scripts/tools/backfill_phase2_is_kbar.py --year all   # full 2024+2025 (~150 min)
 """
 
 from __future__ import annotations

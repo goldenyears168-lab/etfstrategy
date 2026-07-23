@@ -299,6 +299,45 @@ def matches_w3_rv_hl_abc_v3_f1(
     return matches_w5_mv_lte_w3_mv(p, spread_max=w5_w3_mv_spread_max)
 
 
+def matches_w20_lead_firm(
+    p_now: dict[str, Any],
+    p_ref: dict[str, Any] | None,
+) -> bool:
+    """Gate G · ``w20_lead_firm``: W20 MV at entry ≥ reference snap.
+
+    Reference = previous same-day poll, else prior session EOD (research: lead_firm).
+    """
+    if p_ref is None:
+        return False
+    mv_now, mv_ref = _mv(p_now, "w20"), _mv(p_ref, "w20")
+    if mv_now is None or mv_ref is None:
+        return False
+    return float(mv_now) >= float(mv_ref) - 1e-9
+
+
+def matches_w3_rv_hl_abc_v3_f1_w20_firm(
+    p_now: dict[str, Any],
+    p_ref: dict[str, Any] | None,
+    *,
+    w20_w3_spread_max: float = W3_ABC_W20_W3_SPREAD_MAX,
+    w5_rv_max: float = W3_ABC_W5_RV_MAX,
+    w20_rv_max: float = W3_ABC_V3_W20_RV_MAX,
+    w5_w3_mv_spread_max: float = W3_ABC_F1_W5_W3_MV_SPREAD_MAX,
+    require_lead_pullback: bool = True,
+) -> bool:
+    """ABC v3+F1 + G: ``w20_lead_firm`` (W20 MV non-decline vs prior poll / T-1 EOD)."""
+    if not matches_w3_rv_hl_abc_v3_f1(
+        p_now,
+        w20_w3_spread_max=w20_w3_spread_max,
+        w5_rv_max=w5_rv_max,
+        w20_rv_max=w20_rv_max,
+        w5_w3_mv_spread_max=w5_w3_mv_spread_max,
+        require_lead_pullback=require_lead_pullback,
+    ):
+        return False
+    return matches_w20_lead_firm(p_now, p_ref)
+
+
 def matches_lead_pullback(p: dict[str, Any]) -> bool:
     ep = default_lead_pullback_entry()
     return _matches_lead_pullback(

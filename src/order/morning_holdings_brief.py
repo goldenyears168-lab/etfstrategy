@@ -170,7 +170,7 @@ def _holding_notes(
     if stock_id == "3008":
         notes.append("零股流動性低")
     if tier == "weak":
-        notes.append("結構弱·S1b/S2候選")
+        notes.append("結構弱")
     if unrealized_pnl < -1500:
         notes.append("帳面大虧")
     elif unrealized_pnl > 1000:
@@ -554,7 +554,7 @@ def format_morning_brief(brief: MorningBrief) -> str:
 
     lines.append(f"## 持倉明細（昨收 {brief.bar_as_of or '—'} · RRG {brief.rrg_as_of or '—'}）")
     lines.append("")
-    lines.append("| 代號 | 名稱 | 股數 | 昨收 | RRG | tier | 未實現 | S1b/S2 | ext≥4% | 備註 |")
+    lines.append("| 代號 | 名稱 | 股數 | 昨收 | RRG | tier | 未實現 | 弱-3%參考 | ext≥4% | 備註 |")
     lines.append("|------|------|-----:|-----:|-----|------|-------:|-------:|-------:|------|")
     for r in brief.holdings:
         pc = f"{r.prev_close:.2f}" if r.prev_close else "—"
@@ -575,7 +575,7 @@ def format_morning_brief(brief: MorningBrief) -> str:
         for r in brief.holdings:
             bits = [f"**{r.stock_id}** {r.stock_name or '—'}"]
             if r.trigger_s1b:
-                bits.append(f"≤{r.trigger_s1b:.2f} → S1b/S2")
+                bits.append(f"≤{r.trigger_s1b:.2f}（弱-3%參考）")
             if r.extension_spike:
                 bits.append(f"≥{r.extension_spike:.2f} 後回落 1% → extension")
             if r.stock_id == "3008":

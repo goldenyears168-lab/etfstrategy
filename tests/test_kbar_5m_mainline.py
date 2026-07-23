@@ -8,6 +8,7 @@ import unittest
 from stock_db.kbar import (
     KbarBar,
     aggregate_bars_to_5m,
+    aggregate_taiex_5s_rows_to_5m,
     kbar_5m_close_at_minute,
     kbar_5m_fresh_for_poll,
     load_kbar_day_5m_closes,
@@ -152,6 +153,28 @@ class TestKbar5mMainline(unittest.TestCase):
             "SELECT COUNT(*) FROM stock_kbar_5m WHERE stock_id='TX1!' AND source='finmind_fut'"
         ).fetchone()[0]
         self.assertGreaterEqual(fut_n, 2)
+
+    def test_aggregate_taiex_5s_rows_to_5m(self) -> None:
+        rows = [
+            {"date": "2026-07-14 09:00:00", "TAIEX": 100.0},
+            {"date": "2026-07-14 09:01:00", "TAIEX": 101.0},
+            {"date": "2026-07-14 09:04:55", "TAIEX": 99.5},
+            {"date": "2026-07-14 09:05:00", "TAIEX": 102.0},
+            {"date": "2026-07-14 09:09:00", "TAIEX": 103.0},
+            {"date": "2026-07-14 13:30:00", "TAIEX": 104.0},
+        ]
+        td, bars = aggregate_taiex_5s_rows_to_5m(rows)
+        self.assertEqual(td, "2026-07-14")
+        self.assertEqual(len(bars), 3)
+        self.assertEqual(bars[0].minute, "09:00:00")
+        self.assertEqual(bars[0].open, 100.0)
+        self.assertEqual(bars[0].high, 101.0)
+        self.assertEqual(bars[0].low, 99.5)
+        self.assertEqual(bars[0].close, 99.5)
+        self.assertEqual(bars[1].minute, "09:05:00")
+        self.assertEqual(bars[1].close, 103.0)
+        self.assertEqual(bars[2].minute, "13:30:00")
+        self.assertEqual(bars[2].close, 104.0)
 
     def test_upsert_yahoo_5m_rows_filters_session(self) -> None:
         n = upsert_yahoo_5m_rows(

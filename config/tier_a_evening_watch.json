@@ -1,0 +1,85 @@
+{
+  "version": 2,
+  "updated": "2026-07-21",
+  "note": "Research observe for mini 20:00 digest · 未採納 · 不下單",
+  "protocol": "D close fire → 明日 L1 開盤觀察；持有／出場以各檔 hold_h 為主（2408=H10）",
+  "source": "PATH_EXIT_DEEP_2408_2327_6669 · robust_win=2408 fixed_H10",
+  "entry_watch": [
+    {
+      "sid": "3037",
+      "name": "欣興",
+      "rule_id": "seat_9268__accel_0p5__bh",
+      "label": "凱基-台北(9268) 買超加速≥0.5億 ∧ 集保大戶％週增>0",
+      "seats": ["9268"],
+      "kind": "accel_0p5_bh",
+      "floor_yi": 0.5,
+      "hold_h": 7,
+      "role": "fragile_observe"
+    },
+    {
+      "sid": "2408",
+      "name": "南亞科",
+      "rule_id": "chip_bh__seat_9215_accel",
+      "label": "集保大戶％週增>0 ∧ 凱基三民(9215) 買超加速",
+      "seats": ["9215"],
+      "kind": "bh_seat_accel",
+      "hold_h": 10,
+      "role": "robust_win_research",
+      "exit_policy": "fixed_H10",
+      "note": "深研凍結：勝因=固定 H10，非賣訊 path-exit；對標 Whale L1H7 過 W3"
+    },
+    {
+      "sid": "2383",
+      "name": "台光電",
+      "rule_id": "cobuy_585P_9268__both_net",
+      "label": "585P+9268 兩日皆淨買",
+      "seats": ["585P", "9268"],
+      "kind": "cobuy_both_net",
+      "hold_h": 7,
+      "role": "fragile_observe"
+    }
+  ],
+  "exit_watch": [
+    {
+      "sid": "2408",
+      "name": "南亞科",
+      "rule_id": "hold_h10_calendar",
+      "label": "持有日曆提醒：獨立進場後第 10 個交易日收盤附近檢視（主出場=固定 H10）",
+      "seats": ["9215"],
+      "kind": "hold_calendar",
+      "hold_h": 10,
+      "always": true,
+      "priority": "primary"
+    },
+    {
+      "sid": "2408",
+      "name": "南亞科",
+      "rule_id": "sell_ge_1yi",
+      "label": "次要黃燈：凱基三民(9215) 賣超≥1億（深研：非主 alpha，僅並列觀察）",
+      "seats": ["9215"],
+      "kind": "sell_ge_1yi",
+      "floor_yi": 1.0,
+      "always": true,
+      "priority": "secondary"
+    },
+    {
+      "sid": "2327",
+      "name": "國巨",
+      "rule_id": "sell_ge_1yi",
+      "label": "玉山(8840) 賣超≥1億（cannot_beat · 僅觀察）",
+      "seats": ["8840"],
+      "kind": "sell_ge_1yi",
+      "floor_yi": 1.0,
+      "always": true
+    },
+    {
+      "sid": "6669",
+      "name": "緯穎",
+      "rule_id": "both_flip",
+      "label": "凱基松山(9217)+統一南京(585U) 兩席同日皆轉賣（fragile · 僅觀察）",
+      "seats": ["9217", "585U"],
+      "kind": "both_flip",
+      "always": true
+    }
+  ]
+}

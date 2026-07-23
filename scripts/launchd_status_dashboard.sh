@@ -17,23 +17,18 @@ NOW_HM="$(date '+%H:%M')"
 NOW_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # label|顯示名|排程說明|log 檔（相對 ROOT）|適用日（1-5=週一至五,7=週日,0=全部）
+# 現行 = Order layer（C18acc / Leading Dip / sell / detach）；digest / evening / VCP / exit-gate 等已退役
+# ABC Order 已退役 2026-07-15
 JOBS=(
-  "com.jackm4.etf.morning-holdings-brief|晨間持倉 brief|週一至五 08:50|logs/intraday/launchd_morning-holdings-brief.log|1-5"
   "com.jackm4.etf.order-wake|下單防睡眠|週一至五 08:55|logs/launchd_order-wake.log|1-5"
   "com.jackm4.etf.order-chase-open|開盤追價|週一至五 09:00–09:04 每分鐘|logs/launchd_order-chase-open.log|1-5"
   "com.jackm4.etf.rrg-c18acc-poll|C18acc swap poll|週一至五 09:00–13:30 每 5 分|logs/intraday/launchd_rrg-c18acc-poll.log|1-5"
   "com.jackm4.etf.buy-signal-radar|Buy signal radar|週一至五 09:00–13:20 每 5 分|logs/intraday/launchd_buy-signal-radar.log|1-5"
-  "com.jackm4.etf.intraday-exit-gate|Intraday exit gate|週一至五 09:06/10/12/15|logs/intraday/launchd_intraday-exit-gate.log|1-5"
   "com.jackm4.etf.sell-signal-radar|Sell signal radar|週一至五 09:06–13:20 每 5 分|logs/intraday/launchd_sell-signal-radar.log|1-5"
-  "com.jackm4.etf.intraday-open-digest|開盤解讀 digest|週一至五 09:06|logs/intraday/launchd_intraday-open-digest.log|1-5"
-  "com.jackm4.etf.rrg-mono-intraday-watch|RRG mono 13:00|週一至五 13:00|logs/intraday/launchd_rrg-mono-intraday-watch.log|1-5"
-  "com.jackm4.etf.vcp-funnel-specs|VCP funnel specs|週一至五 13:00|logs/intraday/launchd_vcp-funnel-specs.log|1-5"
-  "com.jackm4.etf.intraday-midday-digest|11:00 持倉脈動|週一至五 11:00|logs/intraday/launchd_intraday-midday-digest.log|1-5"
-  "com.jackm4.etf.intraday-1300-digest|13:02 合併 digest|週一至五 13:02|logs/intraday/launchd_intraday-1300-digest.log|1-5"
-  "com.jackm4.etf.evening-holdings|收盤持股雷達|週一至五 16:30|logs/launchd_evening-holdings.log|1-5"
-  "com.jackm4.etf.mutual-fund-disclosure-watch|基金月報偵測|週一至五 16:30|logs/launchd_mutual-fund-disclosure-watch.log|1-5"
-  "com.jackm4.etf.minervini-sepa-basket|Minervini SEPA|週一至五 16:35|logs/launchd_minervini-sepa-basket.log|1-5"
-  "com.jackm4.etf.weekly-deep|週日深度補庫|週日 20:00|logs/launchd_weekly-deep.log|7"
+  "com.jackm4.etf.detach-gate|Detach Gate 台美脫鉤|週一至五 09:40–12:30 每 5 分|logs/intraday/launchd_detach-gate.log|1-5"
+  "com.jackm4.etf.leading-dip-poll|Leading Dip Order|週一至五 09:05–13:25 每 5 分|logs/intraday/launchd_leading-dip-poll.log|1-5"
+  "com.jackm4.etf.songshan-copytrade-poll|跟單松山 Order|週一至五 09:25–09:40 每 5 分|logs/intraday/launchd_songshan-copytrade-poll.log|1-5"
+  "com.jackm4.etf.timed-limit-orders|限時限價單|週一至五 09:05|logs/intraday/launchd_timed-limit-orders.log|1-5"
 )
 
 USE_COLOR=1
@@ -321,29 +316,17 @@ print_today_timeline() {
   if [[ "${WEEKDAY}" -lt 1 || "${WEEKDAY}" -gt 5 ]]; then
     if [[ "${WEEKDAY}" -eq 7 ]]; then
       printf '\n%b今日剩餘排程%b\n' "$(c "1")" "$(reset)"
-      if [[ "${NOW_HM}" < "20:00" ]]; then
-        printf '  20:00  週日深度補庫 (weekly-deep)\n'
-      else
-        printf '  （今日排程已過）\n'
-      fi
+      printf '  （週日無自動排程；weekly-deep 已退役）\n'
     fi
     return
   fi
 
   printf '\n%b今日剩餘排程%b（週一至五 · 現在 %s）\n' "$(c "1")" "$(reset)" "${NOW_HM}"
   local slots=(
-    "08:50|晨間持倉 brief"
     "09:00|C18acc · Buy radar 開始"
-    "09:06|Exit gate · Sell radar 開始"
-    "09:06|開盤 digest"
-    "11:00|持倉脈動"
-    "09:10|Exit gate 重試"
-    "09:12|Exit gate 重試"
-    "09:15|Exit gate 重試"
-    "13:00|RRG mono · VCP funnel"
-    "13:02|13:00 digest"
-    "16:30|收盤雷達 · 基金月報"
-    "16:35|Minervini SEPA"
+    "09:05|Leading Dip poll 開始"
+    "09:06|Sell radar 開始"
+    "09:40|Detach Gate 開始"
   )
   local slot hm desc shown=0
   for slot in "${slots[@]}"; do
@@ -357,14 +340,16 @@ print_today_timeline() {
   if [[ "${shown}" -eq 0 ]]; then
     printf '  （盤後定時排程已過；09:00–13:30 高頻 radar 若 Agent 正常仍會每 5 分觸發）\n'
   fi
-  printf '  … 09:00–13:30  C18acc / Buy / Sell radar 每 5 分\n'
+  printf '  … 09:00–13:30  C18acc / Buy / Sell radar 每 5 分 · Detach Gate 09:40–12:30\n'
 }
 
 print_log_hints() {
   printf '\n%b快速追 log%b\n' "$(c "1")" "$(reset)"
   printf '  tail -f %s/logs/intraday/launchd_buy-signal-radar.log\n' "${ROOT}"
-  printf '  tail -f %s/logs/launchd_evening-holdings.log\n' "${ROOT}"
-  printf '  tail -f %s/logs/daily_sync_%s.log\n' "${ROOT}" "${TODAY_COMPACT}"
+  printf '  tail -f %s/logs/intraday/launchd_rrg-c18acc-poll.log\n' "${ROOT}"
+  printf '  tail -f %s/logs/intraday/launchd_sell-signal-radar.log\n' "${ROOT}"
+  printf '  tail -f %s/logs/intraday/launchd_detach-gate.log\n' "${ROOT}"
+  printf '  tail -f %s/logs/intraday/launchd_leading-dip-poll.log\n' "${ROOT}"
   printf '\n%b維護%b\n' "$(c "1")" "$(reset)"
   printf '  安裝/重載：scripts/install-launchd.sh\n'
   printf '  狀態：    scripts/install-launchd.sh --status\n'

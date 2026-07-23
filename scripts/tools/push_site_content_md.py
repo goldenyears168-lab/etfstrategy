@@ -6,8 +6,8 @@ Reads ``supabase/site/**/*.md`` from the current git ``HEAD`` tree (no working-t
 013 registry columns when present in frontmatter.
 
 Usage:
-  PYTHONPATH=src .venv/bin/python scripts/push_site_content_md.py
-  PYTHONPATH=src .venv/bin/python scripts/push_site_content_md.py --page research_case_copytrade
+  PYTHONPATH=src .venv/bin/python scripts/tools/push_site_content_md.py
+  PYTHONPATH=src .venv/bin/python scripts/tools/push_site_content_md.py --page research_case_copytrade
 """
 
 from __future__ import annotations

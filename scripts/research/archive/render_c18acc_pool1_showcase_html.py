@@ -60,6 +60,9 @@ def resolve_showcase_cache_path(
         hit = default_showcase_cache_path(
             date_from=date_from, date_to=date_to, cache_dir=root
         )
+        mixed = hit.with_name(hit.name.replace(".json.gz", "_avoid_mixed.json.gz"))
+        if mixed.exists():
+            return mixed
         if hit.exists():
             return hit
     matches = sorted(root.glob(f"c18acc_showcase_{date_from}_*.json.gz"))
@@ -91,6 +94,11 @@ def build_triple_showcase_payload(
     length: int = 20,
     n_slots: int = 3,
     capital_ntd: float = 10_000.0,
+    avoid_spread_mixed: bool = True,
+    avoid_mixed_gate_cache: Path | None = None,
+    live_aligned: bool = False,
+    confirm_bars: int | None = None,
+    champion_only: bool = False,
 ) -> dict[str, Any]:
     from research.backtest.archive.c18acc_pool1_showcase import build_triple_champion_showcase_bundle
 
@@ -99,6 +107,11 @@ def build_triple_showcase_payload(
         dates,
         n_slots=n_slots,
         capital_ntd=capital_ntd,
+        avoid_spread_mixed=avoid_spread_mixed,
+        avoid_mixed_gate_cache=avoid_mixed_gate_cache,
+        live_aligned=live_aligned,
+        confirm_bars=confirm_bars,
+        champion_only=champion_only,
     )
     trajectories, bench_closes = load_triple_showcase_timeline_inputs(
         conn,
@@ -116,6 +129,56 @@ def build_triple_showcase_payload(
         "etf_codes": list(etf_codes),
         "n_slots": n_slots,
         "capital_ntd": capital_ntd,
+        "live_aligned": live_aligned,
+        "confirm_bars": bundle.get("confirm_bars"),
+        "bundle": bundle,
+        "trajectories": trajectories,
+        "bench_closes": bench_closes,
+    }
+
+
+def build_unconstrained_showcase_payload(
+    conn,
+    dates: list[str],
+    *,
+    etf_codes: tuple[str, ...],
+    length: int = 20,
+    capital_ntd: float = 10_000.0,
+    avoid_spread_mixed: bool = True,
+    avoid_mixed_gate_cache: Path | None = None,
+    confirm_bars: int = 2,
+) -> dict[str, Any]:
+    from research.backtest.archive.c18acc_pool1_showcase import (
+        build_unconstrained_champion_showcase_bundle,
+    )
+
+    bundle = build_unconstrained_champion_showcase_bundle(
+        conn,
+        dates,
+        capital_ntd=capital_ntd,
+        avoid_spread_mixed=avoid_spread_mixed,
+        avoid_mixed_gate_cache=avoid_mixed_gate_cache,
+        confirm_bars=confirm_bars,
+    )
+    trajectories, bench_closes = load_triple_showcase_timeline_inputs(
+        conn,
+        bundle,
+        dates,
+        etf_codes=etf_codes,
+        length=length,
+    )
+    return {
+        "schema": SHOWCASE_CACHE_SCHEMA,
+        "date_from": dates[0],
+        "date_to": dates[-1],
+        "dates": dates,
+        "length": length,
+        "etf_codes": list(etf_codes),
+        "n_slots": bundle.get("pool1_meta", {}).get("n_slots"),
+        "capital_ntd": capital_ntd,
+        "live_aligned": True,
+        "unconstrained": True,
+        "confirm_bars": bundle.get("confirm_bars"),
         "bundle": bundle,
         "trajectories": trajectories,
         "bench_closes": bench_closes,
@@ -974,7 +1037,34 @@ def render_champion_showcase_html(
     meta["document_embed"] = False
     meta["side_trade_feed"] = True
     meta["market_track_label"] = track.get("label") or "採納版（Champion）"
-    meta["market_track_note"] = track.get("spec_note") or track.get("short_label") or ""
+    live_aligned = bool(bundle.get("live_aligned") or meta.get("live_aligned"))
+    unconstrained = bool(bundle.get("unconstrained") or meta.get("unconstrained"))
+    if unconstrained:
+        meta["unconstrained"] = True
+        meta["live_aligned"] = True
+        meta["market_track_label"] = track.get("label") or "全訊號版（無槽位 · 無換倉）"
+        meta["market_track_note"] = track.get("spec_note") or (
+            "全訊號 · 99 slots · max_swaps=0 · POOL1 passthrough · confirm_bars=2"
+        )
+        meta["confirm_bars_note"] = "2 · Order layer"
+    elif live_aligned:
+        meta["live_aligned"] = True
+        meta["market_track_note"] = track.get("spec_note") or (
+            "現行 Order SSOT · fresh · E@13:00 · avg_accel · confirm_bars=1 · avoid mixed @ 13:00"
+        )
+        meta["confirm_bars_note"] = str(
+            meta.get("confirm_bars_note")
+            or f"{int(meta.get('confirm_bars') or bundle.get('confirm_bars') or 1)} · live Order SSOT"
+        )
+    else:
+        meta["market_track_note"] = (
+            "新進領先＋四日加速雙池 · 價差轉弱可換倉 · avoid spread_mixed · 歷史 Champion"
+        )
+        meta["confirm_bars_note"] = "0|1 · research"
+    meta["avoid_spread_mixed"] = True
+    meta["confirm_bars"] = int(
+        meta.get("confirm_bars") or bundle.get("confirm_bars") or 1
+    )
     meta["show_exit_reason"] = True
     meta["cinema_mode"] = True
     meta["cinema_autoplay"] = True

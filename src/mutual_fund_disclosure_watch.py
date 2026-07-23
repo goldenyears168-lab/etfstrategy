@@ -142,7 +142,7 @@ def format_new_disclosure_body(result: DisclosureWatchResult) -> str:
 def maybe_send_new_disclosure_alert(result: DisclosureWatchResult) -> bool:
     if result.status != "new" or not _email_enabled():
         return False
-    subject = f"[ETF研究] {result.fund_name} 月報 {result.remote_latest}"
+    subject = f"[股票研究] {result.fund_name} 月報 {result.remote_latest}"
     send_alert(subject, format_new_disclosure_body(result))
     return True
 

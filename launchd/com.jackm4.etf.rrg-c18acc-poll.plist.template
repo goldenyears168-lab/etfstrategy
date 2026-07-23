@@ -17,10 +17,17 @@
 		<string>rrg-c18acc-poll</string>
 		<key>RUN_RRG_C18ACC_SCREEN</key>
 		<string>1</string>
+		<!-- Live defaults · order.env / project .env may override -->
 		<key>ORDER_C18ACC_DRY_RUN</key>
-		<string>1</string>
-		<key>ORDER_C18ACC_APPLY_STATE</key>
 		<string>0</string>
+		<key>ORDER_C18ACC_APPLY_STATE</key>
+		<string>1</string>
+		<key>ORDER_C18ACC_ORDER_ENABLED</key>
+		<string>1</string>
+		<key>ORDER_C18ACC_AUTO_SUBMIT</key>
+		<string>1</string>
+		<key>C18ACC_NO_TRADE_BEFORE</key>
+		<string>13:20</string>
 		<key>RUN_RRG_C18ACC_EMAIL</key>
 		<string>0</string>
 		<key>PATH</key>
@@ -29,9 +36,11 @@
 	<!-- Mon–Fri 09:00–13:30 每 5 分鐘；由 install-launchd.sh 渲染 -->
 {{C18ACC_CALENDAR_INTERVALS}}
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/rrg-c18acc-poll.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/rrg-c18acc-poll.launchd.err.log</string>
+	<key>ExitTimeOut</key>
+	<integer>900</integer>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

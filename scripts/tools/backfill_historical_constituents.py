@@ -3,8 +3,8 @@
 補齊 ETF 歷史曾持有、但已不在最新 universe 的成分股市場／籌碼資料。
 
 用法：
-  python scripts/backfill_historical_constituents.py --etf-code 00981A --report
-  python scripts/backfill_historical_constituents.py --etf-code 00981A --sync --calendar-days 730
+  python scripts/tools/backfill_historical_constituents.py --etf-code 00981A --report
+  python scripts/tools/backfill_historical_constituents.py --etf-code 00981A --sync --calendar-days 730
 """
 
 from __future__ import annotations

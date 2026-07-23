@@ -20,7 +20,7 @@ class StrategyConfigTests(unittest.TestCase):
         self.assertIn("rrg-mono-swap-accel-extension", ids)
         self.assertIn("buy-signal-radar", ids)
         self.assertIn("sell-signal-radar", ids)
-        self.assertEqual(len(ids), 9)
+        self.assertEqual(len(ids), 12)
 
     def test_adopted_spec_fields(self) -> None:
         cfg = load_strategy_config()

@@ -338,6 +338,62 @@ def aggregate_bars_to_5m(bars: tuple[KbarBar, ...]) -> tuple[KbarBar, ...]:
     return tuple(out)
 
 
+def aggregate_taiex_5s_rows_to_5m(
+    finmind_rows: list[dict[str, Any]],
+) -> tuple[str | None, tuple[KbarBar, ...]]:
+    """FinMind ``TaiwanVariousIndicators5Seconds`` → session 5m OHLC.
+
+    Point values (``TAIEX``) are bucketed by Asia/Taipei wall clock ·
+    O=first / H=max / L=min / C=last · volume=None. Includes 13:30 close print
+    as its own bar when present (Yahoo ^TWII 5m usually ends at 13:25).
+    """
+    buckets: dict[int, list[float]] = {}
+    trade_date: str | None = None
+    for r in finmind_rows:
+        raw_dt = str(r.get("date") or "").strip()
+        px_raw = r.get("TAIEX")
+        if not raw_dt or px_raw is None:
+            continue
+        parts = raw_dt.split()
+        if len(parts) < 2:
+            continue
+        td, hhmmss = parts[0][:10], parts[1]
+        try:
+            px = float(px_raw)
+        except (TypeError, ValueError):
+            continue
+        if px <= 0:
+            continue
+        mfo = _minutes_from_open(hhmmss)
+        if mfo is None or mfo < 0 or mfo > (13 - 9) * 60 + 30:
+            continue
+        if trade_date is None:
+            trade_date = td
+        elif td != trade_date:
+            # Multi-day payload should not happen for this dataset; skip other days.
+            continue
+        idx = mfo // KBAR_5M_BAR_MINUTES
+        buckets.setdefault(idx, []).append(px)
+    if not buckets:
+        return trade_date, ()
+    out: list[KbarBar] = []
+    for idx in sorted(buckets):
+        vals = buckets[idx]
+        h = 9 + (idx * KBAR_5M_BAR_MINUTES) // 60
+        m = (idx * KBAR_5M_BAR_MINUTES) % 60
+        out.append(
+            KbarBar(
+                minute=f"{h:02d}:{m:02d}:00",
+                open=float(vals[0]),
+                high=max(vals),
+                low=min(vals),
+                close=float(vals[-1]),
+                volume=None,
+            )
+        )
+    return trade_date, tuple(out)
+
+
 def kbar_bars_to_db_rows(
     stock_id: str,
     trade_date: str,

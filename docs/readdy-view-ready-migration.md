@@ -218,7 +218,7 @@ flowchart TB
 | **Migration** | `supabase/migrations/022_daily_highlight_alert_kpi.sql` |
 | **前端** | `useLensKpi.ts`：select 新欄位；刪 client filter |
 | **測試** | `tests/test_stock_daily_lens.py` · 更新 alert payload 斷言 |
-| **發布** | `scripts/run_stock_daily_lens.py`；歷史：`scripts/backfill_stock_daily_lens.py` |
+| **發布** | `scripts/run_stock_daily_lens.py`；歷史：`scripts/tools/backfill_stock_daily_lens.py` |
 
 **前端可刪**：`useLensKpi.ts` 內 `rows.filter(...)` 聚合
 
@@ -261,7 +261,7 @@ flowchart TB
 | **前端** | `home/page.tsx`：刪 `extractKPIsFromSnapshot` · `extractDashboardCharts` 內 KPI 文案邏輯 |
 | **前端** | `RegimeContent.tsx`：刪 `buildChecklistFromSnapshot` |
 | **測試** | `tests/test_regime_snapshot_json.py`（若無則新增） |
-| **發布** | `sync_research_to_supabase.py`；歷史：`scripts/backfill_supabase_research.py` |
+| **發布** | `sync_research_to_supabase.py`；歷史：`scripts/tools/backfill_supabase_research.py` |
 
 **前端可刪**：`formatRegimeContextLine` · 首頁廣度「過熱/偏強/偏弱」硬編碼
 
@@ -342,7 +342,7 @@ publish 入口
 ├── scripts/daily_sync.sh
 ├── scripts/run_stock_daily_lens.py
 ├── scripts/research_supabase_sync.sh → scripts/sync_research_to_supabase.py
-└── scripts/backfill_stock_daily_lens.py · scripts/backfill_supabase_research.py
+└── scripts/tools/backfill_stock_daily_lens.py · scripts/tools/backfill_supabase_research.py
 
 Lens（步驟 2、5）
 ├── src/stock_daily_lens.py

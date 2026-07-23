@@ -46,6 +46,13 @@ BENCH_ID = "IX0001"
 OOS_PASS_DELTA_PP = -0.3
 BYPASS_RETENTION_MIN = 0.7
 
+# (as_of, stock_id tuple, strict_kbar) → panels · avoids repeat full RRG per sim day
+_SNAPSHOT_PANEL_CACHE: dict[tuple[str, tuple[str, ...], bool], Snapshot1300Panels] = {}
+
+
+def clear_snapshot_panel_cache() -> None:
+    _SNAPSHOT_PANEL_CACHE.clear()
+
 
 @dataclass(frozen=True)
 class Snapshot1300Panels:
@@ -106,18 +113,27 @@ def _provisional_close_bench(
     trade_date: str,
     stock_ids: set[str],
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]],
+    allow_missing: bool = False,
 ) -> tuple[pd.DataFrame, pd.Series] | None:
     if trade_date not in close.index:
         return None
     prov = close.copy()
     bench_p = bench.reindex(prov.index).astype(float)
+    n_sub = 0
+    n_miss = 0
     for sid in stock_ids:
         if sid not in prov.columns:
             continue
         px = snapshot_px_strict(conn, sid, trade_date, kbar_cache=kbar_cache)
         if px is None:
+            n_miss += 1
+            if allow_missing:
+                continue
             return None
         prov.at[trade_date, sid] = px
+        n_sub += 1
+    if not allow_missing and n_sub == 0 and stock_ids:
+        return None
     bpx = kbar_close_at_minute(conn, BENCH_ID, trade_date, SNAPSHOT_1300_MINUTE)
     if bpx is None or bpx <= 0:
         if trade_date not in bench_p.index:
@@ -126,6 +142,9 @@ def _provisional_close_bench(
     if bpx <= 0:
         return None
     bench_p.at[trade_date] = float(bpx)
+    # stash counts on series attrs for diagnostics (optional)
+    prov.attrs["snapshot_sub_n"] = n_sub
+    prov.attrs["snapshot_miss_n"] = n_miss
     return prov, bench_p
 
 
@@ -140,10 +159,11 @@ def resolve_snapshot_1300_panels(
     rs_mom: pd.DataFrame | None,
     spread_rs_panel: pd.DataFrame | None,
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]],
+    strict_kbar: bool = True,
 ) -> Snapshot1300Panels | None:
     if rs_ratio is None or rs_mom is None or not stock_ids:
         return None
-    if not snapshot_day_kbar_ready(
+    if strict_kbar and not snapshot_day_kbar_ready(
         conn, trade_date=as_of, stock_ids=stock_ids, kbar_cache=kbar_cache
     ):
         return None
@@ -154,13 +174,20 @@ def resolve_snapshot_1300_panels(
         trade_date=as_of,
         stock_ids=stock_ids,
         kbar_cache=kbar_cache,
+        allow_missing=not strict_kbar,
     )
     if prov_pair is None:
         return None
+    cache_key = (as_of, tuple(sorted(stock_ids)), bool(strict_kbar))
+    hit = _SNAPSHOT_PANEL_CACHE.get(cache_key)
+    if hit is not None:
+        return hit
     prov_close, prov_bench = prov_pair
     rs_r, rs_m, _ = compute_rrg_panel(prov_close, prov_bench, length=LENGTH)
     spread = build_daily_spread_rs_panel(prov_close, prov_bench) if spread_rs_panel is not None else None
-    return Snapshot1300Panels(rs_ratio=rs_r, rs_mom=rs_m, spread_rs=spread)
+    out = Snapshot1300Panels(rs_ratio=rs_r, rs_mom=rs_m, spread_rs=spread)
+    _SNAPSHOT_PANEL_CACHE[cache_key] = out
+    return out
 
 
 def rerank_shortlist_snapshot_1300(

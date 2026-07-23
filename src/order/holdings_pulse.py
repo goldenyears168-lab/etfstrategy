@@ -1,4 +1,4 @@
-"""持倉即時脈動 · 富邦 snapshot + 現價 + RRG 收盤 vs 盤中 + exit playbook 觸發距離。"""
+"""持倉即時脈動 · 富邦 snapshot + 現價 + RRG 收盤 vs 盤中（觀測 · 非結構停損執行）。"""
 
 from __future__ import annotations
 
@@ -199,22 +199,6 @@ def _load_rrg_point(
     )
 
 
-def _load_vcp(conn: sqlite3.Connection, stock_id: str, *, as_of_session: str) -> tuple[float | None, str | None]:
-    row = conn.execute(
-        """
-        SELECT composite_score, execution_state FROM vcp_screen_scores_v2
-        WHERE stock_id = ? AND as_of_date < ? AND composite_score IS NOT NULL
-        ORDER BY as_of_date DESC LIMIT 1
-        """,
-        (stock_id, as_of_session),
-    ).fetchone()
-    if not row:
-        return None, None
-    comp = float(row[0]) if row[0] is not None else None
-    state = str(row[1]) if row[1] else None
-    return comp, state
-
-
 def _load_position_meta() -> dict[str, dict[str, Any]]:
     path = PROJECT_ROOT / "data" / "fubon_position_meta.json"
     if not path.is_file():
@@ -283,18 +267,8 @@ def _structural_flags(
     flags: list[str] = []
     if row.gate_2pct is not None and current_price <= row.gate_2pct:
         flags.append("≤-2%gate")
-    if row.trigger_s1b is not None and current_price <= row.trigger_s1b:
-        flags.append("S1b")
     if row.extension_spike is not None and current_price >= row.extension_spike:
         flags.append("ext≥4%")
-    if row.structure_tier == "weak" and portfolio_exit_mode:
-        s2 = row.trigger_s1b or round(row.prev_close * 0.97, 2)
-        if current_price <= s2:
-            flags.append("S2")
-    elif row.structure_tier != "weak":
-        s2lite = round(row.prev_close * 0.97, 2)
-        if current_price <= s2lite:
-            flags.append("S2-lite?")
     return tuple(flags)
 
 
@@ -405,6 +379,19 @@ def _sync_intraday_rrg_impl(
     return n, priced_n, kbar_n, None
 
 
+def _parse_rrg_sync_worker_stdout(stdout: str) -> tuple[int, int, int] | None:
+    """Parse worker line: ``RRG 盤中同步 OK · rows=N · priced=P · kbar=K``."""
+    import re
+
+    match = re.search(
+        r"rows=(\d+)\s*·\s*priced=(\d+)\s*·\s*kbar=(\d+)",
+        stdout or "",
+    )
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
 def sync_intraday_rrg(
     conn: sqlite3.Connection,
     *,
@@ -449,12 +436,13 @@ def sync_intraday_rrg(
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
             return 0, 0, 0, err
-        return _sync_intraday_rrg_impl(
-            conn,
-            session_date=session_date,
-            poll_minute=poll_minute,
-            holding_ids=holding_ids,
-        )
+        # Worker already wrote DB. Do NOT re-run impl here: .venv-fubon
+        # often lacks numpy/pandas (fresh mini install) and would crash.
+        parsed = _parse_rrg_sync_worker_stdout(proc.stdout or "")
+        if parsed is not None:
+            n, priced_n, kbar_n = parsed
+            return n, priced_n, kbar_n, None
+        return 0, 0, 0, None
 
     try:
         return _sync_intraday_rrg_impl(
@@ -517,6 +505,38 @@ def _load_holdings_stress(
     return count >= 3, count
 
 
+def _has_rrg_close(
+    conn: sqlite3.Connection,
+    stock_id: str,
+    *,
+    as_of_session: str,
+) -> bool:
+    """是否具備收盤 RRG 素材（rrg_universe_scores screen_kind=close）。"""
+    row = conn.execute(
+        """
+        SELECT 1 FROM rrg_universe_scores
+        WHERE stock_id = ? AND screen_kind = 'close' AND session_date <= ?
+        LIMIT 1
+        """,
+        (stock_id, as_of_session),
+    ).fetchone()
+    return row is not None
+
+
+def _normalize_watch_symbols(symbols: list[str] | None) -> list[str]:
+    if not symbols:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in symbols:
+        sid = str(raw or "").strip()
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        out.append(sid)
+    return out
+
+
 def build_holdings_pulse(
     conn: sqlite3.Connection,
     *,
@@ -524,6 +544,8 @@ def build_holdings_pulse(
     use_fubon: bool = True,
     sync_rrg_intraday: bool = False,
     refresh_morning_risk: bool = True,
+    symbols: list[str] | None = None,
+    require_rrg_close: bool = False,
 ) -> HoldingsPulse:
     now = datetime.now(_TZ).replace(microsecond=0)
     today = session_date or now.date().isoformat()
@@ -531,16 +553,30 @@ def build_holdings_pulse(
     phase = market_phase(now)
     generated_at = now.isoformat()
 
+    watch_symbols = _normalize_watch_symbols(symbols)
+    watch_mode = bool(watch_symbols)
+
     fubon_snap: dict[str, Any] | None = None
     fubon_error: str | None = None
-    if use_fubon:
+    # Watchlist mode：不用富邦持倉，但可選仍用富邦報價
+    if use_fubon and not watch_mode:
         fubon_snap, fubon_error = fetch_fubon_snapshot()
 
     holdings_raw: list[dict[str, Any]] = []
     cash_available: int | None = None
     account_label = "—"
     pnl_map: dict[str, tuple[int, float | None]] = {}
-    if fubon_snap:
+    if watch_mode:
+        account_label = "watchlist"
+        kept = watch_symbols
+        if require_rrg_close:
+            kept = [s for s in watch_symbols if _has_rrg_close(conn, s, as_of_session=today)]
+        # 偽持倉：股數=1，僅供現價／RRG／介紹脈動（無真實成本／損益）
+        holdings_raw = [
+            {"stock_no": sid, "today_qty": 1, "tradable_qty": 1}
+            for sid in kept
+        ]
+    elif fubon_snap:
         account_label = str(fubon_snap.get("_account_label") or "—")
         cash = fubon_snap.get("cash") or {}
         cash_available = int(cash.get("available_balance", 0) or 0)
@@ -641,8 +677,8 @@ def build_holdings_pulse(
         if rrg_close.seg_last is not None and rrg_intra.seg_last is not None:
             seg_delta = rrg_intra.seg_last - rrg_close.seg_last
 
-        vcp_comp, vcp_state = _load_vcp(conn, base.stock_id, as_of_session=today)
-        tier = structure_tier(rrg_intra.quadrant or rrg_close.quadrant, vcp_state=vcp_state)
+        # 持倉脈動／RRG HTML：tier 只看 RRG 象限，不混入 VCP（避免 Overextended 噪音）
+        tier = structure_tier(rrg_intra.quadrant or rrg_close.quadrant)
         base_with_tier = HoldingBriefRow(
             stock_id=base.stock_id,
             stock_name=base.stock_name,
@@ -679,8 +715,8 @@ def build_holdings_pulse(
                 dist_extension_pct=_distance_pct(px, base.extension_spike, base.prev_close)
                 if base.extension_spike and px is not None
                 else None,
-                vcp_composite=vcp_comp,
-                vcp_state=vcp_state,
+                vcp_composite=None,
+                vcp_state=None,
                 hold_days=_hold_days(str((meta.get(base.stock_id) or {}).get("entry_date") or ""), today),
                 structural_flags=_structural_flags(
                     base_with_tier,
@@ -789,7 +825,11 @@ def build_holdings_pulse(
         holdings=tuple(pulse_rows),
         fubon_error=fubon_error,
         price_errors=tuple(price_errors),
-        session_note=market_phase_note(phase),
+        session_note=(
+            f"監控清單模式（{len(pulse_rows)} 檔）· {market_phase_note(phase)}"
+            if watch_mode
+            else market_phase_note(phase)
+        ),
     )
 
 
@@ -806,8 +846,6 @@ def _rrg_cell(point: RrgPoint) -> str:
 
 def _weak_reason(row: HoldingPulseRow) -> str:
     reasons: list[str] = []
-    if row.vcp_state and "Overextended" in str(row.vcp_state):
-        reasons.append("VCP Overextended")
     quad = row.rrg_intraday.quadrant or row.rrg_close.quadrant or row.base.rrg_quadrant
     if quad in ("weakening", "lagging"):
         reasons.append(f"RRG {quad}")
@@ -821,21 +859,27 @@ def _flag_action_hint(
     portfolio_exit_mode: bool | None,
 ) -> str:
     hints: dict[str, str] = {
-        "≤-2%gate": "跌逾 2% 觀測線（v2 已停用機械 -2% 賣）",
+        "≤-2%gate": "跌逾 2% 觀測線（非自動賣出）",
         "ext≥4%": "漲逾 4% · 留意守利／回落（非弱勢出清）",
-        "S1b": "結構停損 S1b 觸發 · 建議檢視",
-        "S2": "弱檔 -3% 環境減碼 · 建議檢視",
-        "S2-lite?": "組合壓力下強/中檔 -3% · 建議檢視",
-        "09:05前": "09:05 前不判賣出旗標",
+        "09:05前": "09:05 前不判旗標",
     }
-    hint = hints.get(flag, flag)
-    if flag == "≤-2%gate" and tier == "strong":
-        hint += "；strong 個股不適用 S1b/S2"
-    elif flag == "≤-2%gate" and tier == "weak":
-        hint += "；弱檔賣出需至 -3%（S1b/S2）"
-        if portfolio_exit_mode is False:
-            hint += "，S2 另須 portfolio_exit_mode=ON"
-    return hint
+    return hints.get(flag, flag)
+
+
+def _format_holdings_status_from_pulse(pulse: HoldingsPulse) -> str:
+    """Email-equivalent 【持倉狀態】block（成本／市值／損益／報價來源）。"""
+    from order.order_fill_report import (
+        format_holdings_status_section,
+        holdings_status_rows_from_pulse,
+    )
+
+    return format_holdings_status_section(
+        holdings_status_rows_from_pulse(pulse),
+        cash_available=pulse.cash_available,
+        total_market_value=pulse.total_market_value,
+        total_unrealized_pnl=pulse.total_unrealized_pnl,
+        error=pulse.fubon_error,
+    )
 
 
 def format_holdings_pulse_digest(pulse: HoldingsPulse) -> str:
@@ -847,42 +891,23 @@ def format_holdings_pulse_digest(pulse: HoldingsPulse) -> str:
         "  量測：現價＝即時報價；RRG 盤中＝"
         f"{_rrg_intraday_source_note(pulse)}",
     ]
-    if pulse.cash_available is not None and pulse.total_market_value is not None:
-        lines.append(
-            f"  可用 NT$ {pulse.cash_available:,} · 持倉市值 NT$ {pulse.total_market_value:,.0f} "
-            f"· 未實現 {pulse.total_unrealized_pnl:+,}"
-        )
-    if pulse.fubon_error:
-        lines.append(f"  ⚠ 富邦：{pulse.fubon_error}")
     for err in pulse.price_errors:
         lines.append(f"  ⚠ 報價：{err}")
 
-    gate_hit = (
-        "觸發"
-        if pulse.gate_2330_hit
-        else ("未觸發" if pulse.gate_2330_hit is False else "—")
-    )
-    preview = pulse.portfolio_exit_preview
-    preview_txt = (
-        "ON"
-        if preview is True
-        else ("OFF" if preview is False else "—")
-    )
-    mode_txt = "—"
-    if pulse.portfolio_gate_ran:
-        mode = pulse.portfolio_exit_mode
-        mode_txt = "ON" if mode else ("OFF" if mode is False else "skip")
+    # Per-symbol status · same fields as fill-notify email
+    status = _format_holdings_status_from_pulse(pulse)
+    lines.extend(["", status])
+
     lines.extend(
         [
             "",
-            "  組合閘門（09:05 判定 · 本輪為即時預覽）",
-            f"  · 2330 {_fmt_px(pulse.gate_2330_price)} ≤ {pulse.gate_2330_995 or '—'} → {gate_hit}",
-            f"  · CORE4 ≤昨收×0.98：{pulse.core4_gate_hits}/4 · 預判 {preview_txt} · 今日 gate {mode_txt}",
+            "  組合狀態（觀測 · 結構停損 playbook 已退回 Research）",
+            f"  · 2330 {_fmt_px(pulse.gate_2330_price)} · CORE4 ≤昨收×0.98：{pulse.core4_gate_hits}/4",
         ]
     )
     if pulse.holdings_stress:
         lines.append(
-            f"  · holdings_stress：{pulse.holdings_stress_count} 檔 ≤昨收×0.98"
+            f"  · 持倉壓力參考：{pulse.holdings_stress_count} 檔 ≤昨收×0.98"
         )
 
     weak = [r for r in pulse.holdings if r.base.structure_tier == "weak"]
@@ -975,8 +1000,8 @@ def _format_priority_watch(pulse: HoldingsPulse) -> list[str]:
         lines.extend(
             [
                 "### 結構弱（tier=weak）",
-                "- **意思**：昨收 RRG 偏弱或 VCP Overextended；若盤中再跌，"
-                "較易觸發 playbook S1b/S2。**不等於現在要賣。**",
+                "- **意思**：RRG 象限偏弱（weakening／lagging）；若盤中再跌，"
+                "較易進入弱勢結構。**觀測用 · 非自動賣出。**",
                 "",
             ]
         )
@@ -990,7 +1015,7 @@ def _format_priority_watch(pulse: HoldingsPulse) -> list[str]:
         lines.extend(
             [
                 "### 觸發／接近（價格旗標）",
-                "- **意思**：現價已碰或接近技術參考線；請對照 tier 與組合閘門判斷。",
+                "- **意思**：現價已碰或接近技術參考線；僅觀測，非賣出指令。",
                 "",
             ]
         )
@@ -1016,7 +1041,7 @@ def _format_priority_watch(pulse: HoldingsPulse) -> list[str]:
             [
                 "### 帳面大虧",
                 "- **意思**：富邦未實現損益 < NT$1,500；帳面壓力提醒，"
-                "**非** playbook 賣出規則。",
+                "**非**賣出規則。",
                 "",
             ]
         )
@@ -1044,25 +1069,18 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
     if pulse.session_note:
         lines.append(f"時段：{pulse.session_note}")
     lines.append(f"帳戶：{pulse.account_label}")
-    if pulse.cash_available is not None:
-        lines.append(f"可用餘額：NT$ {pulse.cash_available:,}")
-    if pulse.total_market_value is not None:
-        lines.append(
-            f"持倉市值：NT$ {pulse.total_market_value:,.0f} · "
-            f"未實現 **{pulse.total_unrealized_pnl:+,}**"
-        )
     lines.append(
         "> **性質**：advisory 儀表板 · 人工確認後下單 · "
         "「優先盯」≠ 出清指令"
     )
-    if pulse.fubon_error:
-        lines.append(f"富邦：⚠ {pulse.fubon_error}")
     for err in pulse.price_errors:
         lines.append(f"報價：⚠ {err}")
 
+    # 置頂：與 email 同欄位的完整持倉狀態（終端／md 最先可見）
+    lines.extend(["", "## 持倉狀態", "", _format_holdings_status_from_pulse(pulse), ""])
+
     lines.extend(
         [
-            "",
             "## 資料來源",
             f"- 持倉／損益：**fubon**（live snapshot）",
             f"- 現價：fubon → FinMind tick → 昨收 fallback（即時報價）",
@@ -1100,58 +1118,36 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
     else:
         lines.append("- 無 morning_risk 資料")
 
-    lines.extend(["", "## 組合閘門（intraday-exit-playbook v2）"])
+    lines.extend(["", "## 組合狀態（觀測）"])
     lines.append(
-        "- **09:05 判定一次**：`portfolio_exit_mode=ON` 需 **CORE4≥2 檔 ≤昨收×0.98** "
-        "且 **2330 ≤昨收×0.995**"
+        "- 結構停損 playbook（閘門 / 弱檔 -3% 等）已退回 **Research**；"
+        "本報告不執行、不寄結構賣訊。"
     )
     gate_px = _fmt_px(pulse.gate_2330_price)
-    gate_hit = (
-        "✓ 觸發"
-        if pulse.gate_2330_hit
-        else ("未觸發" if pulse.gate_2330_hit is False else "—")
-    )
     lines.append(
-        f"- 2330 現價 {gate_px} · 09:05 ≤ **{pulse.gate_2330_995 or '—'}** → {gate_hit}"
+        f"- 2330 現價 {gate_px} · CORE4 ≤ 昨收×0.98：**{pulse.core4_gate_hits}** / 4 檔"
+        "（僅參考）"
     )
-    lines.append(f"- CORE4 ≤ 昨收×0.98：**{pulse.core4_gate_hits}** / 4 檔")
-    preview = pulse.portfolio_exit_preview
-    if preview is True:
-        lines.append("- **portfolio_exit_mode 預判：ON**（CORE4≥2 且 2330 觸發）")
-        lines.append("  - ON 時：弱檔 S2（-3%）可啟用；S1 結構停損仍有效")
-    elif preview is False:
-        lines.append("- portfolio_exit_mode 預判：**OFF**")
-        lines.append(
-            "  - OFF 時：**S2（-3% 環境減碼）不啟用**；S1a/S1b 結構停損仍有效；"
-            "v2 已停用機械 -2% 賣（S3/S4）"
-        )
-    if pulse.portfolio_gate_ran:
-        mode = pulse.portfolio_exit_mode
-        lines.append(
-            f"- 今日 09:05 gate 已跑：{'ON' if mode else 'OFF' if mode is False else 'skip'}"
-        )
     if pulse.holdings_stress:
         lines.append(
-            f"- **holdings_stress**：{pulse.holdings_stress_count} 檔 ≤ 昨收×0.98"
+            f"- 持倉壓力參考：{pulse.holdings_stress_count} 檔 ≤ 昨收×0.98"
         )
-        lines.append("  - ≥3 檔觸 -2% 時標記組合壓力（可啟用 S2-lite 觀測）")
     lines.append("")
 
-    lines.append("## 持倉明細")
+    lines.append("## 持倉明細（RRG／結構）")
     lines.append("")
     lines.append(
-        "_tier：weak=RRG 偏弱或 VCP Overextended；strong=leading/improving 且非 Overextended。"
-        "距-2%=距昨收×0.98；S1b=弱檔 -3%；ext=昨收×1.04。"
-        "RRG盤中 K=5m K · t=tick fallback。旗標為觀測線，非自動賣出。_"
+        "_tier：weak=RRG weakening／lagging；strong=leading／improving。"
+        "距-2%/弱-3%/ext 為價格距離參考；旗標為觀測線，非自動賣出。_"
     )
     lines.append("")
     lines.append(
         "| 代號 | 名稱 | 股數 | 成本 | 現價 | 昨收 | 今日% | 損益 | 損益% | 佔比 | "
-        "RRG收盤 | RRG盤中 | Δ象限 | tier | 距-2% | S1b | ext | VCP | 持有 | 旗標 |"
+        "RRG收盤 | RRG盤中 | Δ象限 | tier | 距-2% | 弱-3% | ext | 持有 | 旗標 |"
     )
     lines.append(
         "|------|------|-----:|-----:|-----:|-----:|------:|-----:|------:|-----:|"
-        "--------|--------|------|------|-------|-----|-----|-----|------|------|"
+        "--------|--------|------|------|-------|------|-----|------|------|"
     )
 
     for r in pulse.holdings:
@@ -1168,11 +1164,6 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
         delta_q = r.rrg_quad_delta or "—"
         if r.rrg_seg_delta is not None:
             delta_q = f"{delta_q} · Δseg {r.rrg_seg_delta:+.3f}" if delta_q != "—" else f"Δseg {r.rrg_seg_delta:+.3f}"
-        vcp = "—"
-        if r.vcp_composite is not None:
-            vcp = f"{r.vcp_composite:.0f}"
-            if r.vcp_state:
-                vcp += f" · {r.vcp_state}"
         hold = str(r.hold_days) if r.hold_days is not None else "—"
         flags = " · ".join(
             [*r.structural_flags, *r.exit_log_today, *b.notes]
@@ -1183,7 +1174,7 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
             f"{_fmt_pct(r.pnl_pct)} | {wt} | {close_cell} | {intra_cell} | {delta_q} | "
             f"{b.structure_tier} | {_fmt_pct(r.dist_gate_2pct_pct)} | "
             f"{_fmt_pct(r.dist_s1b_pct)} | {_fmt_pct(r.dist_extension_pct)} | "
-            f"{vcp} | {hold} | {flags} |"
+            f"{hold} | {flags} |"
         )
 
     lines.extend([""])
@@ -1196,9 +1187,8 @@ def format_holdings_pulse(pulse: HoldingsPulse) -> str:
         [
             "",
             "## 紀律",
-            "- 09:00–09:04 只觀察、不賣",
-            "- 09:05 判斷組合閘門；09:06 起 sell-signal-radar（持倉交集才寄信）",
-            "- 13:20 後停止自動減碼",
+            "- 結構停損 playbook 已退回 Research · 本報告不執行結構賣訊",
+            "- sell-signal-radar：僅 extension 持倉交集寄信（人工確認）",
             "- 本報告 advisory · 人工確認後下單",
             "- 建議盤中 09:10–13:20 執行以取得 live 現價與 RRG 盤中",
         ]
@@ -1227,12 +1217,15 @@ def default_holdings_json_path(session_date: str) -> Path:
 
 
 def holdings_pulse_to_dict(pulse: HoldingsPulse) -> dict[str, Any]:
-    """序列化 · 供 RRG 繪圖端（.venv）讀取持倉、現價與 exit playbook 摘要。"""
+    """序列化 · 供 RRG 繪圖端（.venv）讀取帳戶／持倉狀態與現價。"""
     return {
         "session_date": pulse.session_date,
         "generated_at": pulse.generated_at,
         "poll_minute": pulse.poll_minute,
         "account_label": pulse.account_label,
+        "cash_available": pulse.cash_available,
+        "total_market_value": pulse.total_market_value,
+        "total_unrealized_pnl": pulse.total_unrealized_pnl,
         "portfolio_exit_mode": pulse.portfolio_exit_mode,
         "rrg_intraday_sync_error": pulse.rrg_intraday_error,
         "rrg_intraday_kbar_n": pulse.rrg_intraday_kbar_n,
@@ -1247,6 +1240,8 @@ def holdings_pulse_to_dict(pulse: HoldingsPulse) -> dict[str, Any]:
                 "price_source": r.price_source,
                 "daily_pct": r.daily_pct,
                 "pnl_pct": r.pnl_pct,
+                "unrealized_pnl": r.base.unrealized_pnl,
+                "market_value": r.market_value,
                 "weight_pct": r.weight_pct,
                 "structure_tier": r.base.structure_tier,
                 "vcp_composite": r.vcp_composite,

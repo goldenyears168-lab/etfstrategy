@@ -2,16 +2,20 @@
 
 | 欄位 | 內容 |
 |------|------|
-| 版本 | 1.0 |
-| 日期 | 2026-07-09 |
+| 版本 | 1.2 |
+| 日期 | 2026-07-16 |
 | 狀態 | **Living doc** — 以 `config/order.yaml` · `src/order/` 為準 |
 | 上層 PRD | [PRD.md](./PRD.md) §1 下單層 |
 | 術語 SSOT | [terminology.md](./terminology.md) §2.5 |
 | 架構 | [architecture.md](./architecture.md) · [src-map.md](./src-map.md) §下單層 |
 | 盤中減碼 | [intraday-exit-playbook.md](./intraday-exit-playbook.md) |
 | Agent 導航 | [agent-brief.md](./agent-brief.md) |
+| 遷移／live | [deploy/mac-mini/MIGRATION_PLAN.md](../deploy/mac-mini/MIGRATION_PLAN.md) |
 
 > **免責**：本文件描述本機 infra 與個人研究執行框架；**不**構成投資建議。Order layer **不**進公開網站、**不**暴露券商憑證。
+>
+> **2026-07-23 現況**（SSOT：[MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md)）：Live sleeves = **C18acc** + **Leading Dip** + **Songshan copytrade** + **timed-limit** + **expert-pool staged gate**；**Detach Gate = RED 只寄信 · 不半砍**（`ORDER_DETACH_GATE_ORDER_ENABLED=0`）。  
+> **ABC Order 已退役**（送單入口硬擋；`ABC_V3_F1_ORDER_ENABLED=0`）。下文含歷史 Phase／ABC 段落時以本框為準。
 
 ---
 
@@ -33,16 +37,16 @@ Order layer（下單層）是 **Strategy layer（策略層）與富邦 Neo API �
 
 ## 2. 問題陳述
 
-### 2.1 現況痛點（2026-07-09）
+### 2.1 現況痛點（2026-07-09）→ 緩解狀態（2026-07-13）
 
-| # | 痛點 | 影響 |
+| # | 痛點 | 緩解 |
 |---|------|------|
-| P1 | `place_order` 成功 ≠ 成交 | ledger 過早記「已送」；曝險與通知可能失真 |
-| P2 | 通知綁 observe 首次命中 | 送單重試成功可能無第二封 email |
-| P3 | 無委託狀態機 | 失敗 / 超時 / 晚成交無統一收斂 |
-| P4 | 無 broker reconciliation | 賣出後 local notional 靠 rolling 近似 |
-| P5 | 無 ops 後台 | 依 log + 富邦 App 人工查 |
-| P6 | intent 失敗仍留檔 | 手動 `submit_intents.py` 可能誤送 placeholder qty |
+| P1 | `place_order` 成功 ≠ 成交 | `lifecycle.notional_basis: filled`；現金／曝險僅 filled/partial；poll 無列 → `ambiguous` + notional 0 |
+| P2 | 通知綁 observe 首次命中 | 既有 submit_notify 解耦（Phase 1） |
+| P3 | 無委託狀態機 | 短 poll + 每輪 `refresh_open_ledger_entries`；仍非完整 async OMS |
+| P4 | 無 broker reconciliation | `scripts/order/reconcile_broker_ledgers.py` **報告 only**（不自動改帳） |
+| P5 | 無 ops 後台 | `scripts/order/write_ops_snapshot.py` → `reports/order/snapshots/*_ops.json` |
+| P6 | intent 失敗仍留檔 | 失敗 → `intents/quarantine/`；`submit_intents.py --submit` 拒絕已標記／placeholder |
 
 ### 2.2 非問題（刻意不做）
 
@@ -142,7 +146,7 @@ facts → regime → research → strategy (+ order layer 本機)
 | 檔案 | 用途 |
 |------|------|
 | `config/order.yaml` | broker、intent schema、strategy sleeve 參數 |
-| `.env` / `.env.example` | 憑證、`ABC_V3_F1_*`、`RUN_*` |
+| `.env` / `.env.example` | 憑證、`ORDER_*` / `C18ACC_*` / `RUN_*`（ABC `ABC_V3_F1_*` 僅退役殘留＝0） |
 | `config/buy_observation.yaml` | observe pool（Strategy 側；order 只讀 pool_id） |
 
 ---
@@ -157,23 +161,32 @@ facts → regime → research → strategy (+ order layer 本機)
 | `src/order/fubon_session.py` | 登入 · SDK 版本 | 穩定 |
 | `src/order/fubon_orders.py` | `place_resolved_order` | 穩定 · 缺 lifecycle |
 | `src/order/chase.py` · `chase_runner.py` | 追價撤單重掛 | 穩定 · C18/chase 用 |
-| `src/order/abc_v3_f1_*.py` | abc 自動送單 + re-entry | Phase 1 live |
-| `src/abc_v3_f1_intent_bridge.py` | Strategy-safe intent 寫入 | 穩定 |
+| `src/order/abc_v3_f1_*.py` | ABC 自動送單（**retired 2026-07-16** · FORCE_LEGACY only） | 退役 · 勿當 live |
+| `src/order/c18acc_order*.py` | C18acc 進／換／出場送單 | live |
+| `src/order/c18acc_position_monitor.py` | C18acc underwater_rebound pyramid add（O3-7） | 接入 rrg poll · **採納開啟** |
+| `src/order/leading_dip_*.py` | Leading Dip 衛星袖 | live |
+| `src/order/detach_gate_order.py` | Detach Gate 全帳戶 half-flatten | 排程在 · **RED 只寄信**（`ORDER_ENABLED=0` · 不送單） |
+| `src/abc_v3_f1_intent_bridge.py` | Strategy-safe intent 寫入（legacy） | 退役路徑 |
 | `scripts/order/submit_intents.py` | 人工 intent 送單 CLI | 穩定 |
-| `scripts/run_buy_signal_radar.py` | radar → abc order 接線 | 穩定 |
-| `src/order/intraday_exit_gate.py` | 09:05 組合閘門 | advisory |
-| `src/order/intraday_structural_exit.py` | S0–S2  structural 減碼 | advisory / dry-run |
+| `scripts/run_buy_signal_radar.py` | 買訊觀測／寄信 · **不送單** | live advisory |
+| `src/order/intraday_exit_gate.py` | 09:05 組合閘門 | **Research only**（已撤 launchd） |
+| `src/order/intraday_structural_exit.py` | 結構停損掃描 | **Research only**（sell radar 不再呼叫） |
 | `src/order/holdings_pulse.py` | 持倉 HTML 脈動 | 報告 · 非 OMS |
 | `src/order/morning_holdings_brief.py` | 晨間 brief | 報告 |
 
-### 6.2 Live 送單 sleeve（2026-07-09）
+### 6.2 Live 送單 sleeve（2026-07-16）
 
-| Sleeve | 觸發 | 自動送單 | 上限 |
-|--------|------|----------|------|
-| **abc-v3-f1-pullback** | buy-signal-radar observe | ✅（env 開） | 5 筆/日 × 2 萬 ≈ 10 萬；單檔 rolling 6 萬 |
-| **C18acc / rrg poll** | rrg-c18acc-poll | ❌ intent + 人工 | — |
-| **chase_open** | launchd（`schedule.enabled: false`） | 可選 | 已停用 |
-| **Minervini / extension** | 月末 / overlay | ❌ intent | — |
+**ABC Order 已退役**：`config/strategy.yaml` · `abc-v3-f1-*` 為 `enabled: false`；`order.yaml` 無 ABC sleeve；送單入口需 `ABC_V3_F1_ORDER_FORCE_LEGACY=1`（僅庫測）。buy-signal-radar **不送單**；ABC 觀測池 `buy_observation.yaml` 亦 `enabled: false`。
+
+| Sleeve | 觸發 | 自動送單 | 上限／備註 |
+|--------|------|----------|------------|
+| **C18acc / rrg-mono-swap-accel** | `rrg-c18acc-poll` | ✅（`ORDER_C18ACC_*`） | 3 槽 · 2 萬／槽 · confirm_bars=**1** · pyramid 採納 |
+| **Leading Dip**（+ mid） | `leading-dip-poll` | ✅（`ORDER_LEADING_DIP_*`） | coverage + mid · 與 C18 互斥 |
+| **Detach Gate** | `detach-gate` | ❌ RED 只寄信（`ORDER_ENABLED=0`） | 半砍規格保留（floor(qty/2) @ bid1）· 現況不送單 · 見 MIGRATION_PLAN §0 |
+| **buy / sell signal radar** | launchd | ❌ 寄信 only | ABC 池關閉 |
+| **chase_open** | `schedule.enabled: false` | — | 已停用 |
+
+C18acc 漏斗（Strategy／Order 對齊）：**fresh mono** 全池 · 池序 `seg_last` · 進場 `avg_accel_decel` · **confirm_bars=1** · 換倉 `avg_accel_decel`（門檻 `seg_last+0.05`）· E@13:00 · avoid spread_mixed · G_R5_12 · **pyramid underwater_rebound 採納**。詳 `config/strategy.yaml` · `config/order.yaml`。
 
 ### 6.3 資料與產物
 
@@ -344,6 +357,9 @@ facts → regime → research → strategy (+ order layer 本機)
 | O3-2 | Semi-auto Action Center | 送單前人工核准 UI |
 | O3-3 | 週期 broker reconciliation job | 比對 inventory vs ledger |
 | O3-4 | C18acc poll 自動送單 | 獨立 sleeve 規格 + 風控 |
+| O3-5 | ABC v3+F1 champion TP 持倉 poll | **retired 2026-07-16** |
+| O3-6 | ABC v3+F1 underwater_rebound pyramid add | **retired 2026-07-16** |
+| O3-7 | C18acc underwater_rebound pyramid add | **採納** · `c18acc_pyramid_add.enabled:true` · rrg poll 內掃 |
 
 ### Phase 4 · 明確不做
 
@@ -373,37 +389,76 @@ facts → regime → research → strategy (+ order layer 本機)
 ### 10.1 `config/order.yaml`（現行 + 規劃）
 
 ```yaml
-# 現行
+# 現行 live（2026-07-16）
 strategies:
-  abc-v3-f1-pullback:
+  rrg-mono-swap-accel:
+    entry_confirm_bars: 1
+    budget_twd_per_slot: 20000
+  leading-dip:
     budget_twd: 20000
-    max_entries_per_day: 5
-    reentry: { ... }
 
-# Phase 1 規劃
 lifecycle:
-  poll_interval_sec: 30
-  poll_max_attempts: 10
-  ambiguous_timeout_sec: 15
-  notional_basis: filled   # filled | submitted
+  poll_interval_sec: 2.0
+  poll_max_attempts: 3
+  notional_basis: filled
 
-# Phase 2 規劃
-ops:
-  snapshot_schema: order-ops-snapshot-v1
-  snapshot_dir: reports/order/snapshots
-  html_enabled: true
+# ABC pyramid · retired stub
+pyramid_add:
+  enabled: false
+  retired_from_order: true
+
+# C18acc pyramid · 採納
+c18acc_pyramid_add:
+  enabled: true
+  winner_condition: underwater_rebound
+
+# Detach · 全帳戶半砍
+detach_gate:
+  action:
+    scope: broker_all_holdings
+    mode: half_flatten
 ```
 
-### 10.2 環境變數（abc）
+### 10.2 環境變數（ABC · **retired**）
 
 | 變數 | 預設 | 說明 |
 |------|------|------|
-| `ABC_V3_F1_ORDER_ENABLED` | 1 | 總開關 |
-| `ABC_V3_F1_AUTO_SUBMIT` | 1 | 0 = dry-run intent only |
-| `ABC_V3_F1_BUDGET_TWD` | 20000 | 單筆 |
-| `ABC_V3_F1_MAX_ENTRIES_DAY` | 5 | 日筆數 |
-| `ABC_V3_F1_MAX_NOTIONAL_SYMBOL` | 60000 | rolling cap |
-| `RUN_BUY_SIGNAL_EMAIL` | 1 | observe 信 |
+| `ABC_V3_F1_ORDER_ENABLED` | **0** | 總開關 · 必須維持 0 |
+| `ABC_V3_F1_AUTO_SUBMIT` | **0** | 退役 |
+| `ABC_V3_F1_CHAMPION_TP_ENABLED` | **0** | 退役 |
+| `ABC_V3_F1_PYRAMID_ADD_ENABLED` | **0** | 退役 |
+| `ABC_V3_F1_POSITION_AUTO_SUBMIT` | **0** | 退役 |
+| `ABC_V3_F1_ORDER_FORCE_LEGACY` | 0 | 僅庫測可開 · 否則送單入口硬擋 |
+
+### 10.3 環境變數（C18acc）
+
+| 變數 | 預設 | 說明 |
+|------|------|------|
+| `ORDER_C18ACC_DRY_RUN` | 1（Book）／0（mini live） | 0 = live 送單 |
+| `ORDER_C18ACC_ORDER_ENABLED` | 1 | C18 下單層總開關 |
+| `ORDER_C18ACC_AUTO_SUBMIT` | 1（launchd／`.env.example`） | 1 = screen actions 自動送單（**以 env 為準** · yaml `auto_submit` 不讀） |
+| `ORDER_C18ACC_APPLY_STATE` | 1 | 1 = 寫入 `data/rrg_c18acc_slots.json` |
+| `ORDER_RESERVED_CASH_TWD` | 50000 | 帳戶級保留現金（多袖共用） |
+| `C18ACC_BUDGET_TWD_PER_SLOT` | 20000 | 每槽預算（加碼第二筆同額當 fraction=1.0） |
+| `C18ACC_CONFIRM_BARS` | **1** | live 進場確認棒數（Strategy funnel 對齊） |
+| `C18ACC_PYRAMID_ADD_ENABLED` | **1** | underwater_rebound 結構加碼（O3-7 · 採納） |
+
+### 10.4 Structural pyramid add 契約（ABC retired · C18acc 採納）
+
+兩 block 共用 **order-pyramid-add-v1** schema；**僅 C18acc 為 live**。
+
+| 欄位 | ABC `pyramid_add` | C18acc `c18acc_pyramid_add` |
+|------|-------------------|------------------------------|
+| 假設 | H-ENTRY-PYRAMID-1 | H-C18-PYRAMID-1 |
+| 適用 | （retired） | `rrg-mono-swap-accel` |
+| 觸發 | — | `ret_from_entry_pct<0` 且持倉 W3 RV 自 in-hold trough 反彈 ≥0.3 |
+| Poll | — | 嵌入 `rrg-c18acc-poll`（亦可手動 `run_c18acc_position_poll.py`） |
+| 部位 | — | 等權重第二筆 · `C18ACC_BUDGET_TWD_PER_SLOT` |
+| 出場 | — | sync_exit · leg1 S2/sim 動態出場 |
+| 預設 | `enabled: false` · `retired_from_order: true` | **`enabled: true`**（Strategy `pyramid_add.enabled: true`） |
+| 證據 | historical | `20260711_c18acc_structural_pyramid_n99.md` · OOS Δ +1.189pp |
+
+**實作狀態（2026-07-16）**：C18acc pyramid 採納並在 `rrg_mono_swap_accel_screen` 內掃加碼；ledger `data/order/c18acc_pyramid_ledger.json`。ABC monitor／radar 送單路徑已退役。
 
 ---
 
@@ -479,8 +534,138 @@ ops:
 
 ---
 
+## 17. Shadow 驗證 checklist（champion-tp 棧 + 賣優先）
+
+**目的**：在 **不送單給券商** 的前提下，用 1～2 個交易日驗證下單鏈路（訊號 → monitor → intent/ledger → state）行為正確，再開 live。
+
+> **2026-07-16**：§17.2 ABC shadow **僅歷史參考**（sleeve 已退役）。現行 shadow 以 §17.3 C18acc + Leading Dip / Detach 為準。
+
+**Shadow** = dry-run：跑真實盤中資料與邏輯，**不**呼叫 `place_order`。
+
+### 17.1 前置（Day 0 · 盤前或收盤後）
+
+- [ ] **單元測試全過**
+  ```bash
+  cd /path/to/股票研究
+  python -m pytest tests/test_account_cap_gate.py \
+    tests/test_c18acc_order.py \
+    tests/test_c18acc_position_monitor.py -q
+  ```
+  預期：`N passed`，無 failed。
+
+- [ ] **`.env` shadow 區塊**（覆寫 live 開關；可貼入 shell 或寫入 `.env`）
+  ```bash
+  # ABC · 必須維持退役
+  ABC_V3_F1_ORDER_ENABLED=0
+  ABC_V3_F1_AUTO_SUBMIT=0
+  ABC_V3_F1_POSITION_AUTO_SUBMIT=0
+
+  # C18acc
+  ORDER_C18ACC_ORDER_ENABLED=1
+  ORDER_C18ACC_AUTO_SUBMIT=1         # 跑 order 層邏輯（仍 dry-run）
+  ORDER_C18ACC_DRY_RUN=1             # 關鍵：不送單
+  ORDER_C18ACC_APPLY_STATE=0         # shadow 先不寫槽位（避免污染 state）
+  C18ACC_CONFIRM_BARS=1
+  C18ACC_PYRAMID_ADD_ENABLED=1
+  ORDER_RESERVED_CASH_TWD=50000
+  ```
+
+- [ ] **基線快照**（方便日終 diff）
+  ```bash
+  ls -la data/order/c18acc_order_ledger.json \
+         data/order/c18acc_pyramid_ledger.json \
+         data/rrg_c18acc_slots.json 2>/dev/null || true
+  ```
+
+### 17.2 ABC 袖 · champion-tp 棧（**retired · 歷史**）
+
+> Order sleeve 已於 2026-07-16 移除。下列僅供讀舊 ledger／庫測 `FORCE_LEGACY`；**勿**當 live checklist。
+
+**進場（歷史）**：radar `abc-v3-f1-pullback`。**出場（歷史）**：champion TP monitor。
+
+| # | 時點 | 命令 | 通過條件 |
+|---|------|------|----------|
+| A1 | — | `run_abc_v3_f1_position_poll.py` | 預期 `status: retired`（無 FORCE_LEGACY） |
+| A2–A5 | — | — | 略 |
+
+### 17.3 C18 袖 · 進換出 + 賣優先（Order layer）
+
+| # | 時點 | 命令 | 通過條件 |
+|---|------|------|----------|
+| C1 | 盤中 poll 窗（09:00–13:30 · NTB≥13:00） | 見下方 C1 | `dry_run=true`；`actions` 列表合理 |
+| C2 | 有 swap 時 | 檢查 `actions` 順序 | **sell 列在 buy 之前**（`max_hold_exit` / `swap sell` → `swap buy` / `entry` / `pyramid_add`） |
+| C3 | `order_submit` 區塊 | C1 JSON / report | `priority: sell_first`；`results[].status` 為 `dry_run`，非 `submitted` |
+| C4 | 模擬換倉買延後 | 資金刻意壓低或 mock | 出現 `deferred` + `pending_buys` 佇列（見 `data/order/c18acc_order_ledger.json`） |
+| C5 | pyramid（採納） | rrg poll 內掃（或 `run_c18acc_position_poll.py`） | `kind: pyramid_add`；ledger 有 `pyramid_parent_cid` |
+| C6 | 日終 | `reports/order/intents/rrg-mono-swap-accel_*.json` | 存在且 `metadata.dry_run: true` |
+
+**C1 · C18 screen（shadow）**
+```bash
+PYTHONPATH=src python3 scripts/run_rrg_mono_swap_accel_screen.py \
+  --date YYYY-MM-DD --dry-run --no-apply-state
+```
+
+**C5 · C18 pyramid**（已嵌 rrg poll；獨立腳本可選）
+```bash
+PYTHONPATH=src python3 scripts/order/run_c18acc_position_poll.py \
+  --date YYYY-MM-DD --time 10:30
+```
+
+預期 stdout 片段：
+```
+C18acc screen: ... dry_run=True actions=N ...
+```
+
+若有 `order_submit`：
+```json
+{ "dry_run": true, "priority": "sell_first", "results": [{ "status": "dry_run", "side": "sell" }] }
+```
+
+### 17.4 跨袖共通
+
+| # | 檢查項 | 通過條件 |
+|---|--------|----------|
+| X1 | 券商委託 | **今日無**由本 repo 腳本新產生的委託（可選：`submit_intents.py --query-orders` 人工對照） |
+| X2 | `account_risk` | `config/order.yaml` · `priority_on_conflict: sell_first` · `swap_buy_retry_polls: 3` |
+| X3 | Idempotency | 同一 `--date --time` 重跑兩次，第二次無重複「將送單」意圖（或 `skipped` / `idempotent`） |
+| X4 | 報告 | `reports/research/rrg/` 或 `reports/order/` 有當日 screen / radar 紀錄可追 |
+
+### 17.5 驗收簽核（滿足後才開 live）
+
+連續 **≥1 完整交易日**（或 replay 覆蓋有持倉/換倉的 session）：
+
+- [ ] C1–C6 全勾（C18 賣優先順序正確、未實送；pyramid 可觀測）
+- [ ] X1–X4 全勾
+- [ ] Leading Dip / Detach dry-run 路徑可觀測（可選同日）
+- [ ] 確認：`C18ACC_CONFIRM_BARS=1` · `C18ACC_PYRAMID_ADD_ENABLED=1` · Detach **全帳戶**半砍
+
+**開 live 最小開關**（勿跳過 shadow；ABC 維持 0）：
+```bash
+ABC_V3_F1_ORDER_ENABLED=0
+ORDER_C18ACC_DRY_RUN=0
+ORDER_C18ACC_AUTO_SUBMIT=1
+ORDER_C18ACC_APPLY_STATE=1
+C18ACC_CONFIRM_BARS=1
+C18ACC_PYRAMID_ADD_ENABLED=1
+ORDER_LEADING_DIP_DRY_RUN=0
+ORDER_DETACH_GATE_DRY_RUN=0
+```
+
+建議：**先開 C18acc live 一週**，再同開 Leading Dip；Detach 為帳戶級風控，開前再確認全帳戶範圍。
+
+### 17.6 Replay 加速（非交易日）
+
+有持倉/換倉歷史時可用 replay 補齊 C1/C2，但仍應在下一個真實交易日跑一輪 C1 確認接線：
+```bash
+PYTHONPATH=src python3 scripts/run_launchd_replay.py  # 依腳本內建日期區間
+```
+
+---
+
 ## 修訂紀錄
 
 | 版本 | 日期 | 說明 |
 |------|------|------|
 | 1.0 | 2026-07-09 | 初版：as-is 盤點 + Phase 0–4 藍圖 |
+| 1.1 | 2026-07-11 | §17 Shadow 驗證 checklist · champion-tp + 賣優先 env 表更新 |
+| 1.2 | 2026-07-16 | Live SSOT：confirm_bars=1 · C18 pyramid 採納 · ABC Order 退役文案 · Detach 全帳戶 |

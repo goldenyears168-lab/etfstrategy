@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "research" / "archive"))
 
 from backfill_rrg_lens_backtest_data import (  # noqa: E402
     _trade_dates_in_range,
@@ -191,6 +192,45 @@ def run_mono_backfill(
     return n_inserted
 
 
+def collect_snapshot_hold_window_gaps(
+    conn,
+    *,
+    start: str,
+    end: str,
+    pad_days: int = 15,
+) -> list[tuple[str, str]]:
+    """(trade_date, stock_id) missing any 1m bar · fresh pool membership ± pad_days.
+
+    Covers snapshot_1300 held-name needs on days the name is out of the fresh pool.
+    """
+    from research.backtest.finpilot_local_backtest import load_price_panels
+
+    close, _, _ = load_price_panels(conn)
+    full_dates = close.index.astype(str).tolist()
+    trade_dates = [d for d in full_dates if start <= d <= end]
+    idx = {d: i for i, d in enumerate(trade_dates)}
+    fresh_by_date = build_fresh_mono_calendar(conn, trade_dates)
+    needed: set[tuple[str, str]] = set()
+    for d, rows in fresh_by_date.items():
+        if d not in idx:
+            continue
+        i = idx[d]
+        lo = max(0, i - pad_days)
+        hi = min(len(trade_dates), i + pad_days + 1)
+        for r in rows:
+            for j in range(lo, hi):
+                needed.add((trade_dates[j], r.stock_id))
+    gaps: list[tuple[str, str]] = []
+    for d, sid in sorted(needed):
+        n = conn.execute(
+            "SELECT COUNT(*) FROM stock_kbar_1m WHERE stock_id=? AND trade_date=?",
+            (sid, d),
+        ).fetchone()
+        if int(n[0] or 0) == 0:
+            gaps.append((d, sid))
+    return gaps
+
+
 def main(argv: list[str] | None = None) -> int:
     load_project_dotenv()
     parser = argparse.ArgumentParser(description="C18acc mono shortlist 1m kbar backfill (P0)")
@@ -207,6 +247,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-calls", type=int, default=4800)
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument(
+        "--snapshot-pad",
+        type=int,
+        default=None,
+        metavar="N",
+        help="snapshot_1300 mode: backfill fresh-pool ±N trading days (missing any 1m)",
+    )
+    parser.add_argument(
+        "--gaps-file",
+        type=Path,
+        default=None,
+        help="optional TSV trade_date\\tstock_id gaps (overrides discovery)",
+    )
     args = parser.parse_args(argv)
 
     min_bars = args.min_bars if args.min_bars is not None else TIER_MIN_BARS[args.tier]
@@ -216,16 +269,37 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = connect(args.db)
     try:
-        print(f"=== C18acc mono kbar · {args.start}..{args.end} · min_bars={min_bars} ===", flush=True)
+        mode = (
+            f"snapshot_pad={args.snapshot_pad}"
+            if args.snapshot_pad is not None
+            else f"min_bars={min_bars}"
+        )
+        print(f"=== C18acc mono kbar · {args.start}..{args.end} · {mode} ===", flush=True)
         before = mono_coverage_summary(conn, start=args.start, end=args.end, min_bars=min_bars)
         print("--- coverage (before) ---", flush=True)
         for k, v in before.items():
             print(f"  {k}: {v}", flush=True)
 
-        gaps = collect_mono_shortlist_kbar_gaps(
-            conn, start=args.start, end=args.end, min_bars=min_bars
-        )
-        print(f"  gaps (stock-days): {len(gaps)}", flush=True)
+        if args.gaps_file is not None:
+            gaps = []
+            for line in args.gaps_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    gaps.append((parts[0], parts[1]))
+            print(f"  gaps from file: {len(gaps)}", flush=True)
+        elif args.snapshot_pad is not None:
+            gaps = collect_snapshot_hold_window_gaps(
+                conn, start=args.start, end=args.end, pad_days=int(args.snapshot_pad)
+            )
+            print(f"  gaps (snapshot pad={args.snapshot_pad}): {len(gaps)}", flush=True)
+        else:
+            gaps = collect_mono_shortlist_kbar_gaps(
+                conn, start=args.start, end=args.end, min_bars=min_bars
+            )
+            print(f"  gaps (stock-days): {len(gaps)}", flush=True)
         if args.report_only:
             return 0
 

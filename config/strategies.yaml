@@ -49,8 +49,10 @@ strategies:
     title: RRG mono · seg_last · 3-slot hold7
     layer: strategy
     kind: competition
-    enabled: true
-    description: daily_sync 16:30 · RRG mono 槽位確認（原 16:40 launchd 已退役）。
+    enabled: false
+    description: >
+      Legacy screen · superseded by rrg-mono-swap-accel (C18acc) ·
+      spec retained · manual rerun only · daily_sync rrg_mono_daily skipped.
     sources:
       - "{date}_rrg_mono_daily.md"
       - "rrg_mono_daily.md"
@@ -62,16 +64,26 @@ strategies:
     enabled: true
     parent_strategy: rrg-mono-hold7
     description: >
-      daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 C0/5m poll live screen ·
-      fresh∪accel 全池（POOL1 · fresh ∪ mono_tier2∧4d accel>0）·
+      daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 avg_accel/5m poll live screen ·
+      fresh mono 全池（2026-07-12 採納 · 取代 POOL1 fresh∪accel）·
+      同日近收盤進場 ≥13:00（2026-07-14 採納 · ops ≥30m-to-close）·
+      confirm_bars=1 live（C18ACC_CONFIRM_BARS）·
       四日加速对称换仓（簡化漏斗：不裁 top10 · 買方合併單規則）·
       S2 rotation exit（2d weakening + loss≥5% · close 強制平倉 · 2026-07 採納）·
-      spread_lost bypass（W5−W20 spread_rs≤0 → 正加速 held 可 rotation 賣出 · 2026-07-05 採納）。
+      spread_lost bypass（W5−W20 spread_rs≤0 → 正加速 held 可 rotation 賣出 · 2026-07-05 採納）·
+      avoid spread_mixed entry+swap gate（W5/W20 · first poll≥13:00 · 錨點隨 no_trade_before）·
+      entry avg_accel_decel rank（R2 · 2026-07-12 採納）·
+      underwater_rebound pyramid add 採納（H-C18-PYRAMID-1 · order c18acc_pyramid_add）。
     funnel_summary: >
-      池：fresh∪accel（fresh + mono_tier2 四日加速>0）· 全池 seg_last；
-      进：C0 盘中 scale · confirm 0|1；
-      换：卖加速<0最弱 · spread≤0 時正加速亦可賣 · 买 seg_last+0.05 后加速最大 · min5 max10 · 1 swap/日；
-      出：S2 quad_force_exit（weakening 2d + unrealized loss≥5%）。
+      池：fresh mono · ≥13:00 同日 kbar 暫定鎖池（≈EOD）；
+      进：avg_accel_decel（四日）· confirm_bars=1 · skip spread_mixed（13:00 錨點 W5/W20）；
+      换：卖 avg_accel<0 最弱 · spread≤0 時正加速亦可賣 · 买 seg_last+0.05 后 avg_accel 最大 · skip mixed · min5 max10 · 1 swap/日 · ≥13:00；
+      出：S2 quad_force_exit（weakening 2d + unrealized loss≥5%）；
+      加碼：underwater_rebound 等權第二筆（sync_exit）。
+    score_keys_note: >
+      双指标漏斗（2026-07-12 entry-rank 採納）：定池/shortlist=seg_last；进场=avg_accel_decel；
+      换仓卖/买排序=avg_accel_decel；换仓门槛=seg_last+0.05。
+      20260712 R2 OOS +0.66pp vs C0×seg_last；20260709 unified-key audit：全程 seg_last 换仓 −1.6pp。
     sources:
       - "{date}_rrg_mono_swap_accel_daily.md"
       - "rrg_mono_swap_accel_daily.md"
@@ -87,9 +99,23 @@ strategies:
     description: >
       Event-level ABC v3+f1 · skip09 · hold 3d · F gate avoid W5 MV>W3 MV ·
       90d OOS val passed · 5-slot portfolio val failed · slot sizing pending ·
-      observe-only pool on buy-signal-radar (abc-v3-f1-pullback).
+      Order sleeve retired 2026-07-16（無自動送單 · 舊倉當手動單）。
     sources:
       - reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
+
+  abc-v3-f1-champion-tp:
+    title: ABC v3+f1 · champion TP-only · hold 5d
+    layer: strategy
+    kind: research_adopted
+    enabled: false
+    parent_strategy: abc-v3-f1-pullback
+    description: >
+      Raw ABC v3+F1 entry (no Tier-2 overlay) · champion TP-only exit · hold 5d · NEVER_SL ·
+      optional underwater_rebound pyramid（research-only）。Strategy contract only ·
+      Order sleeve retired 2026-07-16（無 live monitor／送單）。
+    sources:
+      - reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
+      - reports/research/rrg/20260711_abc_v3_f1_shape_library.json
 
   abc-v3-skip09-pullback:
     title: ABC v3 skip09 intraday pullback
@@ -100,7 +126,7 @@ strategies:
     description: >
       Event-level ABC v3 (no F gate) · skip09 · hold 3d · parent of abc-v3-f1-pullback ·
       5-slot portfolio val PASSED (daily 0.561% > f1 0.506%) · slot sizing not yet enabled ·
-      observe-only pool on buy-signal-radar (abc-v3-skip09-pullback · broader coverage).
+      buy-observation 池定義保留但 enabled:false（Order 已退役 · 不跑／不寄）。
     sources:
       - reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
 
@@ -163,9 +189,8 @@ strategies:
     env_flag: RUN_BUY_SIGNAL_RADAR
     description: >
       多池買入觀測 · fresh-mono + mono-tier2 寄信（來源池標示 · 同檔合併）·
-      abc-v3-f1-pullback 回踩（observe-only · event-level 採納軌）·
-      abc-v3-skip09-pullback 回踩（observe-only · 覆蓋較廣）·
-      C0 scale 5m · 5m poll 09:00–13:20 · 寄信 RUN_BUY_SIGNAL_EMAIL · 不送單。
+      ABC 回踩池 enabled:false（Order 已退役 · 不跑／不寄）·
+      C0 scale 5m · 5m poll 09:00–13:20 · 寄信 RUN_BUY_SIGNAL_EMAIL · 全程不送單。
     sources:
       - "{date}_buy_signal_radar.md"
       - "buy_signal_radar.md"
@@ -183,3 +208,44 @@ strategies:
     sources:
       - "{date}_sell_signal_radar.md"
       - "sell_signal_radar.md"
+
+  detach-gate:
+    title: Detach Gate · 台美脫鉤閘門
+    layer: strategy
+    kind: operational
+    enabled: true
+    env_flag: RUN_DETACH_GATE
+    description: >
+      TW↔NQ rolling 30m DETACH（5m poll）· trough-first 半倉風控 ·
+      範圍＝券商全帳戶持倉 · RED → 買一價各檔 floor(qty/2) · 寄信達標／下單 ·
+      launchd 09:40–12:30 · Order flags ORDER_DETACH_GATE_* 。
+    sources:
+      - "reports/order/snapshots/us_tw_5m_sell_gate_latest.json"
+      - "reports/research/rrg/20260715_us_tw_5m_sell_gate_ready.md"
+
+  leading-dip:
+    title: Leading Dip · coverage · gap∩excess(昨收)
+    layer: strategy
+    kind: research_adopted
+    enabled: true
+    env_flag: RUN_LEADING_DIP_POLL
+    description: >
+      Leading ∧ gap3≤−0.80 ∩ excess(昨收)≤−4 · coverage 含開盤 · hold T+3 ·
+      日槽≤2／總在外≤6 · Order live · 預算 2 萬/筆 · 採納 2026-07-16。
+    sources:
+      - reports/research/rrg/20260715_leading_wma20_excess6_wma3_confirm.md
+      - reports/order/snapshots/leading_dip_latest.json
+
+  leading-dip-mid:
+    title: Leading Dip mid · ≥10:00 · excess(今開)
+    layer: strategy
+    kind: research_adopted
+    enabled: true
+    parent_strategy: leading-dip
+    env_flag: RUN_LEADING_DIP_POLL
+    description: >
+      主軌互補衛星 · gap∩excess(今開) · minute≥10:00 · 排除當日 main 觸發 ·
+      日槽≤1／總在外≤3 · 預算 2 萬/筆 · 採納 2026-07-16。
+    sources:
+      - reports/research/rrg/20260715_leading_dip_time_sleeve_expand.md
+      - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md

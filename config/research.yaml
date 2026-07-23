@@ -4,7 +4,7 @@
 # Pipeline 腳本：config/pipeline_scripts.yaml（非本檔）
 
 # Phase A–C 收斂（2026-07-09）· archived runner → scripts/research/archive/
-# Phase D（2026-07-09）· 0 active research · 非 pipeline runner 全移 archive · strategy 層維護 production
+# Phase D（2026-07-09）曾收斂至 0 active；2026-07-23 現況 38 active topics（grep 'status: active'）· 非 pipeline runner 移 archive · strategy 層維護 production
 
 version: research-v5
 layer: research
@@ -52,6 +52,30 @@ lifecycle:
     - converged
 
 topics:
+  intraday-exit-playbook:
+    title: 盤中結構停損 playbook（宇宙 / 持倉）
+    status: archived
+    phase: rejected
+    methodology: docs/intraday-exit-playbook.md
+    report_dir: reports/research/order
+    notes: >
+      2026-07-13 退回 Research · 自 Strategy sell-signal-radar 與 Order launchd
+      exit-gate 撤出。證據為風險修剪非報酬引擎（勝率 ~42% · 無法突破 50%）。
+      模組保留：src/order/intraday_structural_exit.py · intraday_exit_gate.py（僅研究／單測）。
+    hypotheses:
+      - id: H-EXIT-STRUCT
+        statement: 盤中機械結構停損可穩定提高持倉報酬
+        status: rejected
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed
+        G3_partitioned_combo: na
+        G4_rejection_registry: passed
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: do-not-adopt · research archive only
+
   copytrade-hypothesis-matrix:
     title: 00981A copytrade L×H · filter 假說矩陣
     status: graduated
@@ -70,6 +94,585 @@ topics:
         G5_frozen_spec: passed
         G6_adoption_report: pending
       champion_artifact: reports/research/00981a-copytrade/l1h9_slot_backtest_2026.json
+
+  yuanta-songjiang-copytrade:
+    title: 元大-松江分點 Copytrade · 門檻×Top-N × L×H×槽位 + swap 對照
+    status: active
+    phase: research
+    run_scripts:
+      - scripts/research/backfill_yuanta_songjiang_tape.py
+      - scripts/research/run_yuanta_songjiang_copytrade_sweep.py
+      - scripts/research/render_yuanta_songjiang_copytrade_html.py
+    report_dir: reports/research/yuanta-songjiang-copytrade
+    hypotheses:
+      - id: H-SJ-RETURN
+        statement: >
+          固定槽 Copytrade 跟單元大-松江（門檻+Top-N）在 L∈{1,2,3} 網格上
+          存在 period_return% 優於單槽基準的可執行參數組
+        status: passed  # L3H18 1槽 ret%≈350 · L1H18 1槽≈337 · 20260717 sweep
+      - id: H-SJ-SWAP
+        statement: >
+          對 period_return 冠軍參數，槽滿置換（新籃 mean_net > 最弱槽）優於 skip-when-full
+        status: rejected  # Δret≈−196pp · n_swaps=54 · prefer skip-when-full
+      - id: H-SJ-AMOUNT-RRG-MATCH-XD
+        statement: >
+          松江用金額門檻（可低於 80M）+ rs_ratio>100 + L2H12 + 1槽，
+          可達到新店冠軍同級的 overlap 單槽複利（≥80% of ~2080%）
+        status: rejected  # IS-best 50M+rs OOS/ov 為負；peek 最佳 ov 僅≈14% @150M
+      - id: H-SJ-AMOUNT-FRESH-HAND
+        statement: >
+          全面使用金額口徑：松江當日淨買金額≥5M，且近20日同分點同股
+          累計淨買金額≤25M，Top1 L3H18 可通過同門檻 OOS gate
+        status: passed  # IS compound145%；OOS302%；overlap576%；全期992%
+    context: >
+      Signal: 元大-松江 (FinMind id 9801) net≥threshold then Top-N equal-weight.
+      Phase A: reuse copytrade_backtest fixed slots (skip when full).
+      Phase B: swap overlay on champion only.
+      PIT: L1+ executable (branch tape after close).
+    artifact: reports/research/yuanta-songjiang-copytrade/20260717_yuanta_songjiang_copytrade_sweep.md
+    amount_rrg_compound_probe: reports/research/dual-branch-copytrade/20260718_yuanta_songjiang_amount_rrg_compound_probe.json
+    skilled_hand_follow: reports/research/yuanta-songjiang-copytrade/20260718_songjiang_amount_skilled_hand_follow.md
+    notes: >
+      Requires Sponsor FinMind TaiwanStockTradingDailyReport by securities_trader_id.
+      Backfill into stock_broker_branch_daily before sweep.
+      Main champion max period_return is low-capture (1 slot · long H); alpha champion
+      L1H12 × 9 slots is more capital-efficient for multi-slot deployment.
+      20260718 金額版高手指紋取代先前張數版：signal threshold／Top1／prior20
+      一律 NTD。IS 選 5M + prior20 signed net amount≤25M + L3H18 + 1槽；
+      OOS 已查看，僅 robustness observe，不進 Strategy／Order。
+
+  chen-chip-sameday:
+    title: 陳式籌碼 × 專家池大戶同日（L0）對齊
+    status: active
+    phase: is_sweep
+    report_dir: reports/research/chen_chip_sameday
+    run_scripts:
+      - scripts/research/run_chen_chip_sameday_study.py
+    hypotheses:
+      - id: H-CHEN-CHIP-1
+        statement: >
+          陳式公開籌碼 SOP（外資連買＋融資非暴增＋期貨部位）在 L0 同日
+          能以 Recall≥0.5 命中 Tier A 專家池冠軍訊號日
+        status: rejected  # 字面淨多口數在樣本窗永遠不觸發；改 rising 後 Recall≈0.10
+      - id: H-CHEN-CHIP-2
+        statement: >
+          IS 調參後的籌碼規則（外資連買≥1 日∩ foreign_pctl20≥0.5）可在
+          OOS 維持同日 Recall≥0.5，且命中子集 L0H10 中位不低於大戶全集 −1pp
+        status: passed  # OOS R≈0.53 · hit L0H10 med≈+7.3 vs whale 全集約 +6.4
+      - id: H-CHEN-CHIP-3
+        statement: >
+          純籌碼規則可取代分點共識作為主訊號（Precision 具實務可用性）
+        status: rejected  # OOS P≈0.09 · 噪音遠大於大戶事件
+    context: >
+      Same-day (L0 close→Hx) alignment of Chen-style / academic chip features
+      vs expert-pool champion events. Vendors: tw-institutional-stocker (Apache-2.0),
+      cftc-cot (MIT). Research only · not strategy adoption.
+    notes: >
+      2026-07-21 MVP Tier A+B. TX 外資 net OI 在窗內結構性為負 → 改用 rising streak。
+      結論：籌碼可作同日濾網／否決，不可取代分點共識主訊號。
+
+  fubon-xindian-copytrade:
+    title: 富邦-新店分點 Copytrade · 門檻×Top-N × L×H×槽位 + swap 對照
+    status: active
+    phase: research
+    run_scripts:
+      - scripts/research/backfill_fubon_xindian_tape.py
+      - scripts/research/run_fubon_xindian_copytrade_sweep.py
+      - scripts/research/render_fubon_xindian_copytrade_html.py
+    report_dir: reports/research/fubon-xindian-copytrade
+    hypotheses:
+      - id: H-FX-RETURN
+        statement: >
+          固定槽 Copytrade 跟單富邦-新店（門檻+Top-N）在 L∈{1,2,3} 網格上
+          存在 period_return% 優於單槽基準的可執行參數組
+        status: passed  # L2H9 1槽 · 500張 · Top1 · ret%≈358 · 20260717 sweep
+      - id: H-FX-SWAP
+        statement: >
+          對 period_return 冠軍參數，槽滿置換優於 skip-when-full
+        status: rejected  # Δret≈−105pp · n_swaps=47 · prefer skip-when-full
+      - id: H-FX-W20-ORIGINAL
+        statement: >
+          原始 500 張 Top1 L2H9 三槽加入 W20 Momentum≥101 後，
+          OOS α/筆提升且月度穩定度不顯著惡化
+        status: rejected  # α/筆 388→568；正月率 80%→60%
+      - id: H-FX-FLOW
+        statement: >
+          固定 W20 Momentum≥101 後，IS-only 流量門檻調參可在 OOS
+          保留至少 70% 筆數並提升總 α 或 α/筆
+        status: passed  # 650張；OOS 35筆 · α/筆≈728 · 正月率70%
+      - id: H-FX-LIQUIDITY
+        statement: >
+          20 日均量門檻在 650 張與 W20 gate 之後仍提供正交加值
+        status: rejected  # 0–1000張均量對入選交易完全無差異，屬冗餘
+      - id: H-FX-TOPN
+        statement: >
+          gate 後再取 Top2/3/5 優於 Top1
+        status: rejected  # 650張門檻後同日無第二個合格標的，屬冗餘
+      - id: H-FX-TIMING
+        statement: >
+          650 張 × W20 Momentum≥101 × Top1 三槽的 L/H 調參可通過 OOS gate
+        status: passed  # IS選 L1H12；OOS 31筆 · α/筆≈806 · win≈74.2%
+      - id: H-FX-FINAL-REPLACE
+        statement: >
+          原始過濾器調參後可取代未加 W20 的 500 張 Top1 L2H9 三槽基準
+        status: rejected  # OOS筆數 55→31、正月率 80%→66.7%，僅適合品質候選袖
+      - id: H-FX-VS-AMOUNT
+        statement: >
+          調整後的原始張數過濾器優於 80M × W20 Momentum≥101 × L2H12 參考組
+        status: rejected  # OOS pnl 36.9k<43.7k；α/筆806<925
+    context: >
+      Same spec as yuanta-songjiang-copytrade.
+      Signal: 富邦-新店 (FinMind id 9661) net≥threshold then Top-N equal-weight.
+      Phase A: fixed slots (skip when full). Phase B: swap on main champion.
+      PIT: L1+ executable (branch tape after close).
+      Attribution note: branch aggregate ≠ single trader identity.
+    artifact: reports/research/fubon-xindian-copytrade/20260717_fubon_xindian_copytrade_sweep.html
+    filter_artifact: reports/research/fubon-xindian-copytrade/20260718_fubon_xindian_3slot_filter_study.md
+    notes: >
+      Community-attributed branch for 陳族元; research treats it as branch tape only.
+      Main champion L2H9 × 1 slot · 500張 Top1 (low capture); α champion L1H12
+      (higher turnover). Swap rejected vs skip-when-full. 20260718 sequential
+      IS/OOS follow-up applies flow → liquidity → W20 → Top-N before fixed slots;
+      original-filter winner 650張 × W20≥101 × Top1 × L1H12 × 3槽 improves
+      per-cycle quality but does not replace the original or the 80M amount reference.
+
+  kgi-chengzhong-copytrade:
+    title: 凱基-城中分點 Copytrade · 門檻×Top-N × L×H×槽位 + swap 對照
+    status: active
+    phase: research
+    run_scripts:
+      - scripts/research/backfill_kgi_chengzhong_tape.py
+      - scripts/research/run_kgi_chengzhong_copytrade_sweep.py
+      - scripts/research/render_kgi_chengzhong_copytrade_html.py
+    report_dir: reports/research/kgi-chengzhong-copytrade
+    hypotheses:
+      - id: H-KC-RETURN
+        statement: >
+          固定槽 Copytrade 跟單凱基-城中（門檻+Top-N）在 L∈{1,2,3} 網格上
+          存在 period_return% 優於單槽基準的可執行參數組
+        status: passed  # L3H20 1槽 · 100張 · Top5 · ret%≈313 · 20260717 sweep
+      - id: H-KC-SWAP
+        statement: >
+          對 period_return 冠軍參數，槽滿置換優於 skip-when-full
+        status: rejected  # Δret≈−242pp · n_swaps=42 · prefer skip-when-full
+    context: >
+      Same spec as yuanta-songjiang-copytrade / fubon-xindian-copytrade.
+      Signal: 凱基-城中 (FinMind id 9227) net≥threshold then Top-N equal-weight.
+      Phase A: fixed slots (skip when full). Phase B: swap on main champion.
+      PIT: L1+ executable (branch tape after close).
+      Attribution note: branch aggregate ≠ single trader identity.
+    artifact: reports/research/kgi-chengzhong-copytrade/20260717_kgi_chengzhong_copytrade_sweep.html
+    notes: >
+      Main champion L3H20 × 1 slot · 100張 Top5 (low capture · long H).
+      α champion L2H15 × 9 slots · 50張 Top3. Efficiency L3H11 · 500張 Top1.
+      Swap rejected. Period return below Fubon-Xindian (~358) and near Yuanta-SJ (~350).
+      Tape denser than 松江/新店? rows≈333k (vs XD≈483k · SJ≈304k).
+
+  branch-follow-all-events:
+    title: 分點跟單 · 全事件規律（反 best-pair 事後諸葛）
+    status: completed
+    phase: hypothesis
+    run_scripts:
+      - scripts/research/run_branch_follow_all_events_scan.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-SELECTABLE-BRANCHES
+        statement: >
+          以凍結 D1'+L1H7+β1.25，存在≥5家分點 IS 全事件中位超額≥+2%且n≥30，
+          且 OOS 中位≥+1%且n≥15（跟分點全出手，非 best(B,S)）
+        status: rejected  # n_pass=0；唯一 IS 過門 960T OOS−3.2%
+      - id: H2-BEAT-UNIVERSE
+        statement: >
+          H1 通過分點之 OOS 中位超額優於全宇宙／同密度對照至少 +1pp
+        status: rejected  # H1=0 precondition；skipped
+      - id: H3-CONSENSUS-OVERLAY
+        statement: >
+          跨分點同日共識（K≥3或5）OOS 中位不劣於單分點全事件臂
+        status: rejected  # H1=0 → consensus overlay skipped
+      - id: H4-SHORTWINDOW-P1-UNRELATED
+        statement: >
+          短窗 best-pair P1 排名與全事件 OOS 排名 Spearman ρ<0.3
+        status: passed  # ρ=0.097 n=247
+    context: >
+      Goal: selectable branch-follow copytrade with pre-registered rules.
+      Unit score = median r_adj over ALL qualifying events of branch B.
+      Explicitly rejects short-window best (B,S) P1 as selection metric.
+      Orthogonal to stock-first expert-pool skill; research only.
+    artifact: reports/research/branch-footprint-screen/分點跟單全事件研究計畫.md
+    notes: >
+      2026-07-20 run: prefer2y 247 branches · D1' 115520 → episode 73190 ·
+      evaluable 71087. H1=0 (no selectable branches). H4 ρ=0.097 supports
+      "short-window P1 ≠ followable branch". Universe OOS median-of-medians
+      −2.16%. Artifacts: branch_follow_all_events_{is,oos}.csv + summary.md.
+      Excess = stock L1H7 − 1.25×IX0001. Not order-layer. Stop curve-fitting.
+
+  branch-follow-retail-netbuy:
+    title: 分點跟單 · Round2 Fix-A · 零售宇宙 + 淨買 Top1
+    status: completed
+    phase: hypothesis
+    run_scripts:
+      - scripts/research/run_branch_follow_retail_netbuy_scan.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-RETAIL-NETBUY
+        statement: >
+          剔除自營／期貨／國際證券後之零售分點宇宙，改用淨買金額 rank=1 事件
+          （net_buy_amt≥0.30億，無 share/topK OR），沿用 §3 H1 門檻
+          （IS median≥+2%且n≥30 且 OOS median≥+1%且n≥15），存在≥5家可選分點
+        status: rejected  # n_pass=0；診斷寬鬆門檻(IS≥1%n≥20 & OOS≥0%n≥10)亦0家
+    context: >
+      Round2 sub-protocol Fix-A（分點跟單全事件研究計畫.md §10）。與 Round1
+      （branch-follow-all-events，H1=0）用同一 prefer2y 覆蓋基底，只換：
+      (1) 宇宙剔除自營/期貨/國際證券 3 家（247→244 家），
+      (2) 事件改毛買 share/rank-OR → 淨買 (buy−sell)×close 且當日該分點 rank=1。
+      episode/進出/成本/β/IS-OOS 切分/評分（全事件中位）與 §2 原協議相同。
+      Do not edit branch-follow-all-events block (sibling Fix-B agent's scope).
+    artifact: reports/research/branch-footprint-screen/分點跟單全事件研究計畫.md
+    notes: >
+      2026-07-20 run: retail universe 244 (excl 群益期貨/富邦自營/元大自營).
+      net-buy Top1 rows=36377 → episode 29110 → evaluable 28379. H1 strict
+      REJECTED n_pass=0 (diagnostic relaxed gate also 0). Universe
+      median-of-medians IS −0.60%／OOS −1.46% (vs Round1 IS −0.60%／OOS −2.16%).
+      OOS tail improved but no branch clears strict gate → retail-only + net-buy
+      rank=1 does NOT overturn Round1's "no selectable branch" verdict; universe
+      contamination + gross-buy noise are excluded as sole causes (see Fix-B for
+      contract/threshold effects). Artifacts: branch_follow_retail_netbuy_{is,oos}.csv
+      + summary.md.
+
+  branch-follow-contract-grid:
+    title: 分點跟單 · Round2 Fix-B · 契約網格 + 相對宇宙門檻
+    status: completed
+    phase: hypothesis
+    run_scripts:
+      - scripts/research/run_branch_follow_contract_grid.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-CONTRACT-GRID
+        statement: >
+          事件 D1' 不變（沿用 Round1）；掃描 H∈{7,12,20}×β∈{1.0,1.25} 共6組合，
+          決策改相對宇宙門檻（IS中位排名≥P75且n≥30 且 OOS中位排名≥P90且n≥15，
+          非絕對pp），至少一組合有≥5家分點通過
+        status: passed  # 5/6 組合≥5家；最佳 H=7 β=1.0 n=9；但見 notes 之 bootstrap 穩健性但書
+    context: >
+      Round2 sub-protocol Fix-B（分點跟單全事件研究計畫.md §10）。與 Round1
+      （branch-follow-all-events，H1=0，絕對門檻）用同一 prefer2y 247家覆蓋基底
+      與同一 D1' 事件定義（不變，只重算一次、跨6組合共用），只換 (1) 進出契約
+      H×β 網格 (2) 決策門檻改相對宇宙百分位。episode 5曆日去重同 §2。
+      Do not edit branch-follow-all-events / branch-follow-retail-netbuy blocks
+      (Round1 + sibling Fix-A agent scope).
+    artifact: reports/research/branch-footprint-screen/分點跟單全事件研究計畫.md
+    notes: >
+      2026-07-20 run: universe 247 (same as Round1 prefer2y). D1' rows=115520 →
+      episode 73190 (frozen, shared across grid). Relative-gate passers by combo:
+      H7β1.0=9, H7β1.25=8, H12β1.0=8, H12β1.25=7, H20β1.0=4, H20β1.25=5
+      (5/6 combos ≥5 → literal H1 gate PASSED, best combo H=7 β=1.0 n=9).
+      Spearman ρ(IS rank vs OOS rank) 0.09–0.18, higher at short H, low overall
+      (rank instability, consistent with Round1 H4). CAVEAT: bootstrap OOS
+      median>0 one-sided test on the 41 passer-combo rows shows only 1/41
+      (2.4%, ≈ pure-chance multiple-comparison false-positive rate) at p<0.05
+      (群益台北 918X, H12 β1.0, p=0.038) → relative P75/P90 gate is largely a
+      MECHANICAL pass on a noisy 247-branch universe, not robust statistical
+      evidence of selectable branches. Confirms Round1 suspicion that the
+      absolute-pp gate was too strict in a weak environment, but does NOT
+      establish a real followable-branch pool; do not feed the raw
+      relative-gate passer list into §3 H3 consensus layer — prefer the
+      bootstrap-significant subset only, pending further robustness checks.
+      Artifacts: branch_follow_contract_grid_details.csv (1482 rows, long
+      format) + summary.md.
+
+  branch-copytrade-fair-compare:
+    title: 多分點 Copytrade 金額公平比較 · 凍結 L1H12×3槽 + density-match IS/OOS
+    status: completed
+    phase: research
+    run_scripts:
+      - scripts/research/backfill_broker_branch_tape.py
+      - scripts/research/run_branch_copytrade_fair_compare.py
+    report_dir: reports/research/branch-copytrade-fair-compare
+    hypotheses:
+      - id: H-FAIR-BRANCH-ALPHA
+        statement: >
+          以訊號日淨買超金額、凍結 L1H12×3槽×Top1，且 density-match
+          對齊 IS 訊號密度後，
+          社群波段分點（新店/城中/松江）的 OOS α/cycle 優於隔日沖型（凱基台北）
+          與外資通道（摩根大通）
+        status: rejected  # dens amount: 安和>新店>凱北>城中>摩根>松江；波段組不一致
+    context: >
+      Fair protocol across 富邦-新店 / 凱基-城中 / 元大-松江 / 凱基-台北 /
+      國票-安和 / 摩根大通. Primary rank: density-matched OOS α/cycle (n≥10).
+      Secondary: frozen 100M NTD OOS table. Not order-layer.
+    artifact: reports/research/branch-copytrade-fair-compare/branch_copytrade_amount_fair_compare.md
+    notes: >
+      20260718 amount = positive net shares × signal-day close (PIT).
+      Primary: density-matched own-amount · OOS period_return%.
+      OOS ret%: 安和80M 168% > 新店80M 138% > 城中20M 106% ≈ 凱北700M 105%
+      > 松江30M 56% > 摩根1500M 53%. Full ret% champion = 新店 180%.
+      Fixed 100M not used for hidden-master ranking.
+      Backfill: scripts/research/backfill_broker_branch_tape.py.
+      Branch aggregate ≠ single trader. Sharpe* = mean/pstdev of cycle returns.
+
+  guopiao-anhe-copytrade:
+    title: 國票-安和金額複利對照 · 新店／松江同契約
+    status: completed
+    phase: research
+    report_dir: reports/research/guopiao-anhe-copytrade
+    hypotheses:
+      - id: H-ANHE-AMOUNT-FRESH-RS
+        statement: >
+          安和 ≥65M + rs_ratio>100 + prior20 signed net amount≤0 + L2H12 + 1槽
+          可通過同門檻 OOS gate，複利介於新店冠軍與松江候選之間
+        status: passed  # IS213% OOS540% overlap661% full1027%；gate passed
+    artifact: reports/research/guopiao-anhe-copytrade/20260718_anhe_amount_compound_compare.md
+    notes: >
+      FinMind 779Z. Compound SSOT Π(1+r)−1 · 10k/slot. Cross-apply XD/SJ recipes
+      dilute（80M+rs overlap~380%；5M+prior25 full~31%）. Research only.
+
+  dual-branch-copytrade:
+    title: 雙分點 Copytrade · 張數/金額門檻 × sj|xd|and|or|sum
+    status: active
+    phase: research
+    run_scripts:
+      - scripts/research/run_dual_branch_copytrade_sweep.py
+      - scripts/research/render_dual_branch_copytrade_html.py
+    report_dir: reports/research/dual-branch-copytrade
+    hypotheses:
+      - id: H1-AMOUNT
+        statement: >
+          金額門檻（net×訊號日收盤）在同 mode 下 period_return 或 α/日
+          優於張數門檻 baseline（至少 3/5 modes）
+        status: rejected  # ret 1/5 · apld 0/5 · 20260717 dual sweep
+      - id: H2-COMBO
+        statement: >
+          and 或 sum 模式的 α/日優於較佳單一分點袖（sj 或 xd）
+        status: passed  # and/lots ≥500張 L2H12 top3 1槽 α/日≈73.5 > xd≈72.4
+      - id: H3-OR
+        statement: >
+          or 模式若 α/日劣於最佳單一分點則視為稀釋、不採納為主袖
+        status: passed  # dilution confirmed · do not adopt OR as primary
+    context: >
+      Combines 元大-松江 (9801) and 富邦-新店 (9661).
+      Metrics: lots (net shares) vs amount (net×close PIT).
+      Modes: sj / xd / and / or (max score) / sum.
+      Grid: compact L1–L2 × H∈{5,9,12,18} × slots∈{1,9} × top∈{1,3}.
+      Fixed slots only; skip when full. Not order-layer.
+    artifact: reports/research/dual-branch-copytrade/20260718_amount_rrg_copytrade_sweep.html
+    notes: >
+      Baseline lots: xd ≥500張 L2H9 ret%≈358.
+      Amount-focus (20260717): xd ≥100M L2H12 ret%≈324 (density-matched beats lots).
+      Amount×RRG (20260718): xd ≥80M + rs_ratio>100 · L2H12 · 1槽 ret%≈414 α/日≈90.5
+      (beats pure amount and lots). leading also strong. Adaptive P90 rejected.
+      Run: scripts/research/run_amount_rrg_copytrade_study.py
+
+  amount-rrg-copytrade:
+    title: 金額門檻 × RRG 閘門 · 固定/自適應門檻 Sweep
+    status: active
+    phase: research
+    run_scripts:
+      - scripts/research/run_amount_rrg_copytrade_study.py
+      - scripts/research/render_amount_rrg_copytrade_html.py
+    report_dir: reports/research/dual-branch-copytrade
+    hypotheses:
+      - id: H-RRG-APLD
+        statement: >
+          在 xd 固定金額門檻上，至少一種 RRG gate 的 α/日優於 gate=none
+        status: passed  # leading · rs_ratio_gt100 · mono_fresh 等
+      - id: H-RRG-RET
+        statement: >
+          至少一種 RRG gate 的 period_return 優於純金額 baseline
+        status: passed  # rs_ratio_gt100 · leading
+      - id: H-ADAPT-P90
+        statement: >
+          60 日滾動 P90 自適應金額門檻優於最佳固定金額（xd · none）
+        status: rejected
+      - id: H-3SLOT-COVERAGE
+        statement: >
+          同一 L2H12 訊號下，3 槽相較 1 槽提高 OOS 捕獲與成交筆數
+        status: passed  # 80M full capture 21.77%→56.46%; OOS 16.67%→45.24%
+      - id: H-3SLOT-QUALITY
+        statement: >
+          3 槽 OOS α/筆不低於 1 槽的 90%
+        status: rejected  # 80M OOS 1305.54→1049.47 NTD/筆，僅 80.4%
+      - id: H-3SLOT-AMOUNT
+        statement: >
+          金額門檻由 {50M,65M,80M,100M} 僅在 IS 選參後，
+          OOS 可維持 3 槽品質並增加可成交樣本
+        status: rejected  # IS 選 50M；OOS α/筆僅 80M 的 85.4%
+      - id: H-FUNNEL-PULLBACK
+        statement: >
+          訊號日收盤可知的 1 日或 3 日個股對大盤回撤，是分點金額與
+          W20 RS-ratio 之外的正交漏斗；IS 選參後 OOS α/筆至少提升 10%
+        status: rejected
+      - id: H-FUNNEL-W5
+        statement: >
+          Leading Dip 的 W5 RS-Momentum 弱化概念可為 L2H12 提供短窗動量濾網；
+          IS 選參後通過 OOS 品質與樣本保留門檻
+        status: rejected
+      - id: H-FUNNEL-NOTUR
+        statement: >
+          W20 軌跡非 up_right 可排除已過度延伸個股，並在 OOS 對 3 槽基準加值
+        status: rejected
+      - id: H-FUNNEL-GEO
+        statement: >
+          RS-ratio>100 內再要求 Momentum>100 且 Momentum<Ratio，
+          可作相位幾何漏斗並在 OOS 加值
+        status: rejected
+      - id: H-FUNNEL-STRUCTURE
+        statement: >
+          not_up_right ∧ W5 weak 應視為一個 Leading Dip 結構包；
+          IS 凍結參數後，OOS 優於單層與 3 槽基準
+        status: rejected
+      - id: H-FUNNEL-W20-MOMENTUM
+        statement: >
+          在 80M × RS-ratio>100 × 3 槽基準上，W20 RS-Momentum 門檻
+          以 IS 選參後可提升 OOS α/筆、保留至少 50% 成交與 70% 總 α
+        status: passed  # 50M/80M IS 均選 ≥101；OOS 同27筆，80M α/筆 1049→1170
+      - id: H-AMOUNT-100M-ROBUSTNESS
+        statement: >
+          在固定 W20 Momentum≥101、Top1、L2H12、3 槽下，要求 IS α/筆
+          不低於 80M 且保留至少 70% 成交後，金額門檻可找到更穩健候選
+        status: passed  # IS選100M；OOS replay PnL45.3k、α/筆1101、正月率77.8%
+      - id: H-AMOUNT-W20-RETUNE
+        statement: >
+          100M 金額門檻下重新調整 W20 Momentum 99–104 可優於既有 101
+        status: rejected  # 101仍為 IS 樣本與品質約束下的選擇
+      - id: H-AMOUNT-TOPN-RETUNE
+        statement: >
+          100M × W20≥101 在 gate 後採 Top2/3/5 優於 Top1
+        status: rejected  # Top2 IS小幅提升，OOS α/筆1101→1069
+      - id: H-AMOUNT-TIMING-RETUNE
+        statement: >
+          100M × W20≥101 × 3 槽重新調整 L/H 可優於 L2H12
+        status: rejected  # IS選L1H12，但OOS未繼續加值
+      - id: H-1SLOT-AMOUNT
+        statement: >
+          固定總本金 30k、1 槽下，金額門檻 IS 最大化期間報酬後可於 OOS 加值
+        status: rejected  # IS選80M；各檔 OOS 未通過「優於基準 5%」門檻（redundant）
+      - id: H-1SLOT-RRG
+        statement: >
+          在 80M × RS-ratio≥100 × 1 槽上，收緊 RS 或改／加 W20 Momentum
+          可提升 OOS 期間報酬
+        status: rejected  # IS仍選 rs≥100；W20 僅在 OOS 看似更強、IS 輸基準
+      - id: H-1SLOT-TIMING
+        statement: >
+          80M × RS-ratio≥100 × 1 槽的 L/H 網格可優於 L2H12
+        status: rejected  # IS選 L2H12；OOS redundant
+      - id: H-1SLOT-BEATS-FAIR-3SLOT
+        statement: >
+          同規格同總本金下，1 槽期間報酬優於公平 3 槽（每槽=總本金/3）
+        status: rejected  # OOS ret% 146.8 < 3槽 160.5；全期 304 > 217
+      - id: H-2DAY-CONTINUATION
+        statement: >
+          在 80M × rs_ratio>100 × 1 槽上，要求連續兩日金額皆達標可提升 OOS 單槽複利
+        status: rejected  # IS/OOS 皆大幅劣於基準；樣本過稀 pass≈23%
+      - id: H-2DAY-FRESH-CROSS
+        statement: >
+          首日跨越金額門檻（昨未達標）優於基準
+        status: rejected  # OOS compound 175 << 基準 702
+      - id: H-SELL-SIDE
+        statement: >
+          賣方降溫（sell↓／低 sell-buy 比／買增賣減）可提升 OOS 單槽複利
+        status: rejected  # IS 最佳 sell/buy≤0.50 與基準幾乎同集（redundant）；其餘 OOS 變差
+      - id: H-2DAY-SELL-COMBO
+        statement: >
+          兩日訊號與賣方漏斗組合可通過 OOS 複利閘門
+        status: rejected
+      - id: H-SJ-CONFIRM
+        statement: >
+          在 80M × rs>100 × 1 槽上，松江／凱基同日買超確認可提升 OOS 單槽複利
+        status: rejected  # 所有跨分點確認臂 OOS compound 劣於基準
+      - id: H-INST-SELL-FILTER
+        statement: >
+          外資／三大法人非重賣或淨買可提升 OOS 單槽複利
+        status: rejected  # IS/OOS 皆砍掉贏家；foreign_not_heavy OOS 410<<702
+      - id: H-XD-EXPAND-CROSS
+        statement: >
+          降低金額門檻（50/65M）並加松江確認，可在擴樣同時不損 OOS 複利
+        status: rejected  # OOS 與 80M 同集時無增益；有確認則 OOS 變差；IS 仍選 80M
+      - id: H-LH-COMPOUND-RETUNE
+        statement: >
+          固定 80M×rs>100 訊號下，以 IS 單槽複利重選 L/H 可優於 L2H12
+        status: rejected  # IS 選 L1H12，但 OOS compound 441<<L2H12 的 702
+      - id: H-NO-BACKUP-DAYS
+        statement: >
+          金額 Top1 未過 RRG 時改用 Top2–5 備胎日，會嚴重污染單槽複利
+        status: passed  # 備胎擴池 OOS compound 139<<冠軍日 702；回收+27日
+      - id: H-RELATIONSHIP-RANK
+        statement: >
+          在冠軍日集合內，用近20日同分點同股累計買超重排 Top1，
+          OOS 單槽複利優於純金額 Top1（≥+10%）
+        status: passed  # OOS 804>702；IS 189<247 → observe_only 非 IS-adopt
+      - id: H-HAND-SCORE-V2
+        statement: >
+          高手綜合分 v2（偏關係）在冠軍日內重排，OOS 複利優於純金額
+        status: passed  # 與 prior20 同路徑 OOS 804；同樣 IS 較弱
+      - id: H-XD-40M-LEADING-L1H8-ADOPTION
+        statement: >
+          富邦新店 ≥40M + Leading + Top1 + L1H8 + 1槽，在 60bps 成本、
+          參數鄰域、四段時間切片、回撤與未觸碰前向資料均通過後，
+          可由 Research 採納至 Strategy
+        status: rejected  # folds 2/4；60bps MaxDD 35.42%；無 untouched forward
+      - id: H-XD-50M-LEADING-L1H8-ADOPTION
+        statement: >
+          富邦新店 ≥50M + Leading + Top1 + L1H8 + 1槽，在既有歷史 gates
+          （60bps MaxDD≤25%、folds≥3/4、neighbors≥4/9）通過後，自
+          2026-07-18 起以固定契約累積 untouched forward（≥90 交易日、
+          ≥12 完成 cycles、median>0、mean excess>0、win≥50%、MaxDD≤20%），
+          達標後才可由 Research 採納至 Strategy；達標前不改 Strategy／Order
+        status: pending  # historical paper_forward_required；forward 起點 2026-07-18
+      - id: H-XD-50M-STOCK-FUT-TIMING
+        statement: >
+          新店 ≥50M×Leading×Top1 訊號股（主測 2330）個股期作多：
+          夜盤 ≥17:25（AH1725）進場的單筆中位優於次日日盤開（D1_OPEN）；
+          持有在 1/3/5/8 交易日中可辨識穩定勝者（10bps 成本）
+        status: observe  # Full: AH1725>D1 · CDF H5 med≈3.6%；OOS 多數中位≤0 · n≈13
+      - id: H-XD-NIGHT50-STOCK-FUT
+        statement: >
+          新店當日標的淨買金額≥50M 且該標的有夜盤個股期（2330→CDF/QFF、
+          2303→CCF）時，於訊號日 ≥17:25（AH1725）作多，單筆中位優於
+          D1_OPEN；持有 1/3/5/8 交易日在 10bps 成本下可辨識穩定勝者
+        status: observe  # 2y daily-proxy：主體 CDF AH1725 中位≤0、劣於 D1；CCF n≈12 不穩
+    context: >
+      Extends dual-branch amount research with RRG close ffill gates
+      (leading, lead_improve, not_lagging, rs_mom/ratio>100, mono_fresh)
+      and adaptive P90-60 threshold. PIT after close.
+      3-slot funnel follow-up uses an IS/OOS split at 2025-10-01 and tests one
+      orthogonal layer at a time; market 20d posture is stratification only.
+    artifact: reports/research/dual-branch-copytrade/20260718_amount_80m_rs100_1slot_champion.html
+    funnel_artifact: reports/research/dual-branch-copytrade/20260718_80m_amount_rrg_3slot_funnel_study.json
+    amount_optimization_artifact: reports/research/fubon-xindian-copytrade/20260718_fubon_xindian_amount_3slot_optimization.json
+    amount_oneslot_artifact: reports/research/fubon-xindian-copytrade/20260718_fubon_xindian_amount_1slot_optimization.json
+    tape_funnel_artifact: reports/research/dual-branch-copytrade/20260718_amount_rrg_2day_sell_funnel_study.json
+    cross_confirm_artifact: reports/research/dual-branch-copytrade/20260718_amount_rrg_cross_confirm_funnel_study.json
+    skilled_hand_artifact: reports/research/dual-branch-copytrade/20260718_amount_rrg_skilled_hand_rank_study.json
+    strategy_readiness_artifact: reports/research/fubon-xindian-copytrade/20260718_fubon_xindian_strategy_readiness.json
+    notes: >
+      Lineage champion: xd ≥80M + rs_ratio>100 · L2H12 · Top1 · 1槽.
+      Compound SSOT Π(1+r)−1：全期 ≈3146%；overlap(2025-01) ≈2080% vs C18acc ≈400%.
+      Soft filters / cross-confirm / expand mostly fail. Skilled-hand soft rank
+      (20260718): MUST stay on champ days (raw amount-Top1 passes RRG)—backup
+      days destroy OOS compound. Within champ days, prior20 / hand_score_v2
+      pass OOS (804 vs 702) but lose IS (189 vs 247) → observe_only candidate,
+      not IS-adopted survivor (still amount Top1). Cannot identify account ID;
+      fingerprint ≈ persistent same-branch same-stock accumulation.
+      20260718 readiness correction freezes executable L1H8 and single-trade
+      median/trimmed mean (not compound): 40M + pure Leading survives 60bps and
+      4/9 parameter neighbors, but only 2/4 half-year folds are positive;
+      60bps compounded-trade MaxDD=35.42%, and all history was already viewed.
+      Decision: H-XD-40M rejected / observe only.
+      Follow-up freezes neighboring 50M + Leading + L1H8 (same Top1/1槽/vol200k):
+      historical gates target paper_forward_required; untouched forward starts
+      2026-07-18 and is evaluated objectively (never force-pass). Do not update
+      Strategy or Order until forward gate passes.
+      Run: --strategy-readiness [--readiness-amount-m 50|40].
+      Stock-futures timing (20260718): 2330→CDF/QFF · AH1725(≥17:25 tick)
+      beats D1_OPEN on full median (best CDF H5 ~3.6%@10bps) but OOS n≈13
+      mostly non-positive → observe only.
+      Night50 leading split (20260718): 2330≥50M → CDF daily AH.
+      non_leading (n≈61) AH−D1 ~−1.7~−2.2%; leading-only (n≈26) softens
+      but AH still ≲ D1; only Top1×Leading (n≈20) shows AH>D1 at H5
+      (~+1.2pp). So “子集有效”≈Top1×Leading，非單純 Leading。
+      Artifact: .../20260718_xd_night50_leading_split.json
+      Run: scripts/research/run_xd_50m_stock_futures_timing.py
+      Run night50: ... --universe night50 [--start 2024-07-17] [--ah-source daily]
 
   copytrade-rrg-audit:
     title: 00981A 持股變動 × RRG 互動稽核
@@ -90,7 +693,6 @@ topics:
         G4_rejection_registry: pending
         G5_frozen_spec: pending
         G6_adoption_report: pending
-
     archive_action: 稽核完畢 · lane 互動非 alpha · 無採納路徑
   chunge-funnel-sweep:
     title: VCP funnel L4 · Minervini composite sweep
@@ -238,6 +840,815 @@ topics:
         採納 POOL1 至 rrg-mono-swap-accel · candidate_pool=fresh_union_accel ·
         S2 exit 不變 · 證據 20260705_c18acc_pool1_poll5m_oos.json
 
+  c18acc-fresh-pool-adoption:
+    title: C18acc · fresh-only vs POOL1 fresh∪accel · Strategy 採納
+    status: graduated
+    phase: graduated
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_fresh_pool_adoption_study.py
+    report_dir: reports/research/rrg
+    hypotheses:
+      - id: H-FRESH-1
+        statement: fresh-only pool OOS mean_excess non-inferior to POOL1 (Δ≥−0.2pp · n≥8)
+        status: passed
+      - id: H-FRESH-2
+        statement: IS mean_excess not counter-trend vs POOL1 (Δ≥−0.5pp)
+        status: passed
+      - id: H-FRESH-3
+        statement: trade count delta ≤5% vs POOL1 on FULL window
+        status: passed
+    context: >
+      Accel supplement contributes median +0 names/day · 3 executed legs avg −3.5% in 2025H1–2026H1.
+      Live-aligned slot re-sim · confirm_bars=2 · avoid spread_mixed @ 09:30 · n_slots=3.
+    artifact: reports/research/rrg/20260712_c18acc_fresh_pool_adoption.md
+    graduation:
+      verdict: GO_FRESH_ONLY
+      action: >
+        採納 candidate_pool=fresh 至 rrg-mono-swap-accel · 移除 POOL1 accel supplement ·
+        champion_score_swap_c_config() · config/strategy.yaml · 證據 20260712_c18acc_fresh_pool_adoption.json
+
+  c18acc-open-timing:
+    title: C18acc · 開窗時點 NTB_0930 / NTB_0910 / PRIOR_1300
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_open_timing_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-OPEN-0910
+        statement: no_trade_before=09:10 OOS mean_excess Δ≥+0.5pp vs 09:30 · n≥8 · IS Δ≥−0.3pp
+        status: rejected  # OOS Δ=-1.38pp · IS Δ=-0.85pp · 20260712_c18acc_open_timing
+      - id: H-OPEN-PRIOR1300
+        statement: prior-day 13:00 fill (post-hoc) OOS mean_excess Δ≥+0.5pp vs 09:30 · n≥8 · IS Δ≥−0.3pp
+        status: passed  # OOS Δ=+4.64pp n=33 · IS Δ=+4.56pp · caveat n_skip_no_px=30/98
+    context: >
+      Compare open windows: ≥09:30 (live) · ≥09:10 · overnight-early fill at prior trading day 13:00.
+      Frozen: fresh · confirm=2 · avoid_mixed · G_R5_12 · S2 · 3 slots.
+      PRIOR_1300 is post-hoc fill shift only (selection/exits unchanged).
+    artifact: reports/research/rrg/20260712_c18acc_open_timing.md
+    notes: >
+      NTB_0910 NO_GO. PRIOR_1300 GO on filled subset (68/98 · 30 missing prior 13:00 kbar).
+      Do not auto-adopt to order.yaml — post-hoc fill · incomplete kbar coverage.
+
+  c18acc-a-vs-c-1300:
+    title: C18acc · A PRIOR_1300 vs C snapshot_1300
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_a_vs_c_1300_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-A1300
+        statement: A post-hoc prior-day 13:00 fill OOS Δexcess≥+0.5pp vs B0 (look-ahead upper bound)
+        status: passed  # OOS Δ=+4.56pp · not live-adoptable
+      - id: H-C1300
+        statement: C snapshot_1300 slot re-sim OOS Δexcess≥+0.5pp vs B0 · PIT-clean · n≥8
+        status: rejected  # post-backfill OOS Δ=-2.62pp · skip_days=11 · n=98 · 20260713 rerun
+    context: >
+      Same frozen stack as open-timing · compare A (EOD signal + early 13:00 fill) vs
+      C (13:00 provisional RRG + 13:00 fill). Prefer C for live if GO.
+    artifact: reports/research/rrg/20260713_c18acc_a_vs_c_1300_rerun.md
+    notes: >
+      After Yahoo 1h backfill + empty-pool skip fix: A 95/98 filled · C skip_days 269→11 · n=98.
+      C still NO_GO (OOS Δ≈-2.6pp). FinMind quota blocked 1m backfill; Yahoo 1h used.
+      Remaining 256 pad-window gaps · 12 pool-days missing 13:00 bar.
+
+  c18acc-a-live-proxy:
+    title: C18acc · A 能否復刻到 live（PIT proxies）
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_a_live_proxy_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-LIVE-PIT-1300
+        statement: LIVE_PIT_1300 OOS Δexcess≥+0.5pp vs LIVE_PIT_0930 · n≥8 · IS Δ≥−0.3pp
+        status: rejected  # OOS Δ=+0.45pp n=2 · 20260713_c18acc_a_live_proxy
+    context: >
+      A (EOD list + prior-day 13:00) is look-ahead and not live-replicable.
+      Proxies: A_ILLEGAL · SAME_DAY_1300 · LIVE_PIT_0930 · LIVE_PIT_1300 vs B0_BT.
+      Legal afternoon path = yesterday EOD pool + today 13:00 fill.
+    artifact: reports/research/rrg/20260713_c18acc_a_live_proxy.md
+    notes: >
+      A_ILLEGAL OOS +4.84pp (ceiling · not adoptable). SAME_DAY_1300 NO_GO.
+      LIVE_PIT_1300 vs 0930 OOS +0.45pp but n=2 → KEEP_LIVE_PIT_0930.
+      Do not wire A_ILLEGAL / SAME_DAY_1300 into order.yaml.
+
+  c18acc-near-close-timeline:
+    title: C18acc · 近收盤時間軸 · A 分鐘敏感度 · 隔夜拆解
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_near_close_timeline_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-A-LAST30
+        statement: A's OOS edge vs B0 is mostly prior-day last-30m (13:00→13:30) not overnight
+        status: rejected  # last30 mean 0.04% vs overnight 5.63% · 20260713
+      - id: H-A-MINUTE
+        statement: A_PRIOR fill 13:25/13:30 OOS Δ vs A@13:00 within ±0.5pp
+        status: passed  # max |Δ| 0.12pp
+      - id: H-LIVE-PIT-1325
+        statement: LIVE_PIT_1325 OOS Δ≥+0.5pp vs B0_BT · n≥8 · IS Δ≥−0.3pp
+        status: rejected  # OOS Δ=-8.78pp n=2
+    context: >
+      Timeline clarity for A / B0 / SAME_DAY / LIVE_PIT / SNAP. Test whether 13:00 vs
+      13:25 vs 13:30 matters on prior-day fills; decompose overnight vs last-30m.
+    artifact: reports/research/rrg/20260713_c18acc_near_close_timeline.md
+    notes: >
+      A minute sensitivity tiny. SAME_DAY_1325 OOS -1.19pp. KEEP morning live PIT.
+      Canvas: c18acc-near-close-timeline.canvas.tsx
+
+  c18acc-1320-vs-1330-picks:
+    title: C18acc · fresh+mono 13:20 vs 13:30 日名單
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_1320_vs_1330_picks.py
+    report_dir: reports/research/rrg
+    hypotheses:
+      - id: H-1320-TOP3
+        statement: ≥95% of trade days in last 3m have identical top-3 at 13:20 vs 13:30
+        status: passed  # top3_diff 2/66=3.03% · 20260713
+    context: >
+      Day-by-day fresh+mono ranked lists at provisional 13:20 vs 13:30 kbar close.
+    artifact: reports/research/rrg/20260713_c18acc_1320_vs_1330_picks.md
+
+  c18acc-live-vs-e1320:
+    title: C18acc · LIVE(E+1 09:30) vs E@13:20 選+買
+    status: graduated
+    phase: graduated
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_live_vs_e1320_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-MATCHED-1320
+        statement: LIVE_MATCHED_1320 OOS Δexcess≥+0.5pp vs LIVE_NEXT_AM · n≥8 · IS Δ≥−0.3pp
+        status: passed  # from202501 · IS≤2025-06-30 · OOS Δ=+1.01pp n=10 · FULL +1.43pp
+    context: >
+      Primary = matched fill shift on LIVE legs (E 13:20 vs E+1 09:30).
+      Window from 2025-01-02; default split IS≤2025-06-30 for thicker LIVE OOS.
+      E_1320 full re-sim uses same-day pool (unmatched set). Optional SNAP_1320.
+    artifact: reports/research/rrg/20260713_c18acc_live_vs_e1320_from202501.md
+    notes: >
+      Graduated 2026-07-13 → rrg-mono-swap-accel / order.yaml · no_trade_before=13:20 ·
+      same-day near-close pool lock · poll window→13:30.
+      2026-07-14 supersede default open to E@13:00（見 c18acc-entry-e1300）.
+    archive_action: >
+      採納 E@13:20 至 strategy+order · champion no_trade_before=13:20 ·
+      evidence 20260713_c18acc_live_vs_e1320_from202501.json
+
+  c18acc-entry-e1300:
+    title: C18acc · 採納 E@13:00 開窗（ops ≥30m-to-close）
+    status: graduated
+    phase: graduated
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_snap_window_study.py
+      - scripts/research/run_c18acc_snap_stable1200_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-SNAP-1300-PARITY
+        statement: SNAP@13:00 OOS mean_excess within ±0.5pp of SNAP@13:20（u238 gate）
+        status: passed  # OOS Δ=-0.015pp
+      - id: H-CONFIRM-1250-1300
+        statement: 12:50∩13:00 confirm @13:00 OOS Δ≥+0.5pp vs SNAP@13:20
+        status: failed  # OOS +0.42pp · supportive only
+    context: >
+      Ops wants trade ≥13:00 for ≥30 minutes to close. Live adopts single poll_5m
+      no_trade_before=13:00（no dual-SNAP confirm engine）.
+    artifact: reports/research/rrg/20260714_c18acc_entry_e1300_adoption.md
+    notes: >
+      Graduated 2026-07-14 → strategy+order+champion · no_trade_before=13:00 ·
+      pool digest @13:00 · evidence SNAP_1300 / confirm_1250 reports.
+    archive_action: >
+      採納 E@13:00；維持 poll_5m SSOT；不移植 12:50 SNAP 交集進 live。
+
+  c18acc-old-vs-live-gap-attribution:
+    title: C18acc · 舊 cinema vs 現行 live SSOT · 單因子缺口歸因（Phase 0）
+    status: completed
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_old_vs_live_gap_attribution.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-GAP-NTB
+        statement: >
+          A1（僅還原 NTB=09:30）對 B_live 的 FULL mean_excess 回收 ≥ 其餘單因子，
+          且為 primary_recoverable_factor
+        status: supported
+        evidence: >
+          20260717 run · primary=ntb · A1 FULL Δexcess=+1.97pp / OOS +1.77pp vs B_live；
+          A2/A3 為負。Phase1 開窗凍結 09:30。
+      - id: H-GAP-POOL
+        statement: A4（舊規則但 fresh-only）顯示 accel 池非主因（Δ vs B_old 小）
+        status: supported
+        evidence: >
+          A4 ≡ B_old（n/excess/compound 全同）→ 本窗 accel 補充零貢獻；
+          不重開 POOL1。
+    context: >
+      同窗 2025-01-02→2026-07-16 · B_old / B_live / A1–A4 單因子消融。
+      採納以 OOS mean_excess 為主、equal-slot compound 為輔。禁止事後改門檻。
+      Verdict 2026-07-17：primary=ntb · RUN_PROVISIONAL_ALLDAY · open=09:30；
+      保留 G_R5_12（關閘傷 OOS）與 avg_accel（還原 C0 傷 excess）。
+      大賺≥20%：old 17 / live 13 / missing 8。
+    artifact: reports/research/rrg/20260717_c18acc_old_vs_live_gap_attribution.md
+
+  c18acc-provisional-allday-recovery:
+    title: C18acc · provisional fresh 全日開窗回收（Phase 1 · PIT）
+    status: completed
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_provisional_allday_recovery.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-PROV-ALLDAY-C1
+        statement: >
+          provisional ALLDAY confirm=1 OOS mean_excess Δ≥+0.5pp vs B0_live_E1300 ·
+          n≥8 · IS Δ≥−0.3pp
+        status: rejected
+        evidence: >
+          20260717 · T1 OOS Δexcess=−1.24pp vs B0（FULL 雖 +1.22pp）· NO_GO。
+      - id: H-PROV-ALLDAY-C2
+        statement: provisional ALLDAY confirm=2 同門檻 vs B0
+        status: rejected
+        evidence: >
+          20260717 · T2 OOS Δexcess=+0.06pp < +0.5pp 門檻 · NO_GO。
+    context: >
+      承接 Phase0（primary=ntb）；開窗凍結 ≥09:30；
+      池=當日 provisional mono fresh（每 clock 重算）；
+      進場排序維持 avg_accel；保留 G_R5_12 + avoid_mixed（錨點隨 NTB）+ S2/swap。
+      Verdict 2026-07-17：KEEP_LIVE_E1300 · 不動 strategy/order。
+      舊版 cinema 僅上限展示；備案見 c18acc-early-entry-event-observe。
+    artifact: reports/research/rrg/20260717_c18acc_provisional_allday_recovery.md
+
+  c18acc-early-entry-event-observe:
+    title: C18acc · 早盤會吃到、live 13:00 吃不到之大賺型態 · event observe
+    status: observe
+    phase: live_observe
+    parent_strategy: rrg-mono-swap-accel
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-OBS-EARLY-BIGWIN
+        statement: >
+          累積「B_old/A1 類 09:30 進場且日後 ≥20%」而 live E@13:00 未進之事件，
+          供下一輪研究；不送單、不佔主槽
+        status: pending
+    context: >
+      Phase1 / Part A slot NO_GO 備案（非第 4 槽衛星）。不改 order.yaml。
+      Part B SIGNAL_EDGE：overlap C0 事件 OOS 5d +1.52pp · radar 維持 advisory。
+      Seed missing big-wins from Phase0：2408/2025-06-02、3036/2026-03-04、
+      4979/2025-11-27、6282/2025-10-09、6290/2025-10-14、8016/2026-05-07、
+      8383/2026-06-30、8996/2026-03-30。
+      實作優先：盤後 event log / 觀測信 tag；buy-signal-radar 僅 observe_only。
+    artifact: reports/research/rrg/20260717_c18acc_vs_radar_c0_slot_fair.md
+
+  buy-radar-c0-fresh-tier2-events:
+    title: Buy-signal-radar C0 · fresh/tier2 事件超額（Part B）
+    status: completed
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_buy_radar_c0_fresh_tier2_events.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-RADAR-OVERLAP-EDGE
+        statement: >
+          OOS overlap 組 5d mean_excess ≥ +0.3pp · n≥20 → SIGNAL_EDGE
+        status: supported
+        evidence: >
+          20260717 · OOS overlap 5d n=62 mean_excess=+1.52pp · SIGNAL_EDGE。
+          6505@2026-07-07 found overlap · 09:05 · 5d excess≈+13.8pp（個案附錄）。
+    context: >
+      對齊 2026-07-07 台塑化信：prior PIT pool · C0 scale · confirm=1 · ≥09:05。
+      分層 fresh_only / tier2_only / overlap。6505 僅個案附錄。不改 Order。
+      Verdict 2026-07-17：SIGNAL_EDGE · radar 維持 advisory。
+    artifact: reports/research/rrg/20260717_buy_radar_c0_fresh_tier2_events.md
+
+  c18acc-vs-radar-c0-slot-fair:
+    title: C18acc live vs radar-C0 三槽公平對照（Part A）
+    status: completed
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_vs_radar_c0_slot_fair.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-RADAR-R1-GO
+        statement: >
+          R1_radar_fresh OOS mean_excess Δ≥+0.5pp vs B0_live · n≥8 · IS Δ≥−0.3pp
+        status: rejected
+        evidence: >
+          20260717 · R1 OOS Δexcess=−0.60pp vs B0（FULL 雖 +0.46pp）· NO_GO。
+      - id: H-RADAR-R2-GO
+        statement: >
+          R2_radar_union（fresh∪tier2）同門檻 vs B0_live
+        status: rejected
+        evidence: >
+          20260717 · R2 ≡ R1 · OOS Δ=−0.60pp · NO_GO。
+    context: >
+      B0=live SSOT；R1/R2=早盤 C0 可下單代理（S2+avoid_mixed）。
+      Verdict 2026-07-17：KEEP_LIVE_E1300 · 不動 strategy/order；
+      radar 維持 advisory；observe 見 c18acc-early-entry-event-observe。
+    artifact: reports/research/rrg/20260717_c18acc_vs_radar_c0_slot_fair.md
+
+  c18acc-adaptive-confirm-allday:
+    title: C18acc · 自適應 confirm + 全天可買（簡化）
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_adaptive_confirm_allday_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-ALLDAY-C1
+        statement: ≥09:30 · confirm=1 OOS Δexcess≥+0.5pp vs B0_1320_c1 · n≥8 · IS Δ≥−0.3pp
+        status: passed  # OOS +2.08pp n=66 · IS +1.12pp · 20260714
+      - id: H-ALLDAY-C2
+        statement: ≥09:30 · confirm=2 OOS Δ≥+0.5pp vs B0 · n≥8 · IS Δ≥−0.3pp
+        status: passed  # OOS +2.02pp · IS +0.91pp · 20260714
+      - id: H-ALLDAY-C3
+        statement: ≥09:30 · confirm=3 OOS Δ≥+0.5pp vs B0 · n≥8 · IS Δ≥−0.3pp
+        status: passed  # OOS +2.03pp · IS +0.93pp · 20260714
+      - id: H-ADAPT-SCH
+        statement: ≥09:30 · adapt confirm(早3/中2/晚1) OOS Δ≥+0.5pp vs B0 · n≥8 · IS Δ≥−0.3pp
+        status: passed  # ≡ ALLDAY_c3 under EOD pool · OOS +2.03pp · 20260714
+    context: >
+      User discussion 2026-07-14 · near-close window vs all-day buy + adaptive confirm.
+      Simplified sim · EOD fresh · avoid_mixed @09:30 · entry open synced to NTB.
+      B0 = ≥13:20 confirm=1；ALLDAY fixed c1/c2/c3；ADAPT_sch schedule.
+      First pass 20260714：全天窗全過門檻 · 最佳 ALLDAY_c1；自適應≈c3（EOD 池穩定下早盤即滿 confirm）。
+      Caveat：EOD fresh ≠ 盤中暫定名單 · 採納前需 SNAP/provisional pool 複驗。
+    artifact: reports/research/rrg/20260714_c18acc_adaptive_confirm_allday.md
+    notes: >
+      GO_ADOPT_ALLDAY_c1 on this simplified stack · do NOT wire to order.yaml until
+      provisional same-day pool replication (lookahead risk on EOD calendar).
+      SUPERSEDED for adoption questions by c18acc-provisional-allday-recovery (PIT-legal).
+
+  c18acc-snap-adaptive-caution:
+    title: C18acc · 昨收池 + 暫定 RRG 提早進場 + 越早越謹慎
+    status: paused
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_snap_adaptive_caution_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    notes: >
+      PAUSED 2026-07-14 — user clarified need is provisional-fresh membership
+      stability (recompute each clock), not early fill PnL. See
+      c18acc-provisional-fresh-stability.
+
+  c18acc-provisional-fresh-stability:
+    title: C18acc · 暫定 RRG mono fresh 早→近收穩定度與多次確認
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - src/research/backtest/c18acc_provisional_fresh_stability_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-MORN-RETENTION
+        statement: 09:30 暫定 fresh 在 13:20 仍選中的比例（retention）可量化；churn=1−retention
+        status: passed  # retention 70.11% · churn 29.89% · n=281 · 20260714
+      - id: H-MULTI-CONFIRM-PRECISION
+        statement: 多時點交集確認相對單次 09:30，對 13:20 命中 precision 提升 ≥+10pp（訊號數≥20）
+        status: passed  # AND_0930_1100_1200 precision 93.3% · +23.19pp vs once · 20260714
+    context: >
+      User 2026-07-14：暫定 RRG 隨時間重算；第四日（LOOKBACK 收斂）符合才可交易；
+      想知早上符合→收盤仍選中比例、淘汰率、如何多次確認提高命中率。
+    artifact: reports/research/rrg/20260714_c18acc_provisional_fresh_stability.md
+    notes: >
+      FULL 2025-01-02..2026-07-09 · morning@09:30 → anchor@13:20 retention≈70% · churn≈30%.
+      Best confirm AND 09:30∩11:00∩12:00 → precision≈93% (signals down). Not wired to order.yaml.
+
+  c18acc-provisional-fresh-decaying-standard:
+    title: C18acc · 暫定 fresh 越早門檻越高（標準隨時間遞減）
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - src/research/backtest/c18acc_provisional_fresh_stability_study.py --mode decaying
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-DECAY-BEATS-FLAT
+        statement: 任一遞減排程對 13:20 precision 較 FLAT_FRESH 提升 ≥+5pp（訊號≥20）
+        status: passed  # HYBRID +22.28pp · SEG_STEEP +18.4pp · CONFIRM +17.4pp · 20260714
+      - id: H-EARLY-STRICTER-HIGHER-PREC
+        statement: 同排程下 09:30 放行 precision ≥ 12:00 放行 precision（早盤門檻更高有效）
+        status: passed  # SEG_STEEP 09:30 91.2% ≥ 12:00 87.0% · TOPN 例外（僅排名不夠）· 20260714
+    context: >
+      User 2026-07-14：提早選中標準必須提高，隨時間標準遞減。
+      測 seg_last 陡/緩降、top-N 遞減、confirm 遞減、混合。
+    artifact: reports/research/rrg/20260714_c18acc_provisional_fresh_decaying_standard.md
+    notes: >
+      Best HYBRID_SEG_CONFIRM precision 88.3% vs FLAT 66.1%. Confirm-decay blocks
+      fills before 11:00 (need=3). Not wired to order.yaml.
+
+  c18acc-provisional-decaying-early-pnl:
+    title: C18acc · 暫定 fresh 提早放行 PnL（遞減門檻 vs 13:20）
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - src/research/backtest/c18acc_provisional_decaying_early_pnl_study.py
+    report_dir: reports/research/rrg
+    artifact: reports/research/rrg/20260714_c18acc_provisional_decaying_early_pnl.md
+    notes: >
+      KEEP_B0_1320. Early flat OOS marginally +0.51pp but fails IS.
+      Decaying gates raise membership precision but hurt OOS excess. Not wired to order.yaml.
+
+  c18acc-bench-dd-early-pnl:
+    title: C18acc · 大盤自高點回撤門檻 → 提早進場（vs 固定 13:00）
+    status: active
+    phase: research
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - src/research/backtest/c18acc_bench_dd_early_pnl_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H-DD-3PCT
+        statement: >
+          low/run_high≤−3% 觸發、下一根 5m 成交（觸發≥09:30）OOS Δ≥+0.5pp vs B0_1300
+          · n≥8 · IS Δ≥−0.3pp
+        status: rejected  # OOS −0.005pp · 20260714 v2-low-next5m
+      - id: H-DD-BEST-THRESH
+        statement: 門檻掃描 2.5–3.0%（0.1pp）存在通過採納門檻的最佳 thresh
+        status: rejected  # 軟最佳 DD_2p6 OOS +0.02pp · 20260714
+      - id: H-DD-LOW-NEXT5M
+        statement: 低點觸發+下一根成交優於 close-at-clock 觸發（同門檻網格）
+        status: inconclusive  # 對齊 09:30 後仍 NO_GO；開盤無地板會假 GO（噪聲）
+    context: >
+      User 2026-07-14：盤中大盤自高點深跌應提早撿便宜（當日 ~−3.8%）。
+      v2：low 觸發 → 下一根 5m；門檻 2.5–3%；IX0001 Yahoo 5m 補≈60d + 0050 長窗。
+    artifact: reports/research/rrg/20260714_c18acc_bench_dd_early_pnl.md
+    notes: >
+      KEEP_B0_1300（v2 low→next5m · trigger≥09:30 · window ..2026-07-09）。
+      Soft-best DD_2p6 OOS +0.02pp。≥3% early ~2.2% days。
+      2026-07-14 ≥3%：trig 10:15 → fill 10:20。Not wired to order.yaml.
+
+  c18acc-entry-rank-slot-resim:
+    title: C18acc · 進場排序與槽位競爭 · slot re-sim
+    status: graduated
+    phase: graduated
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_entry_rank_sweep.py
+      - scripts/research/run_c18acc_entry_rank_sweep.py --g3-adoption
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    plan_artifact: reports/research/rrg/20260712_c18acc_entry_rank_research_plan.md
+    artifact: reports/research/rrg/20260712_c18acc_entry_rank_r2_adoption.md
+    hypotheses:
+      - id: H-D0-1
+        statement: ≥3 候選日占 FULL 窗口 < 15%（排序敏感日為 episodic）
+        status: passed  # 5.19% (19/366) · 20260712 entry_rank_sweep
+      - id: H-D0-2
+        statement: 09:30 vs 09:35 rank top-3 集合 Jaccard 在 ≥3 候選日 median < 0.85
+        status: rejected  # median Jaccard=1.0 · top-3 集合穩定 · 邊界翻轉罕見
+      - id: H-D0-3
+        statement: rank-3 vs rank-4 counterfactual post-hoc |Δexcess| ≤ 0.5pp → 排序風險上限偏小
+        status: rejected  # median|Δ|=3.07pp · max 31.6pp · n=8 · 邊界仍有代價
+      - id: H-R1-1
+        statement: full_rrg @ poll entry rank beats scaled_seg_last OOS ≥0.3pp · n≥8 · IS Δ≥−0.3pp
+        status: deferred  # compute · R1 full_rrg 未跑完
+      - id: H-R1-2
+        statement: entry avg_accel_decel rank beats scaled_seg_last OOS ≥0.3pp
+        status: passed  # R2 OOS +0.6556pp · IS +0.0198pp · n=36 · 20260712
+      - id: H-R1-3
+        statement: WMA composite rank beats scaled_seg_last OOS ≥0.3pp
+        status: rejected  # R3 OOS +1.01pp 但 IS −0.84pp · 逆勢 · fail IS gate
+      - id: H-G2-1
+        statement: seg_last bottom-tercile gate + baseline rank OOS ≥0.3pp vs frozen baseline
+        status: open
+      - id: H-G2-2
+        statement: extension-only gate + baseline rank OOS ≥0.3pp
+        status: open
+      - id: H-M3-1
+        statement: confirm_scope=full_pool（非 top-3 cliff）OOS ≥0.2pp vs confirm=2 baseline
+        status: open
+    context: >
+      Passthrough 定池 · 3 槽競爭 · 34/366 天 ≥3 候選 · 09:35 scaled seg_last 排序。
+      Phase 0 診斷邊界翻轉 · Phase 1 rank key slot re-sim（R0–R4）· Phase 2 gate · Phase 3 機制。
+      固定 avoid_spread_mixed @ 09:30 · candidate_pool=fresh · confirm_bars=2 · 禁止 post-hoc 採納。
+      Phase1 20260712：R2 avg_accel entry GO（OOS +0.66pp）· R3/R4 reject · R1 deferred。
+      G3 20260712：risk_on +0.44pp · neutral ≈0 · risk_off +0.03 · PASS · 判決 GO_ADOPT_R2。
+    sweep:
+      preregistered: true
+      frozen_baseline:
+        entry_sort: c0_scaled_seg_last
+        candidate_pool: fresh
+        n_slots: 3
+        confirm_bars: 2
+        avoid_spread_mixed: true
+      phase1_rank_variants: [R0, R1, R2, R3, R4]
+      phase2_gates: [G1, G2, G3, G4]
+      phase3_mechanisms: [M1, M2, M3]
+      pass_threshold_oos_pp: 0.3
+      non_inferiority_pp: -0.2
+      min_oos_n: 8
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # R2 OOS +0.6556pp
+        G3_regime_stratification: passed  # risk_on +0.44pp · not all negative
+        G4_rejection_registry: passed  # R3/R4/W3/top10 · adoption §5
+        G5_frozen_spec: passed  # strategy.yaml entry_sort=avg_accel_decel · C3a live/backtest
+        G6_adoption_report: passed  # 20260712_c18acc_entry_rank_r2_adoption.md
+      verdict: GO_ADOPT_R2
+      champion_variant: R2
+      champion_artifact: reports/research/rrg/20260712_c18acc_entry_rank_r2_adoption.json
+      action: >
+        已採納 entry_sort=avg_accel_decel 至 rrg-mono-swap-accel ·
+        config/strategy.yaml funnel.score_keys + champion_entry_c_config(C3a) live screen。
+
+  c18acc-satellite-slot:
+    title: C18acc · 主槽 + 衛星槽（候補小倉 5k）· capital-weighted NAV
+    status: active
+    phase: oos_holdout
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_satellite_slot_study.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    plan_artifact: reports/research/rrg/20260715_c18acc_satellite_slot_research_plan.md
+    artifact: reports/research/rrg/20260715_c18acc_satellite_slot.md
+    hypotheses:
+      - id: H-SAT-D0-1
+        statement: ≥4 候選日占 FULL 交易日 ≥5%（否則樣本過稀 → KEEP_CORE_ONLY）
+        status: rejected  # pct_ge4=2.19% · 20260715
+      - id: H-SAT-D0-2
+        statement: rank4（可加 rank5）衛星腿 OOS mean_excess ≥−0.5pp · n≥8
+        status: passed  # sat1 marginal OOS +2.18pp n=9 · 20260715
+      - id: H-SAT-D0-3
+        statement: 同日 core vs satellite 日報酬 Pearson ≤0.70（否則不得宣稱分散）
+        status: passed  # corr=0.297 · 20260715
+      - id: H-SAT-1
+        statement: >
+          S1 core3+sat1@0.25（衛星不進 swap）OOS equal-capital NAV 不劣於 B0
+          且 maxDD 不惡化 >1pp（或 Sharpe/Calmar 嚴格優）· core-only excess Δ≥−0.2pp
+        status: rejected  # D0-1 floor · OOS TR 49.96 < B0 50.20 · 20260715
+      - id: H-SAT-2
+        statement: S2 core3+sat2@0.25 同 H-SAT-1 門檻
+        status: rejected  # D0-1 floor · OOS TR 49.40 < B0 · 20260715
+      - id: H-SAT-3
+        statement: S3 等權 n_slots=4 預期不優於 S1（對照槍 · 登記 G4）
+        status: rejected  # OOS TR 略高但 core excess −1.25pp · 扩槽稀釋 · 20260715
+      - id: H-SAT-4
+        statement: S4 衛星進 swap 簿須滿足 H-SAT-1 且不伤 core-only excess
+        status: rejected  # OOS TR 46.0 < B0 · core excess −1.25pp · 20260715
+    context: >
+      User 2026-07-15：主 3 槽 ×2萬 + 候補小倉 ×5千想分散風險。
+      Preregistered plan · Phase 0 品質/相關 → Phase 1 capital-weighted NAV
+      （B0/S1–S4）→ Phase 2 ops 峰值現金 + G3。禁止 unconstrained 當證據。
+      Frozen champion：fresh · R2 avg_accel · avoid_mixed · G_R5_12 · E@1300 · S2 ·
+      n_core=3 · pyramid 仅 core。衛星預設不進 swap · 不開 pyramid。
+    notes: >
+      20260715 判決 KEEP_CORE_ONLY（H-SAT-D0-1：≥4 候選日僅 2.19% <5%）。
+      D0-2/D0-3 通過但機會過稀；S1/S2 OOS 總報酬略低於 B0。
+      勿改 order.yaml。衛星槽 ≠ candidate_pool。
+    sweep:
+      preregistered: true
+      frozen_baseline:
+        candidate_pool: fresh
+        n_core_slots: 3
+        sat_budget_fraction: 0.25
+        no_trade_before: "13:00"
+        avoid_spread_mixed: true
+        prior_5d_ret_max: 0.12
+      variants: [B0, S1_CORE3_SAT1, S2_CORE3_SAT2, S3_EQ4, S4_SAT_IN_SWAP]
+      nav_book_twd: 100000
+      pass_core_excess_floor_pp: -0.2
+      min_oos_n: 8
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # 20260715 plan
+        G2_oos_holdout: passed  # ran · KEEP_CORE_ONLY
+        G3_regime_stratification: na  # Phase2 skipped · D0-1 fail
+        G4_rejection_registry: passed  # S1–S4 rejected in report
+        G5_frozen_spec: na  # no strategy change
+        G6_adoption_report: na
+      verdict: KEEP_CORE_ONLY
+      action: >
+        維持 rrg-mono-swap-accel n_slots=3 · 不採納衛星小倉下單。
+        證據 reports/research/rrg/20260715_c18acc_satellite_slot.md
+
+  c18acc-swap-margin-ablation:
+    title: C18acc · 換倉買方門檻 · seg_last margin 消融 hold-out
+    status: active
+    phase: validation
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_swap_margin_ablation.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    artifact: reports/research/rrg/20260712_c18acc_swap_margin_ablation.md
+    hypotheses:
+      - id: H-MARG-1
+        statement: seg_last gate margin=0 OOS ≥ champion +0.3pp · IS non-inferior ≥−0.2pp
+        status: rejected  # M1 ≡ M0（Δ=0）· 非劣但未嚴格勝出 · 0.05 於此窗幾乎不綁定
+      - id: H-MARG-2
+        statement: avg_accel gate (margin 0 or 0.05) OOS ≥ champion +0.3pp · IS non-inferior
+        status: rejected  # M2/M3 OOS −0.73pp · swaps≈2×
+      - id: H-MARG-3
+        statement: no margin gate OOS ≥ champion +0.3pp · IS non-inferior
+        status: rejected  # M4 ≡ M3 · OOS −0.73pp
+    context: >
+      進場已採納 avg_accel；剩餘雙指標是換倉買方 seg_last+0.05 門檻。
+      Hold-out 20260712：M1≡M0；改 accel/無門檻 OOS −0.73pp、換倉倍增 → 維持 seg_last 門檻敘事。
+      固定 fresh · confirm=2 · avoid_mixed · entry C3a · 禁止 post-hoc 採納。
+    sweep:
+      preregistered: true
+      frozen_baseline:
+        swap_margin_key: seg_last
+        score_margin: 0.05
+        entry_sort: avg_accel_decel
+        candidate_pool: fresh
+      variants: [M0, M1, M2, M3, M4]
+      pass_threshold_oos_pp: 0.3
+      non_inferiority_pp: -0.2
+      min_oos_n: 8
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # 20260712 · verdict NON_INFERIOR_ONLY · keep champion
+        G3_regime_stratification: na  # no adopt candidate
+        G4_rejection_registry: passed  # M2/M3/M4 reject
+        G5_frozen_spec: na  # no freeze change
+        G6_adoption_report: passed  # 20260712_c18acc_swap_margin_ablation.md
+      verdict: KEEP_SEG_LAST_MARGIN
+      action: >
+        不採納簡化門檻 · 維持 swap_margin_key=seg_last · score_margin=0.05；
+        敘事：加速度管進出排序 · seg_last 僅作換倉買方門檻（此窗 0.05 幾乎不綁定，但拿掉/改 accel 更差）。
+
+  c18acc-swap-rel-accel-confirm:
+    title: C18acc · 相對加速門檻 + 換倉 confirm-days（H-BUY-1 / H-BUY-3）
+    status: active
+    phase: validation
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_swap_rel_accel_confirm.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    artifact: reports/research/rrg/20260712_c18acc_swap_rel_accel_confirm.md
+    hypotheses:
+      - id: H-BUY-1
+        statement: >
+          IS-calibrated relative accel margin (δ=p25/p50) or dual(seg∧accel)
+          OOS ≥ champion +0.3pp · IS non-inferior ≥−0.2pp
+        status: rejected  # R25/R50 OOS −0.73pp · D25≡B0（雙閘不綁定）
+      - id: H-BUY-3
+        statement: >
+          swap_confirm_days=2 (same sell→buy pair 2 consecutive days)
+          OOS ≥ champion +0.3pp · IS non-inferior · swaps↓
+        status: rejected  # C2 swaps=0 · 跨日同配對過嚴 · 毀換倉 alpha
+      - id: H-BUY-1x3
+        statement: dual δ_p25 + confirm=2 OOS ≥ champion +0.3pp · IS non-inferior
+        status: rejected  # DC2 swaps=0 · 同 C2
+    context: >
+      20260712 hold-out：IS δ≈0.01/0.02（sell_eligible）；裸 accel 門檻再確認傷害；
+      dual≡冠軍；跨日 confirm=2 使 swaps→0。維持 champion 換倉規則。
+      固定 fresh · entry avg_accel · confirm_bars=2 · avoid_mixed。
+    sweep:
+      preregistered: true
+      frozen_baseline:
+        swap_margin_key: seg_last
+        score_margin: 0.05
+        swap_confirm_days: 1
+        entry_sort: avg_accel_decel
+      variants: [B0, R25, R50, D25, C2, DC2]
+      pass_threshold_oos_pp: 0.3
+      non_inferiority_pp: -0.2
+      min_oos_n: 8
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # 20260712 · KEEP_CHAMPION via NON_INFERIOR_ONLY(D25≡)
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # R*/C2/DC2
+        G5_frozen_spec: na
+        G6_adoption_report: passed  # 20260712_c18acc_swap_rel_accel_confirm.md
+      verdict: KEEP_CHAMPION_SWAP
+      action: >
+        不採納 · 維持 seg_last+0.05 · confirm=1；
+        若再探 H-BUY-3 應改 5m poll confirm（非跨日同配對）。
+
+  c18acc-swap-sell-gates:
+    title: C18acc · 賣方閘 · jerk / 相對弱度（H-SELL-1 / H-SELL-3）
+    status: active
+    phase: validation
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_swap_sell_gates.py
+    report_dir: reports/research/rrg
+    split_spec: default_is_oos
+    artifact: reports/research/rrg/20260712_c18acc_swap_sell_gates.md
+    hypotheses:
+      - id: H-SELL-1
+        statement: >
+          sell_accel_jerk_days=2 (avg_accel 連降) ± keep accel<0
+          OOS ≥ champion +0.3pp · IS non-inferior · swaps 不暴增
+        status: rejected  # J2/J2o OOS Δ=0 · 非劣但未勝出 · ≡冠軍交易
+      - id: H-SELL-3
+        statement: >
+          sell_rel_weak_gap ≥ IS p25/p50 (最弱 vs 次弱)
+          OOS ≥ champion +0.3pp · IS non-inferior · swaps↓
+        status: rejected  # W25 OOS −0.17 · W50 OOS −1.33（IS 逆勢）
+      - id: H-SELL-1x3
+        statement: jerk≥2 ∧ gap≥p25 OOS ≥ champion +0.3pp · IS non-inferior
+        status: rejected  # JW OOS −0.17
+    context: >
+      20260712：J2≡S0（jerk 幾乎不改換倉集合）；相對弱度門檻傷害 OOS。
+      gap 校準 n=0（合成池無 ≥2 負加速）→ 用 fallback 0.05/0.1。
+      維持 accel_sell_negative_only · 不採納 jerk/rel-weak。
+    sweep:
+      preregistered: true
+      frozen_baseline:
+        accel_sell_negative_only: true
+        sell_accel_jerk_days: null
+        sell_rel_weak_gap: null
+      variants: [S0, J2, J2o, W25, W50, JW]
+      pass_threshold_oos_pp: 0.3
+      non_inferiority_pp: -0.2
+      min_oos_n: 8
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # KEEP_CHAMPION_SELL · NON_INFERIOR_ONLY J2/J2o
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # W*/JW
+        G5_frozen_spec: na
+        G6_adoption_report: passed  # 20260712_c18acc_swap_sell_gates.md
+      verdict: KEEP_CHAMPION_SELL
+      action: >
+        不採納 · 維持 accel<0（±spread bypass）可賣 · worst_held；
+        下一波可改 H-CTX 廣度條件換倉或 H-SELL-2 象限路徑（慎與 S2 重疊）。
+
+  c18acc-full-rrg-unconstrained:
+    title: C18acc · full_rrg vs PIT · 全訊號事件研究（無槽位排序）
+    status: archived
+    phase: rejected
+    parent_strategy: rrg-mono-swap-accel
+    run_scripts:
+      - scripts/research/run_c18acc_full_rrg_unconstrained_study.py
+    report_dir: reports/research/rrg
+    split_spec: intraday_is_oos_2025
+    hypotheses:
+      - id: H-FR-1
+        statement: full_rrg mono_tier2 @09:35 unconstrained events beat PIT fresh OOS ≥0.3pp (n≥30)
+        status: rejected
+        note: "20260712 · OOS n=1 <30 · IS Δ=-3.18pp · FULL Δ=-2.48pp"
+      - id: H-FR-2
+        statement: full_rrg-only-new (V3) events have positive mean excess
+        status: n/a
+        note: "V1⊆V0 by design (mono_tier2 revalidation) · V3 always empty"
+      - id: H-FR-3
+        statement: PIT-only-dropped (V4) events underperform shared set
+        status: rejected
+        note: "V4 mean_excess 3.20% > shared · dropping them hurts"
+      - id: H-FR-4
+        statement: gap>2% subsample favors full_rrg over PIT
+        status: deferred
+        note: "Phase 1 reject · Phase 2 not warranted"
+    context: >
+      Unconstrained all-signals · no slot ranking · no swaps · V0 PIT fresh @ T-1 vs
+      V1 PIT fresh ∩ full_rrg mono_tier2 @09:35 · confirm_bars=2 · avoid spread_mixed · hold 5d.
+      Research only · does not modify Strategy or Order layer.
+    sweep:
+      preregistered: true
+      requires: stock_kbar_5m
+    graduation:
+      gates:
+        G2_oos_holdout: failed
+        G6_adoption_report: passed
+      action: >
+        Reject full_rrg mono_tier2 revalidation as C18acc entry filter · keep C0 scale ·
+        report 20260712_c18acc_full_rrg_unconstrained.md
+
   c18acc-w5-shortline:
     title: C18acc · WMA(5) short-line · scaled hold / accel / S2
     status: graduated
@@ -309,9 +1720,10 @@ topics:
       - scripts/research/archive/run_abc_v3_score_calibration.py
       - scripts/research/archive/run_abc_v2_winner_profile.py
       - scripts/research/archive/run_abc_v3_trade_quality.py
-      - scripts/sync_us_overnight_futures.py
+      - scripts/tools/sync_us_overnight_futures.py
       - scripts/research/archive/run_abc_v3_f1_pipeline.py
       - scripts/research/archive/run_abc_v3_f1_overnight_regime_annot.py
+      - scripts/research/archive/run_abc_v3_f1_peak_exit_study.py
       - scripts/research/archive/run_abc_v3_rh50_gate.py
     graduation:
       strategy_id: abc-v3-f1-pullback
@@ -325,6 +1737,189 @@ topics:
         G6_adoption_report: passed
       champion_artifact: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
       adoption_report: reports/research/rrg/20260708_abc_v3_f1_adoption.md
+
+  abc-v3-f1-entry-structure:
+    title: ABC v3+F1 · entry-side MV gap sweet-band (+ W3 Improving validation)
+    status: active
+    phase: validation
+    parent_strategy: abc-v3-f1-pullback
+    split_spec: intraday_is_oos_70_30
+    run_scripts:
+      - scripts/research/run_abc_v3_f1_entry_structure_sweep.py
+      - scripts/research/run_abc_v3_f1_entry_gate_tp_sweep.py
+      - scripts/research/run_abc_v3_f1_entry_multifactor_tp_sweep.py
+      - scripts/research/run_abc_v3_f1_entry_factor_scan.py
+      - scripts/research/run_abc_v3_f1_entry_gap_decomposition.py
+      - scripts/research/run_abc_v3_f1_entry_stock_pool_sweep.py
+      - scripts/research/run_abc_v3_f1_portfolio_8pct_retest.py
+      - scripts/research/run_abc_v3_f1_w3_improving_extended_window.py
+      - scripts/research/run_abc_v3_f1_structural_pyramid.py
+      - scripts/research/run_abc_v3_f1_gap_stock_clustering.py
+      - scripts/research/run_abc_v3_f1_shape_library.py
+      - scripts/research/run_abc_v3_f1_w20_path_shape_study.py
+      - scripts/research/run_abc_v3_f1_pullback_morphology_study.py
+      - scripts/research/run_abc_v3_f1_lead_firm_family_study.py
+      - scripts/research/run_abc_v3_f1_range_dayup_study.py
+    report_dir: reports/research/rrg
+    hypotheses:
+      - id: H-ENTRY-RANGE-DAYUP-1
+        statement: >
+          Prior-5d price range (raw % or /ATR14) ∧ entry day_up vs T−1 close lifts
+          champion TP-only hold_5d mean ≥ +2pp vs baseline (n≥30), with positive Δ in
+          ≥2/3 time segments (n≥10) and positive OOS Δ on seg2+seg3 (thresholds fixed
+          on seg1 only; inductive→deductive protocol)
+        status: rejected
+        note: >
+          20260712 phase-1 mixed (mechanical full protocol pass but drop-top3 fragile).
+          Closeout H-ENTRY-RANGE-DAYUP-2 rejected all de-fat variants (drop3 Δ always
+          < +1pp). Line closed — no further entry thr grids. See
+          20260712_abc_v3_f1_range_dayup.md and
+          20260712_abc_v3_f1_range_dayup_closeout.md.
+      - id: H-ENTRY-RANGE-DAYUP-2
+        statement: >
+          Pre-registered de-fat of HI-vol×day_up (day_up band cap, range cap [12,20),
+          gap_open≤2, from_open>0) achieves drop-top3 Δ≥+1pp AND median>baseline AND
+          full protocol (n≥30, +2pp, ≥2/3 segs, OOS Δ>0)
+        status: rejected
+        note: >
+          20260712 closeout (404 legs). Named rules r≥10/12/15&up and all de-fat
+          variants fail robust gate (best drop3 ≈ +0.6pp on r≥10&up). Median often
+          beats baseline but mean uplift is fat-tail. Pivot next work to Order-layer
+          abc-v3-f1-champion-tp shadow (O3-5 / PRD §17.2). Artifact:
+          20260712_abc_v3_f1_range_dayup_closeout.md.
+      - id: H-ENTRY-LEAD-FIRM-1
+        statement: >
+          W20 path-into-entry firmness (lead_firm d_w20≥0, or relative d_w20>d_w5)
+          lifts champion TP-only hold_5d mean ≥ +2pp vs baseline with stability in ≥2/3
+          time segments (n≥30 full / n≥10 per seg)
+        status: rejected
+        note: >
+          20260712 family scan (404 legs). Relative d_w20>d_w5 hurts (Δ−0.50pp,
+          0/3 segments). Absolute lead_firm Δ+0.91pp and stable 3/3 but < +2pp gate;
+          best combo lead_firm∧px_dip Δ+1.65pp (n=66) still short of gate.
+          Pearson(d_w20,ret)=0.016. See 20260712_abc_v3_f1_lead_firm_family.md.
+          No overlay; optional weak observe tag only.
+      - id: H-ENTRY-PB-MORPH-1
+        statement: >
+          Same-day pullback morphology (fresh onset ∧ deepening spread ∧ W20 firm ∧
+          W5/W3 soft) lifts champion TP-only hold_5d mean ≥ +2pp vs baseline (n≥30)
+        status: rejected
+        note: >
+          20260712 v2 (404 legs · ref=prev poll else T-1 EOD · px_dip=entry<open).
+          Classic morph n=0; asymmetric (lead_firm∧short_soft) n=1 — last-step
+          textbook asymmetry almost never occurs on ABC. fresh_onset Δ−1.73pp;
+          deepening/short_soft Δ−0.57pp; lead_firm alone Δ+0.91pp (n=157) but
+          < +2pp gate. See 20260712_abc_v3_f1_pullback_morphology.md.
+          Residual clue: prefer W20-firm path, not “fresher/deeper” filters.
+      - id: H-ENTRY-W20-PATH-1
+        statement: >
+          W20 T-2→T-1→T0 path shape (d1<0 and d0≥0 = genuine pullback-then-recover)
+          lifts champion TP-only hold_5d mean ≥ +2pp vs baseline on the same legs
+        status: rejected
+        note: >
+          Closed 20260712 after final entry observation. (1) W20 path shape:
+          MV pullback_then_recover n=9 mean 9.58% but median −1.99% — fails n≥30;
+          RV same shape n=6 Δ−1.2pp. See 20260712_abc_v3_f1_w20_path_shape.md.
+          (2) Last check · T0 spread_dist depth (404 legs): deep tercile Δ+0.88pp
+          (n=134) < +2pp gate · Pearson 0.09. See
+          20260712_abc_v3_f1_entry_spread_dist_closeout.md. Keep raw ABC v3+F1;
+          no further entry-side pullback-quality overlays.
+      - id: H-ENTRY-GAP-1
+        statement: MV gap sweet-band (aligned-not-overextended) beats F1's one-sided w5_w3_mv_spread_max at entry
+        status: passed
+        note: >
+          gap20-5[2,8]·gap5-3[-1,2]·poll≥1 (no rebound) beat unfiltered TP-only in both
+          windows: 3mo n=35 7.16% vs 5.68%; 10mo n=91 3.11% vs 3.06%. See
+          20260710_abc_v3_f1_entry_gate_tp_sweep_hold5d.md.
+      - id: H-ENTRY-RV3-1
+        statement: confirmed rebound-from-intraday-trough on W3 RV beats first-trigger F1 entry
+        status: rejected
+        note: >
+          Factor scan (275 legs/113 stocks, 2025-09-01..2026-07-01): rv3_rebound_raw/z/pct/ratio
+          all NEGATIVELY correlated with forward hold_5d return (Spearman rho -0.064..-0.096,
+          weak but consistent sign across every normalization) — opposite of the hypothesized
+          direction. See 20260710_abc_v3_f1_entry_factor_scan_hold5d.md.
+      - id: H-ENTRY-TP-1
+        statement: entry gate (MV gap sweet-band + W3 RV rebound) filtered universe + TP-only exit pushes mean hold_5d return above 10% (unconstrained by slots/capital)
+        status: rejected
+        note: >
+          Best achieved: 7.26% (3mo window, n=35, gap band only) / 4.89% (10mo window, n=15,
+          thin sample). Neither window reached 10% at any grid cell. 2026-07-11 8% revision
+          (RP-4): full window 2024-01..2026-07 (723 legs), 1y and 6m sub-windows × gate-sweep
+          and multifactor engines — no cell reached n≥30 and ≥8%; n≥50 credible zone best
+          only 2.5%. Single-gate route closed; 8% target transferred to RP-5 shape library.
+          See 20260711_abc_v3_f1_portfolio_8pct_retest.md.
+      - id: H-ENTRY-MF-1
+        statement: gap-band base gate (3-month winner) + w3_improving / avoid_w3_lagging / w20_rv_lte_105.5 overlays + fixed champion TP-only pushes hold_5d mean ≥8% with n≥30
+        status: rejected
+        note: >
+          RP-1 (H-ENTRY-IMP-1) rejected: extended window n=19 mean 5.826%, C1/C2 fail; W3 MV>100
+          effect decays 9.7%→8.0%→5.8% as window lengthens. Retained as RP-5 candidate shape
+          only (must pass RP-6 three-stage validation). See
+          20260710_abc_v3_f1_w3_improving_extended_window.md and
+          20260711_abc_v3_f1_portfolio_8pct_retest.md.
+      - id: H-ENTRY-NORM-1
+        statement: per-stock self-normalized (z-score/percentile) gate factors correlate more strongly with forward return than fixed absolute thresholds
+        status: mixed
+        note: >
+          275-leg/113-stock scan: all 12 raw/z/pct/ratio variants show |Spearman rho| < 0.10
+          (weak). RP-3 update: within-stock demeaned gap_w20_w5_raw ρ=+0.168 (CI excludes 0);
+          between-stock ρ≈0 — effect is intra-stock timing, not stock-type classification.
+          gap_w20_w5_z (60d) flips negative vs raw. See
+          20260711_abc_v3_f1_gap_stock_clustering.md.
+      - id: H-ENTRY-IMP-1
+        statement: gap-band base gate + W3 MV>100 overlay + champion TP-only achieves mean hold_5d ≥8% with n≥30 on 2024-01-02..2026-07-01 extended window, stable across ≥2/3 time segments
+        status: rejected
+        note: >
+          RP-1 verdict REJECTED: n=19 (<30), mean 5.826%, bootstrap CI95 lower 1.905% does not
+          exceed base-only 2.259%; C3 passed (2/3 segments). Overlay − base +3.57pp directionally
+          positive but insufficient sample. Candidate for RP-5 shape library re-validation only.
+          See 20260710_abc_v3_f1_w3_improving_extended_window.md.
+      - id: H-ENTRY-PYRAMID-1
+        statement: underwater RV rebound during hold is a valid structural pyramid-add signal (blended return beats no-add and unconditional averaging-down)
+        status: passed
+        note: >
+          RP-2 winner underwater_rebound: IS n=174 blended +0.622% vs leg1-only −0.321%
+          (Δ 0.944pp); OOS n=73 blended 2.738% vs 1.755% (Δ 0.983pp). Post-entry sizing only,
+          not entry shape. See 20260711_abc_v3_f1_structural_pyramid.md.
+      - id: H-ENTRY-SHAPE-LIB-1
+        statement: a portfolio of ≥5 independently validated entry shapes (each Holdout ≥8%) unions to annualized n≥150 with combined mean ≥8% and pairwise overlap <70%
+        status: rejected
+        note: >
+          RP-5 first full run (2024-01-02..2026-07-01, 723 legs, 18 candidates): Discovery 12/18,
+          Validation candidates 0 (none reached ≥8% in Validation segment under RP-6 FDR discipline),
+          Holdout passed 0. Best Holdout-only: w3_improving_overlay 9.70% (n=7) but Validation
+          5.51% (n=5) — correctly blocked. Confirms RP-4: 8% requires shapes beyond current pool
+          or relaxed validation with more data. See 20260711_abc_v3_f1_shape_library.md.
+      - id: H-ENTRY-STACK-1
+        statement: raw ABC v3+F1 entry (no Tier-2 overlay) + champion TP-only hold_5d + optional underwater_rebound pyramid is the best-evidence frozen research stack
+        status: adopted
+        note: >
+          Frozen 2026-07-11 after RP-1..RP-5: Tier-2 overlays do not stably beat raw F1 on
+          cross-segment portfolio mean. strategy_id abc-v3-f1-champion-tp · enabled:false ·
+          Order layer still hold_3d on abc-v3-f1-pullback. Pyramid: order.yaml pyramid_add.
+          See 20260711_abc_v3_f1_champion_tp_adoption.md.
+      - id: H-ENTRY-POOL-1
+        statement: exclude high trailing gap_w5_w3_eod stocks (cross-section tier) before gap-band event gate improves hold_5d portfolio mean ≥8% with n≥50
+        status: pending
+        note: >
+          Motivated by gap decomposition (10m stock-level gap_w5_w3_eod Spearman ρ≈−0.31).
+          Stock pool tier sweep + RP-4 8% retest. See run_abc_v3_f1_entry_stock_pool_sweep.py.
+          Fallback if H-ENTRY-IMP-1 mixed/rejected.
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: passed
+        G6_adoption_report: passed
+      strategy_id: abc-v3-f1-champion-tp
+      champion_artifact: reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
+      adoption_report: reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
+      action: >
+        Research stack frozen (enabled:false). Live Order layer unchanged (abc-v3-f1-pullback
+        hold_3d). Wire champion TP exit + pyramid_add when intraday position monitor ships.
 
   c18acc-pool1-kinematic-gate:
     title: C18acc · POOL1 kinematic gate · spread pause · intraday confirm
@@ -379,6 +1974,31 @@ topics:
         維持 fresh∪accel + S2 凍結
 
     archive_action: NO_GO_POOL1_ENHANCE
+  c18acc-structural-pyramid:
+    title: C18acc · structural pyramid add · RP-2 port (underwater_rebound)
+    status: active
+    phase: validation
+    parent_strategy: rrg-mono-swap-accel
+    split_spec: intraday_is_oos_70_30
+    run_scripts:
+      - scripts/research/archive/run_c18acc_structural_pyramid.py
+      - scripts/order/run_c18acc_position_poll.py
+    report_dir: reports/research/rrg
+    hypotheses:
+      - id: H-C18-PYRAMID-1
+        statement: >
+          underwater W3 RV rebound during C18acc sim hold is a valid structural pyramid-add
+          signal (blended return beats no-add and unconditional averaging-down)
+        status: passed
+        note: >
+          RP-2 port (313 legs, n99, 2025-01-02..2026-07-08). ABC-aligned underwater_rebound:
+          IS n=94 Δ vs A +0.901pp (p≈0); OOS n=61 Δ +1.189pp — passes all RP-2 §5 criteria.
+          IS winner by max Δ: underwater_stable_rebound (IS +1.04pp, OOS +1.444pp, verdict passed).
+          leg1-only portfolio mean 6.872% (sim hold). Order: config/order.yaml c18acc_pyramid_add
+          (enabled:false · C18ACC_PYRAMID_ADD_ENABLED). See 20260711_c18acc_structural_pyramid_n99.md.
+    context: >
+      ABC winner underwater_rebound passed RP-2 on raw F1 hold_5d legs. This topic tests
+      whether the same post-entry sizing signal transfers to C18acc POOL1 executed legs.
   c18acc-intraday-exit-loop:
     title: C18acc · POOL1 intraday exit loop · poll_5m 逐 bar 出場
     status: archived
@@ -422,7 +2042,6 @@ topics:
         G4_rejection_registry: pending
         G5_frozen_spec: pending
         G6_adoption_report: pending
-
     archive_action: XEL-2 rejected · 維持 XEL-0 poll_5m
     run_scripts_followup:
       - scripts/research/archive/run_c18acc_intraday_1m_sweep.py
@@ -778,6 +2397,9 @@ topics:
       champion_artifact: reports/research/rrg/20260624_c18_acc4_dls1_stability.json
       breadth_holdout: reports/research/rrg/20260624_rrg_mono_swap_accel_breadth_zones.json
       research_stable_variant: C18-dls1
+      score_key_audit_20260709: >
+        poll_5m POOL1 607td: champion 5.64% mean_excess; unified avg_accel swap ≡ champion;
+        entry seg_last only −0.06pp; full seg_last swap 4.05%. Doc SSOT: strategy.yaml funnel.score_keys.
 
     run_scripts_followup:
       - scripts/research/archive/run_c18acc_champion_showcase_html.py
@@ -1723,3 +3345,979 @@ topics:
         Phase 1 規則 meta_router · Phase 2 meta-labeling walk-forward。
     phase: rejected
     archive_action: ensemble routing · PRD 非目標
+
+  us-tw-divergence-sell-gate:
+    title: 美股期貨（NQ/ES）vs 台股大盤偏離 · sell-all 閘門研究
+    status: active
+    phase: research
+    layer: research
+    report_dir: reports/research/rrg
+    run_scripts:
+      - scripts/research/run_us_tw_divergence_sell_gate_study.py
+      - scripts/research/render_us_tw_divergence_sell_gate_html.py
+    split_spec: default_is_oos
+    hypotheses:
+      - id: H1
+        statement: NQ overnight 相對前一美股 RTH close 大幅轉弱可預警 TW ≥3% 盤中回撤
+        status: rejected
+      - id: H2
+        statement: 開盤後 60m TW−NQ spread ≤ −1.2% 可作風險升級閘門（非自動全平）
+        status: pending  # OOS prec≈0.36 rec≈0.38 FPR≈0.04 · 20260714 study · rare events
+      - id: H3
+        statement: log(TW)−β log(NQ) residual z 突破後尾部 MDD 顯著更大
+        status: rejected
+      - id: H7
+        statement: ES overnight 對 TW 3% 事件較 NQ 更敏感
+        status: rejected  # NQ slightly better but both rejected as standalone
+      - id: H8
+        statement: SOX/tech_risk 因子提升 ≥3% 事件 precision
+        status: rejected
+    context: >
+      Event study ~2024-08–2026-07 · primary = ^TWII 1h peak→trough ≥3% in TW cash session.
+      Goal: find divergence vs NQ/ES suitable as early sell-all *review* gate (Research only).
+    artifact: reports/research/rrg/20260714_us_tw_divergence_sell_gate.md
+    notes: >
+      2026-07-14 · H2 weak-to-accepted research candidate for human risk escalate only ·
+      do not graduate to Order-layer auto sell-all · n_events=19 · Yahoo 1h ~730d cap.
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  us-tw-early-alert-5m:
+    title: 開盤後 10–60m TW−NQ 偏離 · 5m 早警報掃瞄（H2 加速 overlay）
+    status: active
+    phase: research
+    layer: research
+    parent: us-tw-divergence-sell-gate
+    report_dir: reports/research/rrg
+    run_scripts:
+      - scripts/research/run_us_tw_early_alert_5m_study.py
+      - scripts/research/render_us_tw_early_alert_5m_html.py
+    split_spec: midpoint_is_oos
+    hypotheses:
+      - id: E-user-10m
+        statement: spread_10m ≤ −0.6 @09:10 可作更快於 H2 的風險警報
+        status: pending  # weak · full prec≈0.44 FPR≈0.16 · 20260714 5m study n=39
+      - id: E-hard-10m
+        statement: spread_10m ≤ −1.2 或 TW_ret_10m ≤ −1.0 優於軟閾 −0.6
+        status: pending
+      - id: E-stage-10-20
+        statement: 10m&20m spread≤−0.8 two-stage 確認優於單一 10m −0.6
+        status: pending
+    context: >
+      Yahoo 5m ~60d only (^TWII × NQ=F). Labels = session peak→trough ≥3%.
+      Goal: faster risk-escalate overlay on top of H2@60m — not a replacement.
+    artifact: reports/research/rrg/20260714_us_tw_early_alert_5m.md
+    notes: >
+      2026-07-14 case: spread already ≤−1.2 by +10m · user −0.6 usable as yellow only ·
+      keep H2@10:00 · 7/7 shows late-day kills miss early rules.
+
+  # ── US–TW · rolling 10m poll (NOT fixed open+ Nh) ─────────────────────
+  us-tw-rolling-10m-poll:
+    title: 盤中每10分排程 · TW↔NQ 1分K滾動窗偏離／修復偵測
+    status: active
+    phase: research
+    layer: research
+    parent: us-tw-divergence-sell-gate
+    report_dir: reports/research/rrg
+    split_spec: case_first_then_60d_panel
+    run_scripts: []  # TBD · scripts/research/run_us_tw_rolling_10m_poll_study.py
+    hypotheses:
+      - id: R10-D1
+        statement: >
+          在 09:00–13:30 每10分排程（09:10,09:20,…），以當下往前10分1m窗的
+          spread_win / corr_1m / cum_spread_from_open 可標出「嚴重偏離」slot，
+          且該槽領先全日 ≥3% peak→trough 事件（優於固定 open+60m  alone）
+        status: pending
+      - id: R10-D2
+        statement: >
+          相關性崩潰（corr_1m 在10m窗內接近0或轉負）比單純 spread_win 更能
+          代表「關系斷裂」型偏離（solo-kill），且較少被同步下殺假觸發
+        status: pending
+      - id: R10-R1
+        statement: >
+          嚴重偏離後，若出現「正向 spread_win + cum_spread 自谷底回升」的10m槽，
+          可標為修復中；該槽後續剩餘回撤顯著小於偏離槽之後
+        status: pending
+      - id: R10-R2
+        statement: >
+          修復完結定義為 cum_spread 回到偏離觸發閾值之上並維持≥1個poll；
+          未完結則當日仍屬「結構性落後」而非V反
+        status: pending
+    context: >
+      與 us-tw-early-alert-5m 的差異：不是「開盤後固定第N分鐘」，而是
+      session-long cadence poll · 每一拍評估rolling 10m 交互（1m bars）。
+      Primary case: 2026-07-14 · then Yahoo 1m/~5–7d + 5m/~60d panel.
+      Proxy: ^TWII（IX0001若有1m則優先）× NQ=F（≈NQ1!）。
+    design: |
+      ## A. Poll clock（排程）
+      - Cadence variants: every **5m** (primary ask) and every **10m** (baseline)
+        · 5m clock: 09:05, 09:10, … 13:30
+        · 10m clock: 09:10, 09:20, … 13:30
+      - Window W(t)=(t−L, t] on 1m closes；L∈{5m, 10m} 交叉比較（排程≠窗長可不同）
+      - Alignment: asof-join NQ→TW minute grid（ffill≤2m；缺口標記 incomplete）
+
+      ## B. Features per poll（情形 × 因子）
+      1) path: tw_win, nq_win, spread_win = tw_win−nq_win
+      2) cumulative: cum_spread_from_open（自09:00到t）
+      3) microstructure: corr_1m / beta_1m of Δlog in W(t)；sign-agreement rate
+      4) stress z: spread_win 與 cum_spread 相對「當日過去poll」或「跨日同時段」分位
+      5) flags: DETACHED = (spread_win≤τ1) OR (cum_spread≤τ2) OR (corr≤τ3 AND tw_win≤τ4)
+         REPAIRING = (post-detached) AND (spread_win≥ρ1) AND (Δcum_spread≥ρ2)
+         REPAIRED = cum_spread ≥ τ_detach + cushion 連續≥1 poll
+
+      Soft probe 2026-07-14（1m）提示：5m排程+5m窗 首個嚴重槽可早到 **09:15**；
+      10m排程會把同一刀併進 09:10–09:20 格、較晚才標「代表性」。
+
+      ## C. Case study protocol（先做）
+      - Day: 2026-07-14（必要）+ 對照大事件日與假警報日
+      - Deliver: poll timeline table · 標出10點前「代表性嚴重偏離槽」與全日「修復槽／未修復」
+      - Bootstrap: Yahoo 1m（~7d）足夠單日；再擴到5m 60d 統計τ
+
+      ## D. Panel validation（後做）
+      - Event label: session peak→trough ≥3%（或2.5%敏感度）
+      - Lead test: 首個 DETACHED poll 是否早於低點≥X min；precision/FPR per日與跨日
+      - Repair test: REPAIRING後 remain_dd vs 未修復日
+      - OOS: 時間切半；禁止偷看全日標記建閾值
+
+      ## E. Non-goals
+      - 不直接 Order-layer auto sell-all
+      - 不取代 H2@60m 長樣本閘門；本topic回答「時時刻刻10分排程」的狀態機
+    notes: >
+      Soft probe 2026-07-14 1m: 10點前無單窗 −1%+ 暴跌；偏離是累積——
+      09:40 窗 corr崩至~0.09 + spread_win最負；cum_spread 10:00已~−1.47%；
+      全日 cum 谷底 11:20；之後反彈但 cum 未收復−1%（結構性落後未「修完」）。
+      20260715 detach sweep: best net_edge≈+10.3k NTD/49d (1M notional) =
+      combo cum≤-1 OR win≤-0.6 + REENTER · win=10m；FPR非事件≈55%——僅弱證據。
+      Pure detach 多數淨值為負（反彈吃掉止損）。
+      20260715 state-machine (740 registered; hour2 dual-AND+cush+cross-window):
+      Champion under FPR≤0.30 = sm_cum-1.0_win-0.6_c2_w5_ss0.8_dc0.2
+      (DETACH cum≤-1 OR win≤-0.6 ×2poll · w=5m + REPAIR same_sign≥0.8 Δcum≥0.2
+      + tw>nq & tw>0)：net_edge≈+30.5k · FPR≈0.24 · recall≥3%≈0.73 ·
+      IS/OOS both + · vs prior baseline combo_cum1_win06_reenter_w10 (+10.3k / FPR0.55)
+      rich repair helped. 7/14 DETACH 09:10 · first REPAIR 11:25；7/7 late DETACH 12:20。
+      Raw max net_edge ~+63k but FPR≈0.71 — rejected by FPR soft cap。
+      20260715 rolling-30m + pulse dashboard + co_sync rebuy v2:
+      L2 = rg30_det-0.6_c2；presentation = bar ROC + gap_pulse IMPROVE/WORSEN + sync_pulse。
+      L2R = cool≥60m · rebuy window 5/10m（非30m）· δ∈{0.05–0.15} · 偏好7/14∈11:25–12:00。
+      註：11:25 在30m仍雙小跌；短窗才能對齊舊 REPAIR 時點。Research only。
+      20260715 gate calendar: champion L2/L2R 逐日回放（Yahoo 5m≈59d 非完整90d）→
+      confirm OK_EVENT/FALSE_ALARM/MISS/QUIET + vs-hold 少賠圖表 HTML。
+      20260715 Detach Gate（台美脫鉤閘門）trough-first：
+      評分主軸 = exit−trough headroom（假定接回）；對收盤 edge 次要。
+      Frozen RED = s5_w-0.6_c1_down-0.5_arm0940-1230 · USABLE_5M
+      recall≈0.82 · sell@trough=0 · medH≈1.61% · minH≈0.94% ·
+      7/14 RED@09:40 headroom≈+2.13% vs trough@11:15。
+      20260715 Strategy layer 採納 detach-gate（sell-half only）· 接回見 detach-gate-trough-find。
+    artifact: reports/research/rrg/20260715_us_tw_5m_sell_gate_ready.md
+    run_scripts:
+      - scripts/research/run_us_tw_rolling_5m_detach_study.py
+      - scripts/research/render_us_tw_rolling_5m_detach_html.py
+      - scripts/research/run_us_tw_5m_state_machine_study.py
+      - scripts/research/render_us_tw_5m_state_machine_html.py
+      - scripts/research/run_us_tw_30m_rolling_risk_gate_study.py
+      - scripts/research/render_us_tw_30m_rolling_risk_gate_html.py
+      - scripts/research/run_us_tw_30m_gate_calendar_html.py
+      - scripts/research/run_us_tw_sell_only_live_readiness.py
+      - scripts/order/run_us_tw_5m_sell_gate_poll.py
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  # ── Detach Gate · trough-find（接回候選 · Research only）──────────────
+  detach-gate-trough-find:
+    title: Detach Gate 谷底／接回指標候選（研擬 · 非自動回補）
+    status: active
+    phase: hypothesis
+    layer: research
+    parent: us-tw-rolling-10m-poll
+    related_strategy: detach-gate
+    report_dir: reports/research/rrg
+    split_spec: case_first_then_60d_panel
+    run_scripts:
+      - scripts/research/run_detach_gate_tf2_trough_find.py
+      - scripts/research/run_detach_gate_tf23_repair_confirm.py
+      - scripts/research/run_detach_gate_rebuy_adoption.py
+    hypotheses:
+      - id: TF-1
+        statement: >
+          脫鉤後（post-detach）至當日 session low 的 rebound％ 可作接回門檻；
+          相對「固定時間買回」可提高 exit−trough headroom 保留率
+        status: pending
+      - id: TF-2
+        statement: >
+          gap_pulse = IMPROVE（30m bar ROC 轉正／gap 收斂）領先 session trough
+          的 lead≥X min；precision 優於裸 spread 回歸 0
+        status: measured  # 2026-07-15 panel · arm-only; not standalone rebuy
+        artifact: reports/research/rrg/20260715_detach_gate_tf2_trough_find.md
+      - id: TF-3
+        statement: >
+          5m 雙向上（TW↑且 NQ↑）且 tw_bar_roc ≥ nq_bar_roc + δ 可標「修復確認」；
+          δ∈{0.05,0.10,0.15} pct-pt（同 L2R outperform_margin 單位）·
+          與 TF-2 arm / cooldown / FOLLOW 組合作 manual rebuy 候選
+        status: measured  # 2026-07-15 TF-2∩TF-3 repair-confirm panel
+        artifact: reports/research/rrg/20260715_detach_gate_tf23_repair_confirm.md
+      - id: TF-4
+        statement: >
+          WMA／kinematic 轉折（W3/W5 RV 由負轉正或加速度變號）可濾除假底；
+          單獨使用 FPR 過高，需與 TF-2/TF-3 AND
+        status: skipped_heavy  # TF-23 run skipped WMA (needs short-frame enrichment)
+      - id: TF-5
+        statement: >
+          日內 trough 時刻分布（tod histogram）可界定不建議接回窗（例如尾盤）；
+          用於硬排除而非正向訊號 · light veto <12:30 / <13:00 on TF-3 combos
+        status: measured_light  # cutoff veto in TF-23 artifact; full tod hist still pending
+        artifact: reports/research/rrg/20260715_detach_gate_tf23_repair_confirm.md
+      - id: TF-6-long-sample-adoption
+        statement: >
+          拉長樣本（Yahoo 1h ~730d）後，IMPROVE→≥60m→TF-3 δ=0.10 家族能否通過
+          analyst 採納閘門（n、IS/OOS FPR、headroom/near）達 (A) manual SOP /
+          (B) Strategy advisory / (C) Order auto-rebuy
+        status: rejected_not_adoptable  # 2026-07-15 long-sample stress · 3/6 gates · all three 不採納
+        artifact: reports/research/rrg/20260715_detach_gate_rebuy_adoption.md
+    context: >
+      Strategy layer detach-gate 已採納為 sell-half @ bid1（一日一次）。
+      本 topic 只研擬谷底／接回指標候選；**禁止**接線 Order-layer auto-rebuy。
+      VFP = research note / table under reports/research/rrg/ · 非 order ledger。
+    notes: >
+      2026-07-15 開題。策略仍為半倉風控（ORDER_DETACH_GATE_*）；接回若未來採納
+      須另開 strategy 條目 + graduation gates · 不得 silently 開啟 auto buy。
+      Candidate families: (1) rebound-from-post-detach-low (2) gap_pulse IMPROVE
+      (3) 5m both↑ TW≥NQ+δ (4) WMA/kinematic turns (5) tod trough distribution.
+      FinMind Sponsor renewed（2026-07-15 probe OK · TaiwanStockKBar 0050）。
+      TW 5m choice: Detach studies keep **IX0001** (=^TWII) for live-poll alignment;
+      FinMind has no IX0001 K · 0050 is the liquid FinMind proxy (backfilled
+      stock_kbar_5m finmind 2024-01-02→2026-07-15 · 606 sessions). NQ=F Yahoo-only
+      ~59d hard-cap — intersection still ~49 trade-days until daily NQ upsert grows.
+      fetch_yahoo_5m_panel now prefers local stock_kbar_5m when ≥40 calendar days.
+      TF-2（2026-07-15 local panel）：reports/research/rrg/20260715_detach_gate_tf2_trough_find.md
+      · frozen RED post-event trough · IMPROVE = arm only · FPR(no-MT)=1 · headroom~1.5%。
+      TF-2∩TF-3 repair confirm（2026-07-15）：
+      reports/research/rrg/20260715_detach_gate_tf23_repair_confirm.md
+      · compare A–G on local IX0001×NQ=F · Order rebuy stays false。
+      · Manual SOP candidate: IMPROVE arm → ≥30m → TF-3 δ=0.10
+      (`D_cool_imp_K30_d0.1`) · optional veto <13:00 · near-trough rate still 0。
+      · Reject: TF-2 alone / naked TF-3 δ≤0.10 (FPR≈1)。TF-4 skipped_heavy。
+      Long-sample rebuy adoption（2026-07-15 re-run after Sponsor renew）：
+      reports/research/rrg/20260715_detach_gate_rebuy_adoption.md
+      · Primary Yahoo 1h n=460d · frozen-proxy RED n=23 / MT=6；wide sens RED=56 / MT=11。
+      · Champion 1h proxy `D_cool_imp_K60_d0.1`（≈5m K30）· **MT cov=0**（definition failure）。
+      · Gates 3/6 PASS (A2/A3/A6) · FAIL A1/A4/A5 + definition_failure。
+      · 5m check仍 n=49 local · FPR=0.75 · near=0 — Sponsor renew 當天未擴到 A1 門檻。
+      · Three-way 採納: (A) manual SOP **不採納** · (B) Strategy advisory **不採納** ·
+        (C) Order auto-rebuy **不採納**（rebuy stays false）。
+      · 結論: NQ Yahoo ~60d 仍是硬頂；TW 0050 FinMind 已就緒作未來對照，
+        須 daily NQ accumulate（或另源）把 5m RED/MT 拉過 A1 再重開 採納。
+      Data-source shortlist（2026-07-15 · VFP）：
+      reports/research/rrg/20260715_detach_gate_data_sources.md
+      · TW unlock DONE: FinMind TaiwanVariousIndicators5Seconds → 5m → IX0001
+        source=finmind · 180d / 9900 bars (2025-10-15→2026-07-15) · Yahoo overlap
+        corr≈1.0 (58d) · script scripts/tools/backfill_ix0001_finmind_5m.py。
+      · NQ: Yahoo seed refreshed；still ~59d hard-cap. Deep history trial =
+        Databento $125 credits (ohlcv-1m→5m) or FirstRate NQ continuous —
+        no Polygon/Databento key in .env.example → no adapter stub yet.
+        Order rebuy stays false.
+      NQ deep-dive（同 VFP §NQ deep-dive · 2026-07-15）：
+        #1 Databento $125 credits trial；#2 FirstRate ~$100 buyout；#3 Yahoo daily.
+        QQQ 5m 同~60d 且 TW session overlap=0 → 不做 QQQ interim study。
+        MNQ≈NQ 報酬（corr≈0.999）但同 Yahoo 硬頂。IB/TOS/CME DataMine/TV/Kaggle
+        皆非首選。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed  # 1h long-sample; FPR stable但 headroom/near undefined on MT
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed  # long-sample + short 5m both reject auto / Strategy
+        G5_frozen_spec: pending
+        G6_adoption_report: failed  # 20260715_detach_gate_rebuy_adoption · 不採納 A/B/C
+    adoption_verdict:
+      date: "2026-07-15"
+      artifact: reports/research/rrg/20260715_detach_gate_rebuy_adoption.md
+      A_manual_sop: 不採納
+      B_strategy_advisory: 不採納
+      C_order_auto_rebuy: 不採納
+      blocker: >
+        NQ=F 5m still Yahoo ~59d hard-cap (calendar ∩ ≈49d); 1h champion MT cov=0;
+        5m FPR=0.75 / near=0. 0050 FinMind 5m ready (606d) but studies keep IX0001
+        for live alignment — re-open 採納 only after local 5m RED/MT clear A1.
+  leading-wma20-intraday-excess6-wma3-confirm:
+    title: Leading Dip · dual-track quality(T2+)/cov(drop T2) · T+3
+    layer: research
+    status: graduated
+    phase: adopted
+    report_dir: reports/research/rrg
+    artifact: reports/research/rrg/20260715_leading_wma20_excess6_wma3_confirm.md
+    run_scripts:
+      - scripts/research/run_leading_dip_sleeve_validate.py
+    hypotheses:
+      - id: H1
+        statement: >
+          昨收 WMA20 Leading · 當日首次 excess(減法)≤−6pp · 觸發當下 WMA3 Lagging
+          之相對收復率優於裸觸發；Improving3 為拒絕態（歷史起點；已非凍結觸發）
+      - id: H2
+        statement: >
+          極值可用當下裸比 RS=S/B（不加權、不對昨收）表達；
+          與減法 excess 最弱同棒；跨日觸發門檻需另定（絕對 RS 不可直接用−6%）
+      - id: H3
+        statement: >
+          Frozen leading_dip（quality）＝Leading ∧ gap3≤−0.80∩excess≤−4 ∧ T−1 notUR ∧ W5_MV<100
+          ∧ T2+ ∧ 日≤2 deepest-ex（忙≥3∧rB_min≤−1.5 →≤4 · hard_cap4）
+          ∧ 總在外≤6（滿則跳過新進）→ T+3：
+          時序 OOS（切 2025-10-01）med>0 且 hit≥70%；self-validate PASS
+      - id: H4
+        statement: >
+          Coverage track leading_dip_cov＝同 quality 但 drop T2；n↑且 OOS med give-up≤1pp
+          vs quality → 採納為 Strategy 主軌（leading-dip）
+      - id: H5
+        statement: >
+          Mid sleeve ≥10:00 · gap∩excess(今開錨) 對 coverage 互補 only_new≈+15 ·
+          hit/med 不劣化 → 採納為衛星 leading-dip-mid
+    notes: >
+      2026-07-16 採納：Strategy SSOT leading-dip（coverage 昨收錨）+ leading-dip-mid
+      （≥10:00 今開錨衛星）。Order live · 預算 2 萬/筆 · 無 paper-observe 間隔。
+      研究證據：20260715_leading_wma20_excess6_wma3_confirm · time_sleeve_expand ·
+      gap_excess_open_anchor。Quality(T2+) 保留為研究對照，非主 live 軌。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: weak_pass
+        G3_regime_stratification: partial
+        G4_rejection_registry: drafted
+        G5_frozen_spec: frozen
+        G6_adoption_report: passed
+      adopted_strategy_ids:
+        - leading-dip
+        - leading-dip-mid
+      adopted_on: "2026-07-16"
+
+  leading-dip-1m-beat:
+    title: Leading Dip · 1m / 1-min poll beat study（vs frozen 5m cov）
+    layer: research
+    status: active
+    phase: hypothesis
+    report_dir: reports/research/rrg
+    artifact: reports/research/rrg/20260716_leading_dip_1m_lookback_backtest.md
+    run_scripts:
+      - scripts/research/run_leading_dip_1m_beat_study.py
+    hypotheses:
+      - id: H1
+        statement: >
+          同結構核（Leading ∧ gap∩excess ∧ notUR ∧ W5_MV<100）改 1m first_hit +
+          每分鐘排程，可在 T+3 上穩定贏過 frozen leading_dip_cov（5m first_hit）
+        status: rejected
+      - id: H2
+        statement: >
+          1m 裸搬門檻會因 WMA3 時標縮短而過噪；confirm_k 或 wait_deepen
+          可恢復／超過 5m baseline 的 med_ex3
+        status: rejected
+      - id: H3
+        statement: >
+          2026-07-16 上午 case：1m 變體對同名 matched 更早且更深進場，且
+          +15m/+30m adverse 不劣於 5m → 值得拉長 WFA
+        status: rejected
+      - id: H4
+        statement: >
+          1m 觸發改「相對 t−K 分鐘」local excess（非昨收／非開盤）+ 更深門檻
+          + 大盤 5m 平滑，可贏過 5m frozen cov 的 OOS med/hit
+        status: rejected
+    notes: >
+      Book-only · 不改 Order。H1–H3（昨收錨 1m）失敗。H4 lookback backtest
+      （2025-01-02…2026-07-15 · OOS 2025-10-01）：best=1m_lb15_e6
+      （vs t−15 ≤−6）OOS 62%/+1.43 仍輸 5m baseline 63%/+3.60；
+      但遠優於昨收錨 1m（OOS med≈−6）。keep 5m。Artifacts:
+      20260716_leading_dip_1m_threshold_backtest ·
+      20260716_leading_dip_1m_lookback_backtest。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  leading-dip-rrg-geometry-replace:
+    title: Leading Dip · RRG 圖形篩選器逐腿替代漏斗
+    layer: research
+    status: active
+    phase: evidence
+    report_dir: reports/research/rrg
+    artifact: reports/research/rrg/20260716_leading_dip_rrg_geometry_replace.md
+    run_scripts:
+      - scripts/research/run_leading_dip_rrg_geometry_replace.py
+    hypotheses:
+      - id: H1
+        statement: >
+          T−1 close RRG 線性 KEEP（x>100 ∧ y>100 ∧ y<x）可替代結構腿
+          notUR 與／或 W5_MV<100，且 coverage 軌 OOS med／hit 不劣於 frozen
+        status: rejected  # 20260716 · ΔOOS med −1.4…−4.2pp · cannot_replace
+      - id: H2
+        statement: >
+          同一幾何無法替代盤中觸發腿 gap3≤−0.80 或 excess≤−4（資訊時標不同）
+        status: supported  # 20260716 · both cannot_replace
+      - id: H3
+        statement: >
+          幾何作為凍結漏斗上的「加層」優於「取代」任一大腿；右側扇形無法安全
+          取代 Leading 宇宙
+        status: supported  # +geo ΔOOS med=+0.17 · universe cannot_replace
+    notes: >
+      Book-only · 專門研究圖形當篩選器。Baseline = Strategy leading-dip coverage
+      政策（drop T2 · slots · 總在外≤6）。逐腿三臂：frozen / drop / replace∩geo。
+      2026-07-16 首跑 verdict=geometry_as_addon_not_funnel_replace。
+      未過 G2 前不得改 strategy.yaml／order。相關圖：
+      20260716_leading_dip_rrg_keep_zone.html · 20260716_rrg_winlose_leading_dip_c18acc.html。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: weak_pass  # single cut 2025-10-01 · evidence run done
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  leading-dip-orthogonal-compact:
+    title: Leading Dip · 三層正交漏斗適配性（效能×效率）
+    layer: research
+    status: active
+    phase: evidence
+    report_dir: reports/research/rrg
+    artifact: reports/research/rrg/20260716_leading_dip_orthogonal_compact.md
+    run_scripts:
+      - scripts/research/run_leading_dip_orthogonal_compact.py
+    hypotheses:
+      - id: H1
+        statement: >
+          將漏斗重綁為三層（宇宙／觸發包 gap∩excess／結構包 notUR∧W5）
+          與凍結 coverage 數值等價，可提升維運效率且不損效能
+        status: supported  # 20260716 · B2≡B0 · choice=keep_3layer_pack_optional_geo
+      - id: H2
+        statement: >
+          為效率而減層（砍 notUR 或 W5、砍結構、觸發單腿、geo 代結構）
+          會使 OOS med 明顯劣化 → 不適合
+        status: supported  # ΔOOS −1.5…−4.7pp · suitable_for_thinning=false
+      - id: H3
+        statement: >
+          在三層凍結上加 geo（y<x）可小幅提升效能；因與結構近正交，
+          效率代價（+1 謂詞）可接受作為可選加層
+        status: supported  # ΔOOS med=+0.17 · hit 69.2%→70.3% · eff_score↓因+1 pred
+    notes: >
+      Book-only · 承接正交性討論與 geometry-replace。Baseline = leading-dip
+      coverage。2026-07-16 verdict=keep_3layer_pack_optional_geo。
+      未採納前不改 strategy／order（geo 加層若要上線需另開 G2／order 變更）。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: weak_pass
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  2327-wma20-bounce-confirm:
+    title: 2327 國巨 · 盤中 WMA20 反彈確認濾器（持續性×緩衝幅度）
+    layer: research
+    status: active
+    phase: evidence
+    report_dir: reports/research/2327-wma20-bounce
+    artifact: reports/research/2327-wma20-bounce/20260721_2327_wma20_bounce_confirm.md
+    run_scripts:
+      - scripts/research/run_2327_wma20_bounce_confirm_study.py
+    hypotheses:
+      - id: H1
+        statement: >
+          單股 2327 5分K：要求「持續性」（收盤連續2根5分K站上WMA20）與
+          「緩衝幅度」（站上WMA20至少0.3%）同時成立（AND），比任一單濾器
+          或不設濾器的 naive 單根穿越基準，有更高勝率／更低假訊號率
+        status: supported  # full win_rate_eod 36.8%>33.8%(baseline)；OOS 39.2%>34.2%；washout 88.3%<91.0%
+      - id: H2
+        statement: >
+          AND（persistence∧buffer）優於 OR（persistence∨buffer）——
+          即兩濾器擋的是不同種雜訊，疊加而非互斥
+        status: supported  # full/OOS 皆 AND win_rate_eod、mean_ret_eod、washout_rate 三項全優於 OR
+    context: >
+      Book-only 研究題目，起源於 2327 反彈情境模擬教學（HTML timeline）中討論的
+      濾器選擇問題。訊號：close 對 wma(close, 20)（src/rrg_rotation.wma SSOT）。
+      Entry-only：只測進場訊號後的前向報酬／勝率，不含出場／停損。
+      單股樣本小，僅供訊號品質探索，不代表可直接採納為 Strategy。
+    notes: >
+      2026-07-21 首跑（2024-01-02~2026-07-15 · 604 交易日 · IS/OOS 80/20）：
+      H1/H2 方向一致成立，但 AND 本身 win_rate_eod 僅 36.8%（OOS 39.2%）、
+      mean_ret_eod 仍偏負（full −0.05% · OOS −0.01%接近打平)、washout_rate
+      仍高達 88%——結論是兩濾器「相對降噪有效」，但單獨作為進場訊號本身
+      不構成正報酬優勢（單股、entry-only、無出場/停損）。
+      未過完整 G2/G3/G4 前不得改 config/strategy.yaml／config/order.yaml。
+      若要推進至 live sleeve，須先補多股/更長窗 G2、走完 G3–G6 並經使用者確認。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # hypotheses logged before first run
+        G2_oos_holdout: weak_pass  # IS/OOS 方向一致；但 AND 本身 win_rate<50%、mean_ret≈0，非正期望值訊號
+        G3_regime_stratification: na  # single stock · no regime axis claimed
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+
+  # ── C18acc · prob-risk overlay（arch/TCP daily + MiQ 1m coverage）────────
+  # Audit scratch: /tmp/prob-forecast-audit/ · Book-only · no live enable
+  # 2026-07-21：entry-ban 軌 INCONCLUSIVE → paused · 續研見 worth-continuing matrix
+  c18acc-arch-tcp-daily-risk-overlay:
+    title: C18acc · arch+TCP 日頻／隔夜風險疊加（禁新開／降曝險）
+    status: paused
+    phase: hypothesis
+    layer: research
+    parent_strategy: rrg-mono-swap-accel
+    report_dir: reports/research/prob_risk
+    related_topics:
+      - c18acc-miq-1m-coverage-health-gate
+      - c18acc-vol-position-sizing  # successor · sizing only
+    related_strategy_orthogonal:
+      - detach-gate  # sell-half live；本 topic sell overlay 僅 Research，不取代
+    clone_refs:
+      arch: /tmp/prob-forecast-audit/repos/arch
+      tcp: /tmp/prob-forecast-audit/repos/tcp
+      scorecards:
+        - /tmp/prob-forecast-audit/results/A_infra_scorecard.md
+        - /tmp/prob-forecast-audit/results/B2_tcp_cqr_scorecard.md
+    artifact: reports/research/prob_risk/c18acc_arch_tcp_overlay_summary.md
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    hypotheses:
+      - id: H-ARCH-TCP-1
+        statement: >
+          當 arch GARCH（條件 σ／VaR）與／或 TCP 日報酬預測區間顯示間隔風險偏高時，
+          對 C18acc 禁止新進場（含 swap-buy）並／或降低曝險（縮 slot／暫緩 pyramid add），
+          可改善相對凍結 champion 的進場時序品質（減少高風險隔夜窗開倉）。
+          Sell overlay 僅 Research 對照軌，不是 live Detach Gate 替代品。
+        status: inconclusive  # 20260721 · Δ(allowed−blocked)=−0.38pp · do-not-rerun entry ban
+        adoptable_status: not_adoptable
+    do_not:
+      - 取代或雙跑 live detach-gate
+      - 把 arch／TCP 當獨立買 alpha
+      - 未過 G2–G6 前改 strategy.yaml／開 Order live flag
+      - 與已拒絕的 c18acc-overnight-regime-gate（SOX/FF_OI）混讀
+      - 重跑同設計 σ／TCP percentile → ban-new entry（見 matrix NOT-do）
+    future_order_hooks:
+      note: design only · defaults off · not written to order.yaml live
+      env:
+        C18ACC_PROB_RISK_OVERLAY_ENABLED: "0"
+        C18ACC_DAILY_RISK_GATE: "0"  # keep off · do not use as entry ban
+        C18ACC_PROB_RISK_SELL_OVERLAY: "0"  # research poll only
+      read_points:
+        - src/rrg_mono_swap_accel_screen.py  # entry / swap-buy skip
+        - scripts/order/run_c18acc_position_poll.py  # pyramid throttle
+        - src/order/c18acc_order.py  # optional pre-submit guard
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed  # inconclusive · not GO
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: do-not-adopt · pause · successor = c18acc-vol-position-sizing（sizing only）
+    notes: >
+      2026-07-21 walk-forward INCONCLUSIVE（禁新開）。σ 序列可重用於
+      c18acc-vol-position-sizing；禁止把本 topic 當 GO 證據重跑 entry ban。
+      Detach Gate ≠ Regime layer；本閘曾為 Order-layer 候選，現暫停。
+
+  c18acc-miq-1m-coverage-health-gate:
+    title: C18acc · MiQ-method 1m 覆蓋健康閘（暫停／節流進場）
+    status: paused
+    phase: hypothesis
+    layer: research
+    parent_strategy: rrg-mono-swap-accel
+    report_dir: reports/research/prob_risk
+    related_topics:
+      - c18acc-arch-tcp-daily-risk-overlay
+      - c18acc-internal-timing-deepen
+    clone_refs:
+      miq: /tmp/prob-forecast-audit/MiQ-MCP
+      scorecards:
+        - /tmp/prob-forecast-audit/results/B1_miq_garch_scorecard.md
+    artifact: reports/research/prob_risk/c18acc_miq_1m_coverage_gate_summary.md
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    hypotheses:
+      - id: H-MIQ-1M-1
+        statement: >
+          當 MiQ-method（1m 分位 + Mondrian conformal）依盤中時段顯示覆蓋不健康時，
+          對 C18acc 暫停或節流新進場（當時段 skip／提高 confirm／待覆蓋恢復），
+          可改善相對凍結 champion 的盤中進場時序品質。
+          不以 MiQ 點預測／分位中位當 alpha 買訊。
+        status: inconclusive  # 20260721 · POOR 桶實際報酬不較差 · E@13:00 幾乎避開
+        adoptable_status: not_adoptable
+    do_not:
+      - 以 MiQ 當獨立買策略／買訊
+      - 未過 G2–G6 前改 strategy.yaml／開 Order live flag
+      - 忽略作者 NSE 時段過濾與台股盤長差異（適配須明示）
+      - 重跑同設計 coverage-health → pause entry（見 matrix NOT-do）
+    future_order_hooks:
+      note: design only · defaults off · not written to order.yaml live
+      env:
+        C18ACC_PROB_RISK_OVERLAY_ENABLED: "0"
+        C18ACC_MIQ_COVERAGE_GATE: "0"
+      read_points:
+        - src/rrg_mono_swap_accel_screen.py  # intraday entry pause/throttle
+        - src/order/c18acc_order.py  # optional pre-submit guard
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed  # inconclusive · not GO
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: do-not-adopt · pause · 續研改走 c18acc-internal-timing-deepen
+    notes: >
+      2026-07-21 最小測試 INCONCLUSIVE（暫不接 live throttle）。
+      Coverage-health ≠ alpha。禁止重跑同 proxy／同桶 entry gate。
+
+  # ── Worth-continuing · risk / timing deep-dive（2026-07-21）────────────
+  # SSOT matrix: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+  detach-gate-graded-sell:
+    title: Detach Gate · false-alarm／分級賣（half vs none）
+    status: active
+    phase: hypothesis
+    layer: research
+    parent: us-tw-rolling-10m-poll
+    related_strategy: detach-gate
+    related_topics:
+      - detach-gate-trough-find
+      - us-tw-overnight-next-open-ban-new
+    report_dir: reports/research/prob_risk
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    run_scripts:
+      - scripts/research/run_us_tw_rolling_5m_detach_study.py
+      - scripts/research/run_us_tw_sell_only_live_readiness.py
+      - scripts/research/run_us_tw_5m_state_machine_study.py
+      - scripts/research/render_us_tw_rolling_5m_detach_html.py
+    hypotheses:
+      - id: H-DG-GRADE-1
+        statement: >
+          以 false-alarm／後續 headroom／vs-hold 分級後，高信心槽維持 sell-half、
+          低信心槽 none（跳過），可使帳戶路徑少賠或少踏空，且不劣於凍結
+          sell-half（FPR↓ 或 net_edge↑ · IS/OOS 同向）。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 自動全平接 Order layer live
+      - auto-rebuy（TF-6 已不採納）
+      - 把 Detach 當 Regime layer（環境層）／四軸診斷
+      - 未過 G2–G6 前改 order.yaml 分級規則
+      - 重跑 C18acc arch/TCP／MiQ entry ban
+    future_order_hooks:
+      note: design only · defaults off · Order-layer sell-risk research
+      env:
+        DETACH_GATE_GRADED_SELL_RESEARCH: "0"
+        ORDER_DETACH_GATE_ALLOW_SKIP: "0"
+        ORDER_DETACH_GATE_FULL_FLATTEN: "0"
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-21 開題。Strategy 已採納 detach-gate sell-half；本 topic 只研
+      false-alarm／graded skip。採納路徑＝Research → Strategy／Order，用語「採納」非「畢業」。
+
+  us-tw-overnight-next-open-ban-new:
+    title: US–TW 隔夜 → 次開禁新開／風險 brief（非 TCP／MiQ）
+    status: active
+    phase: hypothesis
+    layer: research
+    parent: us-tw-divergence-sell-gate
+    related_topics:
+      - detach-gate-graded-sell
+      - c18acc-vol-position-sizing
+      - leading-dip-entry-window-risk
+    report_dir: reports/research/prob_risk
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    run_scripts:
+      - scripts/research/run_us_tw_divergence_sell_gate_study.py
+      - scripts/research/build_overnight_core16_events_cache.py
+      - scripts/research/overnight_chain.sh
+    hypotheses:
+      - id: H-ON-BAN-1
+        statement: >
+          NQ/ES（或 SOX）隔夜相對前一 RTH close 轉弱超過門檻時，對 C18acc／
+          Leading Dip 當日禁止或延後新開（既有持倉不變），可改善開倉日左尾／
+          excess，且不劣於照常開對照。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 重做 arch+TCP σ ban-new entry
+      - 重做 MiQ 1m coverage entry ban
+      - 當成 Regime 四軸診斷
+      - 自動賣出既有倉（與 Detach sell 分離）
+      - 與已拒絕 c18acc-overnight-regime-gate（SOX/FF_OI）混讀為同一採納案
+    future_order_hooks:
+      note: design only · ban-new-open only · defaults off
+      env:
+        US_TW_OVERNIGHT_BAN_NEW_RESEARCH: "0"
+        C18ACC_OVERNIGHT_BAN_NEW_OPEN: "0"
+        LEADING_DIP_OVERNIGHT_BAN_NEW_OPEN: "0"
+        ORDER_OVERNIGHT_RISK_BRIEF_EMAIL: "0"
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-21 開題。決策面＝次日 new-open throttle／brief，不是盤中半倉賣。
+
+  c18acc-internal-timing-deepen:
+    title: C18acc · 冠軍內時點加深（E1300／1320／confirm／defer）
+    status: active
+    phase: hypothesis
+    layer: research
+    parent_strategy: rrg-mono-swap-accel
+    related_topics:
+      - c18acc-entry-e1300
+      - c18acc-adaptive-confirm-allday
+      - c18acc-miq-1m-coverage-health-gate
+    report_dir: reports/research/prob_risk
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    run_scripts:
+      - scripts/research/run_c18acc_confirm_bars_study.py
+      - scripts/research/run_c18acc_entry_defer_poll_study.py
+      - scripts/research/run_c18acc_ntb_window_study.py
+      - scripts/research/run_c18acc_snap_window_study.py
+      - scripts/research/run_c18acc_live_vs_e1320_study.py
+      - scripts/research/run_c18acc_1320_vs_1330_picks.py
+      - scripts/research/run_c18acc_near_close_timeline_study.py
+    hypotheses:
+      - id: H-C18-TIME-1
+        statement: >
+          在凍結池／avoid_mixed／NTB 約束下，精修 confirm／defer／近收盤窗，
+          可使 OOS Δexcess ≥ +0.5pp vs 現行 E@13:00 confirm=1，或同等報酬下左尾改善。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 用 arch／TCP／MiQ 再擋 entry
+      - 把已 superseded 的 EOD-allday 結果直接寫 Order
+      - 未複驗 provisional 就改 C18ACC_NO_TRADE_BEFORE live
+    future_order_hooks:
+      note: design only · defaults off
+      env:
+        C18ACC_TIMING_DEEPEN_RESEARCH: "0"
+        C18ACC_CONFIRM_BARS_OVERRIDE: "0"
+        C18ACC_ENTRY_DEFER_POLL: "0"
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-21 開題。買點在 champion 內部加深；外部 coverage／σ entry ban 已暫停。
+
+  c18acc-vol-position-sizing:
+    title: C18acc · 波動部位縮放／add-throttle（非 σ 進場 ban）
+    status: active
+    phase: hypothesis
+    layer: research
+    parent_strategy: rrg-mono-swap-accel
+    related_topics:
+      - c18acc-arch-tcp-daily-risk-overlay  # σ feature only · no entry ban
+    report_dir: reports/research/prob_risk
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    run_scripts:
+      - scripts/research/run_c18acc_vol_sizing_overlay.py  # TBD thin runner
+    hypotheses:
+      - id: H-VOL-SIZE-1
+        statement: >
+          高 σ（arch GARCH）或高 realized vol 日將 slot 預算 ×w∈(0,1] 或暫停
+          pyramid add，可使 3-slot 路徑 maxDD／p05 改善，且全期 compound 劣化
+          ≤約定門檻（建議 ≤15% relative）。永不做 σ percentile 進場 ban。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - σ／TCP／width → ban new entry（含重跑 20260721 INCONCLUSIVE 設計）
+      - 把 sizing 當買 alpha
+      - 未過 G2–G6 前開 live throttle flag
+    future_order_hooks:
+      note: design only · sizing / add-throttle only · defaults off
+      env:
+        C18ACC_VOL_SIZING_RESEARCH: "0"
+        C18ACC_VOL_SIZE_THROTTLE: "0"
+        C18ACC_PYRAMID_ADD_VOL_THROTTLE: "0"
+        C18ACC_DAILY_RISK_GATE: "0"  # keep off · must not mean entry ban
+      read_points:
+        - scripts/order/run_c18acc_position_poll.py
+        - src/order/c18acc_order.py
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-21 開題。可重用 c18acc_arch_tcp_day_gate.csv 的 σ 欄當 feature；
+      目標函數＝sizing，不是 entry block。
+
+  leading-dip-entry-window-risk:
+    title: Leading Dip · 進場窗風險節流（optional · cheap）
+    status: active
+    phase: hypothesis
+    layer: research
+    related_strategy:
+      - leading-dip
+      - leading-dip-mid
+    related_topics:
+      - us-tw-overnight-next-open-ban-new
+      - leading-dip-1m-beat
+    report_dir: reports/research/prob_risk
+    matrix_ref: reports/research/prob_risk/20260721_worth_continuing_research_matrix.md
+    run_scripts:
+      - scripts/research/run_leading_dip_sleeve_validate.py
+      - scripts/research/run_leading_dip_1m_beat_study.py
+    hypotheses:
+      - id: H-LD-WIN-1
+        statement: >
+          限制或延後特定開盤分鐘窗（或與 overnight ban-new 聯動）可改善
+          Leading Dip sleeve p05，且 hit rate 不崩。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 為 LD 重跑 arch／MiQ entry ban
+      - 未過閘改 live Leading Dip launchd
+    future_order_hooks:
+      note: optional · design only · defaults off
+      env:
+        LEADING_DIP_ENTRY_WINDOW_RISK_RESEARCH: "0"
+        LEADING_DIP_ENTRY_WINDOW_GATE: "0"
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-21 optional 開題。優先級低於 A–D；可與 Track B 標籤共用。
+
+  trend3d-forecast-hunt:
+    title: 三日趨勢預測方法掃描（日K＋大盤＋籌碼並行支線）
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/intraday_direction_thermometer/trend3d_hunt_20260723
+    plan: reports/research/intraday_direction_thermometer/TREND3D_HUNT_PLAN.md
+    parent: intraday-direction-thermometer
+    run_scripts:
+      - scripts/research/run_trend3d_thermometer_backtest.py
+    hypotheses:
+      - id: H-T3H-A
+        statement: 日頻短窗報酬延續／反轉網格可提升 fwd_3d 分桶期望或方向命中
+        status: testing
+      - id: H-T3H-B
+        statement: 三大法人／外資／投信淨額領先價 1–3 日
+        status: testing
+      - id: H-T3H-C
+        statement: 相對 IX0001 強度或殘差動能可預測個股 fwd_3d
+        status: testing
+      - id: H-T3H-D
+        statement: RSI/MACD/均線/布林日頻對 fwd_3d 有可复現邊
+        status: testing
+      - id: H-T3H-E
+        statement: ATR／成交量高潮或波動壓縮後的 3d 路徑可分邊
+        status: testing
+    do_not:
+      - 未過閘寫入 strategy.yaml / Order live
+      - 使用非 PIT 特徵
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+
+  intraday-direction-thermometer:
+    title: 盤中方向溫度計（短線5分＋開盤守衛＋1h波段＋三日日K/大盤/籌碼）
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/intraday_direction_thermometer
+    module: src/research/intraday_direction_thermometer.py
+    run_scripts:
+      - scripts/research/run_intraday_direction_thermometer.py
+      - scripts/research/run_trend3d_thermometer_backtest.py
+    frozen_defaults:
+      open_guard_bars: 6
+      swing_ready_bars: 12
+      swing_lookback_bars: 8
+      swing_horizon_bars: 12
+      trend_days: 3
+    hypotheses:
+      - id: H-THERMO-1
+        statement: >
+          開盤後 N=6～8 根5分K不追高，可降低追價單的後續1h負期望；
+          1h波段層需 L≥6～12 根才顯示；三日層結合日K＋相對IX0001＋三大法人淨額。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 未過閘寫入 strategy.yaml / Order live
+      - 把溫度計當自動下單訊號
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+
+  second-disp-expert-pool-copytrade:
+    title: 處置股專家池跟單策略
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/branch-footprint-screen/second_disp_top30_l1h7
+    knowledge: reports/research/branch-footprint-screen/second_disp_top30_l1h7/處置股專家池跟單策略.md
+    config: config/second_disp_expert_pool_watch.json
+    run_scripts:
+      - scripts/research/run_second_disp_top30_l1h7.py
+      - scripts/research/run_second_disp_expert_pool_watch.py
+    hypotheses:
+      - id: H-SD-POOL-1
+        statement: >
+          2026 第二次處置窗內，九席專家池自適應金額買進＋T0 濾網
+          （r5≥15%∩台指≤0 硬濾；開盤追價>+5% 不進）可維持可跟樣本品質。
+        status: proposed
+        adoptable_status: proposed
+    do_not:
+      - 未過閘寫入 strategy.yaml / Order live
+      - 把外資席當散戶主跟單模板
+    future_order_hooks:
+      note: observe-only · launchd email on mini 20:35
+      env:
+        RUN_SECOND_DISP_EXPERT_POOL_EMAIL: "1"
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-07-23 開題並掛 mini 20:35 觀測。證據見 LEADERBOARD_whale100_balanced_n /
+      LEADERBOARD_w300x_balanced_n / focus7_enriched。未採納。

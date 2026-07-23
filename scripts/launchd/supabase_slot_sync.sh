@@ -10,10 +10,16 @@ ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PYTHON="${ROOT}/.venv/bin/python"
 
 if [[ -f "${ROOT}/.env" && -x "${PYTHON}" ]]; then
+  set +e
   set -a
   # shellcheck disable=SC1091
   eval "$("${PYTHON}" -c "from project_dotenv import shell_export_dotenv; print(shell_export_dotenv())")"
+  _env_rc=$?
   set +a
+  set -e
+  if [[ "${_env_rc}" -ne 0 ]]; then
+    echo "WARN: cannot load .env via project_dotenv rc=${_env_rc} · continue"
+  fi
 fi
 
 "${ROOT}/scripts/research_supabase_sync.sh" "${SLOT}" || true

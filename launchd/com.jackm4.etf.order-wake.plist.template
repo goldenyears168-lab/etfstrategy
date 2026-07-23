@@ -6,9 +6,8 @@
 	<string>com.jackm4.etf.order-wake</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gj</string>
-		<string>{{PROJECT_ROOT}}/scripts/launchd/order-wake.command</string>
+		<string>/bin/bash</string>
+		<string>{{ORDER_WAKE_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -17,39 +16,17 @@
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<key>StartCalendarInterval</key>
-	<array>
-		<dict>
-			<key>Weekday</key><integer>1</integer>
-			<key>Hour</key><integer>8</integer>
-			<key>Minute</key><integer>55</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>2</integer>
-			<key>Hour</key><integer>8</integer>
-			<key>Minute</key><integer>55</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>3</integer>
-			<key>Hour</key><integer>8</integer>
-			<key>Minute</key><integer>55</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>4</integer>
-			<key>Hour</key><integer>8</integer>
-			<key>Minute</key><integer>55</integer>
-		</dict>
-		<dict>
-			<key>Weekday</key><integer>5</integer>
-			<key>Hour</key><integer>8</integer>
-			<key>Minute</key><integer>55</integer>
-		</dict>
-	</array>
+	<!-- 每 300 秒；實際 08:50–13:40 由 launcher 過濾（避開 Aqua Calendar 停火） -->
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>ExitTimeOut</key>
+	<integer>60</integer>
+	<!-- stdout 勿指向 Documents（launchd open 會 EX_CONFIG / TCC） -->
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_order-wake.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-wake.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_order-wake.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-wake.launchd.err.log</string>
 	<key>RunAtLoad</key>
-	<false/>
+	<true/>
 </dict>
 </plist>

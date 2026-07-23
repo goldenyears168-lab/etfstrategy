@@ -107,7 +107,12 @@ class TestStockMarketTables(unittest.TestCase):
             self.conn, ("00981A", "00403A"), fund_codes=()
         )
         ids = {w["stock_id"] for w in watch}
-        self.assertEqual(ids, {"2330", "2317"})
+        # SUPPLEMENTAL_WATCHLIST_STOCKS 永遠併入 watchlist universe
+        from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
+
+        self.assertEqual(
+            ids, {"2330", "2317"} | set(SUPPLEMENTAL_WATCHLIST_STOCKS)
+        )
         tsm = next(w for w in watch if w["stock_id"] == "2330")
         self.assertEqual(tsm["etf_hold_count"], 2)
         self.assertEqual(tsm["fund_hold_count"], 0)
@@ -157,7 +162,11 @@ class TestStockMarketTables(unittest.TestCase):
             benchmark_codes=("0050",),
         )
         ids = {w["stock_id"] for w in watch}
-        self.assertEqual(ids, {"2330", "2395"})
+        from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
+
+        self.assertEqual(
+            ids, {"2330", "2395"} | set(SUPPLEMENTAL_WATCHLIST_STOCKS)
+        )
         adv = next(w for w in watch if w["stock_id"] == "2395")
         self.assertEqual(adv["benchmark_hold_count"], 1)
         self.assertEqual(adv["etf_hold_count"], 0)
@@ -216,9 +225,14 @@ class TestStockMarketTables(unittest.TestCase):
         )
         watch = load_etf_constituent_watchlist(self.conn, (), fund_codes=("ACDD04",))
         ids = {w["stock_id"] for w in watch}
-        self.assertEqual(ids, {"2454", "6669"})
+        from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
+
+        self.assertEqual(
+            ids, {"2454", "6669"} | set(SUPPLEMENTAL_WATCHLIST_STOCKS)
+        )
         self.assertTrue(all(w["etf_hold_count"] == 0 for w in watch))
-        self.assertTrue(all(w["fund_hold_count"] == 1 for w in watch))
+        fund_rows = [w for w in watch if w["stock_id"] in {"2454", "6669"}]
+        self.assertTrue(all(w["fund_hold_count"] == 1 for w in fund_rows))
 
     def test_constituent_watchlist_includes_supplemental(self) -> None:
         from project_config import SUPPLEMENTAL_WATCHLIST_STOCKS
@@ -231,10 +245,12 @@ class TestStockMarketTables(unittest.TestCase):
         )
         ids = {w["stock_id"] for w in watch}
         self.assertTrue(ids.issuperset(SUPPLEMENTAL_WATCHLIST_STOCKS.keys()))
-        innolux = next(w for w in watch if w["stock_id"] == "3481")
-        self.assertEqual(innolux["stock_name"], "群創")
-        self.assertEqual(innolux["supplemental_hold_count"], 1)
-        self.assertEqual(innolux["etf_hold_count"], 0)
+        # 名單會隨 RRG 輪動更新，取當前名單首檔驗證，避免寫死個股
+        sample_id, sample_name = next(iter(SUPPLEMENTAL_WATCHLIST_STOCKS.items()))
+        sample = next(w for w in watch if w["stock_id"] == sample_id)
+        self.assertEqual(sample["stock_name"], sample_name)
+        self.assertEqual(sample["supplemental_hold_count"], 1)
+        self.assertEqual(sample["etf_hold_count"], 0)
 
     def test_ever_held_and_universe_gaps(self) -> None:
         synced = "2026-06-01T00:00:00+00:00"

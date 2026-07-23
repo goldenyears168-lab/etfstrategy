@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
 
 # Reuse event engine from sibling script
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_leading_stage2_crash_entry_backtest import (  # noqa: E402
     BENCH,
     Event,

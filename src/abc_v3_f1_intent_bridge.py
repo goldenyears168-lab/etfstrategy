@@ -104,6 +104,48 @@ def update_intent_submit_status(path: Path, *, status: str, reason: str = "") ->
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def quarantine_intent_file(path: Path, *, reason: str) -> Path | None:
+    """Move failed / unsafe intent under intents/quarantine/ so manual resubmit is hard."""
+    if not path.is_file():
+        return None
+    qdir = INTENTS_DIR / "quarantine"
+    qdir.mkdir(parents=True, exist_ok=True)
+    update_intent_submit_status(path, status="failed", reason=reason)
+    dest = qdir / path.name
+    if dest.exists():
+        stamp = datetime.now().strftime("%H%M%S")
+        dest = qdir / f"{path.stem}_{stamp}{path.suffix}"
+    path.replace(dest)
+    return dest
+
+
+def intent_manual_submit_block_reason(payload: dict[str, Any]) -> str | None:
+    """Refuse dangerous manual --submit of leftover / placeholder intents."""
+    meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    strategy_id = str(payload.get("strategy_id") or "").strip().lower()
+    user_def = str(meta.get("user_def") or "").strip().lower()
+    if (
+        strategy_id.startswith("abc-v3")
+        or user_def.startswith("abc-v3")
+        or meta.get("abc_v3_f1_only") is True
+        or str(meta.get("pool_id") or "").strip().lower().startswith("abc-v3")
+    ):
+        return "intent_submit_blocked:abc_order_removed"
+    status = str(meta.get("submit_status") or "").strip().lower()
+    if status in {"submitted", "reconciled", "failed", "filled", "partial", "working", "ambiguous"}:
+        return f"intent_submit_blocked:submit_status={status}"
+    if meta.get("resolve_qty_from_budget") is True:
+        return "intent_submit_blocked:resolve_qty_from_budget_placeholder"
+    intents = payload.get("intents") if isinstance(payload.get("intents"), list) else []
+    for row in intents:
+        if not isinstance(row, dict):
+            continue
+        qty = row.get("quantity_shares")
+        if qty is not None and int(qty) == 1 and meta.get("resolve_qty_from_budget"):
+            return "intent_submit_blocked:placeholder_qty_1"
+    return None
+
+
 def format_order_log_lines(results: list[dict[str, Any]]) -> list[str]:
     if not results:
         return []
@@ -112,7 +154,14 @@ def format_order_log_lines(results: list[dict[str, Any]]) -> list[str]:
         sym = row.get("symbol") or "?"
         status = row.get("status") or "?"
         lifecycle = row.get("lifecycle_status") or ""
-        if status in ("submitted", "reconciled"):
+        if status in (
+            "submitted",
+            "reconciled",
+            "working",
+            "filled",
+            "partial",
+            "ambiguous",
+        ):
             reentry = row.get("reentry")
             extra = f" · {reentry}" if reentry else ""
             lc = f" · {lifecycle}" if lifecycle else ""

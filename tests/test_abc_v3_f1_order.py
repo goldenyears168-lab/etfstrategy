@@ -179,7 +179,15 @@ class TestAbcV3F1Reentry(unittest.TestCase):
             ledger_path = Path(tmp) / "ledger.json"
             intents_dir = Path(tmp) / "intents"
             intents_dir.mkdir()
-            with patch.dict(os.environ, {"ABC_V3_F1_AUTO_SUBMIT": "0"}, clear=False):
+            with patch.dict(
+                os.environ,
+                {
+                    "ABC_V3_F1_ORDER_ENABLED": "1",
+                    "ABC_V3_F1_AUTO_SUBMIT": "0",
+                    "ABC_V3_F1_ORDER_FORCE_LEGACY": "1",
+                },
+                clear=False,
+            ):
                 with patch("order.abc_v3_f1_reentry.LEDGER_PATH", ledger_path):
                     with patch("abc_v3_f1_intent_bridge.INTENTS_DIR", intents_dir):
                         with patch("order.abc_v3_f1_reentry.load_tw_trading_dates", return_value=TD):
@@ -198,15 +206,27 @@ class TestAbcV3F1Reentry(unittest.TestCase):
 
     def test_load_config_max_entries_five(self) -> None:
         cfg = load_abc_v3_f1_order_config()
-        self.assertEqual(cfg.max_entries_per_day, 5)
-        self.assertEqual(cfg.max_notional_per_symbol_twd, 60000)
+        self.assertEqual(cfg.max_entries_per_day, 10)
+        self.assertEqual(cfg.budget_twd, 10000)
+        self.assertEqual(cfg.max_notional_per_symbol_twd, 30000)
+        # Order sleeve retired · defaults off unless FORCE_LEGACY
+        self.assertFalse(cfg.order_enabled)
+        self.assertFalse(cfg.auto_submit)
 
     def test_process_dry_run_with_reentry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "ledger.json"
             intents_dir = Path(tmp) / "intents"
             intents_dir.mkdir()
-            with patch.dict(os.environ, {"ABC_V3_F1_AUTO_SUBMIT": "0"}, clear=False):
+            with patch.dict(
+                os.environ,
+                {
+                    "ABC_V3_F1_ORDER_ENABLED": "1",
+                    "ABC_V3_F1_AUTO_SUBMIT": "0",
+                    "ABC_V3_F1_ORDER_FORCE_LEGACY": "1",
+                },
+                clear=False,
+            ):
                 with patch("order.abc_v3_f1_reentry.LEDGER_PATH", ledger_path):
                     with patch("abc_v3_f1_intent_bridge.INTENTS_DIR", intents_dir):
                         with patch("order.abc_v3_f1_reentry.load_tw_trading_dates", return_value=TD):
@@ -275,44 +295,57 @@ class TestAbcV3F1Reentry(unittest.TestCase):
                 }
 
             with patch.dict(sys.modules, module_patches):
-                with patch.dict(os.environ, {"ABC_V3_F1_AUTO_SUBMIT": "1"}, clear=False):
-                    with patch("order.abc_v3_f1_reentry.LEDGER_PATH", ledger_path):
-                        with patch("abc_v3_f1_intent_bridge.INTENTS_DIR", intents_dir):
-                            with patch("order.abc_v3_f1_reentry.load_tw_trading_dates", return_value=TD):
-                                with patch("order.fubon_session.connect_fubon", return_value=mock_session):
-                                    with patch(
-                                        "order.fubon_account.bank_remain",
-                                        return_value={"available_balance": 100000},
-                                    ):
-                                        with patch(
-                                            "order.chase_runner.chase_ask_price",
-                                            side_effect=_fake_chase,
-                                        ):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "ABC_V3_F1_ORDER_ENABLED": "1",
+                        "ABC_V3_F1_AUTO_SUBMIT": "1",
+                        "ABC_V3_F1_ORDER_FORCE_LEGACY": "1",
+                    },
+                    clear=False,
+                ):
+                    with patch("order.fubon_subprocess.host_needs_fubon_venv", return_value=False):
+                        with patch(
+                            "order.live_submit_guard.live_submit_block_reason",
+                            return_value=None,
+                        ):
+                            with patch("order.abc_v3_f1_reentry.LEDGER_PATH", ledger_path):
+                                with patch("abc_v3_f1_intent_bridge.INTENTS_DIR", intents_dir):
+                                    with patch("order.abc_v3_f1_reentry.load_tw_trading_dates", return_value=TD):
+                                        with patch("order.fubon_session.connect_fubon", return_value=mock_session):
                                             with patch(
-                                                "order.fubon_orders.cancel_open_buys_for_symbols",
-                                                return_value=[],
+                                                "order.fubon_account.bank_remain",
+                                                return_value={"available_balance": 100000},
                                             ):
                                                 with patch(
-                                                    "order.fubon_orders.place_resolved_order",
-                                                    side_effect=_fake_place,
+                                                    "order.chase_runner.chase_ask_price",
+                                                    side_effect=_fake_chase,
                                                 ):
                                                     with patch(
-                                                        "order.abc_v3_f1_order.reconcile_before_submit",
-                                                        return_value=None,
+                                                        "order.fubon_orders.cancel_open_buys_for_symbols",
+                                                        return_value=[],
                                                     ):
                                                         with patch(
-                                                            "order.abc_v3_f1_order.poll_order_lifecycle",
-                                                            side_effect=_fake_poll,
+                                                            "order.fubon_orders.place_resolved_order",
+                                                            side_effect=_fake_place,
                                                         ):
-                                                            results = process_abc_v3_f1_orders(
-                                                                session_date="2026-07-09",
-                                                                poll_minute="13:00",
-                                                                signals=[
-                                                                    _Sig(stock_id="6257", price=241.5)
-                                                                ],
-                                                                dry_run=False,
-                                                            )
-            self.assertEqual(results[0]["status"], "submitted")
+                                                            with patch(
+                                                                "order.abc_v3_f1_order.reconcile_before_submit",
+                                                                return_value=None,
+                                                            ):
+                                                                with patch(
+                                                                    "order.abc_v3_f1_order.poll_order_lifecycle",
+                                                                    side_effect=_fake_poll,
+                                                                ):
+                                                                    results = process_abc_v3_f1_orders(
+                                                                        session_date="2026-07-09",
+                                                                        poll_minute="13:00",
+                                                                        signals=[
+                                                                            _Sig(stock_id="6257", price=241.5)
+                                                                        ],
+                                                                        dry_run=False,
+                                                                    )
+            self.assertEqual(results[0]["status"], "working")
             self.assertTrue(results[0].get("notify_submit"))
             self.assertEqual(results[0]["lifecycle_status"], "working")
             self.assertIn("client_intent_id", results[0])

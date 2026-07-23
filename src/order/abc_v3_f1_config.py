@@ -69,17 +69,23 @@ def load_abc_v3_f1_order_config(cfg: dict[str, Any] | None = None) -> AbcV3F1Ord
     reentry = spec.get("reentry") if isinstance(spec.get("reentry"), dict) else {}
     lifecycle = raw.get("lifecycle") if isinstance(raw.get("lifecycle"), dict) else {}
 
-    yaml_enabled = bool(spec.get("enabled", True))
+    # YAML + env. Live Order paths (buy-radar · fubon_subprocess) no longer call this
+    # sleeve; retired_from_order in order.yaml keeps defaults off.
+    yaml_enabled = bool(spec.get("enabled", False)) if spec else False
     order_enabled = _env_flag("ABC_V3_F1_ORDER_ENABLED", "1" if yaml_enabled else "0")
-    auto_submit = _env_flag("ABC_V3_F1_AUTO_SUBMIT", "1")
-    budget = _env_int("ABC_V3_F1_BUDGET_TWD", int(spec.get("budget_twd") or 20_000))
+    auto_submit = _env_flag("ABC_V3_F1_AUTO_SUBMIT", "1" if yaml_enabled else "0")
+    if bool(spec.get("retired_from_order")) and not _env_flag("ABC_V3_F1_ORDER_FORCE_LEGACY", "0"):
+        # Env alone cannot revive live Order; tests may set FORCE_LEGACY=1.
+        order_enabled = False
+        auto_submit = False
+    budget = _env_int("ABC_V3_F1_BUDGET_TWD", int(spec.get("budget_twd") or 10_000))
 
     return AbcV3F1OrderConfig(
         order_enabled=order_enabled,
         auto_submit=auto_submit,
         budget_twd=budget,
         max_entries_per_day=_env_int(
-            "ABC_V3_F1_MAX_ENTRIES_DAY", int(spec.get("max_entries_per_day") or 5)
+            "ABC_V3_F1_MAX_ENTRIES_DAY", int(spec.get("max_entries_per_day") or 10)
         ),
         price_type=str(spec.get("price_type") or "chase_ask"),
         market_type=str(spec.get("market_type") or "intraday_odd"),
@@ -118,7 +124,7 @@ def load_abc_v3_f1_order_config(cfg: dict[str, Any] | None = None) -> AbcV3F1Ord
         notional_basis=str(
             os.environ.get("ABC_V3_F1_NOTIONAL_BASIS")
             or lifecycle.get("notional_basis")
-            or "submitted"
+            or "filled"
         ).strip().lower(),
         submit_notify=_env_flag(
             "RUN_ABC_V3_F1_SUBMIT_EMAIL",

@@ -47,19 +47,22 @@ def _result_data(res: Any) -> Any:
 
 
 def holdings_shares_by_symbol(session: FubonSession, acc: Any | None = None) -> dict[str, int]:
-    """整股 + 零股可賣量合計（股）。"""
+    """整股 + 零股持有量合計（股）。
+
+    當日買進未交割時 ``tradable_qty`` 常為 0；改用 today_qty（與 account_snapshot 一致）。
+    """
+    from order.fubon_account import _held_qty, _inventory_row
+
     account = acc or session.primary
     data = _result_data(session.sdk.accounting.inventories(account))
     out: dict[str, int] = {}
     for item in list(data or []):
-        sym = str(getattr(item, "stock_no", "") or "")
+        row = _inventory_row(item)
+        sym = str(row.get("stock_no") or "")
         if not sym:
             continue
-        whole = int(getattr(item, "tradable_qty", 0) or 0)
-        odd_obj = getattr(item, "odd", None)
-        odd = int(getattr(odd_obj, "tradable_qty", 0) or 0) if odd_obj is not None else 0
-        total = whole + odd
-        if total > 0 or sym in out:
+        total = _held_qty(row)
+        if total > 0:
             out[sym] = total
     return out
 
@@ -72,6 +75,41 @@ def _is_buy_order(item: Any) -> bool:
     return "buy" in name
 
 
+def cancel_open_orders_for_symbols(
+    session: FubonSession,
+    symbols: set[str],
+    *,
+    side: str | None = None,
+    acc: Any | None = None,
+) -> list[dict[str, Any]]:
+    """撤銷指定標的之委託中單。side=buy|sell|None（None＝買賣皆撤）。"""
+    account = acc or session.primary
+    data = _result_data(session.sdk.stock.get_order_results(account))
+    out: list[dict[str, Any]] = []
+    side_l = (side or "").strip().lower() or None
+    for item in list(data or []):
+        sym = str(getattr(item, "stock_no", "") or "")
+        if sym not in symbols:
+            continue
+        if not is_open_order(item):
+            continue
+        is_buy = _is_buy_order(item)
+        if side_l == "buy" and not is_buy:
+            continue
+        if side_l == "sell" and is_buy:
+            continue
+        ok = _result_ok(session.sdk.stock.cancel_order(account, item))
+        out.append(
+            {
+                "symbol": sym,
+                "order_no": getattr(item, "order_no", None),
+                "side": "buy" if is_buy else "sell",
+                "cancelled": ok,
+            }
+        )
+    return out
+
+
 def cancel_open_buys_for_symbols(
     session: FubonSession,
     symbols: set[str],
@@ -79,27 +117,7 @@ def cancel_open_buys_for_symbols(
     acc: Any | None = None,
 ) -> list[dict[str, Any]]:
     """撤銷指定標的之委託中買單（含人工掛單）。"""
-    account = acc or session.primary
-    data = _result_data(session.sdk.stock.get_order_results(account))
-    out: list[dict[str, Any]] = []
-    for item in list(data or []):
-        sym = str(getattr(item, "stock_no", "") or "")
-        if sym not in symbols:
-            continue
-        if not is_open_order(item):
-            continue
-        if not _is_buy_order(item):
-            continue
-        ok = _result_ok(session.sdk.stock.cancel_order(account, item))
-        out.append(
-            {
-                "symbol": sym,
-                "order_no": getattr(item, "order_no", None),
-                "cancelled": ok,
-            }
-        )
-    return out
-
+    return cancel_open_orders_for_symbols(session, symbols, side="buy", acc=acc)
 
 def apply_chase_prices(
     session: FubonSession,
@@ -221,6 +239,10 @@ def place_resolved_order(
     *,
     acc: Any | None = None,
 ) -> dict[str, Any]:
+    from order.live_submit_guard import assert_live_submit_allowed
+
+    # Last-line choke · pytest / ORDER_LIVE_FORBIDDEN must never reach the broker
+    assert_live_submit_allowed()
     account = acc or session.primary
     order = build_order(resolved)
     res = session.sdk.stock.place_order(account, order)

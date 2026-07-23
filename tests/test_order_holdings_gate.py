@@ -387,7 +387,8 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
         self.assertFalse(result.portfolio_exit_mode)
         self.assertTrue(result.checks)
 
-    def test_structural_s1b_without_gate(self) -> None:
+    def test_structural_no_rrg_weak_minus3_without_gate(self) -> None:
+        """退役規則：weakening + ≤-3% 且 gate 未開 → 不產生獨立賣訊。"""
         from order.intraday_structural_exit import scan_structural_sell_signals
 
         rows = [
@@ -421,9 +422,12 @@ class TestOrderHoldingsSnapshot(unittest.TestCase):
             holdings={"2327": 20},
         )
         self.assertFalse(ctx.gate_ran)
-        self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].exit_mode, "trigger_s1b")
-        self.assertEqual(signals[0].stock_id, "2327")
+        self.assertTrue(all(s.exit_mode != "trigger_s1b" for s in signals))
+        self.assertTrue(all(s.exit_mode != "trigger_s2" for s in signals))
+        # 可有 S0 觀測，但不得再發已退役之 RRG weak -3% 賣訊
+        self.assertTrue(
+            all(s.exit_mode in ("watch_s0", "watch_s0b") for s in signals) or signals == []
+        )
 
     def test_structural_s2_requires_gate_on(self) -> None:
         from order.intraday_structural_exit import scan_structural_sell_signals

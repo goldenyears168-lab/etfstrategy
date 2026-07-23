@@ -24,6 +24,16 @@ def _registry_with_disabled(*strategy_ids: str):
     return replace(reg, strategies=strategies)
 
 
+def _registry_with_enabled(*strategy_ids: str):
+    reg = load_strategy_registry()
+    enabled = set(strategy_ids)
+    strategies = tuple(
+        replace(s, enabled=True) if s.strategy_id in enabled else s
+        for s in reg.strategies
+    )
+    return replace(reg, strategies=strategies)
+
+
 class PipelineGatesTests(unittest.TestCase):
     def test_rrg_mono_skip_when_registry_disabled(self) -> None:
         env = {**os.environ, "RUN_RRG_MONO_DAILY": "1"}
@@ -33,13 +43,20 @@ class PipelineGatesTests(unittest.TestCase):
 
     def test_rrg_mono_runs_when_registry_and_run_env_on(self) -> None:
         env = {**os.environ, "RUN_RRG_MONO_DAILY": "1"}
-        reason = daily_sync_skip_reason("rrg_mono_daily", env)
+        reg = _registry_with_enabled("rrg-mono-hold7")
+        reason = daily_sync_skip_reason("rrg_mono_daily", env, registry=reg)
         self.assertIsNone(reason)
 
     def test_rrg_mono_skip_when_run_env_off(self) -> None:
         env = {**os.environ, "RUN_RRG_MONO_DAILY": "0"}
-        reason = daily_sync_skip_reason("rrg_mono_daily", env)
+        reg = _registry_with_enabled("rrg-mono-hold7")
+        reason = daily_sync_skip_reason("rrg_mono_daily", env, registry=reg)
         self.assertEqual(reason, "RUN_RRG_MONO_DAILY=0")
+
+    def test_rrg_mono_skip_by_default_legacy_disabled(self) -> None:
+        env = {**os.environ, "RUN_RRG_MONO_DAILY": "1"}
+        reason = daily_sync_skip_reason("rrg_mono_daily", env)
+        self.assertEqual(reason, "registry enabled=false")
 
     def test_rrg_universe_any_strategy_gate(self) -> None:
         reg = _registry_with_disabled("rrg-mono-hold7", "rrg-mono-swap-accel")

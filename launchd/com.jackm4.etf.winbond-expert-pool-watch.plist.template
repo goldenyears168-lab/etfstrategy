@@ -11,6 +11,9 @@
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
+	<!-- Env (incl. optional EXPERT_POOL_YELLOW_EMAIL_ANNOTATION) comes from
+	     launcher sourcing PROJECT_ROOT/.env — do NOT hardcode secrets/flags here.
+	     Yellow annotation default OFF; see expert_pool/MINI_OPS_REFERENCE.md -->
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>

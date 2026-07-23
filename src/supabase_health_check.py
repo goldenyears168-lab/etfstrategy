@@ -417,5 +417,5 @@ def run_cli(
     ok = overall_ok(checks)
     if notify and not ok:
         fails = [c.name for c in checks if c.level == "fail"]
-        macos_notify("ETF研究 · Supabase", f"健康檢查 FAIL · {', '.join(fails[:3])}")
+        macos_notify("股票研究 · Supabase", f"健康檢查 FAIL · {', '.join(fails[:3])}")
     return 0 if ok else 1

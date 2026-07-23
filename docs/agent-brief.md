@@ -23,7 +23,7 @@
 | 收盤 DAG | `config/pipelines/daily_close.yaml` |
 | 策略 registry · enabled · publish | `config/strategies.yaml` |
 | 採納規格 · backtest | `config/strategy.yaml` |
-| 探索主題 · sweep | `config/research.yaml`（Phase D · v5 · 0 active） |
+| 探索主題 · sweep | `config/research.yaml`（v5 · 38 active topics · 2026-07-23） |
 | Regime 四軸 | `config/regime.yaml` |
 | 下單意圖 | `config/order.yaml` |
 | Pipeline / launchd 腳本 registry | `config/pipeline_scripts.yaml` |

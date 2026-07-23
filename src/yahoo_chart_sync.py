@@ -14,9 +14,11 @@ YAHOO_KBAR_SOURCE = "yahoo"
 YFINANCE_TW_SOURCE = "yfinance"
 YFINANCE_US_SOURCE = "yfinance"
 
-# daily_bars.code → Yahoo symbol
+# daily_bars.code / bench tick id → Yahoo symbol
 YAHOO_INDEX_CODES: dict[str, str] = {
     "IX0001": "^TWII",
+    "TAIEX": "^TWII",
+    "TWII": "^TWII",
     "IR0002": "0050.TW",
     "TSM_ADR": "TSM",
     "SOX": "^SOX",
@@ -171,7 +173,15 @@ def fetch_yahoo_corporate_actions(
 
 
 def tw_yahoo_symbol_candidates(stock_id: str) -> tuple[str, ...]:
+    """Resolve Yahoo symbols for TW stocks and index aliases (IX0001/TAIEX → ^TWII)."""
     sid = stock_id.strip()
+    if not sid:
+        return ()
+    if sid.startswith("^"):
+        return (sid,)
+    mapped = YAHOO_INDEX_CODES.get(sid) or YAHOO_INDEX_CODES.get(sid.upper())
+    if mapped:
+        return (mapped,)
     if sid.startswith("00") and len(sid) <= 5:
         return (f"{sid}.TW",)
     return (f"{sid}.TW", f"{sid}.TWO")

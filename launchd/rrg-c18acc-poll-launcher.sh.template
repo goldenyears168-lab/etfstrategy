@@ -5,6 +5,7 @@
 set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
 EXIT=0
 
 mkdir -p "${ROOT}/logs/intraday"
@@ -19,14 +20,66 @@ if [[ "${H}" -lt 9 ]] || [[ "${H}" -gt 13 ]] || { [[ "${H}" -eq 13 ]] && [[ "${M
   exit 0
 fi
 
+# Skip if a previous tick is still running (avoids stacked hung polls).
+# mkdir-lock：macOS 無 util-linux flock；勿再用 flock（會誤判 skip 整日）.
+mkdir -p "${ROOT}/logs/intraday"
+LOCK_DIR="${ROOT}/logs/intraday/rrg_c18acc_poll.lockdir"
+_release_c18acc_lock() {
+  rm -rf "${LOCK_DIR}" 2>/dev/null || true
+}
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  _old_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+  if [[ -n "${_old_pid}" ]] && kill -0 "${_old_pid}" 2>/dev/null; then
+    echo "skip: previous poll still running ($(date '+%Y-%m-%d %H:%M:%S')) pid=${_old_pid}"
+    exit 0
+  fi
+  # stale lock（進程已死）
+  rm -rf "${LOCK_DIR}" 2>/dev/null || true
+  if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+    echo "skip: previous poll still running ($(date '+%Y-%m-%d %H:%M:%S'))"
+    exit 0
+  fi
+fi
+echo $$ >"${LOCK_DIR}/pid"
+trap _release_c18acc_lock EXIT
+# 清掉舊版 flock 空檔（若存在）
+rm -f "${ROOT}/logs/intraday/rrg_c18acc_poll.lock" 2>/dev/null || true
+
 echo ""
 echo "=== launchd rrg-c18acc-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
+
+# Prefer App Support mirror (launchd can read it). Documents .env may hit TCC.
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  # launchd may lack Documents TCC · skip unreadable paths (order.env is SSOT)
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${ROOT}/.env" "project .env"
+
 export RUN_RRG_C18ACC_SCREEN="${RUN_RRG_C18ACC_SCREEN:-1}"
-export ORDER_C18ACC_DRY_RUN="${ORDER_C18ACC_DRY_RUN:-1}"
-export ORDER_C18ACC_APPLY_STATE="${ORDER_C18ACC_APPLY_STATE:-0}"
+export ORDER_C18ACC_DRY_RUN="${ORDER_C18ACC_DRY_RUN:-0}"
+export ORDER_C18ACC_APPLY_STATE="${ORDER_C18ACC_APPLY_STATE:-1}"
+export ORDER_C18ACC_ORDER_ENABLED="${ORDER_C18ACC_ORDER_ENABLED:-1}"
+export ORDER_C18ACC_AUTO_SUBMIT="${ORDER_C18ACC_AUTO_SUBMIT:-1}"
+export C18ACC_NO_TRADE_BEFORE="${C18ACC_NO_TRADE_BEFORE:-13:20}"
 export C18ACC_KBAR_SYNC="${C18ACC_KBAR_SYNC:-1}"
 export RUN_RRG_C18ACC_EMAIL="${RUN_RRG_C18ACC_EMAIL:-0}"
 export RUN_C18ACC_EXTENSION_OVERLAY="${RUN_C18ACC_EXTENSION_OVERLAY:-0}"
@@ -39,7 +92,7 @@ export C18ACC_EXTENSION_HEAT="${C18ACC_EXTENSION_HEAT:-70}"
 export C18ACC_EXTENSION_DRY_RUN="${C18ACC_EXTENSION_DRY_RUN:-1}"
 export C18ACC_EXTENSION_EMIT_INTENT="${C18ACC_EXTENSION_EMIT_INTENT:-0}"
 export C18ACC_EXTENSION_APPLY_STATE="${C18ACC_EXTENSION_APPLY_STATE:-0}"
-# 候選池：昨收 PIT fresh mono 全池（僅 .env 設 C18ACC_POOL_OVERRIDE 時才用手動名單）
+# 候選池：≥13:20 同日近收盤 fresh（僅 .env 設 C18ACC_POOL_OVERRIDE 時才用手動名單）
 
 PYTHON="${ROOT}/.venv/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then
@@ -53,11 +106,27 @@ EXIT=$?
 set -e
 echo "${OUT}"
 
+# Email policy (once-focused, no 5m flood):
+# - SIGNAL=1 → always mail (有下單／intent)
+# - 13:00（或 C18ACC_NO_TRADE_BEFORE）那一輪若無動作 → 寄一封「沒下單」
+STAMP="$(date '+%Y%m%d')"
+NTB="${C18ACC_NO_TRADE_BEFORE:-13:00}"
+NOBUY_FLAG="${ROOT}/logs/intraday/c18acc_nobuy_mail_${STAMP}.flag"
+LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
+POLL_MINUTE="$(echo "${OUT}" | sed -n 's/.*minute=\([0-9][0-9]:[0-9][0-9]\).*/\1/p' | head -1)"
+SHOULD_MAIL=0
+SUBJECT_PREFIX="C18acc 盤中訊號"
 if echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
-  EXTRA_LINES="$(echo "${OUT}" | grep -E 'C18acc (screen|intent)|C18ACC_SIGNAL' || true)"
-  STAMP="$(date '+%Y%m%d')"
-  EXTRA="${JOB_NOTIFY_EXTRA:-$'本輪觸發動作（dry-run intent）\n'"${EXTRA_LINES}"$'\n'}"
-  LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
+  SHOULD_MAIL=1
+  SUBJECT_PREFIX="C18acc 盤中訊號"
+elif [[ "${POLL_MINUTE}" == "${NTB}" ]] && [[ ! -f "${NOBUY_FLAG}" ]]; then
+  SHOULD_MAIL=1
+  SUBJECT_PREFIX="C18acc ${NTB} 無下單"
+fi
+
+if [[ "${SHOULD_MAIL}" -eq 1 ]]; then
+  EXTRA_LINES="$(echo "${OUT}" | grep -E 'C18acc (screen|intent)|C18ACC_SIGNAL|C18ACC_POOL_DIGEST' || true)"
+  EXTRA="${JOB_NOTIFY_EXTRA:-$'C18acc · 13:00 有買寄訊號；沒買寄一封無下單通知\n'"${EXTRA_LINES}"$'\n'}"
   for rel in \
     "reports/daily/${STAMP}_rrg_c18acc_screen.md" \
     "reports/daily/rrg_c18acc_screen.md" \
@@ -66,12 +135,17 @@ if echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
   done
   set +e
   "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
-    --subject-prefix="C18acc 盤中訊號" \
+    --subject-prefix="${SUBJECT_PREFIX}" \
     --exit-code="${EXIT}" \
     --log-path="${LAUNCHD_LOG}" \
     --extra="${EXTRA}" \
     --env-flag="RUN_RRG_C18ACC_EMAIL"
+  NOTIFY_RC=$?
   set -e
+  if [[ "${NOTIFY_RC}" -eq 0 ]] && [[ "${POLL_MINUTE}" == "${NTB}" ]] \
+    && ! echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
+    : >"${NOBUY_FLAG}"
+  fi
 fi
 
 echo "=== launchd rrg-c18acc-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="

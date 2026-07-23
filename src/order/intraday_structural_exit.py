@@ -1,4 +1,8 @@
-"""持倉盤中出場 · intraday-exit-playbook v2.1 · S0/S1a/S1b/S2/S2-lite."""
+"""持倉盤中出場 · intraday-exit-playbook（**Research only** · 非 Strategy / Order 執行路徑）。
+
+實盤 sell-signal-radar / holdings_pulse 已不再呼叫本模組掃描。
+保留供研究重跑與單元測試。
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,6 @@ if TYPE_CHECKING:
     from strategy_signal_radar import SellSignal
 
 _STRUCTURAL_MIN_MINUTE = "09:05"
-_S1B_QUADRANTS = frozenset({"weakening"})
 _S0_PCT = 0.97
 _S0B_FROM_HIGH_PCT = 0.97
 _S0B_MIN_RUNUP_PCT = 0.01
@@ -138,13 +141,8 @@ def _vcp_stop_loss(
     return None
 
 
-def _s1b_threshold(row: OrderHoldingSnapshotRow) -> float | None:
-    if row.rrg_quadrant not in _S1B_QUADRANTS:
-        return None
-    return row.trigger_s1b
-
-
 def _s2_threshold(row: OrderHoldingSnapshotRow) -> float | None:
+    """弱檔 -3% 線（DB 欄位 trigger_s1b 僅作價位儲存 · 不產生獨立賣出規則）。"""
     if row.structure_tier != "weak":
         return None
     if row.trigger_s1b is not None:
@@ -253,26 +251,6 @@ def scan_holdings_exit_signals(
                     )
                 )
                 continue
-
-        s1b_th = _s1b_threshold(row)
-        if s1b_th is not None and px <= s1b_th:
-            signals.append(
-                SellSignal(
-                    stock_id=row.stock_id,
-                    stock_name=row.stock_name,
-                    action="sell",
-                    reason=(
-                        f"S1b RRG weakening · px {px:.2f} ≤ trigger {s1b_th:.2f}"
-                        + (f" (prev {row.prev_close:.2f})" if row.prev_close else "")
-                    ),
-                    price=px,
-                    poll_minute=poll_minute,
-                    exit_mode="trigger_s1b",
-                    in_holdings=True,
-                    quantity=qty,
-                )
-            )
-            continue
 
         if exit_mode is True:
             s2_th = _s2_threshold(row)

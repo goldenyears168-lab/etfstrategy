@@ -3,8 +3,8 @@
 歷史 backfill：對每個交易日重跑 vcp_funnel_screen → vcp_screen_scores_v2。
 
 用法：
-  PYTHONPATH=src python scripts/backfill_vcp_funnel_screen.py --report
-  PYTHONPATH=src python scripts/backfill_vcp_funnel_screen.py --sync \\
+  PYTHONPATH=src python scripts/tools/backfill_vcp_funnel_screen.py --report
+  PYTHONPATH=src python scripts/tools/backfill_vcp_funnel_screen.py --sync \\
     --date-start 2026-01-01 --date-end 2026-12-31
 
 前置：stock_daily_bars（FinMind）與 daily_bars IX0001（TEJ）需覆蓋回測區間。

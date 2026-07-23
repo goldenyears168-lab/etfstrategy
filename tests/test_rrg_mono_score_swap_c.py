@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import unittest
 
+from dataclasses import replace
+
+from research.backtest.rrg_mono_intraday_ab import champion_entry_c_config
 from research.backtest.rrg_mono_score_swap_c import (
     ScoreSwapCConfig,
     _last_step_trend,
     _pick_swap_pair,
     _timeline_bundle_from_period,
+    champion_score_swap_c_config,
 )
 from rrg_mono_daily_brief import ScanRow
 
@@ -622,6 +626,20 @@ class TestEntryFallbackPool(unittest.TestCase):
         self.assertEqual(cfg.variant_id, "C18acc-pure")
         self.assertEqual(cfg.timing_mode, "close")
         self.assertEqual(cfg.max_swaps_per_day, 0)
+
+    def test_poll5m_entry_c_aligns_no_trade_before_and_avg_accel(self) -> None:
+        """Showcase / poll5m timeline must use C3a + champion no_trade_before."""
+        champ = champion_score_swap_c_config()
+        entry = replace(
+            champion_entry_c_config(confirm_bars=1),
+            no_swap_before=str(champ.no_trade_before or "13:00"),
+        )
+        self.assertEqual(entry.variant_id, "C3a")
+        self.assertEqual(entry.score_mode, "avg_accel")
+        self.assertEqual(entry.confirm_bars, 1)
+        self.assertEqual(entry.no_swap_before, "13:00")
+        self.assertEqual(champ.candidate_pool, "fresh")
+        self.assertEqual(champ.no_trade_before, "13:00")
 
     def test_timeline_bundle_from_period(self) -> None:
         period = {

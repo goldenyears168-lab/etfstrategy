@@ -90,7 +90,7 @@ class AbcV3F1Ledger:
         session_date: str,
         trading_dates: list[str],
         lookback_td: int,
-        notional_basis: str = "submitted",
+        notional_basis: str = "filled",
     ) -> float:
         """Sum notional for symbol within rolling lookback window (aligns with entry cap)."""
         sym = str(symbol).strip()

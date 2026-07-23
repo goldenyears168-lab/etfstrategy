@@ -2,10 +2,10 @@
 """Sync US ES/NQ overnight futures snapshots for TW intraday polls.
 
   # Backfill 90 TW sessions (1h bars · Yahoo ES=F/NQ=F)
-  PYTHONPATH=src python3 scripts/sync_us_overnight_futures.py --tail-days 90
+  PYTHONPATH=src python3 scripts/tools/sync_us_overnight_futures.py --tail-days 90
 
   # Live snapshot now
-  PYTHONPATH=src python3 scripts/sync_us_overnight_futures.py --live
+  PYTHONPATH=src python3 scripts/tools/sync_us_overnight_futures.py --live
 """
 
 from __future__ import annotations

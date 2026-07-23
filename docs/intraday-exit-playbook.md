@@ -1,10 +1,12 @@
-# 盤中減碼準則 · Intraday exit playbook **v2.1**
+# 盤中減碼準則 · Intraday exit playbook **v2.2**
 
-**層級**：Order layer（下單層）輔助規則 · 非 Strategy layer 採納規格  
+**層級**：**Research only**（研究層）· **非** Strategy 採納 · **非** Order 執行路徑  
+**狀態（2026-07-13）**：結構停損掃描已自 `sell-signal-radar` / 持倉脈動 / launchd exit-gate **撤出**；模組代碼留作研究重跑。  
 **回測依據**：72 檔宇宙 × 110 交易日（2026-01-02～06-22）· CORE4 · 持倉子集 · sync_dd3 環境日 · 6/23 真實分 K（2337/5347）· Bootstrap / beta 分離  
 **v2 變更**：全宇宙一致性回測後 **停用 S3/S4**；S2 限環境；修正預期效果區間  
-**v2.1 增訂**（2026-06-29）：補 **持倉 blind spot** — **S0 觀測**、**S1a 接線**、**holdings_stress** 組合標記、**S2-lite**（強/中檔在組合壓力下 -3% advisory）；**不改** S1b / S2 語意  
-**免責**：研究用執行框架；實盤需 dry-run、滑價與 API 限流自行驗證。
+**v2.1 增訂**（2026-06-29）：補 **持倉 blind spot** — **S0 觀測**、**S1a 接線**、**holdings_stress** 組合標記、**S2-lite**  
+**v2.2**：退役 RRG weak -3% 獨立規則；並將整份 playbook **退回研究層**（證據為風險修剪而非報酬提升）。  
+**免責**：研究用框架；**不應**期待穩定提高報酬；實盤預設不掃描、不送單。
 
 ---
 
@@ -15,7 +17,8 @@
 3. **非同步日**禁止機械 **-2%** 全倉賣出（宇宙回測勝率 ~41%，中位 save 為正 → 早賣略輸）。
 4. 策略本質為 **beta timing（市場減倉）**，非選股 alpha；須搭配 **2330 / 台指** 弱勢確認。
 5. 滑價預算 **≤ 0.5%**；流動性差的標的（3008、3264）提高門檻或改限價。
-6. **v2**：分規則獨立回測後，**-2% 減碼路徑（S3/S4）正式停用**；僅保留結構性停損（S1）與環境限定 -3%（S2）。
+6. **v2**：分規則獨立回測後，**-2% 減碼路徑（S3/S4）正式停用**；僅保留 VCP 結構停損（S1a）與環境限定 -3%（S2）。  
+7. **v2.2**：停用「RRG weakening + -3%」獨立賣出規則（樣本勝率 <50%，非報酬引擎）。
 
 ---
 
@@ -79,11 +82,11 @@ S2 在 v2 中**建議僅在 `sync_dd3=ON` 或 `portfolio_exit_mode=ON` 時啟用
 | 優先序 | 規則 | 條件 | 動作 | v2 狀態 |
 |--------|------|------|------|---------|
 | **S1a** | VCP stop | 跌破 **VCP stop_loss** | 市價賣出 **100%** | **CAUTION** — 保留 |
-| **S1b** | RRG weak | 昨收 RRG 已為 `weakening` 且 `px ≤ 昨收 × 0.97` | 市價賣出 **100%** | **CAUTION** — 保留（宇宙勝率最高 ~45%） |
+| ~~**S1 RRG weak**~~ | ~~RRG weak~~ | ~~昨收 RRG `weakening` 且 `px ≤ 昨收 × 0.97`~~ | ~~市價賣出 100%~~ | **DISABLE** — v2.2 退役（勝率 ~45% · 非報酬引擎） |
 | **S2** | 弱檔 -3% | `tier=weak` 且 `px ≤ 昨收 × 0.97` 且（`sync_dd3=ON` **或** `portfolio_exit_mode=ON`） | 市價賣出 **100%** | **CAUTION** — 限環境 |
 | ~~**S3**~~ | ~~中性 -2%~~ | ~~`MODE=ON` 且 `tier=neutral` 且 `px ≤ 昨收 × 0.98`~~ | ~~賣 **50%**~~ | **DISABLE** — 勝率 26% |
 | ~~**S4**~~ | ~~弱檔 -2%~~ | ~~`MODE=ON` 且 `tier=weak` 且 `px ≤ 昨收 × 0.98`~~ | ~~賣 **100%**~~ | **DISABLE** — 勝率 36% |
-| **—** | 強檔 | `tier=strong` | **不適用 S1b/S2**；適用 **S0 / S1a / S2-lite**（§3.5） | v2.1 |
+| **—** | 強檔 | `tier=strong` | **不適用 S2**；適用 **S0 / S1a / S2-lite**（§3.5） | v2.1 |
 
 **S1 適用範圍（v2）**：優先限 **持倉** 或 **CORE4**；全宇宙 72 檔套用時觸發過頻（n≈1,400）且勝率 ~42%，不建議無差別自動化。
 
@@ -96,7 +99,7 @@ S2 在 v2 中**建議僅在 `sync_dd3=ON` 或 `portfolio_exit_mode=ON` 時啟用
 | 規則 | n | 勝率 | 中位 save | 旗標 |
 |------|---|------|-----------|------|
 | S1 VCP stop | 1,374 | 41.6% | +0.35% | CAUTION |
-| S1 RRG weak | 354 | 45.2% | +0.35% | CAUTION |
+| ~~S1 RRG weak~~ | 354 | 45.2% | +0.35% | **DISABLE**（v2.2） |
 | S2 弱檔 -3% | 1,283 | 42.2% | +0.48% | CAUTION |
 | ~~S3 中性 -2%~~ | 31 | 25.8% | +0.73% | **DISABLE** |
 | ~~S4 弱檔 -2%~~ | 312 | 36.2% | +0.88% | **DISABLE** |
@@ -115,7 +118,7 @@ S2 在 v2 中**建議僅在 `sync_dd3=ON` 或 `portfolio_exit_mode=ON` 時啟用
 
 ### 3.5 持倉增訂 · **v2.1**（S0 / S1a / holdings stress / S2-lite）
 
-> **動機**：v2 對 `tier=strong` 僅保留 S1a，實盤 6/29 持倉（3008/5536/6223 等 leading·strong 單日 -6%）無任何機械提醒。v2.1 補 **觀測層** 與 **組合壓力層**，仍維持 S1b/S2 原語意與 S3/S4 停用。
+> **動機**：v2 對 `tier=strong` 僅保留 S1a，實盤 6/29 持倉（3008/5536/6223 等 leading·strong 單日 -6%）無任何機械提醒。v2.1 補 **觀測層** 與 **組合壓力層**，維持 S2 語意與 S3/S4 停用；v2.2 再退役 RRG weak -3% 獨立規則。
 
 #### 3.5.1 組合持倉壓力（每輪重算）
 
@@ -134,15 +137,14 @@ holdings_stress = ON  當且僅當：
 | 優先序 | 規則 | 條件 | 動作 | 類型 |
 |--------|------|------|------|------|
 | **S1a** | VCP stop | `px ≤ vcp_stop_loss`（PIT 昨收前最新 `vcp_screen_scores_v2`） | 市價賣出 **100%** advisory | **sell** |
-| **S1b** | RRG weakening | 同 §3.3 | 同 §3.3 | **sell** |
 | **S2** | 弱檔 -3% | 同 §3.3（須 `portfolio_exit_mode=ON`） | 同 §3.3 | **sell** |
-| **S2-lite** | 組合壓力 -3% | `holdings_stress=ON` 且 `tier∈{strong,neutral}` 且 `px ≤ 昨收×0.97` 且未觸發 S1a/S1b/S2 | 市價賣出 **100%** advisory | **sell** |
+| **S2-lite** | 組合壓力 -3% | `holdings_stress=ON` 且 `tier∈{strong,neutral}` 且 `px ≤ 昨收×0.97` 且未觸發 S1a/S2 | 市價賣出 **100%** advisory | **sell** |
 | **S0** | 持倉 -3% 觀測 | 任一 tier · `px ≤ 昨收×0.97` 且未觸發上列 sell 規則 | **寄信觀測** · 不送單 | **watch** |
 | **S0b** | 自高點回落觀測 | 盤中 high ≥ 昨收×1.01 且 `px ≤ high×0.97` 且未觸發上列 | **寄信觀測** · 不送單 | **watch** |
 
 **S2-lite 與 S2 分工**：
 
-- `tier=weak`：仍走 S1b（weakening）或 S2（lagging + gate ON）；**不走 S2-lite**。
+- `tier=weak`：走 S2（須 gate ON）；**不走 S2-lite**。
 - `tier=strong|neutral`：gate OFF 且非 sync_dd3 時，v2 完全靜默；v2.1 在 `holdings_stress=ON` 時可觸發 **S2-lite**。
 
 **S0 與 S2-lite**：同一 poll 同一檔僅輸出 **一條**（優先序如上）；S0 覆蓋 strong 在非 stress 日的 -3% 單檔急跌（僅提醒、不建議機械全賣）。
@@ -151,7 +153,7 @@ holdings_stress = ON  當且僅當：
 
 | 環境變數 | 預設 | 作用 |
 |----------|------|------|
-| `SIGNAL_RADAR_STRUCTURAL_EXIT` | `1` | 總開關（S1a/S1b/S2/S2-lite/S0） |
+| `SIGNAL_RADAR_STRUCTURAL_EXIT` | `1` | 總開關（S1a/S2/S2-lite/S0） |
 | `SIGNAL_RADAR_S1A_VCP` | `1` | S1a · VCP stop |
 | `SIGNAL_RADAR_HOLDINGS_STRESS` | `1` | holdings_stress 計算 + S2-lite |
 | `SIGNAL_RADAR_S0_WATCH` | `1` | S0 -3% 觀測寄信 |
@@ -159,7 +161,7 @@ holdings_stress = ON  當且僅當：
 
 模組：`src/order/intraday_structural_exit.py` · `scan_holdings_exit_signals()` · 併入 `strategy_signal_radar.py` 持倉 overlay。
 
-事件寫入 `order_intraday_exit_log.event`：`trigger_s1a` · `trigger_s1b` · `trigger_s2` · `trigger_s2_lite` · `watch_s0` · `watch_s0b`。
+事件寫入 `order_intraday_exit_log.event`：`trigger_s1a` · `trigger_s2` · `trigger_s2_lite` · `watch_s0` · `watch_s0b`（歷史列可能仍見已退役之 `trigger_s1b`）。
 
 ---
 
@@ -213,7 +215,7 @@ CREATE TABLE IF NOT EXISTS order_intraday_exit_log (
     trade_date      TEXT NOT NULL,
     checked_at      TEXT NOT NULL,
     stock_id        TEXT,
-    event           TEXT,            -- gate_on | gate_off | trigger_s1a | trigger_s1b | trigger_s2 | trigger_s2_lite | watch_s0 | watch_s0b | skip
+    event           TEXT,            -- gate_on | gate_off | trigger_s1a | trigger_s2 | trigger_s2_lite | watch_s0 | watch_s0b | skip
     detail_json     TEXT,
     dry_run         INTEGER DEFAULT 1
 );
@@ -250,7 +252,7 @@ ORDER_INTRADAY_EXIT_DISABLE_S4=1  # v2 預設 1
 | v2 關 S3/S4 | 勝率 ~42%；邊際 +0.5pp，**統計仍無顯著優勢** |
 | sync_dd3 + S2 + 持倉 | n≈68；勝率 ~41%；Bootstrap P(早賣有益) **~6%** |
 | sync_dd3 + S2 + CORE4 | n≈66；勝率 ~42%；CI 橫跨 0 |
-| S1 RRG weak（全宇宙） | 勝率最高 ~45%；仍 <50% |
+| ~~S1 RRG weak（全宇宙）~~ | ~~勝率最高 ~45%~~ · **v2.2 已退役** |
 | 非同步日 | S2 不觸發；僅 S1 結構停損 |
 | 6/23 型（開高後崩） | 09:05 閘門不開；2337 依 S2 **09:18** -3% 才賣 |
 | 開盤異常型（5347） | 09:05 前不賣可避免假觸發 |
@@ -272,19 +274,19 @@ ORDER_INTRADAY_EXIT_DISABLE_S4=1  # v2 預設 1
 
 ---
 
-## 9. 快速決策卡（v2.1）
+## 9. 快速決策卡（v2.2）
 
 ```
-08:50  持倉入庫 + 結構分級 + trigger 距離（S0/S1b）
+08:50  持倉入庫 + 結構分級 + trigger 距離（S0/S2）
 09:06  CORE4≥2檔≤-2% 且 2330≤-0.5%？ → portfolio_exit_mode ON/OFF
 09:06+ 每 poll：holdings_stress = 持倉≥3檔≤-2%？
        破 VCP stop？ → S1a 賣100% advisory
-       RRG weakening 且 ≤-3%？ → S1b 賣100%
        MODE=ON 且 弱檔≤-3%？ → S2 賣100%
        holdings_stress=ON 且 強/中≤-3%？ → S2-lite 賣100% advisory
        任一持倉≤-3% 且未觸發 sell？ → S0 觀測寄信（不送單）
        盤中曾+1% 後自 high -3%？ → S0b 觀測寄信
        ~~中性/弱 -2%~~ → v2 停用（S3/S4）
+       ~~RRG weakening + -3%~~ → v2.2 停用
        2327/3264/5347？ → 無 -2% 路徑
 ```
 

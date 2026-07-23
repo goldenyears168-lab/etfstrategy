@@ -214,6 +214,8 @@ class TestSignalRadarMarkdown(unittest.TestCase):
         self.assertIn("rrg-fresh-mono", ids)
         self.assertIn("rrg-mono-tier2", ids)
         self.assertNotIn("rrg-improving-watch-setup", ids)  # Phase C disabled
+        for pid in ("rrg-fresh-mono", "rrg-mono-tier2", "rrg-mono-up-fresh"):
+            self.assertEqual(next(s for s in specs if s.id == pid).top_n, 0)
         self.assertIn("abc-v3-f1-pullback", ids)
         f1 = next(s for s in specs if s.id == "abc-v3-f1-pullback")
         self.assertEqual(f1.source, "abc_v3_f1_pullback")

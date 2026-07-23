@@ -29,9 +29,11 @@
 	<!-- Mon–Fri 09:06–13:20 每 5 分鐘 -->
 {{SELL_RADAR_CALENDAR_INTERVALS}}
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_sell-signal-radar.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/sell-signal-radar.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/intraday/launchd_sell-signal-radar.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/sell-signal-radar.launchd.err.log</string>
+	<key>ExitTimeOut</key>
+	<integer>900</integer>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

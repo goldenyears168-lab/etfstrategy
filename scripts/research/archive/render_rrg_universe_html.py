@@ -165,14 +165,20 @@ def _format_intraday_time(
     minute: str | None,
     *,
     poll_fallback: bool = False,
+    timing_mode: str | None = None,
+    confirm_bars: int = 1,
 ) -> str:
     if not trade_date:
         return "—"
     d = trade_date[5:] if len(trade_date) >= 10 else trade_date
     if minute:
         return f"{d} {minute}"
-    if poll_fallback:
-        return f"{d} 收盤"
+    if timing_mode == "poll_5m":
+        if poll_fallback:
+            return f"{d} 09:30"
+        if int(confirm_bars) >= 2:
+            return f"{d} 09:35"
+        return f"{d} 09:30"
     return f"{d} 收盤"
 
 
@@ -4099,6 +4105,8 @@ def _mono_signals_table_html(
     showcase_labels: bool = False,
     market_labels: bool = False,
     show_exit_reason: bool = False,
+    timing_mode: str | None = None,
+    confirm_bars: int = 1,
 ) -> str:
     use_market = market_labels or showcase_labels
     rows: list[str] = []
@@ -4119,8 +4127,8 @@ def _mono_signals_table_html(
             px_cols = (
                 f"<td>{_format_trade_px(sig.get('entry_px'))}</td>"
                 f"<td>{_format_trade_px(sig.get('exit_px'))}</td>"
-                f"<td>{_format_intraday_time(sig.get('entry_date'), sig.get('entry_minute'))}</td>"
-                f"<td>{_format_intraday_time(exit_d or None, sig.get('exit_minute'), poll_fallback=True)}</td>"
+                f"<td>{_format_intraday_time(sig.get('entry_date'), sig.get('entry_minute'), timing_mode=timing_mode, confirm_bars=confirm_bars)}</td>"
+                f"<td>{_format_intraday_time(exit_d or None, sig.get('exit_minute'), poll_fallback=True, timing_mode=timing_mode, confirm_bars=confirm_bars)}</td>"
             )
         else:
             date_cols = (
@@ -4150,9 +4158,15 @@ def _mono_signals_table_html(
             deployed_txt = f"{float(deployed):,.0f}" if deployed is not None else "—"
             pnl_txt = f"{float(pnl):+,.0f}" if pnl is not None and pnl == pnl else "—"
             pnl_col = _daily_pct_color(pnl) if pnl is not None else "#888"
+            disp_ret = sig.get("return_pct_net")
+            if disp_ret is None or disp_ret != disp_ret:
+                disp_ret = ret
+            ret_disp_txt = _format_daily_pct(disp_ret)
+            ret_disp_col = _daily_pct_color(disp_ret)
             outcome_cols = (
                 f"<td>{deployed_txt}</td>"
                 f"<td style='color:{pnl_col}'>{pnl_txt}</td>"
+                f"<td style='color:{ret_disp_col}'>{ret_disp_txt}</td>"
             )
         else:
             outcome_cols = (
@@ -4196,7 +4210,7 @@ def _mono_signals_table_html(
             alpha_col_html = ""
         status_txt = "未成交" if use_market else "略過"
         if use_market:
-            outcome_cols = "<td>—</td><td>—</td>"
+            outcome_cols = "<td>—</td><td>—</td><td>—</td>"
         else:
             outcome_cols = f"<td>—</td>{alpha_col_html}"
         rows.append(
@@ -4232,7 +4246,7 @@ def _mono_signals_table_html(
             "<th>序號</th><th>訊號日期</th><th>股票代號</th><th>股票名稱</th><th>動能評分</th>"
             f"{intraday_head}"
             f"{date_head}"
-            "<th>資金部位</th><th>金額（元）</th><th>損益（元）</th>"
+            "<th>資金部位</th><th>金額（元）</th><th>損益（元）</th><th>報酬率</th>"
             f"{exit_reason_head}<th>成交狀態</th>"
         )
     elif showcase_labels:
@@ -4350,6 +4364,8 @@ def _market_c18acc_strategy_brief_html(
     track_label = str(meta.get("market_track_label") or variant)
     track_note = str(meta.get("market_track_note") or "")
     bypass = bool(meta.get("accel_sell_bypass_on_spread_lost"))
+    avoid_mixed = bool(meta.get("avoid_spread_mixed"))
+    confirm_bars_note = str(meta.get("confirm_bars_note") or "0 或 1")
     max_swaps = int(meta.get("max_swaps_per_day") or 1)
     fill_repeat = bool(meta.get("fill_repeat"))
     spread_pause = bool(meta.get("quad_force_exit_pause_spread_rs_positive"))
@@ -4357,24 +4373,66 @@ def _market_c18acc_strategy_brief_html(
     swaps_total = meta.get("swaps_total")
     n_exec = meta.get("n_executed")
 
+    ntb = str(meta.get("no_trade_before") or ("13:00" if bool(meta.get("live_aligned")) else "09:30"))
+    entry_sort = str(meta.get("entry_sort_key") or meta.get("buy_sort_key") or "")
+    confirm_bars_val = int(meta.get("confirm_bars") or (1 if bool(meta.get("live_aligned")) else 1))
+    prior_days = meta.get("entry_prior_ret_days")
+    prior_max = meta.get("entry_prior_ret_max")
+    use_avg_accel_entry = entry_sort in ("avg_accel_decel", "avg_accel") or bool(
+        meta.get("live_aligned")
+    )
+
     if pool == "fresh_union_accel":
-        pool_title = "雙池選股（新進強勢 ＋ 加速補充）"
+        pool_title = "雙池選股（POOL1 · fresh ∪ accel）"
         pool_body = """
-        <li><b>池 A · 新進領先</b>：當日 RRG 剛跨入「領先象限」的個股（fresh mono）。</li>
-        <li><b>池 B · 四日加速</b>：不在池 A，但近 4 日相對加權指數的動能加速分數為正、且達標的個股。</li>
-        <li><b>合併規則</b>：買進與換倉候選 = 池 A ∪ 池 B，去重後再排序。</li>"""
+        <li><b>池 A · fresh mono</b>：<code>mono tier2</code>（up_right + leading + disp∈[1,2) + mono_up）且<b>今日新進</b>（昨日非 tier2）。</li>
+        <li><b>池 B · accel 補充</b>：非 fresh 但已是 mono tier2，且近 4 日 <code>avg_accel_decel</code> &gt; 0。</li>
+        <li><b>合併</b>：A ∪ B 去重 → <b>依 <code>seg_last</code> 排序</b>（4 日軌跡末段步長）· 全池 passthrough（不裁 top10）。</li>
+        <li><b>雙指標</b>：<code>seg_last</code> = 軌跡幾何；<code>avg_accel_decel</code> = 四日平均加速（主要用於換倉排序）。</li>"""
     else:
-        pool_title = "單池選股（僅新進領先）"
-        pool_body = """
-        <li><b>候選池</b>：僅限當日 RRG「新進領先象限」個股（fresh mono），不含加速補充池。</li>"""
+        pool_title = "單池選股（fresh mono · 現行採納）"
+        pool_body = f"""
+        <li><b>候選池</b>：僅 <code>fresh mono</code>（mono tier2 今日新進領先）· <b>不含</b> accel 補充（2026-07-12 採納 · 取代 POOL1）。</li>
+        <li><b>定池時點</b>：同日近收盤（≥{html.escape(ntb)} kbar 暫定 ≈EOD）鎖池 · 全池 passthrough（不裁 top10）。</li>
+        <li><b>池序</b>：<code>seg_last</code>（4 日軌跡末段步長）；進場排序見④。</li>"""
 
     bypass_block = ""
     if bypass:
         bypass_block = """
       <h3>採納版專屬 · 價差轉弱放行換倉</h3>
       <p>一般情況下，持倉須「四日加速轉負」才允許被更高分 challenger 換掉。
-      本版額外規則：若<b>短均線相對強度 ≤ 長均線</b>（5 日 spread RS ≤ 0，代表短線相對動能已失速），
+      本版額外規則：若<b>W5−W20 spread_rs ≤ 0</b>（昨收 PIT · 短線相對強度不再領先 W20），
       即使加速仍為正，也<b>允許換倉</b>——避免抱著短線轉弱的標的不放。</p>"""
+
+    avoid_mixed_block = ""
+    if avoid_mixed:
+        live_note = ""
+        if bool(meta.get("live_aligned")):
+            live_note = (
+                " 本頁回測圖表／成交表已<b>對齊現行 Order SSOT</b>："
+                f"<code>confirm_bars={confirm_bars_val}</code> · poll_5m · "
+                f"gate 錨點 {html.escape(ntb)} · fresh passthrough。"
+            )
+        else:
+            live_note = " 本頁回測圖表／成交表已套用此 gate（gate 快照 30m · 與研究一致）。"
+        avoid_mixed_block = f"""
+      <h3>採納版專屬 · avoid spread_mixed（進場＋換倉買方 gate）</h3>
+      <p>首個 poll ≥ <b>{html.escape(ntb)}</b> 以 W5/W20 雙 WMA 計算 <code>spread_class</code>；
+      若為 <code>mixed</code>，當日<b>不允許新進場</b>與<b>換倉買方</b>（slot re-sim · 採納 2026-07-11；錨點隨 <code>no_trade_before</code>）。{live_note}</p>"""
+
+    chase_block = ""
+    if prior_days is not None and prior_max is not None:
+        chase_block = f"""
+      <h3>採納版專屬 · 追高閘 G_R5_12</h3>
+      <p>進場與換倉買方：若標的近 <b>{int(prior_days)}</b> 日報酬 &gt; <b>{float(prior_max):.0%}</b>，
+      當日跳過該檔（2026-07-12 採納）。</p>"""
+
+    pyramid_note = str(meta.get("pyramid_add_note") or "").strip()
+    pyramid_block = ""
+    if pyramid_note:
+        pyramid_block = f"""
+      <h3>Order 疊加 · structural pyramid add</h3>
+      <p>{html.escape(pyramid_note)}</p>"""
 
     dual_extra = ""
     if spread_pause or max_swaps > 1 or fill_repeat:
@@ -4425,10 +4483,10 @@ def _market_c18acc_strategy_brief_html(
       <section>
         <h3>② 資料與基準（PIT）</h3>
         <ul class="strategy-list">
-          <li>掃描範圍：<b>監控清單 watchlist</b>（最新 snapshot 聯集 · 非逐日 PIT）。</li>
-          <li>標的：台股個股日線；大盤基準 <b>加權指數</b>。</li>
+          <li>回測宇宙：<b>ETF 成分股 watchlist</b>（與引擎一致）；圖表背景若為 watchlist snapshot 聯集僅供視覺參考。</li>
+          <li>標的：台股個股日線；大盤基準 <b>加權指數 IX0001</b>。</li>
           <li>RRG 計算：JdK RS-Ratio / RS-Momentum，WMA 平滑 <b>{rrg_length} 日</b>。</li>
-          <li><b>訊號日 T</b> 僅能使用 <b>date ≤ T</b> 的收盤資料（無前視）。</li>
+          <li><b>訊號日 T</b>：回測為<b>當日定池、當日盤中進場</b>（<code>signal_date = entry_date = T</code>）· 僅用 <b>date ≤ T</b> 收盤（無前視）。</li>
           <li>回測區間：<b>{html.escape(date_label)}</b>（{n_trade_dates} 個交易日）。</li>
         </ul>
       </section>
@@ -4436,17 +4494,17 @@ def _market_c18acc_strategy_brief_html(
       <section>
         <h3>③ 選股池 · {pool_title}</h3>
         <ul class="strategy-list">{pool_body}
-          <li><b>排序分數</b>：近 <b>4 日</b>平均動能加速（avg_accel_decel），分數高者優先。</li>
         </ul>
       </section>
 
       <section>
-        <h3>④ 買進（進場）</h3>
+        <h3>④ 買進（進場 · {'avg_accel' if use_avg_accel_entry else 'C0'}）</h3>
         <ul class="strategy-list">
-          <li><b>時點</b>：每個交易日開盤起，每 <b>5 分鐘</b>掃描一次（poll_5m），自 <b>09:30</b> 起算。</li>
-          <li><b>觸發</b>：有空位 → 從候選池取排序最高、且尚未持有的標的買進。</li>
-          <li><b>成交價</b>：觸發當根 5 分 K 收盤價（無分 K 時改當日收盤價）。</li>
-          <li>實務上多數在<b>09:30 首根 K</b> 即成交。</li>
+          <li><b>時點</b>：每個交易日每 <b>5 分鐘</b>掃描（poll_5m），自 <b>{html.escape(ntb)}</b> 起算（{('同日近收盤開窗' if ntb >= '13:00' else '早盤開窗')}）。</li>
+          <li><b>排序</b>：{'<b>avg_accel_decel</b>（四日平均加速 · 2026-07-12 採納 R2）· 池序仍用 seg_last。' if use_avg_accel_entry else '<b>C0 scale × seg_last</b>（盤中價 / 基準價 × 昨收軌跡末段步長）· <b>非</b> avg_accel。'}</li>
+          <li><b>觸發</b>：有空位 → 依上述排序取最高、且尚未持有 · 回測 <code>confirm_bars</code> {html.escape(confirm_bars_note or str(confirm_bars_val))}（live anti-flicker）。</li>
+          <li><b>spread gate</b>：若採納 avoid mixed，{html.escape(ntb)} 錨點 W5/W20 <code>spread_class=mixed</code> 當日不進場（見下）。</li>
+          <li><b>成交價</b>：觸發當根 5 分 K 收盤價（無分 K 時改當日收盤價）；多數於 <b>{html.escape(ntb)}</b> 起首根可成交 K。</li>
         </ul>
       </section>
 
@@ -4460,11 +4518,11 @@ def _market_c18acc_strategy_brief_html(
       </section>
 
       <section>
-        <h3>⑥ 換倉（持倉中替換）</h3>
+        <h3>⑥ 換倉（持倉中替換 · avg_accel）</h3>
         <ul class="strategy-list">
-          <li>每個交易日最多換倉 <b>{max_swaps}</b> 次；賣出「分數最低」的持倉，買入候選池最高分（且未持有）。</li>
-          <li><b>可賣條件</b>：該持倉的四日加速須為<b>負值</b>（動能轉弱）。</li>
-          <li><b>替換門檻</b>： challenger 分數須比被賣者高至少 <b>0.05</b>（5% 分數差距）。</li>
+          <li>每個交易日最多換倉 <b>{max_swaps}</b> 次（poll_5m 盤中觸發）。</li>
+          <li><b>賣</b>：持倉中 <code>avg_accel_decel</code> <b>最負且 &lt; 0</b> 者（動能轉弱；spread 失守時正加速亦可賣，見下）。</li>
+          <li><b>買</b>：challenger 須 <code>seg_last &gt; 持倉 seg_last + 0.05</code>，再取 <b>avg_accel 最大</b>（單條合併規則）；avoid mixed 時買方亦須通過 spread gate。</li>
           <li>換倉成交價：當日 poll_5m 觸發 bar 收盤價（同買進口徑）。</li>
         </ul>
       </section>
@@ -4472,29 +4530,34 @@ def _market_c18acc_strategy_brief_html(
       <section>
         <h3>⑦ 賣出（出場）· 依優先序判定</h3>
         <ol class="strategy-list ordered">
-          <li><b>評分換倉</b>：符合⑥ 時，被更高分標的替換而賣出。</li>
-          <li><b>象限轉弱強制賣出</b>：連續 <b>2 日</b> 處於 RRG「轉弱象限」，
-            且浮動虧損 ≤ <b>−5%</b>（相對買進價），且已滿最短持有 → 翌日開盤賣出。</li>
-          <li><b>持有到期</b>：滿 <b>{max_hold}</b> 個交易日 → 到期日開盤賣出。</li>
+          <li><b>評分換倉</b>：符合⑥ 時，盤中替換賣出。</li>
+          <li><b>象限轉弱強制賣出（S2）</b>：連續 <b>2 日</b> 處於 RRG「轉弱象限」，
+            且浮動虧損 ≤ <b>−5%</b>，且已滿最短持有 → 條件成立日<b>首根 5 分 K</b> 賣出。</li>
+          <li><b>持有到期</b>：滿 <b>{max_hold}</b> 個交易日 → 到期日首根 5 分 K 賣出。</li>
           <li><b>回測結束</b>：窗口最後一日強制平倉。</li>
         </ol>
-        <p class="note">賣出條件於<b>前一交易日收盤後</b>判定；成交價取<b>賣出日首根 5 分 K</b>（通常 09:30），非盤中隨時掃描。</p>
+        <p class="note">換倉為盤中 poll；到期／象限強制／窗口結束取<b>賣出日首根 5 分 K</b>（通常 09:30）。</p>
       </section>
     </div>
 
     {bypass_block}
+    {avoid_mixed_block}
+    {chase_block}
+    {pyramid_block}
     {dual_extra}
 
     <section class="strategy-recipe">
       <h3>⑧ 復現檢查清單（給回測引擎）</h3>
       <ol class="strategy-list ordered">
-        <li>建立 RRG 面板（WMA {rrg_length}）→ 產生 fresh mono 日曆{(' + 四日加速補充池' if pool == 'fresh_union_accel' else '')}。</li>
-        <li>初始化 {n_slots} 空部位；逐交易日依序：先判賣出 → 再判換倉 → 再填補空位。</li>
-        <li>買／賣成交價用 poll_5m 首觸發 bar；缺 K 線 fallback 日收盤。</li>
+        <li>建立 RRG 面板（WMA {rrg_length}）→ fresh mono{(' + accel 補充池（POOL1）' if pool == 'fresh_union_accel' else '（現行）')} · 池序 <code>seg_last</code> · 開窗 <code>{html.escape(ntb)}</code>。</li>
+        <li>進場 {'avg_accel_decel' if use_avg_accel_entry else 'C0 scale'} · 換倉 <code>avg_accel_decel</code>（門檻 <code>seg_last+0.05</code>）· confirm={confirm_bars_val} · 初始化 {n_slots} 空部位。</li>
+        <li>逐交易日：先強制/到期賣出 → 換倉 → 填補空位；成交價 poll_5m 首觸發 bar（缺 K 線 fallback 日收盤）。</li>
         <li>組合損益 = 各部位已實現 + 浮動損益（含金額欄位之成本口徑）；超額 = 同期等額買加權指數之差。</li>
         <li>變體 ID：<code>{html.escape(variant)}</code>
           · bypass={'開' if bypass else '關'}
-          · max_swaps={max_swaps}{' · fill_repeat' if fill_repeat else ''}{' · spread_pause' if spread_pause else ''}</li>
+          · avoid_mixed={'開' if avoid_mixed else '關'}
+          · max_swaps={max_swaps}{' · fill_repeat' if fill_repeat else ''}{' · spread_pause' if spread_pause else ''}
+          · G_R5_12={'開' if prior_max is not None else '關'}</li>
       </ol>
       <p class="note strategy-stats">{stats_line}</p>
     </section>"""
@@ -4506,14 +4569,22 @@ def _market_mono_timeline_annotations(
     capital_ntd: float,
     hold_h: int,
     timing_mode: str | None = None,
+    confirm_bars: int = 1,
+    no_trade_before: str | None = None,
 ) -> dict[str, str]:
     cap = f"{capital_ntd:,.0f}"
+    ntb = str(no_trade_before or "09:30")
     intraday_note = ""
     if timing_mode == "poll_5m":
-        intraday_note = """
-        <li><b>買進時間</b>：盤中掃描，多數於開盤後首根 5 分 K 成交（約 09:30）。</li>
-        <li><b>賣出時間</b>：條件於前一日收盤後判定；成交價取賣出日首根 5 分 K（通常 09:30）。</li>
-        <li><b>買／賣價格</b>：對應分 K 收盤價（無分 K 時改日收盤價）。</li>"""
+        entry_note = (
+            f"連續 {int(confirm_bars)} 根 poll 確認後成交（常見 {ntb} 起）"
+            if int(confirm_bars) >= 2
+            else f"開窗後首根 5 分 K 觸發即成交（約 {ntb}）"
+        )
+        intraday_note = f"""
+        <li><b>買進時間</b>：poll_5m 盤中掃描 · {entry_note}。</li>
+        <li><b>賣出時間</b>：到期／換倉／強制出場當日首個 poll bar（通常 09:30；換倉可晚於開窗）。</li>
+        <li><b>買／賣價格</b>：對應 poll bar 收盤價（無分 K 時改日收盤價）。</li>"""
     return {
         "slot_help": (
             f"最多 {n_slots} 個資金部位，每筆新訊號占用 1 個部位"
@@ -4643,6 +4714,7 @@ def render_l1h9_slots_timeline_html(
     strategy_filter = str(meta.get("strategy_filter") or "")
     table_mode = str(meta.get("table_mode") or "copytrade")
     timing_mode = str(meta.get("timing_mode") or "")
+    confirm_bars = int(meta.get("confirm_bars") or 1)
     cinema_mode = bool(meta.get("cinema_mode"))
     cinema_autoplay_ms = int(meta.get("cinema_autoplay_ms") or 10000)
     cinema_autoplay = bool(meta.get("cinema_autoplay", cinema_mode))
@@ -4676,11 +4748,13 @@ def render_l1h9_slots_timeline_html(
     )
     if market_labels and table_mode == "mono":
         ann = _market_mono_timeline_annotations(
-        n_slots=n_slots,
-        capital_ntd=capital_ntd,
-        hold_h=hold_h,
-        timing_mode=timing_mode or None,
-    )
+            n_slots=n_slots,
+            capital_ntd=capital_ntd,
+            hold_h=hold_h,
+            timing_mode=timing_mode or None,
+            confirm_bars=confirm_bars,
+            no_trade_before=str(meta.get("no_trade_before") or "") or None,
+        )
     ext_exits = meta.get("ext_exits")
     ext_line = (
         f"<br/>延長持倉提早賣出 <b>{ext_exits}</b> / {meta['n_executed']} 筆"
@@ -4756,6 +4830,8 @@ def render_l1h9_slots_timeline_html(
             showcase_labels=bool(meta.get("showcase_mode")),
             market_labels=market_labels,
             show_exit_reason=bool(meta.get("show_exit_reason")),
+            timing_mode=timing_mode or None,
+            confirm_bars=confirm_bars,
         )
     else:
         table = _l1h9_signals_table_html(
@@ -5472,6 +5548,7 @@ def render_l1h9_slots_timeline_html(
             idx: ei, date: lg.entry_date, kind: 'entry',
             stock_id: lg.stock_id, stock_name: lg.stock_name || '',
             slot_id: lg.slot_id, pool_tag: lg.pool_tag || '',
+            minute: lg.entry_minute || null,
             return_pct: null, exit_reason: null,
           }});
         }}
@@ -5480,6 +5557,7 @@ def render_l1h9_slots_timeline_html(
             idx: xi, date: lg.exit_date, kind: 'exit',
             stock_id: lg.stock_id, stock_name: lg.stock_name || '',
             slot_id: lg.slot_id, pool_tag: lg.pool_tag || '',
+            minute: lg.exit_minute || null,
             return_pct: (COST_MODEL_ENABLED && lg.return_pct_net != null)
               ? lg.return_pct_net : lg.return_pct,
             exit_reason: lg.exit_reason || '',
@@ -6398,10 +6476,11 @@ def render_l1h9_slots_timeline_html(
           ? (ev.stock_name || ev.stock_id)
           : `${{ev.stock_id}} ${{ev.stock_name || ''}}`;
         const slotLbl = MARKET_UI ? ('部位' + (ev.slot_id + 1)) : ('槽' + (ev.slot_id + 1));
+        const timeLbl = ev.minute ? (ev.date.slice(5) + ' ' + ev.minute) : ev.date.slice(5);
         return (
           `<div class="trade-feed-item ${{ev.kind}}${{isToday ? ' current' : ''}}">` +
           `<div class="tf-head">${{kindZh}} · ${{headName}}</div>` +
-          `<div class="tf-meta">${{ev.date.slice(5)}} · ${{slotLbl}}${{pool}}</div>` +
+          `<div class="tf-meta">${{timeLbl}} · ${{slotLbl}}${{pool}}</div>` +
           `${{retHtml}}` +
           `</div>`
         );

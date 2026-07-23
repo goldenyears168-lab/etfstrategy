@@ -6,8 +6,17 @@ import unittest
 
 from research_config import load_research_config, load_research_splits
 
-# Phase D 收斂後 · 0 active research（2026-07-09）
-PHASE_D_ACTIVE_TOPICS: frozenset[str] = frozenset()
+# Phase D 收斂後 · abc-v3-f1-entry-structure 為首個新開 active topic（2026-07-09）
+PHASE_D_ACTIVE_TOPICS: frozenset[str] = frozenset(
+    {
+        "abc-v3-f1-entry-structure",
+        "c18acc-structural-pyramid",
+        "c18acc-swap-margin-ablation",
+        "c18acc-swap-rel-accel-confirm",
+        "c18acc-swap-sell-gates",
+        "c18acc-swap-ctx-sell-quad",
+    }
+)
 
 PHASE_A_RETIRED_TOPIC_IDS = frozenset(
     {

@@ -7,8 +7,30 @@ import re
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[3]
 INTRO_MD = ROOT / "docs" / "RRG相對輪動圖入門.md"
+
+LIVE_CONTRACT_CSS = """
+.live-contract {
+  margin: 16px 0 18px; padding: 14px 16px 16px;
+  background: linear-gradient(180deg, #1a2420 0%, #161616 100%);
+  border: 1px solid #2f4a3c; border-radius: 10px;
+}
+.live-contract h2 {
+  margin: 0 0 8px; font-size: 16px; color: #b8e0c8; font-weight: 650;
+}
+.live-contract .lede { margin: 0 0 12px; color: #9ab5a6; font-size: 13px; line-height: 1.55; }
+.live-contract h3 { margin: 14px 0 6px; font-size: 13px; color: #cde8d8; }
+.live-contract ul { margin: 0 0 0 1.1em; padding: 0; color: #c8c8c8; font-size: 13px; line-height: 1.55; }
+.live-contract li { margin: 3px 0; }
+.live-contract table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.live-contract th, .live-contract td {
+  border: 1px solid #333; padding: 6px 8px; text-align: left; color: #ccc;
+}
+.live-contract th { background: #1c1c1c; color: #ddd; }
+.live-contract code { background: #222; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.live-contract .note { margin: 10px 0 0; font-size: 12px; color: #888; }
+"""
 
 COMBO_CSS = """
 .combo-page { max-width: 1320px; margin: 0 auto; padding: 0 20px 40px; }
@@ -45,7 +67,7 @@ COMBO_CSS = """
 .intro-lede { font-size: 15px; color: #bbb; margin-bottom: 20px; }
 .intro-source { font-size: 12px; color: #666; margin-top: 24px; }
 .combo-page .doc { max-width: none; padding: 0; }
-"""
+""" + LIVE_CONTRACT_CSS
 
 INTRO_SECTION_KEYS = (
     "這張圖在回答什麼",
@@ -57,7 +79,44 @@ INTRO_SECTION_KEYS = (
     "第五步",
     "怎麼讀一張 RRG 圖",
     "一句話記住 RRG",
+    "採納策略範例",
 )
+
+
+def render_live_contract_panel_html() -> str:
+    """Executable-contract explainer · timeline T-3→T · selection funnel."""
+    return """
+<section class="live-contract" id="live-contract">
+  <h2>本頁契約 · 現行可下單 C18acc（合理版）</h2>
+  <p class="lede">
+    回測對齊 Order / Strategy SSOT，<strong>不是</strong>舊站「早盤 cinema／POOL1」上限故事。
+    槽複利會明顯低於舊展示頁——那是拿掉前視與過寬規則後的合理結果，不是算壞。
+  </p>
+  <h3>從 T−3 起的時間軸</h3>
+  <ul>
+    <li><strong>T−3～T</strong>：四日加速窗（<code>accel_lookback=4</code>）· 比誰在加速／減速 · <strong>不是</strong> T−3 下單</li>
+    <li><strong>T 日 13:00 前</strong>：觀測／持倉管理；live 不開新倉</li>
+    <li><strong>T 日 13:00–13:30</strong>：鎖當日暫定 fresh（≈EOD）→ confirm → 進場／換倉</li>
+    <li><strong>持有</strong>：min_hold≈5 日可輪動 · max_hold≈10 日邊界</li>
+  </ul>
+  <h3>選股漏斗（寬→窄）</h3>
+  <table>
+    <thead><tr><th>關卡</th><th>規則</th></tr></thead>
+    <tbody>
+      <tr><td>1 · 宇宙</td><td>ETF 成分 watchlist</td></tr>
+      <tr><td>2 · 結構</td><td>mono 軌跡條件</td></tr>
+      <tr><td>3 · 定池</td><td><code>fresh-only</code>（同日近收盤暫定）</td></tr>
+      <tr><td>4 · 池排序</td><td><code>seg_last</code> · 全池 passthrough</td></tr>
+      <tr><td>5 · 進場</td><td>≥13:00 · <code>avg_accel</code> · confirm=1 · avoid_mixed · G_R5_12</td></tr>
+      <tr><td>6 · 部位</td><td>最多 3 槽 · S2 出場／四日加速換倉</td></tr>
+    </tbody>
+  </table>
+  <p class="note">
+    buy-signal-radar 早盤信 = advisory 觀測軸，不等於本頁三槽成交軸。
+    SSOT：<code>config/strategy.yaml</code> · <code>config/order.yaml</code> · <code>champion_score_swap_c_config()</code>
+  </p>
+</section>
+"""
 
 
 def _split_html_parts(html_str: str) -> tuple[str, str, str]:
@@ -258,13 +317,17 @@ def render_rrg_intro_champion_combo_html(
     intro_md_path: Path | None = None,
     page_title: str | None = None,
     universe_html: str | None = None,
+    live_contract: bool = False,
 ) -> str:
     """Single scroll page: collapsed RRG intro + champion cinema (KPI · chart · feed · table)."""
     _ = universe_html  # legacy arg · no longer embedded
     intro_html = render_rrg_intro_article_html(md_path=intro_md_path)
     champ_styles, champ_body, champ_script = _split_html_parts(champion_html)
+    contract = render_live_contract_panel_html() if live_contract else ""
 
     title = page_title or "RRG 入門 · C18acc 回測案例"
+    if live_contract and "可下單" not in title and "live" not in title.lower():
+        title = title.replace("C18acc 回測", "C18acc 可下單契約回測")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -280,6 +343,7 @@ def render_rrg_intro_champion_combo_html(
 </head>
 <body>
   <div class="combo-page">
+    {contract}
     <details class="rrg-intro-details">
       <summary>RRG 相對輪動圖入門（點開閱讀）</summary>
       {intro_html}

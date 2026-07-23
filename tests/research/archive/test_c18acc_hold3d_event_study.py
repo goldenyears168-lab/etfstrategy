@@ -32,6 +32,8 @@ def test_event_stats_from_nets():
 @patch("research.backtest.archive.c18acc_hold3d_event_study.kbar_close_at_minute")
 @patch("research.backtest.archive.c18acc_hold3d_event_study.exit_close_date_from_entry")
 def test_compute_hold_nd_event_leg(mock_exit_date, mock_kbar):
+    import pandas as pd
+
     conn = MagicMock(spec=sqlite3.Connection)
     mock_exit_date.return_value = "2025-01-08"
     mock_kbar.side_effect = lambda _c, sid, d, _m: {
@@ -40,6 +42,7 @@ def test_compute_hold_nd_event_leg(mock_exit_date, mock_kbar):
         ("IX0001", "2025-01-02"): 1000.0,
         ("IX0001", "2025-01-08"): 1010.0,
     }.get((sid, d), None)
+    bench = pd.Series({"2025-01-02": 1000.0, "2025-01-08": 1010.0})
 
     leg = compute_hold_nd_event_leg(
         conn,
@@ -48,6 +51,7 @@ def test_compute_hold_nd_event_leg(mock_exit_date, mock_kbar):
         entry_minute="10:00",
         entry_px=100.0,
         hold_days=3,
+        bench=bench,
     )
     assert leg is not None
     assert leg["entry_date"] == "2025-01-02"

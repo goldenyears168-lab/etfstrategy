@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
 # 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
-# 華邦電專家池共識觀測 · 週一至五 20:00 · 達標才寄信
+# 週一至五 20:00 · 專家池+松山+新店合併一封 digest（含今日皆無訊號）· 不下單
+# 分點觸發：Top1 ≥1.5億 ∩ !mega；郵件標當下億／占比 vs 最佳標準 25%
+#
+# Ops reference（Research 凍結 · 郵件 footer）見：
+#   reports/research/branch-footprint-screen/expert_pool/MINI_OPS_REFERENCE.md
+#
+# 可選：Top10 light2 黃燈郵件註記（預設 OFF · 非買訊 · 非 Order）
+#   在 mini `.env` 加一行（勿寫進 plist；launcher 會 source .env）：
+#     EXPERT_POOL_YELLOW_EMAIL_ANNOTATION=1
+#   或單次：python .../run_evening_research_watch_digest.py --yellow-annotation
+#   不要強制開啟，除非已讀 YELLOW_EMAIL_ANNOTATION.md 並接受誤報。
 
 set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 STAMP="$(date '+%Y%m%d')"
-RUN_LOG="${ROOT}/logs/winbond_expert_pool_watch_${STAMP}.log"
+RUN_LOG="${ROOT}/logs/evening_research_watch_${STAMP}.log"
 
 mkdir -p "${ROOT}/logs"
 
 echo ""
-echo "=== launchd winbond-expert-pool-watch 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "=== launchd evening research watch digest 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 export ROOT="${ROOT}"
-export PYTHONPATH="${ROOT}/src"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
 PYTHON="${ROOT}/.venv/bin/python"
 
 _load_env_file() {
@@ -32,28 +42,32 @@ _load_env_file() {
 
 _load_env_file "${ROOT}/.env"
 
+EXIT=0
 if [[ ! -x "${PYTHON}" ]]; then
   echo "✗ missing venv python: ${PYTHON}"
   EXIT=1
 else
   set +e
-  "${PYTHON}" "${ROOT}/scripts/research/run_winbond_expert_pool_watch.py" \
+  # --refresh-days 0：關掉 POOLS 分點補檔（18:30 branch-tape-prewarm 已補）；
+  # 松山／新店分點掃描是另一套機制（不在 prewarm 範圍），刻意不加 --no-refresh
+  # 以免連那兩個 section 的補檔也一起關掉。
+  "${PYTHON}" "${ROOT}/scripts/research/run_evening_research_watch_digest.py" \
+    --refresh-days 0 \
     2>&1 | tee "${RUN_LOG}"
   EXIT=${PIPESTATUS[0]}
   set -e
 fi
 
-echo "=== launchd winbond-expert-pool-watch 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+echo "=== launchd evening research watch digest 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
 
-# 僅失敗時寄失敗信；達標信由 Python send_alert 直接寄
 if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
   set +e
   "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
-    --subject-prefix="華邦電專家池觀測" \
+    --subject-prefix="夜間觀測" \
     --exit-code="${EXIT}" \
     --log-path="${RUN_LOG}" \
-    --extra="觀測失敗，詳見 log" \
-    --env-flag="RUN_WINBOND_EXPERT_POOL_EMAIL"
+    --extra="夜間觀測 digest 失敗，詳見 log" \
+    --env-flag="RUN_EXPERT_POOL_EMAIL"
   set -e
 fi
 

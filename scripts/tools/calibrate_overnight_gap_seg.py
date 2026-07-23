@@ -2,10 +2,10 @@
 """Overnight gap · seg_last level 分布校準（日 K + 13:00 盤中 · 分布预测专用）。
 
 用法：
-  PYTHONPATH=src python scripts/calibrate_overnight_gap_seg.py
-  PYTHONPATH=src python scripts/calibrate_overnight_gap_seg.py \\
+  PYTHONPATH=src python scripts/tools/calibrate_overnight_gap_seg.py
+  PYTHONPATH=src python scripts/tools/calibrate_overnight_gap_seg.py \\
     --date-start 2024-01-01 --date-end 2026-06-26 --universe fresh_mono
-  PYTHONPATH=src python scripts/calibrate_overnight_gap_seg.py \\
+  PYTHONPATH=src python scripts/tools/calibrate_overnight_gap_seg.py \\
     --intraday-seg-mode full_rrg --universe fresh_mono
 """
 

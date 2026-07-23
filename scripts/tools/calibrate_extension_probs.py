@@ -2,8 +2,8 @@
 """Phase 2 · Extension radar 機率校準 · 🟢🟡🔴 歷史 P 填表。
 
 用法：
-  PYTHONPATH=src python scripts/calibrate_extension_probs.py
-  PYTHONPATH=src python scripts/calibrate_extension_probs.py \\
+  PYTHONPATH=src python scripts/tools/calibrate_extension_probs.py
+  PYTHONPATH=src python scripts/tools/calibrate_extension_probs.py \\
     --date-start 2024-01-01 --date-end 2026-06-26
 """
 

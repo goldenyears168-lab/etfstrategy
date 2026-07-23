@@ -62,7 +62,7 @@ if echo "${OUT}" | grep -q 'SELL_SIGNAL_RADAR=1'; then
   fi
   if [[ "${SKIP_NOTIFY}" -eq 0 ]]; then
     EXTRA_LINES="$(echo "${OUT}" | grep -E 'SELL_SIGNAL_RADAR|sell ' || true)"
-    export JOB_NOTIFY_EXTRA=$'持倉賣出 advisory（extension / S1b·S2 · 人工確認）\n'"${EXTRA_LINES}"
+    export JOB_NOTIFY_EXTRA=$'持倉賣出 advisory（extension · 人工確認）\n'"${EXTRA_LINES}"
     "${ROOT}/scripts/sell_signal_notify.sh" "${EXIT}" || true
   fi
 fi

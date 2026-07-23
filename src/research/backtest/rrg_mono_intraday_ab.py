@@ -13,7 +13,7 @@ H3 · 日線 VCP pivot gate 池 + 盤中 RRG 重排（`build_vcp_pivot_calendar`
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
 import pandas as pd
@@ -49,7 +49,7 @@ from analytics.bench import bench_return_entry_to_exit
 
 EntryLeg = Literal["A", "B", "C"]
 VcpEntryLeg = Literal["D0", "Db", "D"]
-ScoreMode = Literal["scale", "full_rrg", "signal_seg_last"]
+ScoreMode = Literal["scale", "full_rrg", "signal_seg_last", "avg_accel"]
 EntrySchedule = Literal["same_day", "d2_accel_d3"]
 EntryFillMode = Literal["poll_px", "bone_zone", "vwap_reclaim", "vwap_bounce"]
 
@@ -78,9 +78,24 @@ class CVariantConfig:
     entry_schedule: EntrySchedule = "same_day"
     no_swap_before: str = "09:30"
     entry_fill_mode: EntryFillMode = "poll_px"
+    # Optional adaptive confirm · ((minute_ge, bars), ...) ascending by minute.
+    # At poll minute M use the last bars where minute_ge ≤ M; falls back to confirm_bars.
+    confirm_schedule: tuple[tuple[str, int], ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def confirm_need_at(config: CVariantConfig, minute: str) -> int:
+    """Fixed confirm_bars, or adaptive schedule keyed by poll minute."""
+    sched = getattr(config, "confirm_schedule", None)
+    if not sched:
+        return int(config.confirm_bars)
+    need = int(config.confirm_bars)
+    for floor, bars in sched:
+        if str(minute) >= str(floor):
+            need = int(bars)
+    return need
 
 
 # sweep 格 · 對應使用者假說
@@ -89,12 +104,25 @@ DEFAULT_C_SWEEP: list[CVariantConfig] = [
     CVariantConfig("C1", "scale 30m confirm=1", 30, "scale", 1, "same_day"),
     CVariantConfig("C2", "full_rrg 30m confirm=1", 30, "full_rrg", 1, "same_day"),
     CVariantConfig("C3", "scale 5m confirm=2", 5, "scale", 2, "same_day"),
+    CVariantConfig("C3a", "avg_accel 5m confirm=2 · C18acc champion entry", 5, "avg_accel", 2, "same_day"),
     CVariantConfig("C4", "full_rrg 5m confirm=2", 5, "full_rrg", 2, "same_day"),
     CVariantConfig("C5", "full_rrg 30m confirm=2", 30, "full_rrg", 2, "same_day"),
     CVariantConfig("C6", "full_rrg 15m confirm=1", 15, "full_rrg", 1, "same_day"),
     CVariantConfig("C7", "d2加速→d3盤中 full_rrg 5m", 5, "full_rrg", 1, "d2_accel_d3"),
     CVariantConfig("C8", "d2加速→d3盤中 full_rrg 30m", 30, "full_rrg", 1, "d2_accel_d3"),
 ]
+
+
+def champion_entry_c_config(*, confirm_bars: int = 2) -> CVariantConfig:
+    """C18acc entry helper · avg_accel rank.
+
+    Live SSOT confirm_bars=1（order.yaml / C18ACC_CONFIRM_BARS）.
+    Default here remains 2 for historical research baselines unless overridden.
+    """
+    base = next(c for c in DEFAULT_C_SWEEP if c.variant_id == "C3a")
+    if int(base.confirm_bars) == int(confirm_bars):
+        return base
+    return replace(base, confirm_bars=int(confirm_bars))
 
 # C18acc · 進場 fill 模式 sweep（SSG 不變 · 僅執行層）
 C18ACC_ENTRY_FILL_SWEEP: list[CVariantConfig] = [
@@ -252,6 +280,33 @@ def scaled_seg_last(row: ScanRow, scale: float) -> float:
     return float(row.seg_last) * scale
 
 
+def rank_shortlist_avg_accel(
+    shortlist: list[ScanRow],
+    *,
+    rs_ratio: pd.DataFrame,
+    rs_mom: pd.DataFrame,
+    full_dates: list[str],
+    trade_date: str,
+    accel_lookback: int = LOOKBACK,
+) -> list[ScanRow]:
+    """Entry rank · 四日平均加速度（與 swap avg_accel_decel 同度量 · PIT 日線）。"""
+    from research.backtest.rrg_mono_score_swap_c import _avg_accel_scalar
+
+    scored: list[tuple[float, ScanRow]] = []
+    for row in shortlist:
+        a = _avg_accel_scalar(
+            rs_ratio,
+            rs_mom,
+            full_dates,
+            trade_date,
+            row.stock_id,
+            lb=max(2, int(accel_lookback)),
+        )
+        scored.append((float(a) if a is not None else -999.0, row))
+    scored.sort(key=lambda x: (-x[0], x[1].stock_id))
+    return [row for _, row in scored]
+
+
 def _trading_offset(full_dates: list[str], start: str, offset: int) -> str | None:
     if start not in full_dates:
         return None
@@ -399,9 +454,25 @@ def rank_shortlist(
     minute: str,
     kbar_cache: dict[tuple[str, str], tuple[tuple[str, float], ...]],
     full_rrg_cache: dict[tuple[Any, ...], list[ScanRow]] | None = None,
+    rs_ratio: pd.DataFrame | None = None,
+    rs_mom: pd.DataFrame | None = None,
+    full_dates: list[str] | None = None,
+    accel_lookback: int = LOOKBACK,
 ) -> list[ScanRow]:
     if config.score_mode == "signal_seg_last":
         return sorted(shortlist, key=lambda r: (-r.seg_last, r.stock_id))
+    if config.score_mode == "avg_accel":
+        if rs_ratio is None or rs_mom is None or not full_dates:
+            # fallback · 無面板時退回收盤 seg_last（不應發生於 champion 路徑）
+            return sorted(shortlist, key=lambda r: (-r.seg_last, r.stock_id))
+        return rank_shortlist_avg_accel(
+            shortlist,
+            rs_ratio=rs_ratio,
+            rs_mom=rs_mom,
+            full_dates=full_dates,
+            trade_date=trade_date,
+            accel_lookback=accel_lookback,
+        )
     if config.score_mode == "full_rrg":
         return rank_shortlist_full_rrg(
             shortlist,
@@ -577,6 +648,9 @@ def _apply_intraday_entries(
     entry_leg: str = "C",
     ohlcv_cache: dict[tuple[str, str], tuple[KbarBar, ...]] | None = None,
     max_slots: int | None = None,
+    rs_ratio: pd.DataFrame | None = None,
+    rs_mom: pd.DataFrame | None = None,
+    accel_lookback: int = LOOKBACK,
 ) -> list[dict[str, Any]]:
     from research.backtest.rrg_mono_expert_entry import (
         ExpertEntryMode,
@@ -606,6 +680,10 @@ def _apply_intraday_entries(
             minute=minute,
             kbar_cache=kbar_cache,
             full_rrg_cache=full_rrg_cache,
+            rs_ratio=rs_ratio,
+            rs_mom=rs_mom,
+            full_dates=full_dates,
+            accel_lookback=accel_lookback,
         )
         if not ranked:
             continue
@@ -614,11 +692,12 @@ def _apply_intraday_entries(
             if sid not in top_ids:
                 confirm[sid] = 0
                 confirm_ready_at.pop(sid, None)
+        need_confirm = confirm_need_at(config, minute)
         for sid in top_ids:
             if sid in {p["stock_id"] for p in state.get("slots", [])}:
                 continue
             confirm[sid] = confirm.get(sid, 0) + 1
-            if confirm[sid] >= config.confirm_bars and sid not in confirm_ready_at:
+            if confirm[sid] >= need_confirm and sid not in confirm_ready_at:
                 confirm_ready_at[sid] = minute
         for row in ranked:
             if len(state.get("slots", [])) >= slot_cap:
@@ -626,7 +705,7 @@ def _apply_intraday_entries(
             sid = row.stock_id
             if sid in {p["stock_id"] for p in state.get("slots", [])}:
                 continue
-            if confirm.get(sid, 0) < config.confirm_bars:
+            if confirm.get(sid, 0) < need_confirm:
                 continue
             ready_at = confirm_ready_at.get(sid, minute)
             key = (sid, entry_date)

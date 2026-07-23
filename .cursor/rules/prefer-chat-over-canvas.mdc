@@ -1,0 +1,20 @@
+---
+description: Prefer plain chat answers over Cursor Canvas; never open .canvas.tsx as the deliverable
+alwaysApply: true
+---
+
+# Prefer chat over Canvas
+
+User preference (personal): analytical comparisons, strategy reviews, tables, and research summaries must be delivered **in the chat reply**, not as a Cursor Canvas.
+
+## Do
+
+- Put the full answer in markdown in chat (short verdict first, then tables / bullets).
+- If a prior canvas exists, summarize its content in chat instead of asking the user to open it.
+- Only create or update a `.canvas.tsx` when the user **explicitly** asks for a Canvas / 畫布 / interactive panel.
+
+## Don't
+
+- Do not create `.canvas.tsx` by default for comparisons, audits, or research summaries.
+- Do not tell the user to open a canvas, use `View: Open Canvas`, or click a canvas card, unless they asked for a canvas.
+- Do not treat a markdown link to `.canvas.tsx` as the main deliverable (that opens source, not preview).

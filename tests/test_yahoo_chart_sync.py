@@ -20,6 +20,7 @@ from yahoo_chart_sync import (
     YahooDailyBar,
     fetch_yahoo_daily_bars,
     stock_daily_bars_rows_from_yahoo,
+    tw_yahoo_symbol_candidates,
 )
 
 
@@ -127,6 +128,17 @@ class TestBenchmarkPitSeed(unittest.TestCase):
             self.assertIn("2020-03-31", dates)
             self.assertIn("2020-06-30", dates)
             conn.close()
+
+
+class TestTwYahooSymbolCandidates(unittest.TestCase):
+    def test_index_aliases_map_to_twii(self) -> None:
+        self.assertEqual(tw_yahoo_symbol_candidates("IX0001"), ("^TWII",))
+        self.assertEqual(tw_yahoo_symbol_candidates("TAIEX"), ("^TWII",))
+        self.assertEqual(tw_yahoo_symbol_candidates("^TWII"), ("^TWII",))
+
+    def test_common_stock_candidates(self) -> None:
+        self.assertEqual(tw_yahoo_symbol_candidates("2330"), ("2330.TW", "2330.TWO"))
+        self.assertEqual(tw_yahoo_symbol_candidates("0050"), ("0050.TW",))
 
 
 class TestYahooDailyBarsParse(unittest.TestCase):

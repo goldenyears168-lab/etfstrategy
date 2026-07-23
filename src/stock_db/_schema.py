@@ -670,6 +670,19 @@ CREATE TABLE IF NOT EXISTS stock_branch_daily (
     PRIMARY KEY (stock_id, trade_date, source)
 );
 
+CREATE TABLE IF NOT EXISTS stock_broker_branch_daily (
+    trade_date TEXT NOT NULL,
+    securities_trader_id TEXT NOT NULL,
+    securities_trader TEXT,
+    stock_id TEXT NOT NULL,
+    buy REAL NOT NULL,
+    sell REAL NOT NULL,
+    net REAL NOT NULL,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, securities_trader_id, stock_id, source)
+);
+
 CREATE TABLE IF NOT EXISTS stock_block_trade (
     stock_id TEXT NOT NULL,
     trade_date TEXT NOT NULL,
@@ -1126,6 +1139,54 @@ CREATE TABLE IF NOT EXISTS stock_technical_daily (
 
 CREATE INDEX IF NOT EXISTS idx_stock_technical_date
     ON stock_technical_daily (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS pre_market_auction_snapshot (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    snapshot_ts TEXT NOT NULL,
+    bid_prices TEXT,
+    bid_volumes TEXT,
+    ask_prices TEXT,
+    ask_volumes TEXT,
+    match_price REAL,
+    match_volume REAL,
+    is_locked INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, snapshot_ts, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pre_market_auction_snapshot_date
+    ON pre_market_auction_snapshot (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS fubon_premarket_quote_snapshot (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    poll_ts TEXT NOT NULL,
+    bid_prices TEXT,
+    bid_sizes TEXT,
+    ask_prices TEXT,
+    ask_sizes TEXT,
+    last_trade_price REAL,
+    last_trade_size REAL,
+    last_trade_serial INTEGER,
+    last_trade_ts TEXT,
+    last_trial_price REAL,
+    last_trial_size REAL,
+    last_trial_serial INTEGER,
+    last_trial_ts TEXT,
+    is_open INTEGER,
+    is_open_delayed INTEGER,
+    is_close INTEGER,
+    is_close_delayed INTEGER,
+    raw_json TEXT,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, poll_ts, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fubon_premarket_quote_snapshot_date
+    ON fubon_premarket_quote_snapshot (trade_date, stock_id);
 """
 
 

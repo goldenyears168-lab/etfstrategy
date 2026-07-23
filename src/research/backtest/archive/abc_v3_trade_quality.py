@@ -1302,5 +1302,5 @@ def render_abc_v3_trade_quality_md(payload: dict[str, Any]) -> str:
     lines.extend(["", "## Verdict", ""])
     for r in v.get("reasons") or []:
         lines.append(f"- {r}")
-    lines.extend(["", "模组：`scripts/run_abc_v3_trade_quality.py` · sync `scripts/sync_us_overnight_futures.py`"])
+    lines.extend(["", "模组：`scripts/run_abc_v3_trade_quality.py` · sync `scripts/tools/sync_us_overnight_futures.py`"])
     return "\n".join(lines)

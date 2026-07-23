@@ -123,7 +123,7 @@ def load_buy_observation_config(path: Path | None = None) -> tuple[dict[str, Any
                 top_n=int(
                     item["top_n"]
                     if item.get("top_n") is not None
-                    else defaults.get("top_n", 5)
+                    else defaults.get("top_n", 0)
                 ),
                 confirm_bars=int(item.get("confirm_bars") or defaults.get("confirm_bars") or 1),
                 notify=bool(item.get("notify", defaults.get("notify", False))),

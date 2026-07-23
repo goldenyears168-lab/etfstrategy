@@ -55,7 +55,7 @@ if [[ "${MAIL_EXIT}" -ne 0 ]]; then
     STATUS="失敗"
   fi
   /usr/bin/osascript -e \
-    "display notification \"${SUBJECT} ${STATUS}；郵件未設定（見 .env GMAIL_*）\" with title \"ETF研究\"" \
+    "display notification \"${SUBJECT} ${STATUS}；郵件未設定（見 .env GMAIL_*）\" with title \"股票研究\"" \
     2>/dev/null || true
 fi
 

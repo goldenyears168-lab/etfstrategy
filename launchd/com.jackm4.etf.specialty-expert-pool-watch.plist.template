@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.etf.specialty-expert-pool-watch</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{SPECIALTY_EXPERT_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<!-- Env (incl. optional EXPERT_POOL_YELLOW_EMAIL_ANNOTATION) via launcher
+	     sourcing .env — default OFF. See expert_pool/MINI_OPS_REFERENCE.md -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>PYTHONPATH</key>
+		<string>{{PROJECT_ROOT}}/src</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>1</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>2</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>3</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>4</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>5</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>5</integer>
+		</dict>
+	</array>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_specialty-expert-pool-watch.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/logs/launchd_specialty-expert-pool-watch.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

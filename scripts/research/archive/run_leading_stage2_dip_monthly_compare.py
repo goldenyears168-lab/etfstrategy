@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from project_config import DEFAULT_ETF_CODES  # noqa: E402
 from stock_db import DEFAULT_DB_PATH, connect, load_etf_constituent_watchlist  # noqa: E402

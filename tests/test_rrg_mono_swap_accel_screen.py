@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime
@@ -25,8 +26,14 @@ from rrg_mono_swap_accel_screen import (
     _parse_pool_override,
     _poll_minute,
     _poll_window_ok,
+    _resolve_avoid_spread_mixed,
+    _resolve_entry_c_cfg,
+    _resolve_prior_ret_days,
+    _resolve_prior_ret_max,
     _scan_row_from_dict,
     _scan_row_to_dict,
+    _spread_gate_allows,
+    _spread_gate_blocker_clause,
     _swap_allowed,
     append_poll_tick_log,
     build_intent_batch,
@@ -39,12 +46,26 @@ from rrg_mono_swap_accel_screen import (
 
 
 class TestC18accLiveScreen(unittest.TestCase):
+    def test_resolve_entry_c_cfg_default_confirm_two(self) -> None:
+        with patch.dict("os.environ", {"C18ACC_CONFIRM_BARS": "2"}, clear=False):
+            cfg = _resolve_entry_c_cfg()
+        self.assertEqual(cfg.variant_id, "C3a")
+        self.assertEqual(cfg.score_mode, "avg_accel")
+        self.assertEqual(cfg.confirm_bars, 2)
+
+    def test_resolve_entry_c_cfg_env_one(self) -> None:
+        with patch.dict("os.environ", {"C18ACC_CONFIRM_BARS": "1"}, clear=False):
+            cfg = _resolve_entry_c_cfg()
+        self.assertEqual(cfg.variant_id, "C3a")
+        self.assertEqual(cfg.score_mode, "avg_accel")
+        self.assertEqual(cfg.confirm_bars, 1)
+
     def test_champion_config_matches_variant(self) -> None:
         cfg = champion_score_swap_c_config()
         self.assertEqual(cfg.variant_id, CHAMPION_SCORE_SWAP_C_VARIANT_ID)
         self.assertEqual(cfg.entry_leg, "C0")
         self.assertEqual(cfg.timing_mode, "poll_5m")
-        self.assertEqual(cfg.candidate_pool, "fresh_union_accel")
+        self.assertEqual(cfg.candidate_pool, "fresh")
         self.assertEqual(screen_champion().variant_id, cfg.variant_id)
 
     def test_poll_minute_floors_to_5m(self) -> None:
@@ -97,6 +118,7 @@ class TestC18accLiveScreen(unittest.TestCase):
         with patch.dict(
             "os.environ",
             {
+                "C18ACC_ALLOW_POOL_OVERRIDE": "1",
                 "C18ACC_POOL_OVERRIDE": "3711,6488,2344,3008",
                 "C18ACC_POOL_OVERRIDE_DATE": "2026-06-24",
             },
@@ -136,7 +158,7 @@ class TestC18accLiveScreen(unittest.TestCase):
                 dry_run=True,
             )
         )
-        self.assertIn("fresh∪accel 全池", md)
+        self.assertIn("fresh mono 全池", md)
         self.assertIn("2026-06-23", md)
         self.assertIn("backtest_pit", md)
 
@@ -230,7 +252,7 @@ class TestC18accLiveScreen(unittest.TestCase):
                 has_entry_action=False,
             )
         self.assertIn("6488", blocker)
-        self.assertIn("12:50 尚無盤中 kbar", blocker)
+        self.assertIn("尚無盤中報價 @ 12:50", blocker)
 
     def test_lot_shares_odd_lot_default(self) -> None:
         self.assertEqual(_lot_shares(644.0, 20000), 31)
@@ -258,6 +280,84 @@ class TestC18accLiveScreen(unittest.TestCase):
                 save_slot_state({"slots": [{"slot": 0, "stock_id": "2330"}], "history": []})
                 loaded = load_slot_state()
                 self.assertEqual(loaded["slots"][0]["stock_id"], "2330")
+
+
+class TestC18accSpreadGate(unittest.TestCase):
+    def test_avoid_spread_mixed_default_on(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("C18ACC_AVOID_SPREAD_MIXED", None)
+            self.assertTrue(_resolve_avoid_spread_mixed())
+
+    def test_avoid_spread_mixed_env_off(self) -> None:
+        with patch.dict("os.environ", {"C18ACC_AVOID_SPREAD_MIXED": "0"}, clear=False):
+            self.assertFalse(_resolve_avoid_spread_mixed())
+
+    def test_spread_gate_blocks_mixed_after_snapshot(self) -> None:
+        state = {
+            "spread_gate_snapshot": {
+                "_poll_minute": "09:30",
+                "2330": "mixed",
+            }
+        }
+        self.assertFalse(_spread_gate_allows(state, "2330", poll_minute="10:00"))
+
+    def test_spread_gate_allows_non_mixed(self) -> None:
+        state = {
+            "spread_gate_snapshot": {
+                "_poll_minute": "09:30",
+                "2330": "pullback",
+            }
+        }
+        self.assertTrue(_spread_gate_allows(state, "2330", poll_minute="10:00"))
+
+    def test_spread_gate_missing_data_allows(self) -> None:
+        state = {"spread_gate_snapshot": {"_poll_minute": "09:30"}}
+        self.assertTrue(_spread_gate_allows(state, "2330", poll_minute="10:00"))
+
+    def test_spread_gate_before_anchor_blocks(self) -> None:
+        state: dict = {}
+        self.assertFalse(_spread_gate_allows(state, "2330", poll_minute="09:15"))
+
+    def test_spread_gate_blocker_mixed(self) -> None:
+        state = {"spread_gate_snapshot": {"_poll_minute": "09:30", "2330": "mixed"}}
+        clause = _spread_gate_blocker_clause(state, "2330", "10:00")
+        self.assertIn("mixed", clause)
+
+
+class TestC18accChaseGate(unittest.TestCase):
+    def test_prior_ret_max_default(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("C18ACC_PRIOR_5D_RET_MAX", None)
+            self.assertEqual(_resolve_prior_ret_max(), 0.12)
+
+    def test_prior_ret_max_off(self) -> None:
+        with patch.dict("os.environ", {"C18ACC_PRIOR_5D_RET_MAX": "off"}, clear=False):
+            self.assertIsNone(_resolve_prior_ret_max())
+
+    def test_prior_ret_days_default(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("C18ACC_PRIOR_RET_DAYS", None)
+            self.assertEqual(_resolve_prior_ret_days(), 5)
+
+    def test_pool_override_disabled_by_default(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"C18ACC_POOL_OVERRIDE": "3711", "C18ACC_ALLOW_POOL_OVERRIDE": "0"},
+            clear=False,
+        ):
+            self.assertIsNone(_parse_pool_override("2026-07-12"))
+
+    def test_pool_override_requires_allow_flag(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "C18ACC_POOL_OVERRIDE": "3711,6488",
+                "C18ACC_ALLOW_POOL_OVERRIDE": "1",
+                "C18ACC_POOL_OVERRIDE_DATE": "2026-07-12",
+            },
+            clear=False,
+        ):
+            self.assertEqual(_parse_pool_override("2026-07-12"), ["3711", "6488"])
 
 
 if __name__ == "__main__":

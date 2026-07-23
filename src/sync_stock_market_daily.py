@@ -107,7 +107,10 @@ def build_stock_rows(
     end: date,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     price_rows = fetch_finmind("TaiwanStockPrice", stock_id, start, end)
-    adj_rows = fetch_finmind("TaiwanStockPriceAdj", stock_id, start, end)
+    try:
+        adj_rows = fetch_finmind("TaiwanStockPriceAdj", stock_id, start, end)
+    except requests.HTTPError:
+        adj_rows = []
     adj_by_date = {str(row["date"])[:10]: float(row["close"]) for row in adj_rows}
     bars: list[dict] = []
     close_by_date: dict[str, float] = {}

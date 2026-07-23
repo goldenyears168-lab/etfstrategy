@@ -27,7 +27,7 @@ def main() -> int:
 
     if not SITE_DIR.is_dir():
         print(
-            f"缺少 {SITE_DIR} · 改用 scripts/push_site_content_md.py（從 git HEAD 讀取）",
+            f"缺少 {SITE_DIR} · 改用 scripts/tools/push_site_content_md.py（從 git HEAD 讀取）",
             file=sys.stderr,
         )
         return 2

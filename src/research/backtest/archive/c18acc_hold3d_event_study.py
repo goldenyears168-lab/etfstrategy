@@ -68,7 +68,7 @@ def c18acc_live_s2_config(*, n_slots: int) -> ScoreSwapCConfig:
         accel_sell_bypass_on_spread_lost=champ.accel_sell_bypass_on_spread_lost,
         n_slots=max(1, int(n_slots)),
         variant_id="C18acc-S2-P5M",
-        label="C18acc champion S2 · poll_5m · fresh∪accel",
+        label=f"C18acc champion S2 · poll_5m · {champ.candidate_pool}",
     )
 
 
@@ -99,11 +99,15 @@ def compute_hold_nd_event_leg(
     entry_minute: str | None = None,
     entry_px: float | None = None,
     hold_days: int = ABC_V3_HOLD_DAYS,
+    bench: Any | None = None,
 ) -> dict[str, Any] | None:
     """Counterfactual hold Nd exit at 13:30 · same cost model as ABC event layer."""
     exit_date = exit_close_date_from_entry(conn, entry_date, hold_days)
     if not exit_date:
         return None
+    if bench is None:
+        close, _, _ = load_price_panels(conn)
+        bench = load_benchmark_close(conn).reindex(close.index).astype(float)
     minute_in = entry_minute or "09:30"
     px_in = entry_px
     if px_in is None or px_in <= 0:
@@ -111,6 +115,12 @@ def compute_hold_nd_event_leg(
     px_out = kbar_close_at_minute(conn, stock_id, exit_date, EXIT_MINUTE)
     b_in = kbar_close_at_minute(conn, "IX0001", entry_date, minute_in)
     b_out = kbar_close_at_minute(conn, "IX0001", exit_date, EXIT_MINUTE)
+    if b_in is None or b_in <= 0:
+        if entry_date in bench.index:
+            b_in = float(bench.at[entry_date])
+    if b_out is None or b_out <= 0:
+        if exit_date in bench.index:
+            b_out = float(bench.at[exit_date])
     if not px_in or not px_out or not b_in or not b_out:
         return None
     gross = return_pct(float(px_in), float(px_out))
@@ -136,6 +146,7 @@ def _legs_to_hold3d_stats(
     entries: list[dict[str, Any]],
     *,
     hold_days: int = ABC_V3_HOLD_DAYS,
+    bench: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     legs: list[dict[str, Any]] = []
     for row in entries:
@@ -146,6 +157,7 @@ def _legs_to_hold3d_stats(
             entry_minute=row.get("entry_minute"),
             entry_px=row.get("entry_px"),
             hold_days=hold_days,
+            bench=bench,
         )
         if leg is None:
             continue
@@ -312,6 +324,7 @@ def run_c18acc_hold3d_event_study(
     val_set = set(val_dates)
 
     ctx = _prepare_c18acc_context(conn, sample_dates)
+    bench = ctx["bench"]
 
     entries_uncon, meta_uncon = collect_c18acc_simulation_entries(
         conn, sample_dates, n_slots=C18ACC_UNCONSTRAINED_SLOTS, ctx=ctx
@@ -323,9 +336,9 @@ def run_c18acc_hold3d_event_study(
         conn, sample_dates, ctx=ctx
     )
 
-    legs_uncon, stats_uncon = _legs_to_hold3d_stats(conn, entries_uncon)
-    legs_3slot, stats_3slot = _legs_to_hold3d_stats(conn, entries_3slot)
-    legs_pool, stats_pool = _legs_to_hold3d_stats(conn, pool_entries)
+    legs_uncon, stats_uncon = _legs_to_hold3d_stats(conn, entries_uncon, bench=bench)
+    legs_3slot, stats_3slot = _legs_to_hold3d_stats(conn, entries_3slot, bench=bench)
+    legs_pool, stats_pool = _legs_to_hold3d_stats(conn, pool_entries, bench=bench)
 
     actual_nets = [
         float(e["actual_return_pct"])

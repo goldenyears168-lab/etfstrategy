@@ -880,7 +880,7 @@ def render_calibration_md(payload: dict[str, Any]) -> str:
         "查表：`lookup_gap_distribution(payload, seg_daily=…, seg_intraday=…)`",
         "",
         "---",
-        "模組：`scripts/calibrate_overnight_gap_seg.py`",
+        "模組：`scripts/tools/calibrate_overnight_gap_seg.py`",
         "",
     ]
     return "\n".join(lines)

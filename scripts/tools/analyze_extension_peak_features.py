@@ -2,8 +2,8 @@
 """Phase 2b · Extension radar 高點特徵機率分析。
 
 用法：
-  PYTHONPATH=src python scripts/analyze_extension_peak_features.py
-  PYTHONPATH=src python scripts/analyze_extension_peak_features.py \\
+  PYTHONPATH=src python scripts/tools/analyze_extension_peak_features.py
+  PYTHONPATH=src python scripts/tools/analyze_extension_peak_features.py \\
     --date-start 2024-01-01 --date-end 2026-06-26
 """
 

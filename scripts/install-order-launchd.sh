@@ -11,9 +11,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LAUNCHD_SRC="${PROJECT_ROOT}/launchd"
+APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.etf"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
+ORDER_WAKE_LAUNCHER="${APP_SUPPORT}/order-wake.sh"
 
 LABELS=(
   com.jackm4.etf.order-wake
@@ -36,7 +38,7 @@ usage() {
   cat <<EOF
 用法: $(basename "$0") [--uninstall|--status]
 
-  08:55 order-wake（caffeinate 10 分鐘）
+  order-wake：鐘面每 5 分 · Mon–Fri 08:50–13:40 caffeinate（盤中防休眠）
   09:00–09:04 每分鐘 order-chase-open（限價追賣一 · 最多 5 輪）
 
   閘門：.env ORDER_LAUNCHD_ENABLED=1
@@ -82,7 +84,17 @@ install_agents() {
     echo "✓ 已卸載舊版 ${label}"
   done
 
-  mkdir -p "${AGENT_DIR}" "${PROJECT_ROOT}/logs"
+  mkdir -p "${AGENT_DIR}" "${APP_SUPPORT}" "${PROJECT_ROOT}/logs"
+
+  # order-wake → Application Support（避開 Documents TCC）
+  local wake_src="${LAUNCHD_SRC}/order-wake-launcher.sh.template"
+  if [[ ! -f "${wake_src}" ]]; then
+    echo "✗ 缺少 ${wake_src}" >&2
+    exit 1
+  fi
+  sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" "${wake_src}" >"${ORDER_WAKE_LAUNCHER}"
+  chmod +x "${ORDER_WAKE_LAUNCHER}"
+  echo "✓ launcher ${ORDER_WAKE_LAUNCHER}"
 
   local i template src dest
   for i in "${!TEMPLATES[@]}"; do
@@ -95,7 +107,11 @@ install_agents() {
       exit 1
     fi
     bootout_label "${label}"
-    sed "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" "${src}" >"${dest}"
+    mkdir -p "${HOME}/Library/Logs/com.jackm4.etf"
+    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
+        -e "s|{{ORDER_WAKE_LAUNCHER}}|${ORDER_WAKE_LAUNCHER}|g" \
+        -e "s|{{HOME}}|${HOME}|g" \
+        "${src}" >"${dest}"
     bootstrap_label "${dest}"
     echo "✓ ${label}"
   done

@@ -351,7 +351,7 @@ export async function fetchRegimeSnapshot(date: string) {
 ```bash
 python scripts/sync_research_to_supabase.py --slot 1630 --date 2026-06-18
 # 或 backfill
-python scripts/backfill_supabase_research.py --days 14
+python scripts/tools/backfill_supabase_research.py --days 14
 ```
 
 ---

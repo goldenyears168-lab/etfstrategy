@@ -2,12 +2,17 @@
 
 **不在** `daily_sync.sh` 收盤主線內（pipeline 腳本見 [`config/pipeline_scripts.yaml`](../config/pipeline_scripts.yaml)）。
 
-**Phase D（2026-07-09）**：0 active research topic · 非 pipeline 的 `run_*.py` 全在 [`archive/`](archive/)。
+**Phase D（2026-07-09）**：收斂至 0 active research topic 後，`abc-v3-f1-entry-structure` 為首個新開 active topic；其餘非 pipeline 的 `run_*.py` 全在 [`archive/`](archive/)。
 
 ## 目錄
 
 | 路徑 | 用途 |
 |------|------|
+| `run_abc_v3_f1_entry_structure_sweep.py` | Active · ABC v3+F1 entry structure sweep |
+| `run_abc_v3_f1_entry_gate_tp_sweep.py` | Active · entry gate × TP-only 聯合 sweep（無槽位限制） |
+| `run_abc_v3_f1_entry_multifactor_tp_sweep.py` | Active · gap band × 多因子 overlay × 固定 TP-only |
+| `run_abc_v3_f1_entry_factor_scan.py` | Active · entry 因子相關性掃描（raw/z/percentile/ratio） |
+| `run_abc_v3_f1_w3_improving_extended_window.py` | Active · RP-1 · W3 Improving 延伸窗口驗證（H-ENTRY-IMP-1） |
 | [`archive/`](archive/) | archived / graduated 重跑 runner（手動） |
 | `scripts/run_*.py`（根目錄） | **pipeline / strategy daily** 僅 25 支 |
 
@@ -21,7 +26,7 @@
 
 ## Active research
 
-**0 topics**（2026-07-09 Phase D）。新探索請先加 topic 再寫 runner；重跑舊 sweep 見 `archive/` + yaml `run_scripts`。
+**1 topic**（`abc-v3-f1-entry-structure` · MV gap sweet-band 進場 + W3 Improving 延伸驗證 RP-1，parent `abc-v3-f1-pullback`）。新探索請先加 topic 再寫 runner；重跑舊 sweep 見 `archive/` + yaml `run_scripts`。
 
 ## Graduated · 重跑 champion
 

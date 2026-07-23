@@ -15,8 +15,46 @@ LIFECYCLE_FILLED = "filled"
 LIFECYCLE_PARTIAL = "partial"
 LIFECYCLE_WORKING = "working"
 LIFECYCLE_SUBMITTED = "submitted"
+LIFECYCLE_AMBIGUOUS = "ambiguous"  # placed but broker row not found after poll
 
 _STATUS_FAILED = 90
+
+# Outer preview/ledger ``status`` mirrors lifecycle (no longer force "submitted").
+_OPEN_STATUSES = frozenset(
+    {LIFECYCLE_WORKING, LIFECYCLE_SUBMITTED, LIFECYCLE_PARTIAL, LIFECYCLE_AMBIGUOUS}
+)
+_CASH_STATUSES = frozenset({LIFECYCLE_FILLED, LIFECYCLE_PARTIAL})
+
+
+def outer_status_from_lifecycle(lifecycle_status: str | None) -> str:
+    """Map lifecycle → result status shown in preview / cash gates."""
+    lc = str(lifecycle_status or "").strip().lower()
+    if lc == LIFECYCLE_SUBMITTED:
+        return LIFECYCLE_WORKING
+    if lc in (
+        LIFECYCLE_FILLED,
+        LIFECYCLE_PARTIAL,
+        LIFECYCLE_WORKING,
+        LIFECYCLE_CANCELLED,
+        LIFECYCLE_FAILED,
+        LIFECYCLE_AMBIGUOUS,
+    ):
+        return lc
+    return LIFECYCLE_WORKING if lc else LIFECYCLE_AMBIGUOUS
+
+
+def entry_counts_toward_cash(entry: dict[str, Any]) -> bool:
+    """True only when fill (or partial) is known — avoids P1 over-count."""
+    lc = str(entry.get("lifecycle_status") or entry.get("status") or "").strip().lower()
+    if lc in _CASH_STATUSES:
+        return True
+    st = str(entry.get("status") or "").strip().lower()
+    return st in _CASH_STATUSES
+
+
+def entry_is_open(entry: dict[str, Any]) -> bool:
+    lc = str(entry.get("lifecycle_status") or "").strip().lower()
+    return lc in _OPEN_STATUSES
 
 
 def build_client_intent_id(
@@ -152,15 +190,66 @@ def poll_order_lifecycle(
         if attempt + 1 < attempts and interval_sec > 0:
             time.sleep(interval_sec)
     if last is not None:
+        # Still open after poll window — keep working/partial; do not pretend filled.
         return last
     return {
-        "lifecycle_status": LIFECYCLE_SUBMITTED,
+        "lifecycle_status": LIFECYCLE_AMBIGUOUS,
         "filled_qty": 0,
         "quantity_shares": fallback_qty,
-        "notional_twd": round(fallback_qty * fallback_ask, 2),
+        "notional_twd": 0.0,  # unknown fill → zero exposure until refresh
         "order_no": order_no,
         "broker_status": None,
     }
+
+
+def refresh_open_ledger_entries(
+    session: Any,
+    entries: list[dict[str, Any]],
+    *,
+    max_attempts: int = 1,
+    interval_sec: float = 0.0,
+) -> int:
+    """Re-poll broker for open/ambiguous rows · mutate entries in place · return update count."""
+    updated = 0
+    for entry in entries:
+        if not entry_is_open(entry):
+            continue
+        cid = str(entry.get("client_intent_id") or "")
+        if not cid:
+            continue
+        order_no = str(entry.get("order_no") or "") or None
+        fallback_ask = float(entry.get("ask_price") or entry.get("avg_fill_price") or 0.0)
+        fallback_qty = int(entry.get("quantity_shares") or 0)
+        fields = poll_order_lifecycle(
+            session,
+            client_intent_id=cid,
+            order_no=order_no,
+            fallback_ask=fallback_ask or 1.0,
+            fallback_qty=fallback_qty or 1,
+            max_attempts=max_attempts,
+            interval_sec=interval_sec,
+        )
+        # Don't overwrite a known working row with ambiguous if poll finds nothing again.
+        if (
+            fields.get("lifecycle_status") == LIFECYCLE_AMBIGUOUS
+            and str(entry.get("lifecycle_status") or "") in (LIFECYCLE_WORKING, LIFECYCLE_PARTIAL)
+        ):
+            continue
+        before = (
+            entry.get("lifecycle_status"),
+            entry.get("filled_qty"),
+            entry.get("broker_status"),
+        )
+        entry.update(fields)
+        entry["status"] = outer_status_from_lifecycle(str(fields.get("lifecycle_status") or ""))
+        after = (
+            entry.get("lifecycle_status"),
+            entry.get("filled_qty"),
+            entry.get("broker_status"),
+        )
+        if before != after:
+            updated += 1
+    return updated
 
 
 def reconcile_before_submit(

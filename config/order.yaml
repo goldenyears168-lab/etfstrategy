@@ -1,6 +1,10 @@
 # Order layer · 下單層（券商 API · 帳務 · 委託）
 # 密碼與 API Key 僅放 .env，勿寫入本檔
 # SDK 文件：https://www.fbs.com.tw/TradeAPI/docs/trading/quickstart
+#
+# Live sleeves：C18acc + Leading Dip + Songshan copytrade（觀測進場）+ Detach Gate。
+# ABC v3+F1：已自 Order 移除（2026-07-16）。舊持倉視為手動單，不做 sleeve 互斥。
+# Research／strategy 契約：config/strategy.yaml · src/research/**（與下單層無關）。
 
 version: order-v1
 layer: order
@@ -36,36 +40,340 @@ intent:
   # 未指定 price_type 時：限價追賣一（盤中零股 · 送單當下查價）
   default_price_mode: chase_ask
 
-# ABC v3+f1 · 盤中命中自動送單（Order layer · 非 Strategy import）
 strategies:
-  abc-v3-f1-pullback:
-    pool_id: abc-v3-f1-pullback
-    strategy_id: abc-v3-f1-pullback
+  # Leading Dip · Strategy 採納 2026-07-16（coverage 主軌 + mid 衛星）
+  # Spec SSOT: config/strategy.yaml · Order: src/order/leading_dip_order.py
+  # Dual-sleeve: coverage 昨收錨 + mid ≥10:00 今開錨 · 預算 2 萬/筆 · live
+  leading-dip:
+    pool_id: leading-dip
+    strategy_id: leading-dip
+    enabled: true
     budget_twd: 20000
-    max_entries_per_day: 5
+    max_entries_per_day: 4
+    hold_days: 3
+    require_t2: false  # coverage · 含開盤
+    price_type: chase_ask
+    exit_price_type: chase_bid
+    market_type: intraday_odd
+    time_in_force: rod
+    user_def: ldip
+    slots:
+      default_day_cap: 2
+      expand_cap: 4
+      hard_cap: 4
+      busy_n: 3
+      crash_rb_min: -1.5
+      total_open_cap: 6
+    mid:
+      enabled: true
+      strategy_id: leading-dip-mid
+      user_def: ldipm
+      budget_twd: 20000
+      minute_lo: "10:00"
+      excess_anchor: open  # vs session open · gap∩excess
+      require_t2: false
+      max_entries_per_day: 2
+      own_ledger: data/order/leading_dip_mid_ledger.json
+      slots:
+        default_day_cap: 1
+        expand_cap: 2
+        hard_cap: 2
+        total_open_cap: 3
+    isolation:
+      exclude_c18acc_slots: true
+      exclude_abc_ledger: false  # ABC Order 已移除 · 舊倉當手動單
+      own_ledger: data/order/leading_dip_ledger.json
+      poll_script: scripts/order/run_leading_dip_poll.py
+      launchd: com.jackm4.etf.leading-dip-poll
+    notes: >
+      Strategy 採納 2026-07-16 · main=coverage yday excess · mid=≥10:00 open-anchor.
+      Budget 20k/entry · live via ORDER_LEADING_DIP_DRY_RUN=0 AUTO_SUBMIT=1.
+      Cross-exclude C18/peer sleeve（不含 ABC）。Env: ORDER_LEADING_DIP_* · ORDER_LEADING_DIP_MID_*.
+    # env：ORDER_LEADING_DIP_* / ORDER_LEADING_DIP_MID_*
+
+  # 跟單松山 · 五日累積淨比95 ∩ !mega + entry_25m_nonfail · 買 1 張
+  # Signal = 昨交易日 scan；T+1 09:25–09:40 live 非 fail 後 chase_ask 整股 1000
+  songshan-copytrade:
+    pool_id: songshan-copytrade
+    strategy_id: songshan-copytrade
+    enabled: true
+    dry_run: true  # live: ORDER_SONGSHAN_COPYTRADE_DRY_RUN=0
+    auto_submit: true
+    quantity_shares: 1000
+    branch_id: "9217"
+    buy_floor: 50000000  # 0.5億
+    net_min: 0.95
+    entry_after: "09:25"
+    entry_until: "09:40"
+    price_type: chase_ask
+    market_type: common
+    user_def: ss5d
+    hold_days: 7
+    submit_notify: true
+    ledger: data/order/songshan_copytrade_ledger.json
+    mega_path: reports/research/branch-footprint-screen/ab58_xMega_copytrade/mega_blacklist_v1.json
+    poll_script: scripts/order/run_songshan_copytrade_poll.py
+    launchd: com.jackm4.etf.songshan-copytrade-poll
+    notes: >
+      Research 冠軍路徑進 Order（2026-07-22）。夜信尺同名；進場須 25m 非 fail。
+      僅進場（hold_days 參數無自動出場；暫接受）。運維 SSOT：
+      deploy/mac-mini/MIGRATION_PLAN.md §0。Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
+
+  rrg-mono-swap-accel:
+    pool_id: rrg-mono-swap-accel
+    strategy_id: rrg-mono-swap-accel
+    enabled: true
+    candidate_pool: fresh
+    budget_twd_per_slot: 20000
     price_type: chase_ask
     market_type: intraday_odd
     time_in_force: rod
-    user_def: abc-v3-f1-pullback
-    cancel_open_buys: true
-    hold_days: 3
-    reentry:
-      # 對齊 event hold 3d · 非 skip_if_held（C18 持倉不擋 ABC sleeve 加碼）
-      hold_days: 3
-      reentry_discount_pct: 2.0
-      reentry_min_trading_days: 1
-      max_entries_per_symbol_rolling: 3
-      rolling_lookback_trading_days: 20
-      max_notional_per_symbol_twd: 60000
-    # env：ABC_V3_F1_ORDER_ENABLED · AUTO_SUBMIT · BUDGET_TWD · MAX_ENTRIES_DAY
-    # · HOLD_DAYS · REENTRY_DISCOUNT_PCT · MAX_NOTIONAL_SYMBOL
+    user_def: rrg-mono-swap-accel
+    auto_submit: true
+    entry_confirm_bars: 1
+    avoid_spread_mixed: true
+    allow_pool_override: false
+    chase_gate:
+      id: G_R5_12
+      prior_ret_days: 5
+      prior_ret_max: 0.12
+      scope: entry_and_swap_buy
+    spread_gate:
+      anchor: first_poll_ge_no_trade_before
+      no_trade_before: "13:00"
+      wma_legs: W5/W20
+      scope: entry_and_swap
+    evidence:
+      pool_adoption:
+        report: reports/research/rrg/20260712_c18acc_fresh_pool_adoption.md
+        full_delta_excess_pp: 0.33
+        oos_delta_excess_pp: 0.0
+        delta_legs: -1
+      spread_mixed:
+        report: reports/research/rrg/20260711_c18acc_avoid_mixed_slot_resim_nav.md
+        leg_oos_delta_excess_pp: 1.42
+        nav_oos_delta_total_ret_pp: 15.5
+        nav_full_delta_total_ret_pp: 13.0
+      chase_r5_12:
+        report: reports/research/rrg/20260712_c18acc_r5_12_g3.md
+        oos_delta_excess_pp: 1.97
+        is_delta_excess_pp: 0.50
+        full_delta_excess_pp: 1.03
+        g3: passed
+      entry_e1320:
+        report: reports/research/rrg/20260713_c18acc_live_vs_e1320_from202501.md
+        matched_oos_delta_excess_pp: 1.01
+        matched_full_delta_excess_pp: 1.43
+        is_end: "2025-06-30"
+        recommendation: CONSIDER_BUY_AT_SIGNAL_1320
+        note: superseded_as_default_by_entry_e1300_20260714
+      entry_e1300:
+        report: reports/research/rrg/20260714_c18acc_entry_e1300_adoption.md
+        snap_1300_vs_1320: reports/research/rrg/20260714_c18acc_snap_1300_vs_1320_u238.md
+        snap_1300_oos_delta_pp: -0.015
+        confirm_1250_1300: reports/research/rrg/20260714_c18acc_snap_confirm_1250_1300_u238.md
+        confirm_1250_oos_delta_pp: 0.42
+        recommendation: ADOPT_E1300_OPS
+        rationale: ops_ge_30m_to_close_same_day_near_close
+    notes: >
+      Candidate pool: fresh mono · same-day near-close lock at ≥13:00 (kbar provisional ≈ EOD).
+      Screen SSOT: champion_score_swap_c_config() · no_trade_before=13:00 · poll→13:30.
+      confirm_bars=1 live（C18ACC_CONFIRM_BARS · strategy funnel 對齊 2026-07-16）.
+      C18acc screen auto-submit via ORDER_C18ACC_AUTO_SUBMIT=1. Entry requires
+      confirm_bars consecutive top-3 polls (default 1 · ops alpha vs research baseline 2).
+      Entry+swap buy skip spread_class=mixed at first poll ≥ 13:00 (W5/W20 ·
+      C18ACC_AVOID_SPREAD_MIXED, default 1).
+      Chase gate G_R5_12: prior 5d return >12% skip entry/swap-buy
+      (C18ACC_PRIOR_5D_RET_MAX, default 0.12 · 20260712 GO_ADOPT_G_R5_12).
+      Entry timing 2026-07-14: E@13:00 採納（ops ≥30m-to-close；SNAP_1300≈1320；
+      12:50∩13:00 研究 +0.42pp 作佐證，live 不另建雙 SNAP 引擎以免技術債）。
+      Prior 2026-07-13: LIVE_MATCHED_1320 OOS +1.01pp vs E+1 09:30（近收盤優於隔日早盤）。
+      pool_override disabled unless C18ACC_ALLOW_POOL_OVERRIDE=1.
+      Pyramid add 採納（c18acc_pyramid_add · rrg poll 內掃加碼）.
+      Swap conflict policy: sell_first (account_risk.priority_on_conflict).
+      Deferred swap buys retry up to swap_buy_retry_polls.
+    # env：ORDER_C18ACC_ORDER_ENABLED · ORDER_C18ACC_AUTO_SUBMIT · ORDER_C18ACC_DRY_RUN
+    # · C18ACC_BUDGET_TWD_PER_SLOT · C18ACC_BOARD_LOT · C18ACC_AVOID_SPREAD_MIXED
+    # · C18ACC_PRIOR_5D_RET_MAX · C18ACC_ALLOW_POOL_OVERRIDE · C18ACC_NO_TRADE_BEFORE
+    # · C18ACC_CONFIRM_BARS
 
-# Phase 1 · mini-OMS lifecycle（abc-v3-f1 · 可 env 覆寫）
+# ABC pyramid_add · retired with ABC Order（2026-07-15）· stub only
+pyramid_add:
+  schema: order-pyramid-add-v1
+  enabled: false
+  retired_from_order: true
+  research_hypothesis: H-ENTRY-PYRAMID-1
+  applies_to: []
+  notes: >
+    Retired. C18acc pyramid uses c18acc_pyramid_add below.
+
+# C18acc · structural pyramid add (RP-2 + 3-slot · H-C18-PYRAMID-1/2) — post-entry equal-weight second unit
+c18acc_pyramid_add:
+  schema: order-pyramid-add-v1
+  enabled: true
+  research_hypothesis: H-C18-PYRAMID-2
+  winner_condition: underwater_rebound
+  applies_to:
+    - rrg-mono-swap-accel
+  trigger:
+    ret_from_entry_pct_lt: 0
+    w3_rv_rebound_from_in_hold_trough_min: 0.3
+    poll_interval_minutes: 30
+    lookahead: forbidden
+  sizing:
+    mode: equal_weight_second_unit
+    budget_fraction_of_initial: 1.0
+    budget_basis: per_slot_budget
+    notes: >
+      Second unit notional = C18ACC_BUDGET_TWD_PER_SLOT × budget_fraction_of_initial
+      (same as initial slot entry when fraction=1.0).
+  exit:
+    mode: sync_exit
+    notes: >
+      Both units exit at leg1 sim/S2 dynamic exit (not fixed hold_5d).
+  evidence:
+    report: reports/research/rrg/20260712_c18acc_structural_pyramid_slot_resim.md
+    leg_report: reports/research/rrg/20260711_c18acc_structural_pyramid_n99.md
+    is_delta_vs_leg1_pp: 0.901
+    oos_delta_vs_leg1_pp: 1.189
+    slot_oos_delta_excess_pp: 0.548
+    leg1_only_portfolio_mean_pct: 6.872
+  notes: >
+    Adopted 2026-07-12 (H-C18-PYRAMID-1 leg + H-C18-PYRAMID-2 3-slot). Strategy
+    pyramid_add.enabled=true（2026-07-16）· env C18ACC_PYRAMID_ADD_ENABLED=1.
+    Scanned inside rrg-c18acc-poll（not a separate launchd）. Post-entry sizing only;
+    entry/swap unchanged. O3-7. Ledger: pyramid_parent_cid links add to initial slot entry.
+
+# Detach Gate（台美脫鉤閘門）· Strategy layer detach-gate · RED → half-flatten @ bid1
+# 範圍＝券商全帳戶持倉（非僅策略袖）· confirmed 2026-07-16
+# launchd：com.jackm4.etf.detach-gate · Mon–Fri 09:40–12:30 / 5m Asia/Taipei
+# Frozen RED：s5_w-0.6_c1_down-0.5_arm0940-1230（research 採納 · sell-only）
+detach_gate:
+  schema: order-detach-gate-v1
+  strategy_id: detach-gate
+  enabled: true
+  freeze_rule: s5_w-0.6_c1_down-0.5_arm0940-1230
+  arm_window: "09:40-12:30"
+  poll_interval_minutes: 5
+  action:
+    mode: half_flatten
+    scope: broker_all_holdings  # 全帳戶 · 非僅 C18／LD 袖（confirmed 2026-07-16）
+    qty: floor_half   # sell floor(qty/2) per holding；qty<2 skip
+    price: chase_bid  # 買一
+    market_type: auto # intraday_odd if sell_qty<1000 else common
+  ledger: data/order/detach_gate_ledger.json
+  idempotent: once_per_session_date  # half_flatten_done
+  env:
+    run: RUN_DETACH_GATE                 # launchd / poll gate（default 1）
+    email: RUN_DETACH_GATE_EMAIL         # signal + order notify（default 1）
+    dry_run: ORDER_DETACH_GATE_DRY_RUN   # default 1 · preview only
+    order_enabled: ORDER_DETACH_GATE_ORDER_ENABLED  # default 1
+    auto_submit: ORDER_DETACH_GATE_AUTO_SUBMIT      # default 1（still blocked while dry_run=1）
+  notify:
+    on_first_red: true
+    on_orders: true   # includes dry_run preview rows
+  rebuy: false        # trough-find is Research only（detach-gate-trough-find）
+  notes: >
+    Scope = all broker holdings（全帳戶）· half sell at bid1 when RED / RED_LATCHED.
+    Not limited to C18acc / Leading Dip sleeves. Dry-run default until
+    ORDER_DETACH_GATE_DRY_RUN=0. Does not auto-rebuy. Live submit also subject to
+    ORDER_LIVE_FORBIDDEN / live_submit_guard.
+
+# 專家池漏斗閘門（gap → 09:05 → 09:25）· launchd 09:00／09:01／09:05／09:25
+# Research ops tree：綠開盤買 · 黃等05 perfect · 紅／追弱等25 · ret25≤−2%或fail_break跳過
+# Env：ORDER_EP_STAGED_GATE_* · RUN_EP_STAGED_GATE · 預設 dry-run
+expert_pool_staged_gate:
+  enabled: true
+  dry_run: true  # live: ORDER_EP_STAGED_GATE_DRY_RUN=0
+  budget_twd: 10000
+  market_type: intraday_odd
+  timeout_sec: 600
+  user_def: epsg
+  thresholds:
+    soft_gap_pct: 2.0
+    hard_gap_pct: 4.0
+    chase_gc_pct: 3.0
+    perfect_gap_max_pct: 3.0
+    ret05_perfect_min_pct: -0.5
+    dd05_perfect_min_pct: -2.0
+    ret25_skip_max_pct: -2.0
+  jobs:
+    - id: ep_2327_20260723
+      enabled: true
+      once_date: "2026-07-23"
+      symbol: "2327"
+      signal_close: 703
+      budget_twd: 10000
+      user_def: ep2327
+      notes: "國巨 · 收703 · <717開買 · 717–731等05 · ≥731或>724等25"
+    - id: ep_8046_20260723
+      enabled: true
+      once_date: "2026-07-23"
+      symbol: "8046"
+      signal_close: 1305
+      budget_twd: 10000
+      user_def: ep8046
+      notes: "南電 · 收1305 · <1331開買 · 1331–1357等05 · ≥1357或>1345等25"
+  notes: >
+    poll_script=scripts/order/run_expert_pool_staged_gate.py
+    launchd=com.jackm4.etf.expert-pool-staged-gate
+    state=data/order/expert_pool_staged_gate_state.json
+
+# 限時限價單（launchd 09:05 · 多筆同時送、共用 timeout 後撤）
+# 6451 訊芯：2026-07-23 09:05 限價賣 1 張 @462 · 10 分鐘撤
+# 專家池買進改走 expert_pool_staged_gate（上方）；此處固定 09:05 買已停用。
+timed_limit_orders:
+  - id: sell_6451_462_20260723
+    enabled: true
+    once_date: "2026-07-23"
+    time: "09:05"
+    symbol: "6451"
+    side: sell
+    quantity_shares: 1000
+    price: "462"
+    timeout_sec: 600
+    market_type: common
+    user_def: t6451
+    notes: "人工指定 · 隔日限價賣；ORDER_TIMED_LIMIT_DRY_RUN=0 才送券商"
+
+  - id: buy_2303_ep_a_20260723
+    enabled: false
+    once_date: "2026-07-23"
+    time: "09:05"
+    symbol: "2303"
+    side: buy
+    budget_twd: 10000
+    price: "140.5"
+    timeout_sec: 600
+    market_type: intraday_odd
+    user_def: epA1
+    notes: "DISABLED 2026-07-23 · 專家池漏斗改人工／非固定09:05限價"
+
+  - id: buy_2327_ep_a_20260723
+    enabled: false
+    once_date: "2026-07-23"
+    time: "09:05"
+    symbol: "2327"
+    side: buy
+    budget_twd: 10000
+    price: "710"
+    timeout_sec: 600
+    market_type: intraday_odd
+    user_def: epA2
+    notes: "DISABLED 2026-07-23 · 國巨改人工漏斗（開/<717→05→25）"
+
+# Phase 1 · mini-OMS lifecycle（C18acc / Leading Dip · 可 env 覆寫）
 lifecycle:
   poll_max_attempts: 3
   poll_interval_sec: 2.0
-  notional_basis: submitted   # submitted | filled
-  submit_notify: true         # RUN_ABC_V3_F1_SUBMIT_EMAIL
+  notional_basis: filled   # submitted | filled · default filled（P1：未成交不計曝險）
+  submit_notify: true
+
+# 帳戶級風控 · 雙袖共用 · 換倉衝突賣優先
+account_risk:
+  reserved_cash_twd: 50000
+  priority_on_conflict: sell_first
+  swap_buy_retry_polls: 3
 
 # launchd 開盤追價（已停用 · 原週一至五 09:00–09:04 · install-order-launchd.sh）
 # 重新啟用：.env ORDER_LAUNCHD_ENABLED=1 + scripts/install-order-launchd.sh

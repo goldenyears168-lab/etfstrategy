@@ -65,8 +65,32 @@ def main() -> int:
         action="store_true",
         help="僅輸出精簡 digest 段落（供盤中寄信合併）",
     )
+    parser.add_argument(
+        "--symbols",
+        metavar="IDS",
+        help="監控清單模式：逗號分隔代號（略過富邦持倉；可搭配 --require-rrg）",
+    )
+    parser.add_argument(
+        "--symbols-file",
+        type=Path,
+        help="監控清單模式：檔案內逗號／空白／換行分隔代號",
+    )
+    parser.add_argument(
+        "--require-rrg",
+        action="store_true",
+        help="監控清單模式：略過沒有收盤 RRG 素材的代號",
+    )
     parser.add_argument("-o", "--output", type=Path, help="自訂輸出路徑（需搭配 --write）")
     args = parser.parse_args()
+
+    watch_symbols: list[str] = []
+    if args.symbols:
+        watch_symbols.extend(part.strip() for part in str(args.symbols).replace("\n", ",").split(","))
+    if args.symbols_file:
+        text = Path(args.symbols_file).read_text(encoding="utf-8")
+        for token in text.replace(",", " ").replace("\n", " ").split():
+            watch_symbols.append(token.strip())
+    watch_symbols = [s for s in watch_symbols if s]
 
     conn = connect(args.db)
     try:
@@ -76,9 +100,31 @@ def main() -> int:
             use_fubon=not args.no_fubon,
             sync_rrg_intraday=args.sync_rrg_intraday,
             refresh_morning_risk=not args.no_futures,
+            symbols=watch_symbols or None,
+            require_rrg_close=args.require_rrg,
         )
     finally:
         conn.close()
+
+    if watch_symbols and args.require_rrg:
+        kept = {r.base.stock_id for r in pulse.holdings}
+        skipped = [s for s in watch_symbols if s not in kept]
+        # preserve input order unique
+        seen: set[str] = set()
+        skipped_u: list[str] = []
+        for s in skipped:
+            if s in seen:
+                continue
+            seen.add(s)
+            skipped_u.append(s)
+        print(
+            f"監控清單：輸入 {len(set(watch_symbols))} 檔 · "
+            f"有 RRG 採納 {len(pulse.holdings)} 檔 · "
+            f"跳過 {len(skipped_u)} 檔"
+        )
+        if skipped_u:
+            print(f"跳過（無收盤 RRG）：{', '.join(skipped_u)}")
+        print("")
 
     text = (
         format_holdings_pulse_digest(pulse)
@@ -87,14 +133,24 @@ def main() -> int:
     )
     print(text)
 
+    if watch_symbols and args.write and not args.output:
+        stamp = (args.date or pulse.session_date).replace("-", "")
+        args.output = ROOT / "reports" / "order" / "snapshots" / f"holdings_pulse_watchlist_{stamp}.md"
+
     out_path = write_holdings_pulse(pulse, args.output) if args.write else default_report_path(pulse.session_date)
     if args.write and not args.digest_only:
         print(f"\n已寫入：{out_path}")
-        json_path = write_holdings_pulse_json(pulse)
+        json_override = None
+        if watch_symbols:
+            stamp = pulse.session_date.replace("-", "")
+            json_override = ROOT / "reports" / "order" / "snapshots" / f"holdings_pulse_watchlist_{stamp}.json"
+        json_path = write_holdings_pulse_json(pulse, json_override)
         print(f"已寫入持倉 JSON：{json_path}")
 
-    exit_code = 1 if pulse.fubon_error and not args.no_fubon else 0
-    if not pulse.holdings and not args.no_fubon:
+    exit_code = 1 if pulse.fubon_error and not args.no_fubon and not watch_symbols else 0
+    if not pulse.holdings and not args.no_fubon and not watch_symbols:
+        exit_code = max(exit_code, 1)
+    if watch_symbols and not pulse.holdings:
         exit_code = max(exit_code, 1)
 
     if args.date and args.date != datetime.now(ZoneInfo("Asia/Taipei")).date().isoformat():

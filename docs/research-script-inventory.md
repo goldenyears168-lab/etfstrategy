@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 2026-07-09 · Phase D |
+| Version | 2026-07-09 · Phase E |
 | SSOT | `config/research.yaml` · `config/strategy.yaml` · `config/pipeline_scripts.yaml` |
 | Graduation gates | `config/research.yaml` → `graduation_gates` |
 | Archived runners | `scripts/research/archive/`（160 支 · 含 graduated 重跑） |
@@ -90,7 +90,26 @@
 | 保留 | `src/research/backtest/` 根目錄 **48 模組** · production import 鏈 |
 | Archived engines | `src/research/backtest/archive/`（**86 模組** · sweep-only） |
 
-Active / graduated runner 仍在 `scripts/` 根目錄（例：`run_triple_wma_pullback_sweep.py` · `run_c18acc_abc_dual_sleeve_phase*.py`）。
+Active / graduated runner 仍在 `scripts/` 根目錄（**25 支** · pipeline + strategy daily only）。
+
+---
+
+## Phase E · scripts 降噪（2026-07-09）
+
+| 目錄 | 內容 | 觸發 |
+|------|------|------|
+| `scripts/tools/` | backfill · analyze · calibrate · site sync · 19 支 | **手動** · 見 `scripts/tools/README.md` |
+| `scripts/research/archive/render_*.py` | RRG/C18acc showcase HTML · teaching deck · 7 支 | **手動** · 非 daily_sync |
+| `scripts/` 根目錄保留 | `run_*`（25）· pipeline infra（`backfill_c18acc_kbar` · `sync_*` · launchd） | daily_sync / launchd |
+
+**Strategy 配置一致性**：
+
+| 項目 | 狀態 |
+|------|------|
+| `rrg-mono-hold7` | `enabled: false` · legacy baseline · C18acc 取代 live slots · `run_rrg_mono_daily_brief.py` 仍可手動重跑 |
+| `abc-v3-f1-pullback` | strategy `enabled: false` · Order `ABC_V3_F1_ORDER_ENABLED=1` 預設開 · SSOT 見 `docs/order-layer-prd.md` §6.2 |
+
+**未動**：`src/research/backtest/` 根目錄 48 模組（含 unified_comparison · finmind_* · market_probe_* · 工具型引擎 · import 面大 · 暫不切 `backtest/tools/`）。
 
 ---
 
@@ -107,6 +126,21 @@ Active / graduated runner 仍在 `scripts/` 根目錄（例：`run_triple_wma_pu
 Graduated champion 重跑：`scripts/research/archive/run_triple_wma_pullback_sweep.py` 等 · 路徑見 yaml `run_scripts`。
 
 Archived backtest 測試：`tests/research/archive/`（56 支）· production 測試見 `tests/` 根目錄。
+
+---
+
+## Phase D 之後 · 首個新開 active topic（2026-07-09）
+
+| 項目 | 說明 |
+|------|------|
+| Topic | `abc-v3-f1-entry-structure`（`config/research.yaml`） |
+| 假說 | MV gap sweet-band（H-ENTRY-GAP-1 · passed）· W3 RV 谷底反彈（H-ENTRY-RV3-1 · rejected）· entry gate×TP-only 聯合（H-ENTRY-TP-1 · rejected）· 多因子疊加（H-ENTRY-MF-1 · mixed）· 個股自我標準化（H-ENTRY-NORM-1 · mixed）· W3 Improving 延伸驗證（H-ENTRY-IMP-1 · pending · RP-1） |
+| Runner | `run_abc_v3_f1_entry_structure_sweep.py` · `run_abc_v3_f1_entry_gate_tp_sweep.py` · `run_abc_v3_f1_entry_multifactor_tp_sweep.py` · `run_abc_v3_f1_entry_factor_scan.py` · `run_abc_v3_f1_w3_improving_extended_window.py`（皆 `scripts/research/`，非 archive） |
+| Engine | 對應 `src/research/backtest/abc_v3_f1_entry_{structure_sweep,gate_tp_sweep,multifactor_tp_sweep,factor_scan}.py` · RP-1 runner 重用 multifactor 模組 |
+| Parent | `abc-v3-f1-pullback`（graduated · `triple-wma-pullback` topic） |
+| Split spec | `intraday_is_oos_70_30`（`config/research_splits.yaml`） |
+| Graduation | `G1_preregistered_hypothesis: passed` · 其餘 pending，validation phase（RP-1） |
+| 結論 | 10% portfolio 均報酬（hold_5d）未達成；gap sweet-band 有效；rebound 假說被否證；W3 improving 待 RP-1 延伸窗口驗證（`20260710_rp1_w3_improving_extended_window.md`） |
 
 ---
 

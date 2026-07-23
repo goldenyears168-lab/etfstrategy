@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,14 +24,12 @@ from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP, rank_shortli
 from rrg_mono_daily_brief import ScanRow
 from rrg_mono_intraday_watch import _session_date
 from rrg_mono_swap_accel_screen import (
-    _entry_allowed,
     _env_flag,
     _env_int,
     _kbar_px_at,
     _now_local,
     _parse_pool_override,
     _poll_minute,
-    _poll_window_ok,
     load_or_lock_pool,
     sync_watchlist_kbar,
 )
@@ -53,6 +51,29 @@ BUY_STATE_PATH = PROJECT_ROOT / "data" / "signal_radar_buy_state.json"
 POSITION_META_PATH = PROJECT_ROOT / "data" / "fubon_position_meta.json"
 BUY_STRATEGY_ID = "buy-signal-radar"
 SELL_STRATEGY_ID = "sell-signal-radar"
+
+# Buy/sell radar windows · independent of C18acc no_trade_before (E@13:00).
+# ABC v3+f1 evaluates on the 30m grid from 09:30 (skip 09:00); do not inherit C18 NTB.
+_BUY_RADAR_POLL_START = dt_time(9, 0)
+_BUY_RADAR_POLL_END = dt_time(13, 20)
+_BUY_RADAR_ENTRY_START = dt_time(9, 5)
+_BUY_RADAR_ENTRY_END = dt_time(13, 20)
+
+
+def _buy_radar_poll_window_ok(now: datetime | None = None) -> bool:
+    now = now or _now_local()
+    if now.weekday() >= 5:
+        return False
+    return _BUY_RADAR_POLL_START <= now.time() <= _BUY_RADAR_POLL_END
+
+
+def _buy_radar_entry_allowed(now: datetime | None = None) -> bool:
+    """ABC / C0 advisory entry window · not C18acc champion NTB."""
+    now = now or _now_local()
+    if now.weekday() >= 5:
+        return False
+    return _BUY_RADAR_ENTRY_START <= now.time() <= _BUY_RADAR_ENTRY_END
+
 
 # Replay-only caches · set SIGNAL_RADAR_REPLAY_FAST=1 in replay scripts · live 不啟用
 _REPLAY_PANEL_CACHE: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series] | None = None
@@ -205,9 +226,9 @@ class SellRadarResult:
     polled_at: str
     poll_minute: str
     signals: list[SellSignal] = field(default_factory=list)  # universe extension 觸發
-    held_signals: list[SellSignal] = field(default_factory=list)  # 持倉交集（extension + structural）
+    held_signals: list[SellSignal] = field(default_factory=list)  # 持倉交集（extension）
     watch_signals: list[SellSignal] = field(default_factory=list)  # 宇宙觸發 · 未持有
-    structural_signals: list[SellSignal] = field(default_factory=list)  # S0/S1a/S1b/S2/S2-lite · 持倉
+    structural_signals: list[SellSignal] = field(default_factory=list)  # legacy · research only
     extension_held_signals: list[SellSignal] = field(default_factory=list)  # extension · 持倉
     new_signals: list[SellSignal] = field(default_factory=list)  # 持倉交集 · 今日首次（寄信）
     skip_reason: str | None = None
@@ -679,8 +700,8 @@ def format_radar_markdown(
             lines.append("_本輪無新買進訊號_")
         lines.append("")
     if side in ("sell", "both") and sell is not None:
-        structural = [s for s in sell if s.exit_mode in ("trigger_s1b", "trigger_s2")]
-        extension = [s for s in sell if s.exit_mode not in ("trigger_s1b", "trigger_s2")]
+        structural = [s for s in sell if s.exit_mode in ("trigger_s2",)]
+        extension = [s for s in sell if s.exit_mode not in ("trigger_s2",)]
         if structural:
             lines.append("## Sell signals（structural · holdings）")
             lines.append("")
@@ -797,10 +818,10 @@ def run_buy_signal_radar(
     if not _env_flag("RUN_BUY_SIGNAL_RADAR", "1"):
         result.skip_reason = "RUN_BUY_SIGNAL_RADAR=0"
         return result
-    if not _poll_window_ok(now):
+    if not _buy_radar_poll_window_ok(now):
         result.skip_reason = "outside poll window (Mon–Fri 09:00–13:20)"
         return result
-    if not _entry_allowed(now):
+    if not _buy_radar_entry_allowed(now):
         result.skip_reason = "outside entry window (09:05–13:20)"
         return result
 
@@ -931,7 +952,7 @@ def run_sell_signal_radar(
     if not _env_flag("RUN_SELL_SIGNAL_RADAR", "1"):
         result.skip_reason = "RUN_SELL_SIGNAL_RADAR=0"
         return result
-    if not _poll_window_ok(now):
+    if not _buy_radar_poll_window_ok(now):
         result.skip_reason = "outside poll window (Mon–Fri 09:00–13:20)"
         return result
 
@@ -1000,53 +1021,20 @@ def run_sell_signal_radar(
     result.extension_held_signals = held_sigs
     result.watch_signals = watch_sigs
 
-    structural_sigs: list[SellSignal] = []
-    if _env_flag("SIGNAL_RADAR_STRUCTURAL_EXIT", "1"):
-        from order.intraday_structural_exit import (
-            persist_structural_triggers,
-            scan_structural_sell_signals,
-        )
+    # 結構停損（S0/S1a/S2/S2-lite）已退回 Research · 不下單層／策略雷達掃描
+    result.structural_signals = []
+    result.portfolio_exit_mode = None
+    result.gate_ran = False
+    result.holdings_stress = False
+    result.holdings_stress_count = 0
 
-        structural_sigs, struct_ctx = scan_structural_sell_signals(
-            conn,
-            session_date=session,
-            poll_minute=poll_minute,
-            holdings=holdings,
-        )
-        result.structural_signals = structural_sigs
-        result.portfolio_exit_mode = struct_ctx.portfolio_exit_mode
-        result.gate_ran = struct_ctx.gate_ran
-        result.holdings_stress = struct_ctx.holdings_stress
-        result.holdings_stress_count = struct_ctx.holdings_stress_count
-
-    result.held_signals = held_sigs + structural_sigs
+    result.held_signals = list(held_sigs)
 
     email_held_only = _env_flag("SIGNAL_RADAR_SELL_HELD_ONLY", "1")
-    notify_pool = result.held_signals if email_held_only else universe_sigs + structural_sigs
+    notify_pool = result.held_signals if email_held_only else universe_sigs
     _, result.new_signals = filter_new_signals("sell", notify_pool, session_date=session)
     if mark_dedup and result.new_signals:
         mark_notified("sell", result.new_signals, session_date=session)
-        new_structural = [
-            s
-            for s in result.new_signals
-            if s.exit_mode
-            in (
-                "trigger_s1a",
-                "trigger_s1b",
-                "trigger_s2",
-                "trigger_s2_lite",
-                "watch_s0",
-                "watch_s0b",
-            )
-        ]
-        if new_structural:
-            persist_structural_triggers(
-                conn,
-                session_date=session,
-                checked_at=result.polled_at,
-                signals=new_structural,
-                dry_run=True,
-            )
     return result
 
 
@@ -1219,11 +1207,7 @@ def format_buy_radar_log(result: BuyRadarResult) -> str:
                 f"  · {verb} {primary.stock_id} {primary.stock_name} @ {primary.price:.2f} · "
                 f"來源：{pools}{overlap_note} · {primary.reason}"
             )
-        abc_new = any(s.pool_id == "abc-v3-f1-pullback" for s in result.new_signals)
-        if abc_new:
-            lines.append("  你可做：確認委託狀態 · ABC v3+f1 已嘗試自動下單（見下方）")
-        else:
-            lines.append("  你可做：限價買入或略過 · 系統不會自動送單")
+        lines.append("  你可做：限價買入或略過 · 系統不會自動送單（ABC Order 已退役）")
         lines.append("寄信：是")
     elif result.signals:
         lines.append("→ 寄信軌：訊號已於今日寄過（分軌去重）")
@@ -1237,12 +1221,6 @@ def format_buy_radar_log(result: BuyRadarResult) -> str:
     else:
         lines.append("→ 寄信軌：本輪無 C0 買進觸發")
         lines.append("寄信：否")
-
-    if result.abc_v3_f1_orders:
-        from abc_v3_f1_intent_bridge import format_order_log_lines
-
-        lines.extend(format_order_log_lines(result.abc_v3_f1_orders))
-        lines.append("")
 
     lines.append(_log_rule("═"))
     return "\n".join(lines)
@@ -1271,65 +1249,13 @@ def format_sell_radar_log(result: SellRadarResult) -> str:
         return "\n".join(lines)
 
     held_only = _env_flag("SIGNAL_RADAR_SELL_HELD_ONLY", "1")
-    gate_label = "—"
-    if result.gate_ran:
-        if result.portfolio_exit_mode is None:
-            gate_label = "略過（無有效 09:05 K）"
-        elif result.portfolio_exit_mode:
-            gate_label = "ON"
-        else:
-            gate_label = "OFF"
-    elif result.portfolio_exit_mode is None:
-        gate_label = "未跑（09:06 gate）"
-    stress_label = (
-        f"holdings_stress=ON（{result.holdings_stress_count}檔≤-2%）"
-        if result.holdings_stress
-        else "holdings_stress=OFF"
-    )
     lines.append(
-        f"portfolio_exit_mode={gate_label} · {stress_label} · "
         f"extension 宇宙 {len(result.signals)} 檔 · "
         f"extension 持倉 {len(result.extension_held_signals)} · "
-        f"structural 持倉 {len(result.structural_signals)} · "
         f"今日首次寄信 {len(result.new_signals)} 檔"
-        + ("（僅持倉）" if held_only else "（宇宙+structural）")
+        + ("（僅持倉）" if held_only else "（宇宙）")
     )
     lines.append("")
-
-    sell_modes = frozenset({"trigger_s1a", "trigger_s1b", "trigger_s2", "trigger_s2_lite"})
-    watch_modes = frozenset({"watch_s0", "watch_s0b"})
-    sell_structural = [s for s in result.structural_signals if s.exit_mode in sell_modes]
-    watch_structural = [s for s in result.structural_signals if s.exit_mode in watch_modes]
-
-    if sell_structural:
-        lines.append("→ 結構停損（S1a/S1b/S2/S2-lite · 持倉 · advisory）：")
-        for s in sell_structural:
-            mode = s.exit_mode or "structural"
-            lines.append(
-                f"  · {s.stock_id} {s.stock_name or '—'} ×{s.quantity}（{mode}）"
-                f" @ {s.price:.2f} · {s.reason}"
-            )
-        lines.append("")
-
-    if watch_structural:
-        lines.append("→ 持倉觀測（S0/S0b · 不送單）：")
-        for s in watch_structural:
-            mode = s.exit_mode or "watch"
-            lines.append(
-                f"  · {s.stock_id} {s.stock_name or '—'} ×{s.quantity}（{mode}）"
-                f" @ {s.price:.2f} · {s.reason}"
-            )
-        lines.append("")
-
-    if result.structural_signals and not sell_structural and not watch_structural:
-        lines.append("→ 結構持倉（持倉）：")
-        for s in result.structural_signals:
-            mode = s.exit_mode or "structural"
-            lines.append(
-                f"  · {s.stock_id} {s.stock_name or '—'} ×{s.quantity}（{mode}）"
-                f" @ {s.price:.2f} · {s.reason}"
-            )
-        lines.append("")
 
     if result.extension_held_signals:
         lines.append("→ extension 持倉交集：")
@@ -1340,7 +1266,7 @@ def format_sell_radar_log(result: SellRadarResult) -> str:
                 f" @ {s.price:.2f} · {s.reason}"
             )
         lines.append("")
-    elif result.signals and not result.structural_signals:
+    elif result.signals:
         lines.append("→ 本輪無持倉交集 extension 觸發")
         lines.append("")
 
@@ -1381,10 +1307,6 @@ def print_buy_radar_log(result: BuyRadarResult) -> None:
         print("BUY_SIGNAL_RADAR=1")
     else:
         print("BUY_SIGNAL_RADAR=0")
-    if any(bool(r.get("notify_submit")) for r in result.abc_v3_f1_orders):
-        print("ABC_V3_F1_SUBMIT=1")
-    else:
-        print("ABC_V3_F1_SUBMIT=0")
 
 
 def print_sell_radar_log(result: SellRadarResult) -> None:

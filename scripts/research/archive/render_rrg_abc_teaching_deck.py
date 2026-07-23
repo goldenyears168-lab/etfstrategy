@@ -7,7 +7,7 @@ c18acc_s2_dual_wma_annot / exit_save · dual_wma_all_signals_sweep）。
 
 用法::
 
-    .venv/bin/python scripts/render_rrg_abc_teaching_deck.py
+    .venv/bin/python scripts/research/archive/render_rrg_abc_teaching_deck.py
 """
 
 from __future__ import annotations

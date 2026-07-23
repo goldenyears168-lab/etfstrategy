@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Cursor My Machines worker（僅 Mac mini）
+# 由 install-cursor-agent-worker-launchd.sh 安裝至
+# ~/Library/Application Support/com.jackm4.etf/cursor-agent-worker.sh
+#
+# 閘門：.env CURSOR_AGENT_WORKER_ENABLED=1
+# 認證：.env CURSOR_API_KEY=...（Dashboard → Integrations；勿 commit）
+# 名稱：CURSOR_AGENT_WORKER_NAME（預設 mac-mini）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+LOG_DIR="${HOME}/Library/Logs/com.jackm4.etf"
+mkdir -p "${LOG_DIR}" "${ROOT}/logs"
+LOG="${LOG_DIR}/cursor-agent-worker.log"
+: >>"${ROOT}/logs/launchd_cursor-agent-worker.log"
+
+exec >>"${LOG}" 2>&1
+echo "=== launchd cursor-agent-worker $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+
+if [[ -f "${ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${ROOT}/.env"
+  set +a
+fi
+
+ENABLED="${CURSOR_AGENT_WORKER_ENABLED:-0}"
+if [[ "${ENABLED}" != "1" ]]; then
+  echo "skip: CURSOR_AGENT_WORKER_ENABLED!=1"
+  exit 0
+fi
+
+AGENT_BIN="$(command -v agent || true)"
+if [[ -z "${AGENT_BIN}" ]]; then
+  echo "✗ agent CLI not found (install: curl https://cursor.com/install -fsS | bash)" >&2
+  exit 1
+fi
+
+if [[ -z "${CURSOR_API_KEY:-}" ]]; then
+  echo "✗ CURSOR_API_KEY missing in ${ROOT}/.env" >&2
+  exit 1
+fi
+
+NAME="${CURSOR_AGENT_WORKER_NAME:-mac-mini}"
+cd "${ROOT}"
+
+echo "starting: agent worker start --name ${NAME} --worker-dir ${ROOT}"
+echo "=== launchd cursor-agent-worker $(date '+%Y-%m-%d %H:%M:%S') ===" \
+  >>"${ROOT}/logs/launchd_cursor-agent-worker.log"
+
+exec "${AGENT_BIN}" worker start \
+  --name "${NAME}" \
+  --worker-dir "${ROOT}" \
+  --api-key "${CURSOR_API_KEY}"

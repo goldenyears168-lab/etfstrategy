@@ -15,6 +15,10 @@ reports/*
 !reports/samples/
 !reports/samples/**
 
+# PyTorch Lightning training artifacts
+lightning_logs/
+*.ckpt
+
 # Test / lint
 .coverage
 .coverage.*
@@ -29,7 +33,7 @@ htmlcov/
 # Fubon API 憑證與 SDK（勿提交）
 CAFubon/**/*.pfx
 CAFubon/**/*.p12
-CAFubon/**/*.whl
+CAFubon/**/*.whl*
 log/
 
 # Fubon Neo API 專用 venv（Python 3.13；主 .venv 為 3.14 不可跑 fubon_neo）
@@ -40,3 +44,10 @@ supabase/.temp/
 
 # External clones（同 vendor/tw_stocker/ 意圖）
 external/
+
+# Chen-chip vendor clones (Apache-2.0 / MIT — see vendor/*/ATTRIBUTION.md)
+vendor/tw-institutional-stocker/
+vendor/cftc-cot/
+
+# Claude local machine settings
+.claude/settings.local.json

@@ -3,11 +3,35 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from research.backtest.rrg_mono_score_swap_c import (
     build_c18acc_poll5m_s2_timeline_legs,
 )
+from research.backtest.archive.c18acc_hold3d_event_study import C18ACC_UNCONSTRAINED_SLOTS
+
+DEFAULT_AVOID_MIXED_GATE_CACHE = (
+    Path(__file__).resolve().parents[4]
+    / "reports"
+    / "research"
+    / "rrg"
+    / "20260711_c18acc_avoid_mixed_gate_cache.json"
+)
+
+
+def _live_gate_cache_path(
+    dates: list[str],
+    *,
+    gate_anchor_minute: str = "13:00",
+) -> Path:
+    if not dates:
+        raise ValueError("dates required for live gate cache path")
+    root = DEFAULT_AVOID_MIXED_GATE_CACHE.parent
+    anchor = str(gate_anchor_minute or "13:00").replace(":", "")
+    return root / (
+        f"c18acc_avoid_mixed_gate_live_poll5m_a{anchor}_{dates[0]}_{dates[-1]}.json"
+    )
 
 
 def _leg_fingerprint(leg: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -256,48 +280,206 @@ def _meta_row(meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _load_avoid_mixed_gate(
+    dates: list[str],
+    *,
+    gate_cache_path: str | Path | None,
+) -> dict[str, set[str]] | None:
+    if not dates or gate_cache_path is None:
+        return None
+    path = Path(gate_cache_path)
+    if not path.is_file():
+        return None
+    from research.backtest.archive.c18acc_avoid_mixed_slot_resim import load_gate_cache
+
+    gate, _meta, c0, c1 = load_gate_cache(str(path))
+    if c0 != dates[0] or c1 != dates[-1]:
+        raise ValueError(
+            f"avoid_mixed gate cache window {c0}..{c1} != showcase {dates[0]}..{dates[-1]}"
+        )
+    return gate
+
+
+def _ensure_avoid_mixed_gate(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    gate_cache_path: str | Path | None,
+    live_aligned: bool,
+    n_slots: int = 3,
+) -> tuple[dict[str, set[str]] | None, dict[str, Any]]:
+    if not dates or gate_cache_path is None:
+        return None, {}
+    path = Path(gate_cache_path)
+    if path.is_file():
+        from research.backtest.archive.c18acc_avoid_mixed_slot_resim import load_gate_cache
+
+        gate, meta, c0, c1 = load_gate_cache(str(path))
+        if c0 != dates[0] or c1 != dates[-1]:
+            raise ValueError(
+                f"avoid_mixed gate cache window {c0}..{c1} != showcase {dates[0]}..{dates[-1]}"
+            )
+        return gate, meta
+
+    if not live_aligned:
+        return None, {}
+
+    from research.backtest.archive.c18acc_avoid_mixed_slot_resim import (
+        build_avoid_mixed_gate_lookup_live,
+        save_gate_cache,
+    )
+    from research.backtest.archive.c18acc_hold3d_event_study import (
+        _prepare_c18acc_context,
+        c18acc_live_s2_config,
+    )
+
+    cfg = c18acc_live_s2_config(n_slots=n_slots)
+    ntb = str(cfg.no_trade_before or "13:00")
+    print(
+        f"live-aligned spread gate: building {dates[0]}→{dates[-1]} "
+        f"({len(dates)} td · poll_5m · pool={cfg.candidate_pool} · "
+        f"anchor≥{ntb}) …",
+        flush=True,
+    )
+    ctx = _prepare_c18acc_context(conn, dates)
+    gate, meta = build_avoid_mixed_gate_lookup_live(
+        conn,
+        trade_dates=dates,
+        ctx=ctx,
+        cfg=cfg,
+        no_trade_before=ntb,
+        gate_anchor_minute=ntb,
+        passthrough_pool=True,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_gate_cache(
+        str(path),
+        gate=gate,
+        meta=meta,
+        date_start=dates[0],
+        date_end=dates[-1],
+    )
+    print(f"live-aligned spread gate saved → {path}", flush=True)
+    return gate, meta
+
+
 def build_triple_champion_showcase_bundle(
     conn: sqlite3.Connection,
     dates: list[str],
     *,
     n_slots: int = 3,
     capital_ntd: float = 10_000.0,
+    avoid_spread_mixed: bool = True,
+    avoid_mixed_gate_cache: str | Path | None = None,
+    live_aligned: bool = False,
+    confirm_bars: int | None = None,
+    champion_only: bool = False,
 ) -> dict[str, Any]:
-    """Champion vs W4P4-dual vs S2-fresh · poll_5m · same window."""
-    s2_legs, _, _, s2_meta = build_c18acc_poll5m_s2_timeline_legs(
-        conn,
-        dates,
-        candidate_pool="fresh",
-        variant_id="S2-fresh-P5M",
-        n_slots=n_slots,
-        capital_ntd=capital_ntd,
-        accel_sell_bypass_on_spread_lost=False,
+    """Champion vs W4P4-dual vs S2-fresh · poll_5m · same window.
+
+    ``live_aligned=True`` follows current Order / strategy SSOT:
+    fresh-only · E@13:00 · avg_accel entry · confirm_bars=1 · avoid mixed @ 13:00.
+    """
+    from research.backtest.rrg_mono_score_swap_c import champion_score_swap_c_config
+
+    champ_ssot = champion_score_swap_c_config()
+    # live SSOT confirm=1（ops alpha）；舊 research baseline 常為 2
+    eff_confirm = int(
+        confirm_bars
+        if confirm_bars is not None
+        else (1 if live_aligned else 1)
     )
+    ntb = str(champ_ssot.no_trade_before or "13:00")
+    gate_cache = (
+        Path(avoid_mixed_gate_cache)
+        if avoid_mixed_gate_cache is not None
+        else (
+            _live_gate_cache_path(dates, gate_anchor_minute=ntb)
+            if live_aligned
+            else DEFAULT_AVOID_MIXED_GATE_CACHE
+        )
+    )
+    gate_meta: dict[str, Any] = {}
+    if avoid_spread_mixed:
+        champ_gate, gate_meta = _ensure_avoid_mixed_gate(
+            conn,
+            dates,
+            gate_cache_path=gate_cache,
+            live_aligned=live_aligned,
+            n_slots=n_slots,
+        )
+    else:
+        champ_gate = None
+
+    if live_aligned:
+        champ_pool: str = str(champ_ssot.candidate_pool or "fresh")
+        champ_vid = "C18acc-live-P5M"
+        champ_spec = (
+            f"現行 Order SSOT · fresh · E@{ntb} · entry avg_accel · "
+            f"confirm_bars={eff_confirm} · avoid spread_mixed @{ntb} · "
+            f"G_R5_12 prior5d≤{float(champ_ssot.entry_prior_ret_max or 0.12):.0%}"
+        )
+        champ_short = "採納版 · 現行 live"
+    else:
+        champ_pool = "fresh_union_accel"
+        champ_vid = "champion-P5M"
+        champ_spec = "新進領先＋四日加速雙池 · 價差轉弱可換倉 · avoid spread_mixed · 歷史 Champion"
+        champ_short = "採納版 · 雙池＋價差放行"
+
+    if champion_only:
+        s2_legs: list[dict[str, Any]] = []
+        s2_meta: dict[str, Any] = {"variant_id": "S2-fresh-P5M", "display_code": "S2-fresh-P5M"}
+        dual_legs: list[dict[str, Any]] = []
+        dual_meta: dict[str, Any] = {"variant_id": "W4P4-dual", "display_code": "W4P4-dual"}
+    else:
+        s2_legs, _, _, s2_meta = build_c18acc_poll5m_s2_timeline_legs(
+            conn,
+            dates,
+            candidate_pool="fresh",
+            variant_id="S2-fresh-P5M",
+            n_slots=n_slots,
+            capital_ntd=capital_ntd,
+            accel_sell_bypass_on_spread_lost=False,
+        )
+        dual_legs, _, _, dual_meta = build_c18acc_poll5m_s2_timeline_legs(
+            conn,
+            dates,
+            candidate_pool="fresh_union_accel",
+            variant_id="W4P4-dual",
+            n_slots=n_slots,
+            capital_ntd=capital_ntd,
+            accel_sell_bypass_on_spread_lost=True,
+            extra_config={
+                "variant_id": "W4P4-dual",
+                "quad_force_exit_pause_spread_rs_positive": True,
+                "max_swaps_per_day": 2,
+                "fill_mode": "batch_topk",
+                "fill_repeat": True,
+            },
+        )
+
     champ_legs, _, _, champ_meta = build_c18acc_poll5m_s2_timeline_legs(
         conn,
         dates,
-        candidate_pool="fresh_union_accel",
-        variant_id="champion-P5M",
+        candidate_pool=champ_pool,  # type: ignore[arg-type]
+        variant_id=champ_vid,
         n_slots=n_slots,
         capital_ntd=capital_ntd,
         accel_sell_bypass_on_spread_lost=True,
+        entry_gate_by_date=champ_gate,
+        confirm_bars=eff_confirm,
     )
-    dual_legs, _, _, dual_meta = build_c18acc_poll5m_s2_timeline_legs(
-        conn,
-        dates,
-        candidate_pool="fresh_union_accel",
-        variant_id="W4P4-dual",
-        n_slots=n_slots,
-        capital_ntd=capital_ntd,
-        accel_sell_bypass_on_spread_lost=True,
-        extra_config={
-            "variant_id": "W4P4-dual",
-            "quad_force_exit_pause_spread_rs_positive": True,
-            "max_swaps_per_day": 2,
-            "fill_mode": "batch_topk",
-            "fill_repeat": True,
-        },
-    )
+    if live_aligned:
+        champ_meta["live_aligned"] = True
+        champ_meta["confirm_bars"] = eff_confirm
+        champ_meta["confirm_bars_note"] = f"{eff_confirm} · live Order SSOT"
+        champ_meta["no_trade_before"] = ntb
+        champ_meta["pyramid_add_note"] = (
+            "Order layer underwater_rebound pyramid add 已採納；"
+            "本頁 cinema NAV 不含第二單位加碼（見 c18acc_pyramid_add）"
+        )
+        if gate_meta:
+            champ_meta["gate_meta"] = gate_meta
 
     tracks = {
         "s2_fresh": {
@@ -311,8 +493,8 @@ def build_triple_champion_showcase_bundle(
         "champion": {
             "key": "champion",
             "label": "採納版（Champion）",
-            "short_label": "採納版 · 雙池＋價差放行",
-            "spec_note": "新進領先＋四日加速雙池 · 價差轉弱可換倉 · 現行採納規格",
+            "short_label": champ_short,
+            "spec_note": champ_spec,
             "legs": champ_legs,
             "meta": champ_meta,
         },
@@ -356,6 +538,9 @@ def build_triple_champion_showcase_bundle(
     return {
         "schema": "c18acc_triple_champion_showcase-v1",
         "showcase_mode": "triple_champion",
+        "live_aligned": live_aligned,
+        "confirm_bars": eff_confirm,
+        "gate_cache_path": str(gate_cache) if avoid_spread_mixed else None,
         "date_start": dates[0] if dates else None,
         "date_end": dates[-1] if dates else None,
         "n_trade_dates": len(dates),
@@ -379,4 +564,82 @@ def build_triple_champion_showcase_bundle(
         # default timeline focus track
         "pool1_legs": champ_legs,
         "pool1_meta": champ_meta,
+    }
+
+
+def build_unconstrained_champion_showcase_bundle(
+    conn: sqlite3.Connection,
+    dates: list[str],
+    *,
+    capital_ntd: float = 10_000.0,
+    avoid_spread_mixed: bool = True,
+    avoid_mixed_gate_cache: str | Path | None = None,
+    confirm_bars: int = 2,
+    n_slots: int = C18ACC_UNCONSTRAINED_SLOTS,
+) -> dict[str, Any]:
+    """All qualifying POOL1 entries · no slot cap · no score swap · live-aligned gate."""
+    gate_cache = (
+        Path(avoid_mixed_gate_cache)
+        if avoid_mixed_gate_cache is not None
+        else _live_gate_cache_path(dates)
+    )
+    gate_meta: dict[str, Any] = {}
+    if avoid_spread_mixed:
+        champ_gate, gate_meta = _ensure_avoid_mixed_gate(
+            conn,
+            dates,
+            gate_cache_path=gate_cache,
+            live_aligned=True,
+            n_slots=3,
+        )
+    else:
+        champ_gate = None
+
+    legs, _, _, meta = build_c18acc_poll5m_s2_timeline_legs(
+        conn,
+        dates,
+        candidate_pool="fresh_union_accel",
+        variant_id="unconstrained-P5M",
+        n_slots=n_slots,
+        capital_ntd=capital_ntd,
+        accel_sell_bypass_on_spread_lost=True,
+        entry_gate_by_date=champ_gate,
+        confirm_bars=int(confirm_bars),
+        extra_config={"max_swaps_per_day": 0},
+    )
+    meta["live_aligned"] = True
+    meta["unconstrained"] = True
+    meta["confirm_bars"] = int(confirm_bars)
+    meta["n_slots_effective"] = n_slots
+    if gate_meta:
+        meta["gate_meta"] = gate_meta
+
+    spec = (
+        f"全訊號 · {n_slots} slots · max_swaps=0 · POOL1 passthrough · "
+        f"confirm_bars={confirm_bars} · avoid spread_mixed @ 09:30"
+    )
+    track = {
+        "key": "champion",
+        "label": "全訊號版（無槽位 · 無換倉）",
+        "short_label": "全訊號 · 無槽位限制",
+        "spec_note": spec,
+        "legs": legs,
+        "meta": meta,
+    }
+    champ_row = _meta_row(meta)
+    return {
+        "schema": "c18acc_unconstrained_showcase-v1",
+        "showcase_mode": "unconstrained_champion",
+        "unconstrained": True,
+        "live_aligned": True,
+        "confirm_bars": int(confirm_bars),
+        "gate_cache_path": str(gate_cache) if avoid_spread_mixed else None,
+        "date_start": dates[0] if dates else None,
+        "date_end": dates[-1] if dates else None,
+        "n_trade_dates": len(dates),
+        "timing_mode": "poll_5m",
+        "tracks": {"champion": track},
+        "comparison": {"champion": champ_row},
+        "pool1_legs": legs,
+        "pool1_meta": meta,
     }

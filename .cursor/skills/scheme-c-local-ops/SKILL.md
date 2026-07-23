@@ -1,9 +1,10 @@
 ---
 name: scheme-c-local-ops
 description: >-
-  Run ETF research local schedules (Scheme C): morning-risk, evening-holdings,
-  weekly-deep via scripts/*.command and daily_sync.sh. Use when setting launchd,
-  debugging logs, or choosing which sync profile to run on Mac.
+  Run ETF research local schedules (Scheme C): morning-risk, evening-holdings
+  via scripts/*.command and daily_sync.sh. weekly-deep is retired from launchd
+  (manual only). Use when setting launchd, debugging logs, or choosing which
+  sync profile to run on Mac.
 disable-model-invocation: true
 ---
 
@@ -15,7 +16,7 @@ disable-model-invocation: true
 |---|------|------|------|------|
 | ① | 執行評估 | `execution-eval` | 週一至五 08:30 | `scripts/0830執行評估.command` |
 | ② | 收盤持股雷達 | `evening-holdings` | 週一至五 16:30 | `scripts/1630收盤雷達.command` |
-| ③ | 週日深度補庫 | `weekly-deep` | 週日 20:00 | `scripts/2000週日補庫.command` |
+| ③ | 週日深度補庫 | `weekly-deep` | **已退役排程** | `scripts/2000週日補庫.command`（手動） |
 | ④ | 策略回顧 | `signal-review` | — | **已退役**（見 `scripts/策略回顧.command`） |
 
 ## 底層指令
