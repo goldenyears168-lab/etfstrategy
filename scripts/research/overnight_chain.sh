@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 import numpy as np, pandas as pd
 
-ROOT=Path('/Users/jackm4/Documents/ETF/股票研究')
+ROOT=Path('/Users/jackm4/Documents/股票研究')
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts'/'research')]
 spec=importlib.util.spec_from_file_location('mvp', ROOT/'scripts/research/run_abc_rolling_top10_l1h7_mvp.py')
 mvp=importlib.util.module_from_spec(spec); sys.modules['mvp']=mvp; spec.loader.exec_module(mvp)

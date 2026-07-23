@@ -412,7 +412,7 @@ LABEL = Ref($close, -3) / Ref($close, -1) - 1   # 2-day return · T+1→T+3
 ## 7. 操作指令（現行）
 
 ```bash
-cd "/Users/jackm4/Documents/ETF/股票研究"
+cd "/Users/jackm4/Documents/股票研究"
 
 # 載入 .env（FinMind token）
 eval "$(PYTHONPATH=src .venv/bin/python -c 'from project_dotenv import shell_export_dotenv; print(shell_export_dotenv())')"
