@@ -18,16 +18,26 @@
 
 ### 現行 launchd job（`install-launchd.sh` LABELS · 僅 mini live）
 
-> **Live 排程 SSOT**：[deploy/mac-mini/MIGRATION_PLAN.md §0](../../deploy/mac-mini/MIGRATION_PLAN.md)（時間／開關以該文為準）。
+> **Live 排程 SSOT**：[deploy/mac-mini/MIGRATION_PLAN.md §0](../../deploy/mac-mini/MIGRATION_PLAN.md)（時間／開關以該文為準）。  
+> **心智模型（2026-07-23 公告）**：三時段 — **18:30 夜盤準備** · **08:50 開盤前** · **盤中**；另加 **20:00–20:40 夜間觀測波**（當日結論／上牆）。詳見站上 Inbox／知識庫「排程重整公告」。
 
-- 盤中 Order／觀測：`rrg-c18acc-poll`（live）· `leading-dip-poll`（live）· `songshan-copytrade-poll`（live）· `timed-limit-orders`（live once）· `expert-pool-staged-gate`（live）· `detach-gate`（RED 只寄信 · `ORDER_ENABLED=0`）· `buy-signal-radar`／`sell-signal-radar`（不送單）
-- 晨間／夜間（不下單）：`crash-thermometer-daily` 09:00 · `branch-tape-prewarm` 18:30 · `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35 · `ops-console-evening-sync` 20:40
-- 盤中 ops：`ops-live-ta-poll`（08:50–13:35 · 45s）
+#### 18:30 · 夜盤準備
+- `branch-tape-prewarm` — 分點 tape 補檔（POOLS∪持倉）
+
+#### 20:00–20:40 · 夜間觀測波（當日結論）
+- `winbond-expert-pool-watch` 20:00 · `expert-pool-chart-digest` 20:05 · `holdings-branch-sell-monitor` 20:10 · `second-disp-expert-pool-watch` 20:35 · `ops-console-evening-sync` **20:40**（重算當日溫度計＋上牆）
+
+#### 08:50–09:05 · 開盤前
+- `ops-live-ta-poll` 08:50 起 · `crash-thermometer-daily` 09:00（多半昨收）· Order 窗開啟
+
+#### 盤中 · Order／觀測
+- live：`rrg-c18acc-poll` · `leading-dip-poll` · `songshan-copytrade-poll` · `timed-limit-orders` · `expert-pool-staged-gate`
+- 觀測：`detach-gate`（RED）· `buy/sell-signal-radar`（不下單）· `ops-live-ta-poll`
 - 另有 `order-wake`（`install-order-launchd.sh` · 防睡眠）
 
-夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬（淺色 HTML · `scripts/order/run_holdings_branch_sell_monitor.py` · 不下單）；`ops-console-evening-sync`＝20:40 **先重算大跌溫度計（當日 asof）再**把 watch／risk／thermo／branches／today + sleeve + holdings 寫入 Supabase `ops.*`。
+夜間對照：`winbond-expert-pool-watch`＝20:00 買方共識；`holdings-branch-sell-monitor`＝20:10 富邦持倉×專家淨賣＋跨池面板 K/N≥5000萬；`ops-console-evening-sync`＝20:40 **先重算大跌溫度計（當日 asof）再**上牆。
 
-溫度計時序：`crash-thermometer-daily` 09:00 多半是**昨收** asof（當日 bars／分點尚未齊）；**當日讀數**以 20:40 evening sync 為準。
+溫度計時序：09:00 多半**昨收**；**當日讀數以 20:40 為準**。
 
 ## Python · daily
 

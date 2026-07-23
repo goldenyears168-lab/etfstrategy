@@ -176,3 +176,24 @@ def insert_snapshot(
         },
         prefer="return=minimal",
     )
+
+
+def upsert_kb_card(
+    *,
+    card_id: str,
+    title: str,
+    body_md: str,
+    tags: list[str] | None = None,
+) -> None:
+    """Upsert knowledge-base card · PK ``id``."""
+    _post(
+        "ops_kb_cards",
+        {
+            "id": card_id,
+            "title": title,
+            "body_md": body_md,
+            "tags": tags or [],
+            "updated_at": now_tpe_iso(),
+        },
+        prefer="return=minimal",
+    )
