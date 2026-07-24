@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # launchd：ops Live TA · 持倉∪extras · 盤中每 ~15s（plist StartInterval）
 # 處置 20 分撮合僅 OPS_LIVE_TA_DISPOSITION；其餘為連續競價短動能。
-# 現價＝Yahoo Chart regularMarketPrice（非委託限價）；短動能仍看 1m bars。
-# 僅 mini 安裝；Book 不裝 live launchd。
+# 現價／漲跌%＝富邦 Neo realtime marketdata（Fugle quote）；失敗才 Yahoo。
+# 1–2m 短動能與 30m TA 仍多半來自 Yahoo bars（見 anchors.bar_source）。
+# 必須用 .venv-fubon（Neo SDK 3.8–3.13）。僅 mini 安裝；Book 不裝 live launchd。
 
 set -euo pipefail
 
@@ -49,9 +50,15 @@ if [[ -r "${ROOT}/.env" ]]; then
   set -e
 fi
 
-PY="${ROOT}/.venv/bin/python"
+# Prefer Fubon Neo venv; fall back to .venv only if missing (Yahoo-only then).
+PY="${ROOT}/.venv-fubon/bin/python"
 if [[ ! -x "${PY}" ]]; then
-  echo "error: missing ${PY}"
+  echo "warn: missing ${PY} · fallback .venv (Yahoo quotes)"
+  PY="${ROOT}/.venv/bin/python"
+  export OPS_LIVE_TA_QUOTE="${OPS_LIVE_TA_QUOTE:-yahoo}"
+fi
+if [[ ! -x "${PY}" ]]; then
+  echo "error: missing python at .venv-fubon and .venv"
   exit 1
 fi
 

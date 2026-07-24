@@ -15,13 +15,16 @@ from ops_live_ta import (
     classify_continuous_phase,
     clear_ta_30m_cache,
     compute_ta_30m_snapshot,
+    fetch_last_print,
     fetch_yahoo_chart_quote,
     last_closed_30m_window,
     load_holdings_from_db,
     next_auction,
     parse_disposition_ids,
+    parse_fubon_marketdata_quote,
     parse_stock_list,
     resolve_live_ta_universe,
+    run_live_ta_poll,
     session_vwap_from_bars,
 )
 
@@ -183,6 +186,112 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(st.anchors["prev_close_source"], "yahoo")
         self.assertEqual(st.anchors["pct_from_prev"], round((94.2 / 93.2 - 1.0) * 100, 3))
         conn.close()
+
+    def test_prefer_fubon_prev_close_over_yahoo(self) -> None:
+        now = datetime(2026, 7, 24, 10, 0, tzinfo=_TPE)
+        st = build_live_ta_state(
+            "2330",
+            now=now,
+            last_print=1200.0,
+            quote_meta={
+                "quote_source": "fubon:marketdata:2330",
+                "fubon_prev_close": 1180.0,
+                "fubon_change_percent": 1.695,
+                "yahoo_prev_close": 1170.0,
+            },
+            disposition_ids={"2492"},
+            ta_30m={"ta_30m_ready": False},
+        )
+        self.assertEqual(st.anchors["prev_close"], 1180.0)
+        self.assertEqual(st.anchors["prev_close_source"], "fubon")
+        self.assertEqual(st.anchors["pct_from_prev"], 1.695)
+
+    def test_parse_fubon_marketdata_quote_last_trade(self) -> None:
+        raw = {
+            "symbol": "2330",
+            "name": "台積電",
+            "previousClose": 1180.0,
+            "changePercent": 0.85,
+            "lastPrice": 1190.0,
+            "lastTrade": {"price": 1190.0, "size": 10},
+            "bids": [{"price": 1189.0, "size": 1}],
+            "asks": [{"price": 1190.0, "size": 2}],
+        }
+        px, meta = parse_fubon_marketdata_quote(raw, stock_id="2330")
+        self.assertEqual(px, 1190.0)
+        self.assertEqual(meta["quote_source"], "fubon:marketdata:2330")
+        self.assertEqual(meta["price_source"], "fubon_last_trade")
+        self.assertEqual(meta["fubon_prev_close"], 1180.0)
+        self.assertEqual(meta["fubon_change_percent"], 0.85)
+        self.assertEqual(meta["fubon_bid"], 1189.0)
+
+    def test_fetch_last_print_prefers_fubon_keeps_yahoo_mom(self) -> None:
+        fubon_q = (
+            291.5,
+            {
+                "quote_source": "fubon:marketdata:2492",
+                "fubon_prev_close": 300.0,
+                "price_source": "fubon_last_trade",
+            },
+        )
+        with patch(
+            "ops_live_ta.fetch_last_print_yahoo",
+            return_value=(
+                290.0,
+                {
+                    "quote_source": "yahoo_chart:2492.TW:1m",
+                    "mom_1bar_pct": 0.2,
+                    "mom_2bar_pct": 0.4,
+                    "yahoo_prev_close": 299.0,
+                },
+            ),
+        ):
+            px, meta = fetch_last_print("2492", fubon_quote=fubon_q, prefer_fubon=True)
+        self.assertEqual(px, 291.5)
+        self.assertEqual(meta["quote_source"], "fubon:marketdata:2492")
+        self.assertEqual(meta["bar_source"], "yahoo_chart:2492.TW:1m")
+        self.assertEqual(meta["mom_2bar_pct"], 0.4)
+        self.assertEqual(meta["fubon_prev_close"], 300.0)
+
+    def test_run_poll_fubon_batch_no_reconnect(self) -> None:
+        """Batch miss must not open a second Fubon login per stock."""
+        calls: list[list[str]] = []
+
+        def _fake_batch(symbols, session=None, gap_sec=0.0):  # noqa: ANN001
+            calls.append(list(symbols))
+            return (
+                {
+                    "2330": (
+                        100.0,
+                        {
+                            "quote_source": "fubon:marketdata:2330",
+                            "fubon_prev_close": 99.0,
+                        },
+                    )
+                },
+                None,
+            )
+
+        with (
+            patch("ops_live_ta._quote_backend", return_value="fubon"),
+            patch("ops_live_ta.fetch_fubon_marketdata_quotes", side_effect=_fake_batch),
+            patch(
+                "ops_live_ta.fetch_last_print_yahoo",
+                return_value=(None, {"quote_source": None}),
+            ),
+            patch("ops_live_ta.get_ta_30m_anchors", return_value={"ta_30m_ready": False}),
+            patch("ops_live_ta.upsert_live_ta"),
+        ):
+            rows = run_live_ta_poll(
+                [("2330", "台積電"), ("2303", "聯電")],
+                dry_run=True,
+                yahoo_gap_sec=0.0,
+                disposition_ids={"2492"},
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ["2330", "2303"])
+        self.assertEqual(rows[0]["anchors"]["quote_source"], "fubon:marketdata:2330")
+        self.assertIn("fubon_error", rows[1]["anchors"])
 
     def test_round_px(self) -> None:
         self.assertEqual(_round_px(60.599998474121094), 60.6)

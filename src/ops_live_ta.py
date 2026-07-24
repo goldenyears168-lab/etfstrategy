@@ -14,10 +14,20 @@ return vs bar open, vs session VWAP, simple bias — not an Order signal.
 Optional research badge ``fade30_observe`` when ``fade_near_ext`` fires
 (stock-heterogeneous; do **not** claim ≥60% as a site guarantee).
 
-Quotes via Yahoo Chart API v8 (``regularMarketPrice`` + optional 1m bars)
-with yfinance history fallback — no Fubon required for the poll itself.
-Price / 1m momentum refresh every poll (~15s); 30m snapshot is cached
-~75s so ~19 names do not hammer Yahoo 5m every cycle.
+**Quote source (priority)**
+  1. Fubon Neo realtime marketdata ``intraday.quote`` (same path as
+     ``collect_fubon_premarket_quote``) → ``last_print`` / 昨收漲跌% ·
+     ``quote_source=fubon:marketdata:<sid>``. Requires ``.venv-fubon``.
+  2. Fallback Yahoo Chart v8 / yfinance if Fubon login or per-symbol quote
+     fails (poll stays up; log ``fubon_error``).
+
+**Still Yahoo-derived by default**: 1–2m bar momentum + 30m TA (5m bars).
+Fubon does expose ``intraday.candles`` but this poll does not use it yet —
+UI must not claim those fields are realtime. Set ``OPS_LIVE_TA_QUOTE=yahoo``
+to force Yahoo-only (debug).
+
+Price refresh every poll (~15s); 30m snapshot is cached ~75s so ~19 names
+do not hammer Yahoo 5m every cycle. One Fubon login per poll (not per stock).
 """
 
 from __future__ import annotations
@@ -47,12 +57,222 @@ _CONT_CLOSE_MIN = 13 * 60 + 30
 _TA30M_READY_MIN = 9 * 60 + 30
 # Chart API is light (~0.1s/name); keep a small gap to avoid bursts.
 _YAHOO_GAP_SEC = 0.15
+_FUBON_QUOTE_GAP_SEC = 0.05
 _YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _YAHOO_UA = "Mozilla/5.0 (compatible; ops-live-ta/1.1)"
 # 30m Yahoo 5m refresh cache (poll is ~15s; reuse across cycles).
 _TA30M_CACHE_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_30M_TTL_SEC", "75") or "75")
 _TA30M_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _TA30M_BIAS_EPS = 0.15  # % · quiet zone around flat
+
+
+def _quote_backend() -> str:
+    """``fubon`` (default) or ``yahoo`` · env ``OPS_LIVE_TA_QUOTE``."""
+    raw = (os.environ.get("OPS_LIVE_TA_QUOTE") or "fubon").strip().lower()
+    return "yahoo" if raw in {"yahoo", "yfinance", "chart"} else "fubon"
+
+
+def _qget(obj: Any, *keys: str) -> Any:
+    """Read camelCase / snake_case from dict or SDK object."""
+    if obj is None:
+        return None
+    for key in keys:
+        if isinstance(obj, dict):
+            if key in obj and obj[key] is not None:
+                return obj[key]
+            continue
+        val = getattr(obj, key, None)
+        if val is not None:
+            return val
+        # last_price ↔ lastPrice
+        if "_" in key:
+            parts = key.split("_")
+            camel = parts[0] + "".join(p.title() for p in parts[1:])
+            val = getattr(obj, camel, None)
+            if val is not None:
+                return val
+        else:
+            # lastPrice → last_price
+            snake = "".join(("_" + c.lower() if c.isupper() else c) for c in key)
+            if snake != key:
+                val = getattr(obj, snake, None)
+                if val is not None:
+                    return val
+    return None
+
+
+def _as_float(val: Any) -> float | None:
+    if val is None:
+        return None
+    try:
+        out = float(val)
+    except (TypeError, ValueError):
+        return None
+    return out if out > 0 else None
+
+
+def parse_fubon_marketdata_quote(raw: Any, *, stock_id: str) -> tuple[float | None, dict[str, Any]]:
+    """Map Fubon/Fugle ``intraday.quote`` → last print + anchors meta."""
+    meta: dict[str, Any] = {
+        "quote_source": None,
+        "price_source": None,
+        "bar_source": None,
+    }
+    if raw is None:
+        meta["fubon_error"] = "empty_quote"
+        return None, meta
+
+    last_trade = _qget(raw, "lastTrade", "last_trade") or {}
+    last_trial = _qget(raw, "lastTrial", "last_trial") or {}
+    px = (
+        _as_float(_qget(last_trade, "price"))
+        or _as_float(_qget(raw, "lastPrice", "last_price", "closePrice", "close_price"))
+        or _as_float(_qget(last_trial, "price"))
+    )
+    # Mid bid/ask only if no trade print (e.g. thin names mid auction).
+    if px is None:
+        bids = _qget(raw, "bids") or []
+        asks = _qget(raw, "asks") or []
+        bid0 = _as_float(_qget(bids[0], "price")) if bids else None
+        ask0 = _as_float(_qget(asks[0], "price")) if asks else None
+        if bid0 and ask0:
+            px = _round_px((bid0 + ask0) / 2.0)
+            meta["price_source"] = "fubon_bid_ask_mid"
+        elif ask0:
+            px = ask0
+            meta["price_source"] = "fubon_ask"
+        elif bid0:
+            px = bid0
+            meta["price_source"] = "fubon_bid"
+    else:
+        if _as_float(_qget(last_trade, "price")):
+            meta["price_source"] = "fubon_last_trade"
+        elif _as_float(_qget(raw, "lastPrice", "last_price", "closePrice", "close_price")):
+            meta["price_source"] = "fubon_last_price"
+        else:
+            meta["price_source"] = "fubon_last_trial"
+
+    if px is None:
+        meta["fubon_error"] = "no_last_price"
+        return None, meta
+
+    px = _round_px(float(px))
+    meta["quote_source"] = f"fubon:marketdata:{stock_id}"
+    prev = _as_float(
+        _qget(raw, "previousClose", "previous_close", "referencePrice", "reference_price")
+    )
+    if prev is not None:
+        meta["fubon_prev_close"] = _round_px(prev)
+    chg_pct = _qget(raw, "changePercent", "change_percent")
+    try:
+        if chg_pct is not None:
+            meta["fubon_change_percent"] = float(chg_pct)
+    except (TypeError, ValueError):
+        pass
+    bid = None
+    ask = None
+    bids = _qget(raw, "bids") or []
+    asks = _qget(raw, "asks") or []
+    if bids:
+        bid = _as_float(_qget(bids[0], "price"))
+    if asks:
+        ask = _as_float(_qget(asks[0], "price"))
+    if bid is not None:
+        meta["fubon_bid"] = bid
+    if ask is not None:
+        meta["fubon_ask"] = ask
+    name = _qget(raw, "name")
+    if name:
+        meta["fubon_name"] = str(name)
+    return px, meta
+
+
+def fetch_fubon_marketdata_quotes(
+    symbols: list[str],
+    *,
+    session: Any | None = None,
+    gap_sec: float = _FUBON_QUOTE_GAP_SEC,
+) -> tuple[dict[str, tuple[float | None, dict[str, Any]]], str | None]:
+    """One login · N ``intraday.quote`` calls. Returns (by_sid, connect_error).
+
+    ``session`` may be a pre-opened ``FubonSession`` (caller owns lifecycle).
+    When ``session`` is None this helper connects and does not close the SDK
+    (same pattern as holdings_pulse / premarket collect).
+    """
+    out: dict[str, tuple[float | None, dict[str, Any]]] = {}
+    if not symbols:
+        return out, None
+    try:
+        from order.fubon_session import connect_fubon
+
+        sess = session if session is not None else connect_fubon(realtime=True)
+        rest_stock = sess.sdk.marketdata.rest_client.stock
+    except Exception as exc:  # noqa: BLE001 — poll must degrade to Yahoo
+        return out, f"fubon_connect:{exc}"
+
+    for i, sid in enumerate(symbols):
+        sid_s = str(sid).strip()
+        if not sid_s:
+            continue
+        if i > 0 and gap_sec > 0:
+            time.sleep(gap_sec)
+        try:
+            raw = rest_stock.intraday.quote(symbol=sid_s)
+        except Exception as exc:  # noqa: BLE001
+            out[sid_s] = (None, {"quote_source": None, "fubon_error": str(exc)[:200]})
+            continue
+        out[sid_s] = parse_fubon_marketdata_quote(raw, stock_id=sid_s)
+    return out, None
+
+
+def fetch_last_print(
+    stock_id: str,
+    *,
+    fubon_quote: tuple[float | None, dict[str, Any]] | None = None,
+    prefer_fubon: bool | None = None,
+) -> tuple[float | None, dict[str, Any]]:
+    """Prefer Fubon last/% · attach Yahoo 1m mom when Fubon has no bars.
+
+    When Fubon price wins, Yahoo is still fetched for ``mom_*`` / fallback
+    prev_close only; anchors keep ``quote_source=fubon:...`` and set
+    ``bar_source=yahoo_chart:...`` for honesty.
+    """
+    use_fubon = _quote_backend() == "fubon" if prefer_fubon is None else prefer_fubon
+    fubon_px: float | None = None
+    fubon_meta: dict[str, Any] = {}
+    if use_fubon and fubon_quote is not None:
+        fubon_px, fubon_meta = fubon_quote
+    elif use_fubon and fubon_quote is None:
+        by_sid, err = fetch_fubon_marketdata_quotes([stock_id])
+        if err:
+            fubon_meta = {"fubon_error": err}
+        else:
+            fubon_px, fubon_meta = by_sid.get(stock_id, (None, {}))
+
+    yahoo_px, yahoo_meta = fetch_last_print_yahoo(stock_id)
+
+    if fubon_px is not None:
+        meta = dict(fubon_meta)
+        # Momentum / 1m lookback still from Yahoo bars (documented).
+        for key in ("mom_1bar_pct", "mom_2bar_pct", "n_1m_bars", "momentum_horizon", "bar_time"):
+            if key in yahoo_meta and yahoo_meta[key] is not None:
+                meta[key] = yahoo_meta[key]
+        ysrc = yahoo_meta.get("quote_source")
+        if ysrc:
+            meta["bar_source"] = ysrc
+        elif yahoo_meta.get("yahoo_error"):
+            meta["bar_source_error"] = yahoo_meta.get("yahoo_error")
+        if meta.get("fubon_prev_close") is None and yahoo_meta.get("yahoo_prev_close") is not None:
+            meta["yahoo_prev_close"] = yahoo_meta.get("yahoo_prev_close")
+        return fubon_px, meta
+
+    # Fubon miss → full Yahoo path
+    meta = dict(yahoo_meta)
+    if fubon_meta.get("fubon_error"):
+        meta["fubon_error"] = fubon_meta["fubon_error"]
+    elif use_fubon:
+        meta.setdefault("fubon_error", "no_quote")
+    return yahoo_px, meta
 
 
 @dataclass(frozen=True)
@@ -807,14 +1027,26 @@ def build_live_ta_state(
 
     meta = dict(quote_meta or {})
     px = last_print
-    if px is None:
-        px, qmeta = fetch_last_print_yahoo(stock_id)
+    # Only auto-fetch when caller did not supply a quote attempt (avoids a second
+    # Fubon login after run_live_ta_poll already batched).
+    if px is None and quote_meta is None:
+        px, qmeta = fetch_last_print(stock_id)
         meta.update(qmeta)
     if px is not None:
         px = _round_px(float(px))
-    # Prefer Yahoo session previousClose (aligned with regularMarketPrice).
-    # Local stock_daily_bars can lag days and inflate 漲跌% (e.g. 6505).
+    # Prefer Fubon previousClose (aligned with realtime last), then Yahoo
+    # session previousClose. Local stock_daily_bars can lag days and inflate
+    # 漲跌% (e.g. 6505).
     prev_db = fetch_prev_close_db(conn, stock_id)
+    prev_fubon: float | None = None
+    fprev = meta.get("fubon_prev_close")
+    try:
+        if fprev is not None:
+            prev_fubon = float(fprev)
+            if prev_fubon <= 0:
+                prev_fubon = None
+    except (TypeError, ValueError):
+        prev_fubon = None
     prev_yahoo: float | None = None
     yprev = meta.get("yahoo_prev_close")
     try:
@@ -824,9 +1056,25 @@ def build_live_ta_state(
                 prev_yahoo = None
     except (TypeError, ValueError):
         prev_yahoo = None
-    prev = prev_yahoo if prev_yahoo is not None else prev_db
-    name = resolve_stock_name(conn, stock_id, stock_name)
-    pct_from_prev = round((px / prev - 1.0) * 100, 3) if px and prev else None
+    if prev_fubon is not None:
+        prev = prev_fubon
+        prev_src = "fubon"
+    elif prev_yahoo is not None:
+        prev = prev_yahoo
+        prev_src = "yahoo"
+    elif prev_db is not None:
+        prev = prev_db
+        prev_src = "db"
+    else:
+        prev = None
+        prev_src = None
+    name = resolve_stock_name(conn, stock_id, stock_name) or meta.get("fubon_name")
+    pct_from_prev: float | None = None
+    fchg = meta.get("fubon_change_percent")
+    if isinstance(fchg, (int, float)) and prev_fubon is not None:
+        pct_from_prev = round(float(fchg), 3)
+    elif px and prev:
+        pct_from_prev = round((px / prev - 1.0) * 100, 3)
     mom_1 = meta.get("mom_1bar_pct")
     mom_2 = meta.get("mom_2bar_pct")
     if isinstance(mom_1, (int, float)):
@@ -865,7 +1113,7 @@ def build_live_ta_state(
         "auction_interval_min": 20 if is_disp else None,
         "prev_close": prev,
         "prev_close_db": prev_db,
-        "prev_close_source": "yahoo" if prev_yahoo is not None else ("db" if prev_db is not None else None),
+        "prev_close_source": prev_src,
         "pct_from_prev": pct_from_prev,
         "mins_to_next": (
             max(0, int((nxt - now).total_seconds() // 60)) if nxt else None
@@ -908,17 +1156,41 @@ def run_live_ta_poll(
     dry_run: bool = False,
     disposition_ids: set[str] | None = None,
     yahoo_gap_sec: float = _YAHOO_GAP_SEC,
+    fubon_session: Any | None = None,
 ) -> list[dict[str, Any]]:
     pairs = stocks if stocks is not None else resolve_live_ta_universe(conn)
     disp = disposition_ids if disposition_ids is not None else parse_disposition_ids()
     out: list[dict[str, Any]] = []
+
+    fubon_by_sid: dict[str, tuple[float | None, dict[str, Any]]] = {}
+    fubon_connect_err: str | None = None
+    use_fubon = _quote_backend() == "fubon"
+    if use_fubon and pairs:
+        sids = [sid for sid, _ in pairs]
+        fubon_by_sid, fubon_connect_err = fetch_fubon_marketdata_quotes(
+            sids, session=fubon_session
+        )
+        if fubon_connect_err:
+            print(f"[ops_live_ta] Fubon unavailable → Yahoo fallback: {fubon_connect_err}")
+
     for i, (sid, name) in enumerate(pairs):
         if i > 0 and yahoo_gap_sec > 0:
             time.sleep(yahoo_gap_sec)
+        # After a batch attempt, always pass a tuple so we never open N logins.
+        if use_fubon:
+            fubon_quote = fubon_by_sid.get(sid)
+            if fubon_quote is None:
+                err = fubon_connect_err or "missing_from_batch"
+                fubon_quote = (None, {"fubon_error": err})
+        else:
+            fubon_quote = None
+        px, qmeta = fetch_last_print(sid, fubon_quote=fubon_quote, prefer_fubon=use_fubon)
         state = build_live_ta_state(
             sid,
             stock_name=name,
             conn=conn,
+            last_print=px,
+            quote_meta=qmeta,
             disposition_ids=disp,
         )
         row = asdict(state)

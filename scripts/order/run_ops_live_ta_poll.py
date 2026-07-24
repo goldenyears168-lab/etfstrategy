@@ -3,12 +3,13 @@
 
 Universe = order_holdings_snapshot ∪ ops.holdings ∪ OPS_LIVE_TA_STOCKS extras.
 Disposition auction clock only for OPS_LIVE_TA_DISPOSITION（default 2492）.
-現價＝Yahoo Chart regularMarketPrice（會隨 poll 跳動）；非券商「限價單」價。
+現價／漲跌%＝富邦 realtime marketdata（失敗→Yahoo）；短動能／30m 仍多半 Yahoo bars。
+需 ``.venv-fubon``（見 ops-live-ta-poll.command）。
 
 Examples:
-  PYTHONPATH=src .venv/bin/python scripts/order/run_ops_live_ta_poll.py
-  PYTHONPATH=src .venv/bin/python scripts/order/run_ops_live_ta_poll.py --stocks 2492:華新科 --dry-run
-  OPS_LIVE_TA_STOCKS=2492:華新科 PYTHONPATH=src .venv/bin/python scripts/order/run_ops_live_ta_poll.py
+  PYTHONPATH=src .venv-fubon/bin/python scripts/order/run_ops_live_ta_poll.py
+  PYTHONPATH=src .venv-fubon/bin/python scripts/order/run_ops_live_ta_poll.py --stocks 2492:華新科 --dry-run
+  OPS_LIVE_TA_QUOTE=yahoo PYTHONPATH=src .venv/bin/python scripts/order/run_ops_live_ta_poll.py
 """
 
 from __future__ import annotations
@@ -92,11 +93,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"universe n={len(rows)} · disposition={sorted(disp)}")
         for r in rows:
-            mode = (r.get("anchors") or {}).get("mode")
+            anchors = r.get("anchors") or {}
+            mode = anchors.get("mode")
+            qsrc = anchors.get("quote_source") or "?"
             print(
                 f"{r['stock_id']} {r.get('stock_name') or ''} "
                 f"mode={mode} px={r.get('last_print')} phase={r.get('phase')} "
-                f"action={r.get('action')} next={r.get('next_auction_at')}"
+                f"action={r.get('action')} src={qsrc} next={r.get('next_auction_at')}"
             )
             print(f"  {r.get('note_zh')}")
     return 0
