@@ -4,7 +4,7 @@
       "Bash(python -m pytest src/tests/ -x -q --tb=short)",
       "Bash(python -m pytest tests/ -x -q --tb=short --ignore=tests/test_analytics_bench.py -k \"slot\")",
       "Bash(PYTHONPATH=src python scripts/run_c18acc_fullslot_sweep.py)",
-      "Bash(python scripts/backfill_phase2_is_kbar.py --year all --workers 4 --max-calls 4800)",
+      "Bash(python scripts/tools/backfill_phase2_is_kbar.py --year all --workers 4 --max-calls 4800)",
       "Bash(python3 -c ' *)",
       "mcp__visualize__read_me",
       "mcp__visualize__show_widget"

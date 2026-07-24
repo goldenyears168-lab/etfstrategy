@@ -8,9 +8,12 @@ from datetime import datetime, timedelta
 from research.intraday_direction_thermometer import (
     Bar,
     ThermoConfig,
+    ema_factors_from_bars,
+    ema_last,
     fade_near_ext_from_bars,
     fuse_ta30m_bias,
     or_fail_break_temp,
+    rolling_beta_residual,
     swing_1h_from_bars,
     ta30m_factors_from_bars,
 )
@@ -199,6 +202,41 @@ class TestOrFailBreak(unittest.TestCase):
             )
         )
         self.assertEqual(or_fail_break_temp(out, reclaim_within=2), -1)
+
+
+class TestEmaBeta(unittest.TestCase):
+    def test_ema_last_uptrend(self) -> None:
+        closes = [100.0 + i for i in range(21)]
+        e = ema_last(closes, 9)
+        self.assertIsNotNone(e)
+        assert e is not None
+        self.assertGreater(e, closes[0])
+        self.assertLess(e, closes[-1])
+
+    def test_ema_factors_ready(self) -> None:
+        bars = _bars(25, trend=0.002)
+        fac = ema_factors_from_bars(bars)
+        self.assertTrue(fac["ready"])
+        self.assertEqual(fac["price_vs_ema_fast"], 1)
+        self.assertEqual(fac["ema_cross"], 1)
+
+    def test_rolling_beta_residual_ready(self) -> None:
+        base = datetime(2026, 3, 2, 9, 0)
+        stock: list[Bar] = []
+        bench: list[Bar] = []
+        ps, pb = 100.0, 100.0
+        for i in range(40):
+            ts = base + timedelta(minutes=5 * i)
+            # correlated but not identical moves
+            shock = 0.002 if i % 3 == 0 else (-0.001 if i % 3 == 1 else 0.0005)
+            ps *= 1.0 + shock * 1.5
+            pb *= 1.0 + shock
+            stock.append(Bar(ts=ts, open=ps, high=ps * 1.001, low=ps * 0.999, close=ps))
+            bench.append(Bar(ts=ts, open=pb, high=pb * 1.001, low=pb * 0.999, close=pb))
+        out = rolling_beta_residual(stock, bench, lookback=20, ret_bars=6)
+        self.assertTrue(out["ready"])
+        self.assertIsNotNone(out["beta"])
+        self.assertIsNotNone(out["resid_pct"])
 
 
 if __name__ == "__main__":

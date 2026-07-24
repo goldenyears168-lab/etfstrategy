@@ -354,6 +354,148 @@ def fade_near_ext_from_bars(
     )
 
 
+# --- 5m EMA + rolling beta residual (research · 2026-07-24) ---------------
+# PIT: EMA/beta use completed same-session bars only (no prior-day stitch).
+EMA_FAST = 9
+EMA_SLOW = 21
+BETA_LOOKBACK_BARS = 26  # ~2h of 5m pairs
+BETA_RET_BARS = 6  # residual horizon ≈30m
+BETA_EPS = 0.05  # quiet floor on |beta|
+RESID_EPS_PCT = 0.10  # quiet zone for residual % points
+EMA_EXT_EPS_PCT = 0.10  # |close/ema-1|*100 quiet
+
+
+def ema_last(closes: Sequence[float], span: int) -> float | None:
+    """Last EMA(span) over ``closes`` (same-session · seed = first close)."""
+    if span < 1 or len(closes) < span:
+        return None
+    alpha = 2.0 / (span + 1.0)
+    ema = float(closes[0])
+    for c in closes[1:]:
+        ema = alpha * float(c) + (1.0 - alpha) * ema
+    return ema
+
+
+def ema_factors_from_bars(
+    prev: Sequence[Bar],
+    *,
+    fast: int = EMA_FAST,
+    slow: int = EMA_SLOW,
+    ext_eps_pct: float = EMA_EXT_EPS_PCT,
+) -> dict[str, Any]:
+    """PIT 5m EMA factors from completed bars only."""
+    out: dict[str, Any] = {
+        "ready": False,
+        "ema_fast": None,
+        "ema_slow": None,
+        "price_vs_ema_fast": 0,
+        "price_vs_ema_slow": 0,
+        "ema_cross": 0,
+        "vs_ema_fast_pct": None,
+        "vs_ema_slow_pct": None,
+    }
+    need = max(fast, slow)
+    if len(prev) < need:
+        return out
+    closes = [b.close for b in prev]
+    ef = ema_last(closes, fast)
+    es = ema_last(closes, slow)
+    if ef is None or es is None or ef <= 0 or es <= 0:
+        return out
+    last = closes[-1]
+    vs_f = 100.0 * (last / ef - 1.0)
+    vs_s = 100.0 * (last / es - 1.0)
+    out.update(
+        {
+            "ready": True,
+            "ema_fast": round(ef, 6),
+            "ema_slow": round(es, 6),
+            "vs_ema_fast_pct": round(vs_f, 4),
+            "vs_ema_slow_pct": round(vs_s, 4),
+            "price_vs_ema_fast": _sign_eps(vs_f, ext_eps_pct),
+            "price_vs_ema_slow": _sign_eps(vs_s, ext_eps_pct),
+            "ema_cross": _sign_eps(ef - es, ef * (ext_eps_pct / 100.0)),
+        }
+    )
+    return out
+
+
+def _bar_rets(bars: Sequence[Bar]) -> list[float]:
+    out: list[float] = []
+    for i in range(1, len(bars)):
+        c0, c1 = bars[i - 1].close, bars[i].close
+        if c0 and c0 > 0 and c1 is not None:
+            out.append(c1 / c0 - 1.0)
+    return out
+
+
+def rolling_beta_residual(
+    stock_prev: Sequence[Bar],
+    bench_prev: Sequence[Bar],
+    *,
+    lookback: int = BETA_LOOKBACK_BARS,
+    ret_bars: int = BETA_RET_BARS,
+    beta_eps: float = BETA_EPS,
+    resid_eps_pct: float = RESID_EPS_PCT,
+) -> dict[str, Any]:
+    """Rolling OLS beta (stock vs bench) + residual over last ``ret_bars``.
+
+    Beta uses the last ``lookback`` paired 1-bar returns ending at last bar.
+    Residual% = 100 * (r_s − beta * r_b) over the last ``ret_bars`` return.
+    """
+    out: dict[str, Any] = {
+        "ready": False,
+        "beta": None,
+        "resid_pct": None,
+        "resid_sign": 0,
+        "bench_ret_pct": None,
+        "stock_ret_pct": None,
+    }
+    need = max(lookback + 1, ret_bars + 1)
+    if len(stock_prev) < need or len(bench_prev) < need:
+        return out
+    # Align by timestamp ≤ last stock bar (caller should pass aligned prefix).
+    t_end = stock_prev[-1].ts
+    b_al = [b for b in bench_prev if b.ts <= t_end]
+    if len(b_al) < need:
+        return out
+    s_rets = _bar_rets(stock_prev[-(lookback + 1) :])
+    b_rets = _bar_rets(b_al[-(lookback + 1) :])
+    n = min(len(s_rets), len(b_rets))
+    if n < max(10, lookback // 2):
+        return out
+    s_rets = s_rets[-n:]
+    b_rets = b_rets[-n:]
+    mean_b = sum(b_rets) / n
+    mean_s = sum(s_rets) / n
+    var_b = sum((x - mean_b) ** 2 for x in b_rets)
+    if var_b <= 1e-18:
+        return out
+    cov = sum((s_rets[i] - mean_s) * (b_rets[i] - mean_b) for i in range(n))
+    beta = cov / var_b
+    # Horizon residual from last ret_bars closes.
+    s0, s1 = stock_prev[-ret_bars - 1].close, stock_prev[-1].close
+    b0, b1 = b_al[-ret_bars - 1].close, b_al[-1].close
+    if not s0 or not b0:
+        return out
+    r_s = s1 / s0 - 1.0
+    r_b = b1 / b0 - 1.0
+    resid = 100.0 * (r_s - beta * r_b)
+    out.update(
+        {
+            "ready": True,
+            "beta": round(beta, 4),
+            "resid_pct": round(resid, 4),
+            "resid_sign": _sign_eps(resid, resid_eps_pct),
+            "bench_ret_pct": round(100.0 * r_b, 4),
+            "stock_ret_pct": round(100.0 * r_s, 4),
+            "beta_abs_ge1": abs(beta) >= 1.0 - beta_eps,
+            "beta_abs_lt1": abs(beta) < 1.0 - beta_eps,
+        }
+    )
+    return out
+
+
 # --- Multi-factor ~30m bias (research · 2026-07-24) -------------------------
 # Horizon for evaluation: H=6 (~30m). Factors are PIT signed votes ∈ {-1,0,+1}.
 TA30M_HORIZON_BARS = 6
