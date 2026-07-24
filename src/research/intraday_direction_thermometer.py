@@ -354,6 +354,217 @@ def fade_near_ext_from_bars(
     )
 
 
+# --- Multi-factor ~30m bias (research · 2026-07-24) -------------------------
+# Horizon for evaluation: H=6 (~30m). Factors are PIT signed votes ∈ {-1,0,+1}.
+TA30M_HORIZON_BARS = 6
+TA30M_READY_BARS = 6  # first closed half-hour
+TA30M_OR_BARS = 6  # 09:00–09:30 opening range
+TA30M_MOM_BARS = 6
+TA30M_SHORT_BARS = 3
+TA30M_BIAS_EPS_PCT = 0.15  # align with Live quiet zone (% points)
+TA30M_NEAR_EXT_TOL = 0.002  # 0.2% of session extreme
+
+
+def _sign_eps(x: float, eps: float = 0.0) -> int:
+    if x > eps:
+        return 1
+    if x < -eps:
+        return -1
+    return 0
+
+
+def session_vwap(prev: Sequence[Bar]) -> float | None:
+    """Session VWAP from completed bars only (typical price × volume)."""
+    num = den = 0.0
+    for b in prev:
+        tp = (b.high + b.low + b.close) / 3.0
+        v = float(b.volume or 0.0)
+        if v <= 0:
+            v = 1.0  # equal-weight fallback when volume missing
+        num += tp * v
+        den += v
+    if den <= 0:
+        return None
+    return num / den
+
+
+def opening_range_hl(
+    prev: Sequence[Bar], *, n_bars: int = TA30M_OR_BARS
+) -> tuple[float, float] | None:
+    """09:00-ish opening-range high/low from the first ``n_bars`` session bars."""
+    if len(prev) < n_bars:
+        return None
+    w = list(prev[:n_bars])
+    return max(b.high for b in w), min(b.low for b in w)
+
+
+def ta30m_factors_from_bars(
+    prev: Sequence[Bar],
+    *,
+    ready: int = TA30M_READY_BARS,
+    mom_bars: int = TA30M_MOM_BARS,
+    short_bars: int = TA30M_SHORT_BARS,
+    bias_eps_pct: float = TA30M_BIAS_EPS_PCT,
+    near_tol: float = TA30M_NEAR_EXT_TOL,
+) -> dict[str, Any]:
+    """PIT factor votes for ~30m directional bias research.
+
+    Returns signed factors (``+1`` 偏多 / ``-1`` 偏空 / ``0`` 中性) plus
+    continuous helpers. Does **not** claim predictive hit rate.
+    """
+    n = len(prev)
+    out: dict[str, Any] = {
+        "ready": False,
+        "mom30": 0,
+        "vwap": 0,
+        "or_break": 0,
+        "short_mom": 0,
+        "fade_ext": 0,
+        "fade_ext_anytod": 0,
+        "vol_confirm": 0,  # +1 if last-bar vol ≥ median of session so far
+        "ret30_pct": None,
+        "vs_vwap_pct": None,
+        "vs_or": None,  # "above" / "below" / "inside"
+        "hhmm": None,
+        "bars_elapsed": n,
+        "hm": None,
+    }
+    if n < ready:
+        return out
+    last = prev[-1]
+    hm = last.ts.hour * 60 + last.ts.minute
+    out["ready"] = True
+    out["hhmm"] = last.ts.strftime("%H:%M")
+    out["hm"] = hm
+
+    L = min(mom_bars, n)
+    w = list(prev[-L:])
+    c0, c1 = w[0].close, w[-1].close
+    ret30 = (c1 / c0 - 1.0) if c0 else 0.0
+    ret30_pct = 100.0 * ret30
+    out["ret30_pct"] = round(ret30_pct, 4)
+    out["mom30"] = _sign_eps(ret30_pct, bias_eps_pct)
+
+    vwap = session_vwap(prev)
+    if vwap and vwap > 0:
+        vs_vwap_pct = 100.0 * (last.close / vwap - 1.0)
+        out["vs_vwap_pct"] = round(vs_vwap_pct, 4)
+        out["vwap"] = _sign_eps(vs_vwap_pct, bias_eps_pct)
+
+    or_hl = opening_range_hl(prev)
+    if or_hl is not None:
+        or_hi, or_lo = or_hl
+        if last.close > or_hi:
+            out["or_break"] = 1
+            out["vs_or"] = "above"
+        elif last.close < or_lo:
+            out["or_break"] = -1
+            out["vs_or"] = "below"
+        else:
+            out["or_break"] = 0
+            out["vs_or"] = "inside"
+
+    Ls = min(short_bars, n)
+    if Ls >= 2:
+        s0, s1 = prev[-Ls].close, prev[-1].close
+        short_pct = 100.0 * (s1 / s0 - 1.0) if s0 else 0.0
+        out["short_mom"] = _sign_eps(short_pct, bias_eps_pct * 0.5)
+
+    day_hi = max(b.high for b in prev)
+    day_lo = min(b.low for b in prev)
+    near_hi = last.close >= day_hi * (1.0 - near_tol)
+    near_lo = last.close <= day_lo * (1.0 + near_tol)
+    fade = 0
+    if near_hi and not near_lo:
+        fade = -1
+    elif near_lo and not near_hi:
+        fade = 1
+    out["fade_ext_anytod"] = fade
+    # Midday window matches fade_near_ext defaults.
+    if FADE_MIDDAY_START_HM <= hm <= FADE_MIDDAY_END_HM:
+        out["fade_ext"] = fade
+
+    vols = [float(b.volume or 0.0) for b in prev]
+    if vols and vols[-1] > 0:
+        ordered = sorted(v for v in vols if v > 0)
+        if ordered:
+            med = ordered[len(ordered) // 2]
+            out["vol_confirm"] = 1 if vols[-1] >= med else 0
+
+    return out
+
+
+def fuse_ta30m_bias(
+    factors: Mapping[str, Any],
+    *,
+    mode: str,
+    keys: Sequence[str],
+    score_thresh: int = 2,
+    require_vol: bool = False,
+    midday_only: bool = False,
+    after_or: bool = False,
+    min_abs_ret30_pct: float = 0.0,
+) -> int:
+    """Fuse factor votes → temp ∈ {-1,0,+1}. Neutral when filters fail."""
+    if not factors.get("ready"):
+        return 0
+    hm = factors.get("hm")
+    if midday_only and isinstance(hm, int):
+        if not (FADE_MIDDAY_START_HM <= hm <= FADE_MIDDAY_END_HM):
+            return 0
+    if after_or and int(factors.get("bars_elapsed") or 0) < TA30M_OR_BARS:
+        return 0
+    ret30 = factors.get("ret30_pct")
+    if min_abs_ret30_pct > 0 and (
+        ret30 is None or abs(float(ret30)) < min_abs_ret30_pct
+    ):
+        return 0
+    if require_vol and int(factors.get("vol_confirm") or 0) < 1:
+        return 0
+
+    votes = [int(factors.get(k) or 0) for k in keys]
+    if mode == "first":
+        # Use the first key only (baseline).
+        return votes[0] if votes else 0
+    if mode == "and":
+        nz = [v for v in votes if v != 0]
+        if len(nz) < len(keys):
+            return 0
+        if all(v == nz[0] for v in nz):
+            return nz[0]
+        return 0
+    if mode == "or_agree":
+        # Fire if ≥1 non-zero and all non-zero agree (conflicts → 0).
+        nz = [v for v in votes if v != 0]
+        if not nz:
+            return 0
+        if all(v == nz[0] for v in nz):
+            return nz[0]
+        return 0
+    if mode == "score":
+        s = sum(votes)
+        if s >= score_thresh:
+            return 1
+        if s <= -score_thresh:
+            return -1
+        return 0
+    if mode == "live_confluence":
+        # Mirror Live ``compute_ta_30m_snapshot`` bias (descriptive).
+        mom = int(factors.get("mom30") or 0)
+        vwap = int(factors.get("vwap") or 0)
+        if mom > 0 and vwap >= 0:
+            return 1
+        if mom < 0 and vwap <= 0:
+            return -1
+        if mom == 0 and vwap != 0:
+            return vwap
+        return 0
+    if mode == "fade_layer":
+        # Delegate to full fade_near_ext (slope + midday) when keys unused.
+        return int(factors.get("fade_ext") or 0)
+    raise ValueError(f"unknown fuse mode: {mode}")
+
+
 def _sma(xs: Sequence[float], n: int) -> float | None:
     if len(xs) < n:
         return None

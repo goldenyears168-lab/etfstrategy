@@ -9,7 +9,9 @@ from research.intraday_direction_thermometer import (
     Bar,
     ThermoConfig,
     fade_near_ext_from_bars,
+    fuse_ta30m_bias,
     swing_1h_from_bars,
+    ta30m_factors_from_bars,
 )
 
 
@@ -62,6 +64,36 @@ class TestFadeNearExt(unittest.TestCase):
         self.assertTrue(layer.ready)
         self.assertEqual(layer.temp, 0)
         self.assertIn("非午盤", layer.label)
+
+
+class TestTa30mFactors(unittest.TestCase):
+    def test_uptrend_mom_and_live_confluence(self) -> None:
+        bars = _bars(12, trend=0.003)
+        fac = ta30m_factors_from_bars(bars)
+        self.assertTrue(fac["ready"])
+        self.assertEqual(fac["mom30"], 1)
+        temp = fuse_ta30m_bias(
+            fac, mode="live_confluence", keys=("mom30", "vwap")
+        )
+        self.assertEqual(temp, 1)
+
+    def test_and_requires_agreement(self) -> None:
+        fac = {
+            "ready": True,
+            "mom30": 1,
+            "vwap": -1,
+            "hm": 11 * 60,
+            "bars_elapsed": 20,
+            "ret30_pct": 0.5,
+            "vol_confirm": 1,
+        }
+        self.assertEqual(
+            fuse_ta30m_bias(fac, mode="and", keys=("mom30", "vwap")), 0
+        )
+        fac["vwap"] = 1
+        self.assertEqual(
+            fuse_ta30m_bias(fac, mode="and", keys=("mom30", "vwap")), 1
+        )
 
 
 if __name__ == "__main__":

@@ -4262,6 +4262,7 @@ topics:
       - scripts/research/run_intraday_direction_thermometer.py
       - scripts/research/run_trend3d_thermometer_backtest.py
       - scripts/research/run_swing_1h_thermometer_backtest.py
+      - scripts/research/run_ta_30m_bias_backtest.py
     frozen_defaults:
       open_guard_bars: 6
       swing_ready_bars: 12
@@ -4293,20 +4294,34 @@ topics:
         note: >
           2026-07-24：OOS≈62.1% n≈1846；個股異質（2330/2454 驅動；
           2303/0050/3189 弱）。非 Primary 60m；需 fresh holdout 才可談 overlay。
+      - id: H-THERMO-TA30M-BIAS
+        statement: >
+          多因子 30m 偏多／偏空（mom30×VWAP×OR×短動能×極值淡化×量能／時段）
+          融合後 OOS directed hit≥70%（H=6 · |fwd|≥0.05% · n≥500）
+          且 ≥70% 個股 OOS hit≥55%（n≥50）・無單股>40% pool n。
+        status: rejected
+        evidence: reports/research/intraday_direction_thermometer/TA_30M_BIAS_EVAL.md
+        note: >
+          2026-07-24 Book：預先鎖定 22 變體；IS 冠軍=baseline_fade_near_ext
+          OOS=62.13% n=1846；動能／Live confluence≈45%；穩定性 5/8。
+          未過 70% 閘；Live ta_30m_bias 未改寫成預測宣稱。
     do_not:
       - 未過閘寫入 strategy.yaml / Order live
       - 把溫度計當自動下單訊號
       - 以 Secondary 30m 結果宣稱 Swing 1h / 60m 過閘
+      - 把 Live ta_30m_bias 說成 OOS≥70%
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: pending  # Primary 60m failed; fade30m testing
+        G2_oos_holdout: pending  # Primary 60m failed; TA30M bias 70% failed
         G3_regime_stratification: pending
         G4_rejection_registry: pending
         G5_frozen_spec: pending
     notes: >
       2026-07-24 Swing 1h Primary directed-hit OOS 未達 60%。詳見 SWING_1H_EVAL.md。
       旁支 fade_near_ext_30m 過 60% 但異質性高，仍屬 research。
+      2026-07-24 多因子 TA 30m bias 目標 OOS≥70%+穩定：未過閘（最佳 OOS≈62.1%）。
+      詳見 TA_30M_BIAS_EVAL.md。Live bias 維持描述性觀察，非預測宣稱。
   second-disp-expert-pool-copytrade:
     title: 處置股專家池跟單策略
     status: active
