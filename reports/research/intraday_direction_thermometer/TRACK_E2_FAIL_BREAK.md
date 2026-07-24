@@ -62,7 +62,7 @@ Event-defined fail-break (wick beyond OR → close back inside within N, weak po
 
 ## Interpretation
 
-IS-locked fail-break champion `fb_n1` → OOS directed hit 37.21% (n=3123). Baselines: fade_near_ext OOS 64.02% (n=1651); fade_idx_or_inside OOS 69.14% (n=687). Explicit poke-and-fail is event-sparse relative to continuous near-extreme fade; weak-vol / mid / VWAP / idx AND filters further thin n. Research only — no Live 70% claim, no Order.
+IS-locked fail-break champion `fb_n1` → OOS directed hit 37.21% (n=3123). Baselines: fade_near_ext OOS 64.02% (n=1651); fade_idx_or_inside OOS 69.14% (n=687). Event is first-reclaim / rejection only (not sticky post-pierce spam). Across the pre-registered fail_break grid, IS+OOS directed hits cluster ~37–43% — **anti-edge vs fade** (pierce-then-reclaim more often continues the break over fwd~30m on this TW 5m pool). Weak-vol / mid / VWAP / idx-OR-inside ANDs do not lift fade above chance. **Kill E2 fade path** vs continuous `fade_near_ext` / `fade_idx_or_inside`. Research only — no Live 70% claim, no Order.
 
 ## Artifacts
 

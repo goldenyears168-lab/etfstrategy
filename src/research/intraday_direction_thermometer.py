@@ -398,6 +398,108 @@ def opening_range_hl(
     return max(b.high for b in w), min(b.low for b in w)
 
 
+def or_fail_break_temp(
+    prev: Sequence[Bar],
+    *,
+    or_bars: int = TA30M_OR_BARS,
+    reclaim_within: int = 2,
+    weak_vol_max_rvol: float | None = None,
+    midday_only: bool = False,
+    midday_start_hm: int = FADE_MIDDAY_START_HM,
+    midday_end_hm: int = FADE_MIDDAY_END_HM,
+    require_beyond_or_mid: bool = False,
+    require_vwap_side: bool = False,
+) -> int:
+    """Explicit failed OR break → fade toward OR mid / VWAP (research · PIT).
+
+    Event (completed bars ``≤`` last only · **first reclaim only**):
+
+    - Same-bar rejection: wick beyond ORH/ORL and close back inside; or
+    - Multi-bar: a prior bar **closed** outside OR within ``reclaim_within``,
+      intervening closes stayed outside, and **this** bar is the first close
+      back inside.
+
+    Temp = opposite of pierce (−1 after upside poke, +1 after downside).
+    Optional weak poke volume (session-mean RVOL) and still-beyond-OR-mid /
+    VWAP-side filters.
+    """
+    n = len(prev)
+    if n <= or_bars:
+        return 0
+    or_hl = opening_range_hl(prev, n_bars=or_bars)
+    if or_hl is None:
+        return 0
+    or_hi, or_lo = or_hl
+    if or_hi <= or_lo:
+        return 0
+    last = prev[-1]
+    hm = last.ts.hour * 60 + last.ts.minute
+    if midday_only and not (midday_start_hm <= hm <= midday_end_hm):
+        return 0
+    if not (or_lo <= last.close <= or_hi):
+        return 0
+
+    direction: int | None = None
+    pierce_i: int | None = None
+
+    # Same-bar rejection (wick beyond + close inside).
+    if last.high > or_hi and not (last.low < or_lo):
+        direction, pierce_i = -1, n - 1
+    elif last.low < or_lo and not (last.high > or_hi):
+        direction, pierce_i = 1, n - 1
+    else:
+        # First close back inside after a closed excursion within N bars.
+        for k in range(1, reclaim_within + 1):
+            j = n - 1 - k
+            if j < or_bars:
+                break
+            b = prev[j]
+            if b.close > or_hi:
+                if all(prev[t].close > or_hi for t in range(j + 1, n - 1)):
+                    direction, pierce_i = -1, j
+                break
+            if b.close < or_lo:
+                if all(prev[t].close < or_lo for t in range(j + 1, n - 1)):
+                    direction, pierce_i = 1, j
+                break
+            if or_lo <= b.close <= or_hi:
+                break
+
+    if direction is None or pierce_i is None:
+        return 0
+
+    if weak_vol_max_rvol is not None:
+        pierce_vol = float(prev[pierce_i].volume or 0.0)
+        prior = [
+            float(b.volume or 0.0)
+            for b in prev[:pierce_i]
+            if float(b.volume or 0.0) > 0.0
+        ]
+        if pierce_vol <= 0.0 or not prior:
+            return 0
+        mean_v = sum(prior) / len(prior)
+        if mean_v <= 0.0 or (pierce_vol / mean_v) > weak_vol_max_rvol:
+            return 0
+
+    or_mid = 0.5 * (or_hi + or_lo)
+    if require_beyond_or_mid:
+        if direction < 0 and last.close < or_mid:
+            return 0
+        if direction > 0 and last.close > or_mid:
+            return 0
+
+    if require_vwap_side:
+        vwap = session_vwap(prev)
+        if vwap is None or vwap <= 0:
+            return 0
+        if direction < 0 and last.close < vwap:
+            return 0
+        if direction > 0 and last.close > vwap:
+            return 0
+
+    return direction
+
+
 def ta30m_factors_from_bars(
     prev: Sequence[Bar],
     *,
