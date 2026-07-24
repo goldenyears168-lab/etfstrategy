@@ -230,6 +230,27 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(meta["fubon_change_percent"], 0.85)
         self.assertEqual(meta["fubon_bid"], 1189.0)
 
+    def test_parse_fubon_prefers_trial_when_is_trial(self) -> None:
+        """Disposition call-auction · lastTrade sticks; lastTrial must drive 現價."""
+        raw = {
+            "symbol": "2492",
+            "isTrial": True,
+            "previousClose": 300.0,
+            "changePercent": -8.67,
+            "lastPrice": 274.0,
+            "closePrice": 276.5,
+            "lastTrade": {"price": 276.5, "size": 163},
+            "lastTrial": {"price": 274.0, "size": 135, "bid": 274.0, "ask": 274.5},
+            "bids": [{"price": 274.0, "size": 19}],
+            "asks": [{"price": 274.5, "size": 2}],
+        }
+        px, meta = parse_fubon_marketdata_quote(raw, stock_id="2492")
+        self.assertEqual(px, 274.0)
+        self.assertEqual(meta["price_source"], "fubon_last_trial")
+        self.assertTrue(meta.get("is_trial"))
+        self.assertEqual(meta.get("fubon_last_trade_price"), 276.5)
+        self.assertEqual(meta.get("fubon_trial_price"), 274.0)
+
     def test_fetch_last_print_prefers_fubon_attaches_fubon_mom(self) -> None:
         fubon_q = (
             291.5,

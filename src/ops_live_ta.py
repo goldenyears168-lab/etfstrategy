@@ -160,11 +160,35 @@ def parse_fubon_marketdata_quote(raw: Any, *, stock_id: str) -> tuple[float | No
 
     last_trade = _qget(raw, "lastTrade", "last_trade") or {}
     last_trial = _qget(raw, "lastTrial", "last_trial") or {}
-    px = (
-        _as_float(_qget(last_trade, "price"))
-        or _as_float(_qget(raw, "lastPrice", "last_price", "closePrice", "close_price"))
-        or _as_float(_qget(last_trial, "price"))
-    )
+    is_trial = bool(_qget(raw, "isTrial", "is_trial"))
+    trial_px = _as_float(_qget(last_trial, "price"))
+    trade_px = _as_float(_qget(last_trade, "price"))
+    last_px = _as_float(_qget(raw, "lastPrice", "last_price"))
+    close_px = _as_float(_qget(raw, "closePrice", "close_price"))
+
+    # Disposition / call-auction: ``isTrial`` → prefer lastTrial (試算價) so the
+    # UI ticks between matches. lastTrade / closePrice stick until next auction.
+    if is_trial and trial_px is not None:
+        px = trial_px
+        meta["price_source"] = "fubon_last_trial"
+        meta["is_trial"] = True
+    elif is_trial and last_px is not None:
+        px = last_px
+        meta["price_source"] = "fubon_last_price"
+        meta["is_trial"] = True
+    else:
+        px = trade_px or last_px or close_px or trial_px
+        if trade_px is not None:
+            meta["price_source"] = "fubon_last_trade"
+        elif last_px is not None:
+            meta["price_source"] = "fubon_last_price"
+        elif close_px is not None:
+            meta["price_source"] = "fubon_close_price"
+        elif trial_px is not None:
+            meta["price_source"] = "fubon_last_trial"
+        if is_trial:
+            meta["is_trial"] = True
+
     # Mid bid/ask only if no trade print (e.g. thin names mid auction).
     if px is None:
         bids = _qget(raw, "bids") or []
@@ -180,13 +204,6 @@ def parse_fubon_marketdata_quote(raw: Any, *, stock_id: str) -> tuple[float | No
         elif bid0:
             px = bid0
             meta["price_source"] = "fubon_bid"
-    else:
-        if _as_float(_qget(last_trade, "price")):
-            meta["price_source"] = "fubon_last_trade"
-        elif _as_float(_qget(raw, "lastPrice", "last_price", "closePrice", "close_price")):
-            meta["price_source"] = "fubon_last_price"
-        else:
-            meta["price_source"] = "fubon_last_trial"
 
     if px is None:
         meta["fubon_error"] = "no_last_price"
@@ -194,6 +211,10 @@ def parse_fubon_marketdata_quote(raw: Any, *, stock_id: str) -> tuple[float | No
 
     px = _round_px(float(px))
     meta["quote_source"] = f"fubon:marketdata:{stock_id}"
+    if trial_px is not None:
+        meta["fubon_trial_price"] = _round_px(trial_px)
+    if trade_px is not None:
+        meta["fubon_last_trade_price"] = _round_px(trade_px)
     prev = _as_float(
         _qget(raw, "previousClose", "previous_close", "referencePrice", "reference_price")
     )
