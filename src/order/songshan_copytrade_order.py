@@ -1,7 +1,8 @@
-"""Songshan copytrade Order · 五日累積淨比95 ∩ !mega + live 25m nonfail → 買 1 張.
+"""Songshan copytrade Order · 五日累積淨比95 ∩ !mega + live 25m nonfail → 買零股或整股.
 
 Signal: previous session ``scan_5d_net95`` (branch 9217).
-Entry: T+1 after ``entry_after`` (default 09:25); fail-break skip; else chase_ask 1000 sh.
+Entry: T+1 after ``entry_after`` (default 09:25); fail-break skip; else chase_ask.
+Sizing: budget_twd (約 10 萬，零股) or quantity_shares (固定股數).
 """
 
 from __future__ import annotations
@@ -222,13 +223,30 @@ def process_songshan_copytrade_poll(
         payload["error"] = str(exc)
         return payload
 
+    # 計算股數：預算制優先
+    if cfg.budget_twd is not None:
+        qty = int(cfg.budget_twd / ask)
+        if qty < 1:
+            payload["status"] = "budget_too_low"
+            payload["ask"] = ask
+            payload["budget_twd"] = cfg.budget_twd
+            return payload
+        market = "intraday_odd" if qty < 1000 else cfg.market_type
+    elif cfg.quantity_shares is not None:
+        qty = cfg.quantity_shares
+        market = cfg.market_type
+    else:
+        payload["status"] = "config_error"
+        payload["error"] = "Neither budget_twd nor quantity_shares configured"
+        return payload
+
     resolved = ResolvedOrder(
         symbol=symbol,
         side="buy",
-        quantity_shares=cfg.quantity_shares,
+        quantity_shares=qty,
         price=str(ask),
         price_type="limit",  # chase already materialized
-        market_type=cfg.market_type,  # type: ignore[arg-type]
+        market_type=market,  # type: ignore[arg-type]
         time_in_force="rod",
         order_type="stock",
         user_def=cfg.user_def,
@@ -240,8 +258,10 @@ def process_songshan_copytrade_poll(
         "signal_date": signal_date,
         "entry_date": session_date,
         "symbol": symbol,
-        "quantity_shares": cfg.quantity_shares,
+        "quantity_shares": qty,
         "ask": ask,
+        "budget_twd": cfg.budget_twd,
+        "market_type": market,
         "gate": gate,
         "schema_hint": SCHEMA_VERSION,
         "at": datetime.now(tz=_TZ).isoformat(timespec="seconds"),

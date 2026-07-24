@@ -91,22 +91,23 @@ strategies:
       Cross-exclude C18/peer sleeve（不含 ABC）。Env: ORDER_LEADING_DIP_* · ORDER_LEADING_DIP_MID_*.
     # env：ORDER_LEADING_DIP_* / ORDER_LEADING_DIP_MID_*
 
-  # 跟單松山 · 五日累積淨比95 ∩ !mega + entry_25m_nonfail · 買 1 張
-  # Signal = 昨交易日 scan；T+1 09:25–09:40 live 非 fail 後 chase_ask 整股 1000
+  # 跟單松山 · 五日累積淨比95 ∩ !mega + entry_25m_nonfail · 預算約 10 萬零股
+  # Signal = 昨交易日 scan；T+1 09:25–09:40 live 非 fail 後 chase_ask 零股
   songshan-copytrade:
     pool_id: songshan-copytrade
     strategy_id: songshan-copytrade
     enabled: true
     dry_run: true  # live: ORDER_SONGSHAN_COPYTRADE_DRY_RUN=0
     auto_submit: true
-    quantity_shares: 1000
+    budget_twd: 100000  # 約 10 萬台幣（預算制；零股）
+    quantity_shares: null  # null = 用 budget_twd 計算股數
     branch_id: "9217"
     buy_floor: 50000000  # 0.5億
     net_min: 0.95
     entry_after: "09:25"
     entry_until: "09:40"
     price_type: chase_ask
-    market_type: common
+    market_type: intraday_odd  # 預算制預設零股；≥1000 股自動改 common
     user_def: ss5d
     hold_days: 7
     submit_notify: true
@@ -115,9 +116,10 @@ strategies:
     poll_script: scripts/order/run_songshan_copytrade_poll.py
     launchd: com.jackm4.etf.songshan-copytrade-poll
     notes: >
-      Research 冠軍路徑進 Order（2026-07-22）。夜信尺同名；進場須 25m 非 fail。
-      僅進場（hold_days 參數無自動出場；暫接受）。運維 SSOT：
-      deploy/mac-mini/MIGRATION_PLAN.md §0。Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
+      Research 冠軍路徑進 Order（2026-07-22）。預算制 10 萬零股（2026-07-24 改）。
+      夜信尺同名；進場須 25m 非 fail。僅進場（hold_days 參數無自動出場；暫接受）。
+      運維 SSOT：deploy/mac-mini/MIGRATION_PLAN.md §0。
+      Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
 
   rrg-mono-swap-accel:
     pool_id: rrg-mono-swap-accel

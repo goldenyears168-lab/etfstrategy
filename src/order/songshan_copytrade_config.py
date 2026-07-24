@@ -21,7 +21,8 @@ class SongshanCopytradeOrderConfig:
     enabled: bool
     dry_run: bool
     auto_submit: bool
-    quantity_shares: int  # 1 張 = 1000
+    budget_twd: float | None  # 預算制（優先；None = 用 quantity_shares）
+    quantity_shares: int | None  # 固定股數（fallback；None = 用 budget_twd）
     branch_id: str
     buy_floor: float
     net_min: float
@@ -53,12 +54,31 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
         "ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT",
         "1" if raw.get("auto_submit", True) else "0",
     )
-    qty = int(
-        os.environ.get(
-            "ORDER_SONGSHAN_COPYTRADE_QTY",
-            str(raw.get("quantity_shares", 1000)),
-        )
-    )
+    
+    # 預算制優先（env > yaml）
+    budget_env = os.environ.get("ORDER_SONGSHAN_COPYTRADE_BUDGET_TWD", "").strip()
+    budget_yaml = raw.get("budget_twd")
+    if budget_env:
+        budget = float(budget_env)
+    elif budget_yaml is not None:
+        budget = float(budget_yaml)
+    else:
+        budget = None
+    
+    # 固定股數 fallback
+    qty_env = os.environ.get("ORDER_SONGSHAN_COPYTRADE_QTY", "").strip()
+    qty_yaml = raw.get("quantity_shares")
+    if qty_env:
+        qty = int(qty_env)
+    elif qty_yaml is not None:
+        qty = int(qty_yaml)
+    else:
+        qty = None
+    
+    # 至少一個必須有值
+    if budget is None and qty is None:
+        budget = 100000.0  # 預設 10 萬
+    
     ledger = Path(
         str(
             raw.get("ledger")
@@ -79,14 +99,15 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
         enabled=enabled,
         dry_run=dry,
         auto_submit=auto,
-        quantity_shares=max(1000, qty),  # 整張
+        budget_twd=budget,
+        quantity_shares=qty,
         branch_id=str(raw.get("branch_id") or "9217"),
         buy_floor=float(raw.get("buy_floor") or 0.5e8),
         net_min=float(raw.get("net_min") or 0.95),
         entry_after=str(raw.get("entry_after") or "09:25"),
         entry_until=str(raw.get("entry_until") or "09:40"),
         price_type=str(raw.get("price_type") or "chase_ask"),
-        market_type=str(raw.get("market_type") or "common"),
+        market_type=str(raw.get("market_type") or "intraday_odd"),
         user_def=str(raw.get("user_def") or "ss5d"),
         ledger_path=ledger,
         mega_path=mega,
