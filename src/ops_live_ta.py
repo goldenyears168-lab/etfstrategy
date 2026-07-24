@@ -17,6 +17,10 @@ afternoon ``fade_near_ext`` **and** 0050 opening-range still intact
 (research OOS ~71%; stock-heterogeneous; do **not** claim live hit-rate /
 Order graduation). EMA/beta filters are intentionally omitted.
 
+Chip confirm monitor（日更・DB）:
+  ``ft3_rel_20`` = FT3 / Σ|F+IT| over last 20 trading days（ratio）.
+  Sign matches hard gate FT3>0；跨股可比。Not an Order signal.
+
 **Data source (default: all Fubon Neo · ``.venv-fubon``)**
   1. ``intraday.quote`` → ``last_print`` / 昨收漲跌% · bid/ask
   2. ``intraday.candles(timeframe=1)`` → 1–2m short momentum (TTL ~45s)
@@ -113,6 +117,17 @@ _FADE30_DISCLAIMER_ZH = (
     "研究觀察·fade_idx_or_inside（fade∧0050 OR未破）；"
     "OOS研究約71%·非保證·非下單訊號"
 )
+# FT3 confirm · daily institutional (FinMind) · TTL so 15s poll does not re-scan DB.
+_FT3_DAYS = 3
+_FT3_ABS_DAYS = 20
+_FT3_ABS_MIN_DAYS = 10
+_FT3_SOURCE = "finmind"
+_FT3_REL_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_FT3_TTL", "1800") or "1800")
+_FT3_NOTE_ZH = (
+    "FT3/近20日Σ|F+IT|·>0＝法人確認通過·觀察用・非下單訊號"
+)
+# sid → (fetched_at, anchors_dict)
+_FT3_REL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 def _quote_backend() -> str:
@@ -1364,6 +1379,133 @@ def fetch_prev_close_db(conn: sqlite3.Connection | None, stock_id: str) -> float
     return float(row[0])
 
 
+def clear_ft3_rel_cache() -> None:
+    """Test helper · drop FT3 relative cache."""
+    _FT3_REL_CACHE.clear()
+
+
+def _empty_ft3_rel_anchors(*, note: str | None = None) -> dict[str, Any]:
+    return {
+        "ft3_rel_20": None,
+        "ft3_confirm": None,
+        "ft3": None,
+        "ft3_abs20": None,
+        "ft3_asof": None,
+        "ft3_note_zh": note or _FT3_NOTE_ZH,
+    }
+
+
+def ft3_rel_20_from_ft_series(
+    ft_chrono: list[float],
+    *,
+    ft3_days: int = _FT3_DAYS,
+    abs_days: int = _FT3_ABS_DAYS,
+    min_abs_days: int = _FT3_ABS_MIN_DAYS,
+) -> tuple[float | None, float | None, float | None]:
+    """Return ``(ft3_rel_20, ft3, abs_ft_20)`` from chronological FT series.
+
+    ``ft3_rel_20`` = sum(last ``ft3_days``) / sum(|FT| over last ``abs_days``).
+    Requires at least ``ft3_days`` points and ``min_abs_days`` for the abs window.
+    """
+    if len(ft_chrono) < ft3_days:
+        return None, None, None
+    window = ft_chrono[-abs_days:] if len(ft_chrono) >= abs_days else ft_chrono
+    if len(window) < min_abs_days:
+        return None, None, None
+    ft3 = float(sum(ft_chrono[-ft3_days:]))
+    abs20 = float(sum(abs(x) for x in window))
+    if abs20 <= 0:
+        return None, ft3, abs20
+    return ft3 / abs20, ft3, abs20
+
+
+def compute_ft3_rel_20_anchors(
+    conn: sqlite3.Connection | None,
+    stock_id: str,
+) -> dict[str, Any]:
+    """Load FinMind institutional rows and compute ``ft3_rel_20`` anchors."""
+    empty = _empty_ft3_rel_anchors()
+    if conn is None or not (stock_id or "").strip():
+        return empty
+    sid = stock_id.strip()
+    # Fetch enough calendar span for ~20+ trading days.
+    try:
+        rows = conn.execute(
+            """
+            SELECT trade_date,
+                   COALESCE(foreign_net, 0) + COALESCE(investment_trust_net, 0) AS ft
+            FROM stock_institutional_daily
+            WHERE stock_id = ? AND source = ?
+            ORDER BY trade_date DESC
+            LIMIT 40
+            """,
+            (sid, _FT3_SOURCE),
+        ).fetchall()
+    except sqlite3.Error:
+        return {**empty, "ft3_note_zh": "FT3 法人資料讀取失敗・觀察用"}
+    if not rows:
+        return {**empty, "ft3_note_zh": "尚無法人日資料・ft3_rel_20 暫缺"}
+    # rows are newest-first → reverse to chronological
+    chrono: list[tuple[str, float]] = [
+        (str(r[0]), float(r[1] or 0.0)) for r in reversed(rows)
+    ]
+    asof = chrono[-1][0]
+    rel, ft3, abs20 = ft3_rel_20_from_ft_series([v for _, v in chrono])
+    if rel is None:
+        return {
+            **empty,
+            "ft3": ft3,
+            "ft3_abs20": abs20,
+            "ft3_asof": asof,
+            "ft3_note_zh": "法人樣本不足・ft3_rel_20 暫缺",
+        }
+    return {
+        "ft3_rel_20": round(rel, 6),
+        "ft3_confirm": bool(rel > 0),
+        "ft3": round(ft3, 2) if ft3 is not None else None,
+        "ft3_abs20": round(abs20, 2) if abs20 is not None else None,
+        "ft3_asof": asof,
+        "ft3_note_zh": _FT3_NOTE_ZH,
+    }
+
+
+def get_ft3_rel_20_anchors(
+    conn: sqlite3.Connection | None,
+    stock_id: str,
+    *,
+    now_ts: float | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Cached wrapper around ``compute_ft3_rel_20_anchors`` (TTL ``OPS_LIVE_TA_FT3_TTL``)."""
+    sid = (stock_id or "").strip()
+    if not sid:
+        return _empty_ft3_rel_anchors()
+    ts = time.time() if now_ts is None else now_ts
+    if not force and sid in _FT3_REL_CACHE:
+        fetched_at, cached = _FT3_REL_CACHE[sid]
+        if ts - fetched_at < _FT3_REL_TTL_SEC:
+            return dict(cached)
+    payload = compute_ft3_rel_20_anchors(conn, sid)
+    _FT3_REL_CACHE[sid] = (ts, dict(payload))
+    return payload
+
+
+def load_ft3_rel_20_map(
+    conn: sqlite3.Connection | None,
+    stock_ids: list[str],
+    *,
+    force: bool = False,
+) -> dict[str, dict[str, Any]]:
+    """Batch resolve FT3 anchors for a poll universe (uses per-sid TTL cache)."""
+    out: dict[str, dict[str, Any]] = {}
+    for sid in stock_ids:
+        s = (sid or "").strip()
+        if not s:
+            continue
+        out[s] = get_ft3_rel_20_anchors(conn, s, force=force)
+    return out
+
+
 def resolve_stock_name(conn: sqlite3.Connection | None, stock_id: str, fallback: str | None) -> str | None:
     if fallback:
         return fallback
@@ -1599,6 +1741,7 @@ def build_live_ta_state(
     quote_meta: dict[str, Any] | None = None,
     disposition_ids: set[str] | None = None,
     ta_30m: dict[str, Any] | None = None,
+    ft3_rel: dict[str, Any] | None = None,
 ) -> LiveTaState:
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
     disp = disposition_ids if disposition_ids is not None else parse_disposition_ids()
@@ -1696,6 +1839,16 @@ def build_live_ta_state(
                 "fade30_rule": _FADE30_RULE_ID,
                 "idx_or_inside": None,
             }
+    if ft3_rel is not None:
+        ft3 = dict(ft3_rel)
+    else:
+        try:
+            ft3 = get_ft3_rel_20_anchors(conn, stock_id)
+        except Exception as exc:  # noqa: BLE001
+            ft3 = {
+                **_empty_ft3_rel_anchors(),
+                "ft3_note_zh": f"FT3 暫不可用（{str(exc)[:80]}）・觀察用",
+            }
     anchors: dict[str, Any] = {
         "mode": mode,
         "horizon": horizon,
@@ -1709,6 +1862,7 @@ def build_live_ta_state(
         ),
         **meta,
         **ta30,
+        **ft3,
     }
     if (
         is_disp
@@ -1783,6 +1937,8 @@ def run_live_ta_poll(
             except Exception as exc:  # noqa: BLE001
                 print(f"[ops_live_ta] fade30 bench warn: {exc}")
 
+    ft3_by_sid = load_ft3_rel_20_map(conn, [sid for sid, _ in pairs])
+
     for i, (sid, name) in enumerate(pairs):
         # Prefer Fubon candle gap over Yahoo gap when on Fubon path.
         # yahoo_gap_sec<=0 disables all inter-symbol sleeps (tests / dry burst).
@@ -1833,6 +1989,7 @@ def run_live_ta_poll(
             quote_meta=qmeta,
             disposition_ids=disp,
             ta_30m=ta30,
+            ft3_rel=ft3_by_sid.get(sid),
         )
         row = asdict(state)
         if not dry_run:

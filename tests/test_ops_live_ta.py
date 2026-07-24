@@ -13,11 +13,14 @@ from ops_live_ta import (
     build_live_ta_state,
     classify_auction_phase,
     classify_continuous_phase,
+    clear_ft3_rel_cache,
     clear_mom_1m_cache,
     clear_ta_30m_cache,
+    compute_ft3_rel_20_anchors,
     compute_ta_30m_snapshot,
     fetch_last_print,
     fetch_yahoo_chart_quote,
+    ft3_rel_20_from_ft_series,
     get_mom_1m_anchors,
     get_ta_30m_anchors,
     idx_or_inside_at,
@@ -602,6 +605,64 @@ class TestOpsLiveTa(unittest.TestCase):
         snap_miss = compute_ta_30m_snapshot(stock, now=now, bench_5m=None)
         self.assertIsNone(snap_miss["idx_or_inside"])
         self.assertIsNone(snap_miss["fade30_observe"])
+
+    def test_ft3_rel_20_from_series(self) -> None:
+        # 17d ×100 + 3d ×50 → abs20=1850; FT3=150 → rel=150/1850
+        ft = [100.0] * 17 + [50.0, 50.0, 50.0]
+        rel, ft3, abs20 = ft3_rel_20_from_ft_series(ft)
+        self.assertAlmostEqual(rel or 0.0, 150.0 / 1850.0, places=6)
+        self.assertAlmostEqual(ft3 or 0.0, 150.0, places=6)
+        self.assertAlmostEqual(abs20 or 0.0, 1850.0, places=6)
+        neg = [-10.0] * 20
+        rel_n, _, _ = ft3_rel_20_from_ft_series(neg)
+        self.assertIsNotNone(rel_n)
+        assert rel_n is not None
+        self.assertLess(rel_n, 0)
+        short, _, _ = ft3_rel_20_from_ft_series([1.0, 2.0])
+        self.assertIsNone(short)
+
+    def test_compute_ft3_rel_20_anchors_db(self) -> None:
+        clear_ft3_rel_cache()
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            """
+            CREATE TABLE stock_institutional_daily (
+                stock_id TEXT, trade_date TEXT, foreign_net REAL,
+                investment_trust_net REAL, source TEXT
+            )
+            """
+        )
+        # 20 trading days: mostly flat abs, last 3 strong buy
+        for i in range(20):
+            d = f"2026-06-{i + 1:02d}"
+            if i >= 17:
+                f, it = 100.0, 50.0
+            else:
+                f, it = 10.0, 0.0
+            conn.execute(
+                "INSERT INTO stock_institutional_daily VALUES (?,?,?,?,?)",
+                ("2330", d, f, it, "finmind"),
+            )
+        conn.commit()
+        a = compute_ft3_rel_20_anchors(conn, "2330")
+        self.assertIsNotNone(a["ft3_rel_20"])
+        self.assertTrue(a["ft3_confirm"])
+        self.assertEqual(a["ft3_asof"], "2026-06-20")
+        # FT3 = 3*(100+50)=450; abs20 = 17*10 + 3*150 = 170+450=620; rel=450/620
+        self.assertAlmostEqual(float(a["ft3_rel_20"]), 450.0 / 620.0, places=5)
+        now = datetime(2026, 7, 24, 10, 0, tzinfo=_TPE)
+        st = build_live_ta_state(
+            "2330",
+            now=now,
+            conn=conn,
+            last_print=100.0,
+            quote_meta={"quote_source": "test"},
+            disposition_ids={"2492"},
+            ta_30m={"ta_30m_ready": False},
+        )
+        self.assertAlmostEqual(float(st.anchors["ft3_rel_20"]), 450.0 / 620.0, places=5)
+        self.assertTrue(st.anchors["ft3_confirm"])
+        conn.close()
 
 
 if __name__ == "__main__":

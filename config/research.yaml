@@ -171,6 +171,343 @@ topics:
       2026-07-21 MVP Tier A+B. TX 外資 net OI 在窗內結構性為負 → 改用 rising streak。
       結論：籌碼可作同日濾網／否決，不可取代分點共識主訊號。
 
+  # ── Chip overlays on expert-pool（2026-07-24 · 進階研究計畫）──
+  # Plan SSOT: reports/research/chip-overlays/RESEARCH_PLANS.md
+  chip-overlay-ft-strong2-fade:
+    title: 外資+投信雙強 · 專家綠燈風險濾網（反指標）
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/ft_strong2_fade
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts: []  # pending scripts/research/run_expert_pool_ft_strong2_risk_filter.py
+    split_spec: expert_pool_oos_2026
+    hypotheses:
+      - id: H-A1
+        statement: >
+          專家池 greens 在 signal_date 碰上外資+投信 mcap-z 連續兩日≥1 時略過進場，
+          OOS L1H7 med r_adj 相對 baseline ≥ +1.0pp（n_kept≥80）
+        status: pending
+      - id: H-A2
+        statement: >
+          雙強且 T+1 開盤跳空僅作當日消退／減碼標註，不作為新做多理由
+        status: pending
+      - id: H-A3
+        statement: >
+          雙強後 T+1 收撿→T+2 無正期望（確認 reject）
+        status: pending  # 2026-07-24 探索已偏負；正式 runner 複核後標 rejected
+    context: >
+      FinMind InstitutionalInvestorsFollower 同向（大買隔日不追／偏空）。
+      Clone avoid-grid／morphology overlay；主訊號仍是分點專家池。
+
+  chip-overlay-it-rev-finlab:
+    title: 投信累計×營收動能／土洋對作 · 綠燈疊加
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/it_rev_finlab
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-B1
+        statement: >
+          green ∧ 投信 cum(mcap/z) 高 ∧ 滯後營收動能，OOS med r_adj 相對 green-only ≥ +1.0pp
+        status: pending
+      - id: H-B2
+        statement: >
+          green ∧ 投信買×外資調節 優於 土洋齊買（OOS Δmed ≥ +1.5pp）
+        status: pending
+      - id: H-B3
+        statement: >
+          同特徵 standalone screen 不勝過專家綠燈袖 → 維持 overlay only
+        status: pending
+    context: >
+      FinLab 路線；不重開 finmind-it-cold-stove（缺投信持股）。
+      營收 PIT：月 M 最早次月 10 日。勿宣稱燒冷灶 fidelity。
+
+  chip-overlay-confirm-weight:
+    title: 法人同向加權／高潮降權 · 軟確認乘數
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/confirm_weight
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-C1
+        statement: >
+          confirm_mult∈{0.7,1.0,1.2} 分層後，同向層 OOS med r_adj ≥ 高潮層 +1pp
+        status: pending
+      - id: H-C2
+        statement: >
+          軟權重不引入 hard skip；與 yellow／pattern_risk 並存
+        status: pending
+    context: >
+      落地序：funnel 分層 → watch 註解 → 可選 staged_gate budget 縮放。
+
+  chip-overlay-dealer-hygiene:
+    title: Dealer_self vs Hedging 衛生與避險高潮降權
+    status: active
+    phase: research
+    layer: research
+    priority: P2
+    report_dir: reports/research/chip-overlays/dealer_hygiene
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-D1
+        statement: >
+          daily three_institution_net 刻意不含 Dealer_Hedging；side_daily 可還原避險
+        status: pending  # 程式已如此；待單測鎖定
+      - id: H-D2
+        statement: >
+          |Dealer_Hedging|/ADV 極端日對「自營支撐」敘事應降權
+        status: pending
+    context: >
+      aggregate_institutional 僅 Dealer_self；chen_chip side_wide 有 hedge。
+
+  chip-overlay-finlab-it-revenue:
+    title: FinLab 投信×營收動能 月頻複現（PIT create_time）
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/faithful_finlab_it_revenue
+    run_scripts:
+      - scripts/research/cache_finmind_month_revenue.py
+      - scripts/research/run_finlab_it_revenue_monthly.py
+    hypotheses:
+      - id: H-FL-IR1
+        statement: >
+          投信10日買超×（營收3M均線創新高且YoY>20%）月頻 Top10，
+          OOS 相對流動等權中位超額 > 純投信與純營收
+        status: exploratory  # 2026-07-24: IR OOS med_ex≈+0.94pp · hit57% · 對照臂≤0；n_mo=7 · 營收快取248檔
+      - id: H-FL-IR2
+        statement: 純投信月頻單獨不穩定／偏輸等權（反面教材）
+        status: supported  # I0 OOS med_ex≈−0.56pp
+    context: >
+      補齊作者缺口：TaiwanStockMonthRevenue + create_time PIT。
+      見 CHIP_BRANCH_MASTER_BRIEF.json。
+
+  chip-overlay-essence-confirmation:
+    title: 籌碼精華＝確認層（分點主訊號 × 法人／融資／集保）
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/essence_confirmation
+    run_scripts:
+      - scripts/research/run_chip_essence_confirmation_overlay.py
+    hypotheses:
+      - id: H-E1
+        statement: >
+          在專家池綠燈（分點主層）上，訊號日前3日外資+投信累計淨買（FT3>0）
+          作確認，OOS med r_adj 相對綠燈 baseline ≥ +1.0pp 且 n≥80
+        status: exploratory  # 2026-07-24: OOS Δmed≈+2.4pp · n=171；bootstrap 仍寬，待正式凍結
+      - id: H-E2
+        statement: >
+          綠燈但 FT3≤0（法人未同向累積）OOS med 低於 baseline（背離降質）
+        status: exploratory  # OOS Δmed≈−2.4pp · n=133
+      - id: H-E3
+        statement: >
+          FinLab 原意：法人單獨不可當主策略；確認層須疊基本面／主訊號
+        status: supported  # 文獻解碼；與先前 standalone reject 一致
+    context: >
+      解碼 FinLab／E大／森洋：分點=個體聰明錢主層；法人=集體確認；融資／集保=衛生。
+      見 ESSENCE_THESIS.json。勿再把「跟法人」當獨立 sleeve。
+
+  chip-overlay-faithful-finmind-follower:
+    title: FinMind InstitutionalInvestorsFollower 原協定複現（Abnormal Peak）
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/faithful_finmind_follower
+    run_scripts:
+      - scripts/research/run_finmind_follower_peak_backtest.py
+    hypotheses:
+      - id: H-FM1
+        statement: 買超 Abnormal Peak 後 T+1oc 相對基準偏弱（可作風險濾網）
+        status: partial  # liquid OOS fade excess t1oc ≈+0.10pp（相對基準）；絕對仍約 -0.06%
+      - id: H-FM2
+        statement: 賣超 Peak 後反向做多有正期望
+        status: rejected  # OOS buy_after_sell_peak excess 明顯為負
+    context: >
+      參數 lag=10 thr=3 influence=0.35；diff≈F+IT+Dealer_self。
+      見 FAITHFUL_REPLICATION_SYNTHESIS.json。
+
+  chip-overlay-faithful-finlab-monthly:
+    title: FinLab 月頻法人跟單／土洋對作／三因子 全市場複現
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/faithful_finlab_monthly
+    run_scripts:
+      - scripts/research/run_finlab_monthly_chip_portfolio.py
+    hypotheses:
+      - id: H-FL1
+        statement: 月頻跟外資金額 Top15 相對流動等權有穩定 OOS 超額
+        status: exploratory  # OOS med excess≈+0.7pp/mo · n=7 · 未穩健
+      - id: H-FL2
+        statement: 跟投信／土洋對作／三因子月頻打敗流動等權
+        status: rejected  # OOS med excess 皆負
+    context: >
+      缺 IT×營收與長歷史 0050；成本 30bps。合成見 FAITHFUL_REPLICATION_SYNTHESIS.json。
+
+  chip-overlay-public-methods-screen:
+    title: 公開籌碼方法掃描（FinLab／森洋／連買連賣／高潮反做）
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/public_methods
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts:
+      - scripts/research/run_public_chip_methods_backtest.py
+    split_spec: expert_pool_oos_2026
+    hypotheses:
+      - id: H-PM1
+        statement: >
+          FinLab 土洋對作（投信10日累計買、外資10日累計≤0）在 expert OOS H5
+          中位超額 >0 且扣 30bps 後仍 >0
+        status: exploratory  # 2026-07-24: expert OOS H5 med≈+0.81·net≈+0.51；holdings 翻負 → 待穩健複核
+      - id: H-PM2
+        statement: >
+          FinLab 三因子橫截面頂段／純外資連買在同一協定下 OOS 正超額
+        status: rejected  # 三因子／外資連買 OOS 明顯為負
+      - id: H-PM3
+        statement: >
+          森洋同步三買／資減券增 在 expert OOS 可作 overlay
+        status: rejected  # sync3 OOS 負；M8 樣本不足
+    context: >
+      對照 FinLab blogs、森洋學院、FinMind Chip tutor、常見連買教學。
+      主表 leaderboard_expert_oos_h5.csv。有用≠可採納 sleeve；需與專家綠燈疊加複核。
+
+  chip-overlay-coil-release:
+    title: 籌碼蓄能（價靜累積）→ 釋放／突破機率
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/coil_release
+    methodology: reports/research/chip-overlays/RESEARCH_PLANS.md
+    run_scripts:
+      - scripts/research/run_chip_coil_release_scan.py
+    split_spec: expert_pool_oos_2026
+    hypotheses:
+      - id: H-F1
+        statement: >
+          CoilState（窗內法人累積高分位 ∧ 價格靜滯）相對全樣本，
+          OOS 未來 H=5 日內 P(日報酬≥3%) Lift ≥ 1.5（每檔 n_coil≥20）
+        status: rejected  # F-α 2026-07-24: holdings/expert med Lift≈0.9–1.0 · frac≥1.5 = 0
+      - id: H-F2
+        statement: >
+          Coil∧Quiet 的 Lift 優於 ChipCoil-only 與 PriceQuiet-only（價靜為必要條件）
+        status: rejected  # Quiet 幾乎不加分；coil_loud ≈ coil_state
+      - id: H-F3
+        statement: >
+          Coil 後首次收≥+2% 確認突破進場，OOS med r_adj 優於隨機突破對照 ≥ +1pp；
+          否則僅保留 watch／條件機率，不做進場規則
+        status: deferred  # F-α 未過門，不開 F-β
+      - id: H-F4
+        statement: >
+          專家綠燈 ∧ 進場前 5–10d 曾 CoilState，OOS med r_adj 相對 green-only ≥ +1.0pp（n≥80）
+        status: deferred
+    context: >
+      對沖日標籤盲點：蓄能特徵不含當日大漲。主指標用 Burst Lift／time-to-burst，
+      非隔日均值。F-α 掃描見 reports/research/chip-overlays/coil_release/。
+      Reject：Lift 門檻未過；勿寫進日報綠燈。與 RRG 蓄力帶、2492 surge-branch 邊界見 Track F。
+
+  # ── 2492 華新科 · 大漲前分點 × 相對籌碼（2026-07-24）──
+  # Plan SSOT: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
+  2492-surge-branch-precursor:
+    title: 華新科大漲前1–2日 · 分點買超常客前兆
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2492_knowledge/surge_branch
+    methodology: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
+    run_scripts:
+      - scripts/research/run_2492_surge_branch_precursor.py
+    split_spec: expert_pool_oos_2026
+    hypotheses:
+      - id: H-P1
+        statement: >
+          ≥3 席在 ≥30% 大漲事件的 T−1 或 T−2 重現異常買超（當日 top10 淨買）
+        status: pending
+      - id: H-P2
+        statement: >
+          穩定席名單在 OOS 事件覆蓋 ≥ IS 的 50%（否則席位輪替，難當預測器）
+        status: pending
+    context: >
+      2492 expert_pool = skipped_hard0；不重跑硬四門。FT=外資+投信。前兆不含大漲當日。
+
+  2492-branch-t1-standalone:
+    title: 華新科穩定分點席 · standalone T+1
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2492_knowledge/surge_branch
+    methodology: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-Q1
+        statement: >
+          穩定席≥2 家同日淨買，OOS hit(fwd1_r>0) ≥ 基線 +8pp
+        status: pending
+      - id: H-Q2
+        statement: >
+          分點 standalone 不勝過 chip Tier A → 只當融合輸入
+        status: pending
+
+  2492-chip-branch-fusion:
+    title: 華新科相對籌碼 × 大漲前分點 · T+1 融合
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2492_knowledge/surge_branch
+    methodology: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-R1
+        statement: >
+          chip Tier A 多頭 ∧ 分點共識，相對 chip-only OOS hit +≥5pp 或同 hit 中位 +0.5pp（n≥8）
+        status: pending
+      - id: H-R2
+        statement: >
+          OR 融合不得靠灌水；hit 至少基線+3pp
+        status: pending
+      - id: H-R3
+        statement: >
+          空頭以相對出貨為主、分點共識買作否決；融合失敗則停並寫入知識庫
+        status: pending
+
+  2492-branch-chip-hygiene:
+    title: 華新科分點×籌碼 · 敏感度／輪替／大盤混淆衛生
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/2492_knowledge/surge_branch
+    methodology: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
+    run_scripts: []
+    hypotheses:
+      - id: H-S1
+        statement: >
+          +3/+5/+7% 大漲定義下常客席重疊可接受；否則標記定義敏感
+        status: pending
+      - id: H-S2
+        statement: >
+          剔除大盤同日大漲後，分點前兆增益仍在
+        status: pending
+
   fubon-xindian-copytrade:
     title: 富邦-新店分點 Copytrade · 門檻×Top-N × L×H×槽位 + swap 對照
     status: active
