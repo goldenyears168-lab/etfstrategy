@@ -115,6 +115,28 @@ def _yahoo_fallback_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+_INDEX_DISPLAY_NAMES: dict[str, str] = {
+    "IX0001": "加權指數",
+    "TAIEX": "加權指數",
+    "TWII": "加權指數",
+    "IR0002": "電子指數",
+}
+
+
+def _yahoo_only_symbol(stock_id: str) -> bool:
+    """Indices / Yahoo aliases — Fubon marketdata has no TEJ IX/IR quotes."""
+    sid = (stock_id or "").strip().upper()
+    if not sid:
+        return False
+    if sid.startswith("^"):
+        return True
+    if sid in _INDEX_DISPLAY_NAMES:
+        return True
+    if sid.startswith(("IX", "IR")) and len(sid) >= 5:
+        return True
+    return False
+
+
 def _qget(obj: Any, *keys: str) -> Any:
     """Read camelCase / snake_case from dict or SDK object."""
     if obj is None:
@@ -436,10 +458,14 @@ def get_mom_1m_anchors(
             meta0["n_1m_bars"] = len(closes)
         return meta0
 
-    bars, bar_meta = fetch_fubon_candles(
-        stock_id, timeframe="1", rest_stock=rest_stock, session=session
-    )
-    if not bars and _yahoo_fallback_enabled():
+    yahoo_only = _yahoo_only_symbol(stock_id)
+    if yahoo_only:
+        bars, bar_meta = [], {}
+    else:
+        bars, bar_meta = fetch_fubon_candles(
+            stock_id, timeframe="1", rest_stock=rest_stock, session=session
+        )
+    if not bars and (yahoo_only or _yahoo_fallback_enabled()):
         ypx, ymeta = fetch_yahoo_chart_quote(stock_id)
         out = {
             "bar_source": ymeta.get("quote_source"),
@@ -453,6 +479,9 @@ def get_mom_1m_anchors(
             out["fubon_candles_error"] = bar_meta["fubon_candles_error"]
         if ypx is None and ymeta.get("yahoo_error"):
             out["bar_source_error"] = ymeta.get("yahoo_error")
+        closes = []
+        # Seed cache from yahoo 1m if chart returned closes via side path — mom already in ymeta
+        _MOM_1M_CACHE[stock_id] = (now_ts, closes, dict(out))
         return out
 
     if not bars:
@@ -490,9 +519,17 @@ def fetch_last_print(
     session: Any | None = None,
     attach_mom: bool = True,
 ) -> tuple[float | None, dict[str, Any]]:
-    """Prefer Fubon last/% · attach Fubon 1m mom (TTL). Yahoo only if fallback on."""
-    use_fubon = _quote_backend() == "fubon" if prefer_fubon is None else prefer_fubon
-    allow_yahoo = _yahoo_fallback_enabled()
+    """Prefer Fubon last/% · attach Fubon 1m mom (TTL). Yahoo only if fallback on.
+
+    Index symbols (IX0001 等) always use Yahoo — Fubon has no TEJ index quotes.
+    """
+    yahoo_only = _yahoo_only_symbol(stock_id)
+    use_fubon = (
+        False
+        if yahoo_only
+        else (_quote_backend() == "fubon" if prefer_fubon is None else prefer_fubon)
+    )
+    allow_yahoo = True if yahoo_only else _yahoo_fallback_enabled()
     fubon_px: float | None = None
     fubon_meta: dict[str, Any] = {}
     if use_fubon and fubon_quote is not None:
@@ -1030,15 +1067,19 @@ def get_ta_30m_anchors(
         return out
 
     meta: dict[str, Any] = {}
+    yahoo_only = _yahoo_only_symbol(stock_id)
     if bars_5m is None:
-        bars_5m, meta = fetch_fubon_candles(
-            stock_id,
-            timeframe="5",
-            rest_stock=rest_stock,
-            session=session,
-            gap_sec=_FUBON_CANDLES_GAP_SEC if rest_stock is not None else 0.0,
-        )
-        if not bars_5m and _yahoo_fallback_enabled():
+        if yahoo_only:
+            bars_5m, meta = [], {}
+        else:
+            bars_5m, meta = fetch_fubon_candles(
+                stock_id,
+                timeframe="5",
+                rest_stock=rest_stock,
+                session=session,
+                gap_sec=_FUBON_CANDLES_GAP_SEC if rest_stock is not None else 0.0,
+            )
+        if not bars_5m and (yahoo_only or _yahoo_fallback_enabled()):
             bars_5m, ymeta = fetch_yahoo_5m_bars(stock_id)
             meta = dict(ymeta)
             meta["ta_30m_source_fallback"] = "yahoo"
@@ -1179,6 +1220,9 @@ def fetch_prev_close_db(conn: sqlite3.Connection | None, stock_id: str) -> float
 def resolve_stock_name(conn: sqlite3.Connection | None, stock_id: str, fallback: str | None) -> str | None:
     if fallback:
         return fallback
+    known = _INDEX_DISPLAY_NAMES.get((stock_id or "").strip().upper())
+    if known:
+        return known
     if conn is None:
         return None
     try:
@@ -1573,9 +1617,11 @@ def run_live_ta_poll(
             if not _yahoo_fallback_enabled():
                 print("[ops_live_ta] Yahoo fallback OFF · quotes/bars may be empty this round")
         else:
-            sids = [sid for sid, _ in pairs]
-            fubon_by_sid, batch_err = fetch_fubon_marketdata_quotes(
-                sids, session=fubon_session or _sess
+            sids = [sid for sid, _ in pairs if not _yahoo_only_symbol(sid)]
+            fubon_by_sid, batch_err = (
+                fetch_fubon_marketdata_quotes(sids, session=fubon_session or _sess)
+                if sids
+                else ({}, None)
             )
             if batch_err:
                 fubon_connect_err = batch_err
@@ -1592,7 +1638,8 @@ def run_live_ta_poll(
             gap = yahoo_gap_sec
         if i > 0 and gap > 0:
             time.sleep(gap)
-        if use_fubon:
+        yahoo_only = _yahoo_only_symbol(sid)
+        if use_fubon and not yahoo_only:
             fubon_quote = fubon_by_sid.get(sid)
             if fubon_quote is None:
                 err = fubon_connect_err or "missing_from_batch"
@@ -1602,9 +1649,9 @@ def run_live_ta_poll(
         px, qmeta = fetch_last_print(
             sid,
             fubon_quote=fubon_quote,
-            prefer_fubon=use_fubon,
-            rest_stock=rest_stock,
-            session=fubon_session,
+            prefer_fubon=False if yahoo_only else use_fubon,
+            rest_stock=None if yahoo_only else rest_stock,
+            session=None if yahoo_only else fubon_session,
             attach_mom=True,
         )
         try:
