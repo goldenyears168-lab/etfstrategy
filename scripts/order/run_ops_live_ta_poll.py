@@ -59,12 +59,14 @@ def _print_rows(rows: list[dict], disp: set[str]) -> None:
         print(f"  {r.get('note_zh')}")
 
 
-def _resolve_stocks(conn, args: argparse.Namespace) -> list[tuple[str, str | None]]:
+def _resolve_stocks(conn, args: argparse.Namespace, fubon_session=None) -> list[tuple[str, str | None]]:
     if args.stocks_only:
         return parse_stock_list(args.stocks or None)
     if args.stocks.strip():
-        return resolve_live_ta_universe(conn, extras_raw=args.stocks)
-    return resolve_live_ta_universe(conn)
+        return resolve_live_ta_universe(
+            conn, extras_raw=args.stocks, fubon_session=fubon_session
+        )
+    return resolve_live_ta_universe(conn, fubon_session=fubon_session)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -190,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                     conn = connect()
                 except Exception:  # noqa: BLE001
                     conn = None
-            stocks = _resolve_stocks(conn, args)
+            stocks = _resolve_stocks(conn, args, fubon_session=session)
             try:
                 rows = run_live_ta_poll(
                     stocks,
@@ -202,8 +204,8 @@ def main(argv: list[str] | None = None) -> int:
                 n_rounds += 1
                 print(
                     f"[OK] round={n_rounds} n={len(rows)} "
-                    f"at {datetime.now(_TPE).strftime('%H:%M:%S')} "
-                    f"quote={((rows[0].get('anchors') or {}).get('quote_source') if rows else None)}",
+                    f"ids={','.join(r['stock_id'] for r in rows)} "
+                    f"at {datetime.now(_TPE).strftime('%H:%M:%S')}",
                     flush=True,
                 )
             except Exception as exc:  # noqa: BLE001 — keep loop alive

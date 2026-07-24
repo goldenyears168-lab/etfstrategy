@@ -93,6 +93,31 @@ def upsert_live_ta(row: dict[str, Any]) -> None:
     _post("ops_live_ta", body, prefer="return=minimal")
 
 
+def delete_live_ta_except(keep_stock_ids: list[str] | set[str]) -> int:
+    """Remove ``ops_live_ta`` rows not in keep set (drop former holdings from UI)."""
+    keep = sorted({str(s).strip() for s in keep_stock_ids if str(s).strip()})
+    if not supabase_ops_configured():
+        return 0
+    if not keep:
+        # Safety: never wipe entire table on empty universe resolve glitch
+        return 0
+    # PostgREST: delete where stock_id not in keep
+    ids = ",".join(keep)
+    resp = requests.delete(
+        _rest("ops_live_ta"),
+        headers=_headers(prefer="return=representation"),
+        params={"stock_id": f"not.in.({ids})"},
+        timeout=60,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"ops_live_ta prune failed: {resp.status_code} {resp.text[:800]}")
+    try:
+        rows = resp.json()
+        return len(rows) if isinstance(rows, list) else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def fetch_latest_ops_holdings_payload() -> dict[str, Any] | None:
     """Latest ``ops_holdings`` row payload (service role · for Live TA universe)."""
     if not supabase_ops_configured():

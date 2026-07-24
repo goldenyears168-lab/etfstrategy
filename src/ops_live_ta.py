@@ -1,6 +1,7 @@
 """Holdings Live TA → ``ops.live_ta`` (observe · mini poll).
 
-Universe = current holdings ∪ optional ``OPS_LIVE_TA_STOCKS`` extras.
+Universe = **current** holdings（優先：富邦 live → ops.holdings → 本地 snapshot）
+∪ optional ``OPS_LIVE_TA_STOCKS`` extras. Does **not** union stale DB with ops.
 
 Two modes (honest horizon — do **not** claim false precision):
   - **disposition** (``OPS_LIVE_TA_DISPOSITION``, default ``2492``): ~20‑min
@@ -38,7 +39,12 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from ops_console_sync import fetch_latest_ops_holdings_payload, now_tpe_iso, upsert_live_ta
+from ops_console_sync import (
+    delete_live_ta_except,
+    fetch_latest_ops_holdings_payload,
+    now_tpe_iso,
+    upsert_live_ta,
+)
 
 
 def _tw_yahoo_symbol_candidates(stock_id: str) -> tuple[str, ...]:
@@ -1191,7 +1197,7 @@ def resolve_stock_name(conn: sqlite3.Connection | None, stock_id: str, fallback:
 
 
 def load_holdings_from_db(conn: sqlite3.Connection | None) -> list[tuple[str, str | None]]:
-    """Latest ``order_holdings_snapshot`` with shares > 0."""
+    """Latest ``order_holdings_snapshot`` with shares > 0 (may be stale · fallback only)."""
     if conn is None:
         return []
     try:
@@ -1255,6 +1261,34 @@ def load_holdings_from_ops() -> list[tuple[str, str | None]]:
     return out
 
 
+def load_holdings_from_fubon_session(session: Any) -> list[tuple[str, str | None]]:
+    """Live Fubon inventories with qty > 0（當下持倉）."""
+    try:
+        from order.fubon_account import _held_qty, account_snapshot
+    except ImportError:
+        return []
+    try:
+        snap = account_snapshot(session)
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[tuple[str, str | None]] = []
+    for h in snap.get("holdings") or []:
+        if not isinstance(h, dict):
+            continue
+        try:
+            if int(_held_qty(h)) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        sid = str(h.get("stock_no") or h.get("stock_id") or "").strip()
+        if not sid:
+            continue
+        name = str(h.get("stock_name") or h.get("name") or "").strip() or None
+        out.append((sid, name))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
 def _merge_pairs(*groups: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
     merged: dict[str, str | None] = {}
     for group in groups:
@@ -1275,12 +1309,28 @@ def resolve_live_ta_universe(
     *,
     extras_raw: str | None = None,
     include_ops_holdings: bool = True,
+    live_holdings: list[tuple[str, str | None]] | None = None,
+    fubon_session: Any | None = None,
 ) -> list[tuple[str, str | None]]:
-    """Holdings (DB ∪ ops) ∪ ``OPS_LIVE_TA_STOCKS`` extras; fallback default if empty."""
-    db_rows = load_holdings_from_db(conn)
-    ops_rows = load_holdings_from_ops() if include_ops_holdings else []
+    """Current holdings ∪ optional ``OPS_LIVE_TA_STOCKS`` extras.
+
+    Priority for holdings (do **not** union stale sources):
+      1. ``live_holdings`` if provided
+      2. live Fubon session inventories if ``fubon_session`` given
+      3. ``ops.holdings`` (cloud · evening／manual sync)
+      4. local ``order_holdings_snapshot`` fallback only if ops empty
+    """
     extras = parse_stock_list(extras_raw, default_if_empty=False)
-    merged = _merge_pairs(db_rows, ops_rows, extras)
+    primary: list[tuple[str, str | None]] = []
+    if live_holdings is not None:
+        primary = list(live_holdings)
+    elif fubon_session is not None:
+        primary = load_holdings_from_fubon_session(fubon_session)
+    if not primary and include_ops_holdings:
+        primary = load_holdings_from_ops()
+    if not primary:
+        primary = load_holdings_from_db(conn)
+    merged = _merge_pairs(primary, extras)
     return merged if merged else list(_DEFAULT_STOCKS)
 
 
@@ -1468,7 +1518,11 @@ def run_live_ta_poll(
     yahoo_gap_sec: float = _YAHOO_GAP_SEC,
     fubon_session: Any | None = None,
 ) -> list[dict[str, Any]]:
-    pairs = stocks if stocks is not None else resolve_live_ta_universe(conn)
+    pairs = (
+        stocks
+        if stocks is not None
+        else resolve_live_ta_universe(conn, fubon_session=fubon_session)
+    )
     disp = disposition_ids if disposition_ids is not None else parse_disposition_ids()
     out: list[dict[str, Any]] = []
 
@@ -1543,4 +1597,11 @@ def run_live_ta_poll(
         if not dry_run:
             upsert_live_ta(row)
         out.append(row)
+    if not dry_run and out:
+        try:
+            n_del = delete_live_ta_except([r["stock_id"] for r in out])
+            if n_del:
+                print(f"[ops_live_ta] pruned {n_del} former holdings from ops.live_ta")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ops_live_ta] prune warn: {exc}")
     return out
