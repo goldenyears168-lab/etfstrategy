@@ -9,25 +9,21 @@ Two modes (honest horizon — do **not** claim false precision):
     1m-bar momentum (~1–2 min lookback). This is short momentum, **not** a
     price prediction 2 minutes ahead.
 
-Also attaches **observe-only 30m TA** (last closed half-hour from Yahoo 5m):
+Also attaches **observe-only 30m TA** (last closed half-hour from 5m bars):
 return vs bar open, vs session VWAP, simple bias — not an Order signal.
 Optional research badge ``fade30_observe`` when ``fade_near_ext`` fires
 (stock-heterogeneous; do **not** claim ≥60% as a site guarantee).
 
-**Quote source (priority)**
-  1. Fubon Neo realtime marketdata ``intraday.quote`` (same path as
-     ``collect_fubon_premarket_quote``) → ``last_print`` / 昨收漲跌% ·
-     ``quote_source=fubon:marketdata:<sid>``. Requires ``.venv-fubon``.
-  2. Fallback Yahoo Chart v8 / yfinance if Fubon login or per-symbol quote
-     fails (poll stays up; log ``fubon_error``).
+**Data source (default: all Fubon Neo · ``.venv-fubon``)**
+  1. ``intraday.quote`` → ``last_print`` / 昨收漲跌% · bid/ask
+  2. ``intraday.candles(timeframe=1)`` → 1–2m short momentum (TTL ~45s)
+  3. ``intraday.candles(timeframe=5)`` → 30m observe + fade30 (TTL ~90s)
+  One ``connect_fubon(realtime=True)`` per poll (not per stock).
 
-**Still Yahoo-derived by default**: 1–2m bar momentum + 30m TA (5m bars).
-Fubon does expose ``intraday.candles`` but this poll does not use it yet —
-UI must not claim those fields are realtime. Set ``OPS_LIVE_TA_QUOTE=yahoo``
-to force Yahoo-only (debug).
-
-Price refresh every poll (~15s); 30m snapshot is cached ~75s so ~19 names
-do not hammer Yahoo 5m every cycle. One Fubon login per poll (not per stock).
+Yahoo Chart is **off by default**. Enable only for emergency/debug via
+``OPS_LIVE_TA_YAHOO_FALLBACK=1`` (or ``OPS_LIVE_TA_QUOTE=yahoo`` for quote-only
+debug). On Fubon miss: reuse TTL cache; else mark field not ready / error —
+poll stays up.
 """
 
 from __future__ import annotations
@@ -78,13 +74,22 @@ _CONT_OPEN_MIN = 9 * 60
 _CONT_CLOSE_MIN = 13 * 60 + 30
 # First useful closed 30m window ends ~09:30 (open 09:00 + 6×5m).
 _TA30M_READY_MIN = 9 * 60 + 30
-# Chart API is light (~0.1s/name); keep a small gap to avoid bursts.
+# Inter-symbol gaps (rate-limit hygiene).
 _YAHOO_GAP_SEC = 0.15
-_FUBON_QUOTE_GAP_SEC = 0.05
+_FUBON_QUOTE_GAP_SEC = float(os.environ.get("OPS_LIVE_TA_FUBON_GAP_SEC", "0.05") or "0.05")
+_FUBON_CANDLES_GAP_SEC = float(os.environ.get("OPS_LIVE_TA_CANDLES_GAP_SEC", "0.06") or "0.06")
 _YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _YAHOO_UA = "Mozilla/5.0 (compatible; ops-live-ta/1.1)"
-# 30m Yahoo 5m refresh cache (poll is ~15s; reuse across cycles).
-_TA30M_CACHE_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_30M_TTL_SEC", "75") or "75")
+# Candles TTL (quote still every poll ~15s).
+_MOM_1M_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_CANDLES_1M_TTL", "45") or "45")
+_TA30M_CACHE_TTL_SEC = float(
+    os.environ.get("OPS_LIVE_TA_CANDLES_5M_TTL")
+    or os.environ.get("OPS_LIVE_TA_30M_TTL_SEC", "90")
+    or "90"
+)
+# mom cache: sid → (fetched_at, closes, meta)
+_MOM_1M_CACHE: dict[str, tuple[float, list[float], dict[str, Any]]] = {}
+# 30m snap cache: sid → (fetched_at, anchors)
 _TA30M_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _TA30M_BIAS_EPS = 0.15  # % · quiet zone around flat
 
@@ -93,6 +98,14 @@ def _quote_backend() -> str:
     """``fubon`` (default) or ``yahoo`` · env ``OPS_LIVE_TA_QUOTE``."""
     raw = (os.environ.get("OPS_LIVE_TA_QUOTE") or "fubon").strip().lower()
     return "yahoo" if raw in {"yahoo", "yfinance", "chart"} else "fubon"
+
+
+def _yahoo_fallback_enabled() -> bool:
+    """Emergency Yahoo for bars/price when Fubon misses · default off."""
+    if _quote_backend() == "yahoo":
+        return True
+    raw = (os.environ.get("OPS_LIVE_TA_YAHOO_FALLBACK") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _qget(obj: Any, *keys: str) -> Any:
@@ -248,54 +261,278 @@ def fetch_fubon_marketdata_quotes(
     return out, None
 
 
+def parse_fubon_candles(raw: Any, *, stock_id: str, timeframe: str | int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Map Fubon ``intraday.candles`` → list of {ts, open, high, low, close, volume}."""
+    tf = str(timeframe).strip() or "1"
+    meta: dict[str, Any] = {}
+    if raw is None:
+        meta["fubon_candles_error"] = "empty_candles"
+        return [], meta
+
+    data = _qget(raw, "data") or []
+    if not isinstance(data, list):
+        meta["fubon_candles_error"] = "bad_data"
+        return [], meta
+
+    out: list[dict[str, Any]] = []
+    for row in data:
+        close = _as_float(_qget(row, "close", "Close"))
+        if close is None:
+            continue
+        o = _as_float(_qget(row, "open", "Open")) or close
+        h = _as_float(_qget(row, "high", "High")) or close
+        lo = _as_float(_qget(row, "low", "Low")) or close
+        vol_raw = _qget(row, "volume", "Volume")
+        try:
+            vol = float(vol_raw) if vol_raw is not None else 0.0
+        except (TypeError, ValueError):
+            vol = 0.0
+        ts_raw = _qget(row, "date", "time", "ts", "datetime")
+        ts: datetime | None = None
+        if isinstance(ts_raw, datetime):
+            ts = ts_raw.astimezone(_TPE) if ts_raw.tzinfo else ts_raw.replace(tzinfo=_TPE)
+        elif isinstance(ts_raw, (int, float)):
+            # seconds or ms epoch
+            epoch = float(ts_raw)
+            if epoch > 1e12:
+                epoch /= 1000.0
+            ts = datetime.fromtimestamp(epoch, tz=_TPE)
+        elif isinstance(ts_raw, str) and ts_raw.strip():
+            text = ts_raw.strip().replace("Z", "+00:00")
+            try:
+                parsed = datetime.fromisoformat(text)
+            except ValueError:
+                # e.g. 2026-07-24 09:01:00
+                try:
+                    parsed = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    parsed = None
+            if parsed is not None:
+                ts = parsed.astimezone(_TPE) if parsed.tzinfo else parsed.replace(tzinfo=_TPE)
+        if ts is None:
+            continue
+        out.append(
+            {
+                "ts": ts,
+                "open": float(o),
+                "high": float(h),
+                "low": float(lo),
+                "close": float(close),
+                "volume": max(0.0, vol),
+            }
+        )
+    out.sort(key=lambda b: b["ts"])
+    src = f"fubon:candles:{stock_id}:{tf}"
+    if tf == "1":
+        meta["bar_source"] = src
+    else:
+        meta["ta_30m_source"] = src
+    if not out:
+        meta["fubon_candles_error"] = "empty_parsed"
+    return out, meta
+
+
+def fetch_fubon_candles(
+    stock_id: str,
+    *,
+    timeframe: str | int = "1",
+    rest_stock: Any | None = None,
+    session: Any | None = None,
+    gap_sec: float = 0.0,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """One ``intraday.candles`` call. Caller should reuse ``rest_stock`` across symbols."""
+    sid = stock_id.strip()
+    tf = str(timeframe).strip() or "1"
+    meta: dict[str, Any] = {}
+    if not sid:
+        meta["fubon_candles_error"] = "empty_symbol"
+        return [], meta
+    if gap_sec > 0:
+        time.sleep(gap_sec)
+    try:
+        if rest_stock is None:
+            from order.fubon_session import connect_fubon
+
+            sess = session if session is not None else connect_fubon(realtime=True)
+            rest_stock = sess.sdk.marketdata.rest_client.stock
+        raw = rest_stock.intraday.candles(symbol=sid, timeframe=tf)
+    except Exception as exc:  # noqa: BLE001
+        err = str(exc)
+        meta["fubon_candles_error"] = err[:200]
+        if "429" in err or "Rate limit" in err.lower():
+            meta["fubon_rate_limited"] = True
+        return [], meta
+    return parse_fubon_candles(raw, stock_id=sid, timeframe=tf)
+
+
+def mom_meta_from_1m_bars(
+    bars_1m: list[dict[str, Any]],
+    *,
+    last_print: float | None,
+    bar_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build mom_* anchors from Fubon (or compatible) 1m OHLCV bars."""
+    meta = dict(bar_meta or {})
+    closes = [float(b["close"]) for b in bars_1m if b.get("close") is not None]
+    meta["n_1m_bars"] = len(closes)
+    meta["momentum_horizon"] = "1m_bars_lookback_1_2"
+    if not closes:
+        return meta
+    px = float(last_print) if last_print is not None else float(closes[-1])
+    meta.update(_mom_from_closes(closes, px))
+    if bars_1m:
+        meta["bar_time"] = bars_1m[-1]["ts"].isoformat()
+    return meta
+
+
+def get_mom_1m_anchors(
+    stock_id: str,
+    *,
+    last_print: float | None = None,
+    rest_stock: Any | None = None,
+    session: Any | None = None,
+    force_refresh: bool = False,
+    cache_ttl_sec: float | None = None,
+) -> dict[str, Any]:
+    """1m short-momentum anchors with TTL cache (default ~45s)."""
+    ttl = _MOM_1M_TTL_SEC if cache_ttl_sec is None else float(cache_ttl_sec)
+    cached = _MOM_1M_CACHE.get(stock_id)
+    now_ts = time.time()
+    if not force_refresh and cached is not None and (now_ts - cached[0]) < ttl:
+        closes, meta0 = cached[1], dict(cached[2])
+        age = now_ts - cached[0]
+        meta0["mom_cached_age_sec"] = round(age, 1)
+        px = float(last_print) if last_print is not None else (closes[-1] if closes else None)
+        if px is not None and closes:
+            meta0.update(_mom_from_closes(closes, px))
+            meta0["n_1m_bars"] = len(closes)
+        return meta0
+
+    bars, bar_meta = fetch_fubon_candles(
+        stock_id, timeframe="1", rest_stock=rest_stock, session=session
+    )
+    if not bars and _yahoo_fallback_enabled():
+        ypx, ymeta = fetch_yahoo_chart_quote(stock_id)
+        out = {
+            "bar_source": ymeta.get("quote_source"),
+            "momentum_horizon": ymeta.get("momentum_horizon"),
+            "mom_1bar_pct": ymeta.get("mom_1bar_pct"),
+            "mom_2bar_pct": ymeta.get("mom_2bar_pct"),
+            "n_1m_bars": ymeta.get("n_1m_bars"),
+            "bar_source_fallback": "yahoo",
+        }
+        if bar_meta.get("fubon_candles_error"):
+            out["fubon_candles_error"] = bar_meta["fubon_candles_error"]
+        if ypx is None and ymeta.get("yahoo_error"):
+            out["bar_source_error"] = ymeta.get("yahoo_error")
+        return out
+
+    if not bars:
+        # Stale cache better than empty
+        if cached is not None:
+            closes, meta0 = cached[1], dict(cached[2])
+            meta0["mom_cached_age_sec"] = round(now_ts - cached[0], 1)
+            meta0["fubon_candles_error"] = bar_meta.get("fubon_candles_error") or "fetch_failed"
+            px = float(last_print) if last_print is not None else (closes[-1] if closes else None)
+            if px is not None and closes:
+                meta0.update(_mom_from_closes(closes, px))
+            return meta0
+        return {
+            "bar_source": None,
+            "fubon_candles_error": bar_meta.get("fubon_candles_error") or "no_1m_bars",
+            "momentum_horizon": "1m_bars_lookback_1_2",
+        }
+
+    closes = [float(b["close"]) for b in bars]
+    meta = mom_meta_from_1m_bars(bars, last_print=last_print, bar_meta=bar_meta)
+    _MOM_1M_CACHE[stock_id] = (now_ts, closes, dict(meta))
+    return meta
+
+
+def clear_mom_1m_cache() -> None:
+    _MOM_1M_CACHE.clear()
+
+
 def fetch_last_print(
     stock_id: str,
     *,
     fubon_quote: tuple[float | None, dict[str, Any]] | None = None,
     prefer_fubon: bool | None = None,
+    rest_stock: Any | None = None,
+    session: Any | None = None,
+    attach_mom: bool = True,
 ) -> tuple[float | None, dict[str, Any]]:
-    """Prefer Fubon last/% · attach Yahoo 1m mom when Fubon has no bars.
-
-    When Fubon price wins, Yahoo is still fetched for ``mom_*`` / fallback
-    prev_close only; anchors keep ``quote_source=fubon:...`` and set
-    ``bar_source=yahoo_chart:...`` for honesty.
-    """
+    """Prefer Fubon last/% · attach Fubon 1m mom (TTL). Yahoo only if fallback on."""
     use_fubon = _quote_backend() == "fubon" if prefer_fubon is None else prefer_fubon
+    allow_yahoo = _yahoo_fallback_enabled()
     fubon_px: float | None = None
     fubon_meta: dict[str, Any] = {}
     if use_fubon and fubon_quote is not None:
         fubon_px, fubon_meta = fubon_quote
     elif use_fubon and fubon_quote is None:
-        by_sid, err = fetch_fubon_marketdata_quotes([stock_id])
+        by_sid, err = fetch_fubon_marketdata_quotes([stock_id], session=session)
         if err:
             fubon_meta = {"fubon_error": err}
         else:
             fubon_px, fubon_meta = by_sid.get(stock_id, (None, {}))
 
-    yahoo_px, yahoo_meta = fetch_last_print_yahoo(stock_id)
+    yahoo_px: float | None = None
+    yahoo_meta: dict[str, Any] = {}
+    if (not use_fubon) or (fubon_px is None and allow_yahoo) or (
+        attach_mom and allow_yahoo and use_fubon is False
+    ):
+        if not use_fubon or fubon_px is None:
+            yahoo_px, yahoo_meta = fetch_last_print_yahoo(stock_id)
 
     if fubon_px is not None:
         meta = dict(fubon_meta)
-        # Momentum / 1m lookback still from Yahoo bars (documented).
-        for key in ("mom_1bar_pct", "mom_2bar_pct", "n_1m_bars", "momentum_horizon", "bar_time"):
-            if key in yahoo_meta and yahoo_meta[key] is not None:
-                meta[key] = yahoo_meta[key]
-        ysrc = yahoo_meta.get("quote_source")
-        if ysrc:
-            meta["bar_source"] = ysrc
-        elif yahoo_meta.get("yahoo_error"):
-            meta["bar_source_error"] = yahoo_meta.get("yahoo_error")
-        if meta.get("fubon_prev_close") is None and yahoo_meta.get("yahoo_prev_close") is not None:
-            meta["yahoo_prev_close"] = yahoo_meta.get("yahoo_prev_close")
+        if attach_mom:
+            mom = get_mom_1m_anchors(
+                stock_id,
+                last_print=fubon_px,
+                rest_stock=rest_stock,
+                session=session,
+            )
+            for key, val in mom.items():
+                if val is not None:
+                    meta[key] = val
         return fubon_px, meta
 
-    # Fubon miss → full Yahoo path
-    meta = dict(yahoo_meta)
-    if fubon_meta.get("fubon_error"):
-        meta["fubon_error"] = fubon_meta["fubon_error"]
-    elif use_fubon:
-        meta.setdefault("fubon_error", "no_quote")
-    return yahoo_px, meta
+    if allow_yahoo:
+        if not yahoo_meta:
+            yahoo_px, yahoo_meta = fetch_last_print_yahoo(stock_id)
+        meta = dict(yahoo_meta)
+        if fubon_meta.get("fubon_error"):
+            meta["fubon_error"] = fubon_meta["fubon_error"]
+        elif use_fubon:
+            meta.setdefault("fubon_error", "no_quote")
+        return yahoo_px, meta
+
+    # Fubon miss · no Yahoo fallback
+    meta = dict(fubon_meta)
+    meta.setdefault("fubon_error", meta.get("fubon_error") or "no_quote")
+    if attach_mom:
+        mom = get_mom_1m_anchors(
+            stock_id,
+            last_print=None,
+            rest_stock=rest_stock,
+            session=session,
+        )
+        meta.update({k: v for k, v in mom.items() if v is not None})
+    return None, meta
+
+
+def open_fubon_rest_stock(
+    session: Any | None = None,
+) -> tuple[Any | None, Any | None, str | None]:
+    """Return (rest_stock, session_or_none, connect_error)."""
+    try:
+        from order.fubon_session import connect_fubon
+
+        sess = session if session is not None else connect_fubon(realtime=True)
+        return sess.sdk.marketdata.rest_client.stock, sess, None
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"fubon_connect:{exc}"
 
 
 @dataclass(frozen=True)
@@ -747,8 +984,10 @@ def get_ta_30m_anchors(
     bars_5m: list[dict[str, Any]] | None = None,
     force_refresh: bool = False,
     cache_ttl_sec: float | None = None,
+    rest_stock: Any | None = None,
+    session: Any | None = None,
 ) -> dict[str, Any]:
-    """30m observe anchors with TTL cache (default ~75s)."""
+    """30m observe anchors with TTL cache (default ~90s). Prefer Fubon 5m candles."""
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
     ttl = _TA30M_CACHE_TTL_SEC if cache_ttl_sec is None else float(cache_ttl_sec)
     cached = _TA30M_CACHE.get(stock_id)
@@ -758,14 +997,34 @@ def get_ta_30m_anchors(
         and cached is not None
         and (time.time() - cached[0]) < ttl
     ):
-        return dict(cached[1])
+        out = dict(cached[1])
+        out["ta_30m_cached_age_sec"] = round(time.time() - cached[0], 1)
+        return out
 
     meta: dict[str, Any] = {}
     if bars_5m is None:
-        bars_5m, meta = fetch_yahoo_5m_bars(stock_id)
+        bars_5m, meta = fetch_fubon_candles(
+            stock_id,
+            timeframe="5",
+            rest_stock=rest_stock,
+            session=session,
+            gap_sec=_FUBON_CANDLES_GAP_SEC if rest_stock is not None else 0.0,
+        )
+        if not bars_5m and _yahoo_fallback_enabled():
+            bars_5m, ymeta = fetch_yahoo_5m_bars(stock_id)
+            meta = dict(ymeta)
+            meta["ta_30m_source_fallback"] = "yahoo"
+            if ymeta.get("ta_30m_source"):
+                meta["ta_30m_source"] = ymeta["ta_30m_source"]
+        elif not bars_5m and cached is not None:
+            out = dict(cached[1])
+            out["ta_30m_cached_age_sec"] = round(time.time() - cached[0], 1)
+            out["fubon_candles_error"] = meta.get("fubon_candles_error") or "fetch_failed"
+            return out
     snap = compute_ta_30m_snapshot(bars_5m, now=now, last_print=last_print)
     snap.update(meta)
-    _TA30M_CACHE[stock_id] = (time.time(), dict(snap))
+    if bars_5m or snap.get("ta_30m_ready"):
+        _TA30M_CACHE[stock_id] = (time.time(), dict(snap))
     return snap
 
 
@@ -1194,19 +1453,34 @@ def run_live_ta_poll(
 
     fubon_by_sid: dict[str, tuple[float | None, dict[str, Any]]] = {}
     fubon_connect_err: str | None = None
+    rest_stock: Any | None = None
     use_fubon = _quote_backend() == "fubon"
     if use_fubon and pairs:
-        sids = [sid for sid, _ in pairs]
-        fubon_by_sid, fubon_connect_err = fetch_fubon_marketdata_quotes(
-            sids, session=fubon_session
-        )
+        rest_stock, _sess, fubon_connect_err = open_fubon_rest_stock(fubon_session)
         if fubon_connect_err:
-            print(f"[ops_live_ta] Fubon unavailable → Yahoo fallback: {fubon_connect_err}")
+            print(f"[ops_live_ta] Fubon unavailable: {fubon_connect_err}")
+            if not _yahoo_fallback_enabled():
+                print("[ops_live_ta] Yahoo fallback OFF · quotes/bars may be empty this round")
+        else:
+            sids = [sid for sid, _ in pairs]
+            fubon_by_sid, batch_err = fetch_fubon_marketdata_quotes(
+                sids, session=fubon_session or _sess
+            )
+            if batch_err:
+                fubon_connect_err = batch_err
+                print(f"[ops_live_ta] Fubon quote batch error: {batch_err}")
 
     for i, (sid, name) in enumerate(pairs):
-        if i > 0 and yahoo_gap_sec > 0:
-            time.sleep(yahoo_gap_sec)
-        # After a batch attempt, always pass a tuple so we never open N logins.
+        # Prefer Fubon candle gap over Yahoo gap when on Fubon path.
+        # yahoo_gap_sec<=0 disables all inter-symbol sleeps (tests / dry burst).
+        if yahoo_gap_sec <= 0:
+            gap = 0.0
+        elif use_fubon and rest_stock is not None:
+            gap = _FUBON_CANDLES_GAP_SEC
+        else:
+            gap = yahoo_gap_sec
+        if i > 0 and gap > 0:
+            time.sleep(gap)
         if use_fubon:
             fubon_quote = fubon_by_sid.get(sid)
             if fubon_quote is None:
@@ -1214,7 +1488,27 @@ def run_live_ta_poll(
                 fubon_quote = (None, {"fubon_error": err})
         else:
             fubon_quote = None
-        px, qmeta = fetch_last_print(sid, fubon_quote=fubon_quote, prefer_fubon=use_fubon)
+        px, qmeta = fetch_last_print(
+            sid,
+            fubon_quote=fubon_quote,
+            prefer_fubon=use_fubon,
+            rest_stock=rest_stock,
+            session=fubon_session,
+            attach_mom=True,
+        )
+        try:
+            ta30 = get_ta_30m_anchors(
+                sid,
+                last_print=px,
+                rest_stock=rest_stock,
+                session=fubon_session,
+            )
+        except Exception as exc:  # noqa: BLE001
+            ta30 = {
+                "ta_30m_ready": False,
+                "ta_30m_note_zh": f"30m 暫不可用（{str(exc)[:80]}）；觀察用・非下單訊號。",
+                "fade30_observe": None,
+            }
         state = build_live_ta_state(
             sid,
             stock_name=name,
@@ -1222,6 +1516,7 @@ def run_live_ta_poll(
             last_print=px,
             quote_meta=qmeta,
             disposition_ids=disp,
+            ta_30m=ta30,
         )
         row = asdict(state)
         if not dry_run:

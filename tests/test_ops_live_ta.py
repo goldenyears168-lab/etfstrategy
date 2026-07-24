@@ -13,14 +13,18 @@ from ops_live_ta import (
     build_live_ta_state,
     classify_auction_phase,
     classify_continuous_phase,
+    clear_mom_1m_cache,
     clear_ta_30m_cache,
     compute_ta_30m_snapshot,
     fetch_last_print,
     fetch_yahoo_chart_quote,
+    get_mom_1m_anchors,
+    get_ta_30m_anchors,
     last_closed_30m_window,
     load_holdings_from_db,
     next_auction,
     parse_disposition_ids,
+    parse_fubon_candles,
     parse_fubon_marketdata_quote,
     parse_stock_list,
     resolve_live_ta_universe,
@@ -63,6 +67,7 @@ def _fake_5m(
 class TestOpsLiveTa(unittest.TestCase):
     def setUp(self) -> None:
         clear_ta_30m_cache()
+        clear_mom_1m_cache()
 
     def test_parse_default(self) -> None:
         rows = parse_stock_list("")
@@ -225,7 +230,7 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(meta["fubon_change_percent"], 0.85)
         self.assertEqual(meta["fubon_bid"], 1189.0)
 
-    def test_fetch_last_print_prefers_fubon_keeps_yahoo_mom(self) -> None:
+    def test_fetch_last_print_prefers_fubon_attaches_fubon_mom(self) -> None:
         fubon_q = (
             291.5,
             {
@@ -234,24 +239,118 @@ class TestOpsLiveTa(unittest.TestCase):
                 "price_source": "fubon_last_trade",
             },
         )
-        with patch(
-            "ops_live_ta.fetch_last_print_yahoo",
-            return_value=(
-                290.0,
-                {
-                    "quote_source": "yahoo_chart:2492.TW:1m",
+        with (
+            patch("ops_live_ta._yahoo_fallback_enabled", return_value=False),
+            patch(
+                "ops_live_ta.get_mom_1m_anchors",
+                return_value={
+                    "bar_source": "fubon:candles:2492:1",
                     "mom_1bar_pct": 0.2,
                     "mom_2bar_pct": 0.4,
-                    "yahoo_prev_close": 299.0,
+                    "n_1m_bars": 12,
+                    "momentum_horizon": "1m_bars_lookback_1_2",
                 },
-            ),
+            ) as mom_mock,
+            patch("ops_live_ta.fetch_last_print_yahoo") as yahoo_mock,
         ):
             px, meta = fetch_last_print("2492", fubon_quote=fubon_q, prefer_fubon=True)
         self.assertEqual(px, 291.5)
         self.assertEqual(meta["quote_source"], "fubon:marketdata:2492")
-        self.assertEqual(meta["bar_source"], "yahoo_chart:2492.TW:1m")
+        self.assertEqual(meta["bar_source"], "fubon:candles:2492:1")
         self.assertEqual(meta["mom_2bar_pct"], 0.4)
         self.assertEqual(meta["fubon_prev_close"], 300.0)
+        mom_mock.assert_called_once()
+        yahoo_mock.assert_not_called()
+
+    def test_parse_fubon_candles_1m(self) -> None:
+        raw = {
+            "symbol": "2330",
+            "timeframe": 1,
+            "data": [
+                {
+                    "date": "2026-07-24 10:00:00",
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.5,
+                    "close": 100.5,
+                    "volume": 10,
+                },
+                {
+                    "date": "2026-07-24 10:01:00",
+                    "open": 100.5,
+                    "high": 101.2,
+                    "low": 100.0,
+                    "close": 101.0,
+                    "volume": 12,
+                },
+            ],
+        }
+        bars, meta = parse_fubon_candles(raw, stock_id="2330", timeframe="1")
+        self.assertEqual(len(bars), 2)
+        self.assertEqual(bars[-1]["close"], 101.0)
+        self.assertEqual(meta["bar_source"], "fubon:candles:2330:1")
+
+    def test_get_mom_1m_from_fubon_no_yahoo(self) -> None:
+        bars = [
+            {
+                "ts": datetime(2026, 7, 24, 10, 0, tzinfo=_TPE),
+                "open": 100.0,
+                "high": 100.5,
+                "low": 99.5,
+                "close": 100.0,
+                "volume": 1.0,
+            },
+            {
+                "ts": datetime(2026, 7, 24, 10, 1, tzinfo=_TPE),
+                "open": 100.0,
+                "high": 100.8,
+                "low": 99.8,
+                "close": 100.5,
+                "volume": 1.0,
+            },
+            {
+                "ts": datetime(2026, 7, 24, 10, 2, tzinfo=_TPE),
+                "open": 100.5,
+                "high": 101.0,
+                "low": 100.2,
+                "close": 100.8,
+                "volume": 1.0,
+            },
+        ]
+        with (
+            patch("ops_live_ta._yahoo_fallback_enabled", return_value=False),
+            patch(
+                "ops_live_ta.fetch_fubon_candles",
+                return_value=(bars, {"bar_source": "fubon:candles:2330:1"}),
+            ),
+            patch("ops_live_ta.fetch_yahoo_chart_quote") as yahoo_mock,
+        ):
+            meta = get_mom_1m_anchors("2330", last_print=100.8)
+        self.assertEqual(meta["bar_source"], "fubon:candles:2330:1")
+        self.assertIn("mom_1bar_pct", meta)
+        self.assertIn("mom_2bar_pct", meta)
+        yahoo_mock.assert_not_called()
+
+    def test_get_ta_30m_uses_fubon_5m(self) -> None:
+        day = datetime(2026, 7, 23, tzinfo=_TPE)
+        bars = _fake_5m(day=day, n=12, step=0.3)
+        with (
+            patch("ops_live_ta._yahoo_fallback_enabled", return_value=False),
+            patch(
+                "ops_live_ta.fetch_fubon_candles",
+                return_value=(bars, {"ta_30m_source": "fubon:candles:2330:5"}),
+            ),
+            patch("ops_live_ta.fetch_yahoo_5m_bars") as yahoo_mock,
+        ):
+            snap = get_ta_30m_anchors(
+                "2330",
+                now=datetime(2026, 7, 23, 10, 5, tzinfo=_TPE),
+                last_print=103.0,
+                force_refresh=True,
+            )
+        self.assertTrue(snap["ta_30m_ready"])
+        self.assertEqual(snap["ta_30m_source"], "fubon:candles:2330:5")
+        yahoo_mock.assert_not_called()
 
     def test_run_poll_fubon_batch_no_reconnect(self) -> None:
         """Batch miss must not open a second Fubon login per stock."""
@@ -274,12 +373,21 @@ class TestOpsLiveTa(unittest.TestCase):
 
         with (
             patch("ops_live_ta._quote_backend", return_value="fubon"),
+            patch("ops_live_ta._yahoo_fallback_enabled", return_value=False),
+            patch(
+                "ops_live_ta.open_fubon_rest_stock",
+                return_value=(object(), object(), None),
+            ),
             patch("ops_live_ta.fetch_fubon_marketdata_quotes", side_effect=_fake_batch),
             patch(
-                "ops_live_ta.fetch_last_print_yahoo",
-                return_value=(None, {"quote_source": None}),
+                "ops_live_ta.get_mom_1m_anchors",
+                return_value={"bar_source": "fubon:candles:2330:1", "mom_2bar_pct": 0.1},
             ),
-            patch("ops_live_ta.get_ta_30m_anchors", return_value={"ta_30m_ready": False}),
+            patch(
+                "ops_live_ta.get_ta_30m_anchors",
+                return_value={"ta_30m_ready": False, "ta_30m_source": "fubon:candles:2330:5"},
+            ),
+            patch("ops_live_ta.fetch_last_print_yahoo") as yahoo_mock,
             patch("ops_live_ta.upsert_live_ta"),
         ):
             rows = run_live_ta_poll(
@@ -291,7 +399,9 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0], ["2330", "2303"])
         self.assertEqual(rows[0]["anchors"]["quote_source"], "fubon:marketdata:2330")
+        self.assertEqual(rows[0]["anchors"]["bar_source"], "fubon:candles:2330:1")
         self.assertIn("fubon_error", rows[1]["anchors"])
+        yahoo_mock.assert_not_called()
 
     def test_round_px(self) -> None:
         self.assertEqual(_round_px(60.599998474121094), 60.6)
