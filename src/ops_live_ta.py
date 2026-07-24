@@ -43,8 +43,31 @@ from zoneinfo import ZoneInfo
 import requests
 
 from ops_console_sync import fetch_latest_ops_holdings_payload, now_tpe_iso, upsert_live_ta
-from yahoo_chart_sync import fetch_yahoo_intraday_df, tw_yahoo_symbol_candidates
 
+
+def _tw_yahoo_symbol_candidates(stock_id: str) -> tuple[str, ...]:
+    """Local copy of ``yahoo_chart_sync.tw_yahoo_symbol_candidates`` (no pandas).
+
+    Kept here so ``.venv-fubon`` can run Live TA without importing yahoo_chart_sync
+    (that module pulls pandas at import time; mini fubon venv often lacks it).
+    """
+    sid = stock_id.strip()
+    if not sid:
+        return ()
+    if sid.startswith("^"):
+        return (sid,)
+    index_map = {
+        "IX0001": "^TWII",
+        "TAIEX": "^TWII",
+        "TWII": "^TWII",
+        "IR0002": "0050.TW",
+    }
+    mapped = index_map.get(sid) or index_map.get(sid.upper())
+    if mapped:
+        return (mapped,)
+    if sid.startswith("00") and len(sid) <= 5:
+        return (f"{sid}.TW",)
+    return (f"{sid}.TW", f"{sid}.TWO")
 _TPE = ZoneInfo("Asia/Taipei")
 # 第二款處置常見 20 分集合競價節點（含 13:30 收盤撮合提醒）
 _AUCTION_MINUTES: tuple[int, ...] = tuple(range(9 * 60, 13 * 60 + 21, 20)) + (13 * 60 + 30,)
@@ -682,7 +705,7 @@ def compute_ta_30m_snapshot(
 def fetch_yahoo_5m_bars(stock_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Yahoo Chart v8 5m bars for today (lightweight vs yfinance)."""
     meta: dict[str, Any] = {"ta_30m_source": None}
-    for symbol in tw_yahoo_symbol_candidates(stock_id):
+    for symbol in _tw_yahoo_symbol_candidates(stock_id):
         try:
             resp = requests.get(
                 _YAHOO_CHART_URL.format(symbol=symbol),
@@ -758,7 +781,7 @@ def fetch_yahoo_chart_quote(stock_id: str) -> tuple[float | None, dict[str, Any]
     disposition names mid call-auction).
     """
     meta: dict[str, Any] = {"quote_source": None}
-    for symbol in tw_yahoo_symbol_candidates(stock_id):
+    for symbol in _tw_yahoo_symbol_candidates(stock_id):
         try:
             resp = requests.get(
                 _YAHOO_CHART_URL.format(symbol=symbol),
@@ -813,10 +836,17 @@ def fetch_last_print_yahoo(stock_id: str) -> tuple[float | None, dict[str, Any]]
         return px, meta
 
     # Fallback: short history only (avoid 5‑day 1m pull — slow + sticky).
+    # Lazy-import: needs pandas/yfinance (.venv); skip cleanly under .venv-fubon.
+    try:
+        from yahoo_chart_sync import fetch_yahoo_intraday_df
+    except ImportError as exc:
+        meta["yahoo_error"] = f"hist_fallback_unavailable:{exc}"
+        return None, meta
+
     today = datetime.now(_TPE).date()
     start = today - timedelta(days=1)
     for interval in ("1m", "5m"):
-        for symbol in tw_yahoo_symbol_candidates(stock_id):
+        for symbol in _tw_yahoo_symbol_candidates(stock_id):
             try:
                 df = fetch_yahoo_intraday_df(symbol, start, today, interval=interval)  # type: ignore[arg-type]
             except Exception as exc:  # noqa: BLE001 — keep poll alive
