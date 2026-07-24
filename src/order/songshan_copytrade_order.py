@@ -231,10 +231,11 @@ def process_songshan_copytrade_poll(
             payload["ask"] = ask
             payload["budget_twd"] = cfg.budget_twd
             return payload
-        market = "intraday_odd" if qty < 1000 else cfg.market_type
+        # <1 張走盤中零股；≥1000 必須整股（不可沿用 yaml 的 intraday_odd）
+        market = "intraday_odd" if qty < 1000 else "common"
     elif cfg.quantity_shares is not None:
         qty = cfg.quantity_shares
-        market = cfg.market_type
+        market = "intraday_odd" if qty < 1000 else (cfg.market_type or "common")
     else:
         payload["status"] = "config_error"
         payload["error"] = "Neither budget_twd nor quantity_shares configured"
