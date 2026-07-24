@@ -9,8 +9,15 @@ Two modes (honest horizon — do **not** claim false precision):
     1m-bar momentum (~1–2 min lookback). This is short momentum, **not** a
     price prediction 2 minutes ahead.
 
-Quotes via Yahoo (``yahoo_chart_sync``) with optional local DB fallback —
-no Fubon required for the poll itself.
+Also attaches **observe-only 30m TA** (last closed half-hour from Yahoo 5m):
+return vs bar open, vs session VWAP, simple bias — not an Order signal.
+Optional research badge ``fade30_observe`` when ``fade_near_ext`` fires
+(stock-heterogeneous; do **not** claim ≥60% as a site guarantee).
+
+Quotes via Yahoo Chart API v8 (``regularMarketPrice`` + optional 1m bars)
+with yfinance history fallback — no Fubon required for the poll itself.
+Price / 1m momentum refresh every poll (~15s); 30m snapshot is cached
+~75s so ~19 names do not hammer Yahoo 5m every cycle.
 """
 
 from __future__ import annotations
@@ -23,6 +30,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import requests
+
 from ops_console_sync import fetch_latest_ops_holdings_payload, now_tpe_iso, upsert_live_ta
 from yahoo_chart_sync import fetch_yahoo_intraday_df, tw_yahoo_symbol_candidates
 
@@ -34,7 +43,16 @@ _DEFAULT_DISPOSITION: tuple[str, ...] = ("2492",)
 # Continuous TW cash session (approx.)
 _CONT_OPEN_MIN = 9 * 60
 _CONT_CLOSE_MIN = 13 * 60 + 30
-_YAHOO_GAP_SEC = 0.25
+# First useful closed 30m window ends ~09:30 (open 09:00 + 6×5m).
+_TA30M_READY_MIN = 9 * 60 + 30
+# Chart API is light (~0.1s/name); keep a small gap to avoid bursts.
+_YAHOO_GAP_SEC = 0.15
+_YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+_YAHOO_UA = "Mozilla/5.0 (compatible; ops-live-ta/1.1)"
+# 30m Yahoo 5m refresh cache (poll is ~15s; reuse across cycles).
+_TA30M_CACHE_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_30M_TTL_SEC", "75") or "75")
+_TA30M_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TA30M_BIAS_EPS = 0.15  # % · quiet zone around flat
 
 
 @dataclass(frozen=True)
@@ -203,11 +221,380 @@ def classify_continuous_phase(now: datetime) -> tuple[str, str, str, datetime | 
     )
 
 
-def fetch_last_print_yahoo(stock_id: str) -> tuple[float | None, dict[str, Any]]:
-    """Latest intraday close + short momentum via yfinance 1m→5m."""
+def _round_px(px: float) -> float:
+    """Drop float noise (Yahoo often returns 60.599998…)."""
+    if px >= 1000:
+        return round(px, 1)
+    if px >= 100:
+        return round(px, 1)
+    return round(px, 2)
+
+
+def _mom_from_closes(closes: list[float], px: float) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if len(closes) >= 2 and closes[-2] > 0:
+        out["mom_1bar_pct"] = round((px / closes[-2] - 1.0) * 100, 3)
+    if len(closes) >= 3 and closes[-3] > 0:
+        out["mom_2bar_pct"] = round((px / closes[-3] - 1.0) * 100, 3)
+    return out
+
+
+def _floor_30m(ts: datetime) -> datetime:
+    ts = ts.astimezone(_TPE)
+    return ts.replace(minute=(ts.minute // 30) * 30, second=0, microsecond=0)
+
+
+def _parse_chart_ohlcv(
+    chart: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Parse Yahoo chart result → list of {ts, open, high, low, close, volume}."""
+    timestamps = chart.get("timestamp") or []
+    quote = ((chart.get("indicators") or {}).get("quote") or [{}])[0]
+    opens = quote.get("open") or []
+    highs = quote.get("high") or []
+    lows = quote.get("low") or []
+    closes = quote.get("close") or []
+    volumes = quote.get("volume") or []
+    out: list[dict[str, Any]] = []
+    n = len(timestamps)
+    for i in range(n):
+        c = closes[i] if i < len(closes) else None
+        if c is None:
+            continue
+        try:
+            close = float(c)
+            o = float(opens[i]) if i < len(opens) and opens[i] is not None else close
+            h = float(highs[i]) if i < len(highs) and highs[i] is not None else close
+            lo = float(lows[i]) if i < len(lows) and lows[i] is not None else close
+            vol = float(volumes[i]) if i < len(volumes) and volumes[i] is not None else 0.0
+        except (TypeError, ValueError):
+            continue
+        if close <= 0:
+            continue
+        ts = datetime.fromtimestamp(int(timestamps[i]), tz=_TPE)
+        out.append(
+            {
+                "ts": ts,
+                "open": o,
+                "high": h,
+                "low": lo,
+                "close": close,
+                "volume": max(0.0, vol),
+            }
+        )
+    return out
+
+
+def session_vwap_from_bars(bars: list[dict[str, Any]]) -> float | None:
+    """Session VWAP from typical price × volume (observe · not broker VWAP)."""
+    num = 0.0
+    den = 0.0
+    for b in bars:
+        vol = float(b.get("volume") or 0.0)
+        if vol <= 0:
+            continue
+        typical = (float(b["high"]) + float(b["low"]) + float(b["close"])) / 3.0
+        num += typical * vol
+        den += vol
+    if den <= 0:
+        return None
+    return num / den
+
+
+def last_closed_30m_window(
+    bars_5m: list[dict[str, Any]],
+    *,
+    now: datetime,
+) -> tuple[list[dict[str, Any]], datetime | None]:
+    """Return the last fully closed 30m bucket (6×5m) ending at/before now.
+
+    TW cash open 09:00 → first closed window ends 09:30. Incomplete current
+    half-hour is excluded (PIT / no look-ahead into forming bar).
+    """
+    now = now.astimezone(_TPE)
+    if not bars_5m:
+        return [], None
+    # End of last closed 30m slot (e.g. at 10:05 → 10:00).
+    end = _floor_30m(now)
+    if now < end + timedelta(seconds=5):
+        # Still inside the minute of the boundary; treat as not yet closed.
+        end = end - timedelta(minutes=30)
+    if end.hour * 60 + end.minute < _TA30M_READY_MIN:
+        return [], None
+    start = end - timedelta(minutes=30)
+    window = [b for b in bars_5m if start <= b["ts"] < end]
+    if len(window) < 4:
+        # Yahoo sometimes drops a bar; still usable if ≥4 of 6.
+        return [], end
+    return window, end
+
+
+def compute_ta_30m_snapshot(
+    bars_5m: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+    last_print: float | None = None,
+) -> dict[str, Any]:
+    """Pure observe-only 30m fields from session 5m bars (no network).
+
+    Ready after first closed half-hour (~09:30) with enough 5m bars.
+    Bias is descriptive (vs bar open + session VWAP), not a forecast.
+    """
+    now = (now or datetime.now(_TPE)).astimezone(_TPE)
+    base: dict[str, Any] = {
+        "ta_30m_ready": False,
+        "ta_30m_ret_pct": None,
+        "ta_30m_vs_open_pct": None,
+        "ta_30m_vs_vwap_pct": None,
+        "ta_30m_bias": None,
+        "ta_30m_note_zh": "觀察用・非下單訊號；等第一根閉合 30m（約 09:30）。",
+        "ta_30m_bar_end": None,
+        "ta_30m_n_5m": 0,
+        "fade30_observe": None,
+    }
+    mins = now.hour * 60 + now.minute
+    if now.weekday() >= 5:
+        base["ta_30m_note_zh"] = "假日無 30m 觀察。"
+        return base
+    if mins < _TA30M_READY_MIN:
+        base["ta_30m_note_zh"] = "開盤前半小時觀察中；約 09:30 後才有閉合 30m。"
+        return base
+
+    day = now.date()
+    session = [
+        b
+        for b in bars_5m
+        if b["ts"].astimezone(_TPE).date() == day
+        and (b["ts"].hour * 60 + b["ts"].minute) >= _CONT_OPEN_MIN
+    ]
+    window, bar_end = last_closed_30m_window(session, now=now)
+    if not window or bar_end is None:
+        base["ta_30m_n_5m"] = len(session)
+        base["ta_30m_note_zh"] = "尚缺閉合 30m（需約 6×5m）；觀察用・非下單訊號。"
+        return base
+
+    o = float(window[0]["open"])
+    c = float(window[-1]["close"])
+    hi = max(float(b["high"]) for b in window)
+    lo = min(float(b["low"]) for b in window)
+    if o <= 0 or c <= 0:
+        base["ta_30m_note_zh"] = "30m OHLC 無效；觀察用・非下單訊號。"
+        return base
+
+    ret_pct = round((c / o - 1.0) * 100, 3)
+    vs_open = ret_pct
+    vwap = session_vwap_from_bars(session)
+    ref_px = float(last_print) if last_print and last_print > 0 else c
+    vs_vwap: float | None = None
+    if vwap and vwap > 0:
+        vs_vwap = round((ref_px / vwap - 1.0) * 100, 3)
+
+    # Simple confluence bias (expert-practice-ish · not a hit-rate claim).
+    bias = "中性"
+    if ret_pct >= _TA30M_BIAS_EPS and (vs_vwap is None or vs_vwap >= 0):
+        bias = "偏多"
+    elif ret_pct <= -_TA30M_BIAS_EPS and (vs_vwap is None or vs_vwap <= 0):
+        bias = "偏空"
+    elif vs_vwap is not None and abs(ret_pct) < _TA30M_BIAS_EPS:
+        if vs_vwap >= _TA30M_BIAS_EPS:
+            bias = "偏多"
+        elif vs_vwap <= -_TA30M_BIAS_EPS:
+            bias = "偏空"
+
+    note_parts = [
+        f"閉合30m至 {bar_end.strftime('%H:%M')}",
+        f"bar {ret_pct:+.2f}%",
+        f"區間 {lo:.2f}–{hi:.2f}",
+    ]
+    if vs_vwap is not None:
+        note_parts.append(f"現價相對VWAP {vs_vwap:+.2f}%")
+    note_parts.append("觀察用・非下單訊號")
+
+    out: dict[str, Any] = {
+        "ta_30m_ready": True,
+        "ta_30m_ret_pct": ret_pct,
+        "ta_30m_vs_open_pct": vs_open,
+        "ta_30m_vs_vwap_pct": vs_vwap,
+        "ta_30m_bias": bias,
+        "ta_30m_note_zh": "｜".join(note_parts),
+        "ta_30m_bar_end": bar_end.isoformat(),
+        "ta_30m_n_5m": len(window),
+        "ta_30m_high": _round_px(hi),
+        "ta_30m_low": _round_px(lo),
+        "fade30_observe": None,
+    }
+
+    # Optional research observe badge — never presented as Order / ≥60% guarantee.
+    try:
+        from research.intraday_direction_thermometer import (  # noqa: WPS433
+            Bar,
+            fade_near_ext_from_bars,
+        )
+
+        # PIT: only completed 5m bars strictly before closed 30m end.
+        thermo_bars = [
+            Bar(
+                ts=b["ts"],
+                open=float(b["open"]),
+                high=float(b["high"]),
+                low=float(b["low"]),
+                close=float(b["close"]),
+                volume=float(b.get("volume") or 0.0),
+            )
+            for b in session
+            if b["ts"] < bar_end
+        ]
+        layer = fade_near_ext_from_bars(thermo_bars, midday_only=True)
+        if layer.ready and layer.temp in (-1, 1):
+            out["fade30_observe"] = {
+                "temp": layer.temp,
+                "label": layer.label,
+                "action": layer.action,
+                "reason": layer.reason,
+                "disclaimer_zh": "研究觀察·fade_near_ext；異質性高·非全市場60%保證·非下單訊號",
+            }
+            out["ta_30m_note_zh"] += "｜研究觀察 fade30"
+    except Exception:  # noqa: BLE001 — observe must not break poll
+        pass
+    return out
+
+
+def fetch_yahoo_5m_bars(stock_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Yahoo Chart v8 5m bars for today (lightweight vs yfinance)."""
+    meta: dict[str, Any] = {"ta_30m_source": None}
+    for symbol in tw_yahoo_symbol_candidates(stock_id):
+        try:
+            resp = requests.get(
+                _YAHOO_CHART_URL.format(symbol=symbol),
+                params={"interval": "5m", "range": "1d", "includePrePost": "false"},
+                headers={"User-Agent": _YAHOO_UA},
+                timeout=12,
+            )
+        except requests.RequestException as exc:
+            meta["ta_30m_error"] = str(exc)[:200]
+            continue
+        if resp.status_code >= 400:
+            meta["ta_30m_error"] = f"http{resp.status_code}"
+            continue
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            meta["ta_30m_error"] = str(exc)[:200]
+            continue
+        results = ((payload.get("chart") or {}).get("result")) or []
+        if not results:
+            err = ((payload.get("chart") or {}).get("error")) or {}
+            if err:
+                meta["ta_30m_error"] = str(err)[:200]
+            continue
+        bars = _parse_chart_ohlcv(results[0])
+        if not bars:
+            meta["ta_30m_error"] = "empty_5m"
+            continue
+        meta["ta_30m_source"] = f"yahoo_chart:{symbol}:5m"
+        return bars, meta
+    return [], meta
+
+
+def get_ta_30m_anchors(
+    stock_id: str,
+    *,
+    now: datetime | None = None,
+    last_print: float | None = None,
+    bars_5m: list[dict[str, Any]] | None = None,
+    force_refresh: bool = False,
+    cache_ttl_sec: float | None = None,
+) -> dict[str, Any]:
+    """30m observe anchors with TTL cache (default ~75s)."""
+    now = (now or datetime.now(_TPE)).astimezone(_TPE)
+    ttl = _TA30M_CACHE_TTL_SEC if cache_ttl_sec is None else float(cache_ttl_sec)
+    cached = _TA30M_CACHE.get(stock_id)
+    if (
+        not force_refresh
+        and bars_5m is None
+        and cached is not None
+        and (time.time() - cached[0]) < ttl
+    ):
+        return dict(cached[1])
+
+    meta: dict[str, Any] = {}
+    if bars_5m is None:
+        bars_5m, meta = fetch_yahoo_5m_bars(stock_id)
+    snap = compute_ta_30m_snapshot(bars_5m, now=now, last_print=last_print)
+    snap.update(meta)
+    _TA30M_CACHE[stock_id] = (time.time(), dict(snap))
+    return snap
+
+
+def clear_ta_30m_cache() -> None:
+    _TA30M_CACHE.clear()
+
+
+def fetch_yahoo_chart_quote(stock_id: str) -> tuple[float | None, dict[str, Any]]:
+    """Light Yahoo Chart v8 quote: ``regularMarketPrice`` + optional 1m closes.
+
+    Prefer this over full yfinance history — updates with each poll (not stuck
+    waiting for a closed 1m bar) and works when 1m bars are empty (e.g. some
+    disposition names mid call-auction).
+    """
     meta: dict[str, Any] = {"quote_source": None}
+    for symbol in tw_yahoo_symbol_candidates(stock_id):
+        try:
+            resp = requests.get(
+                _YAHOO_CHART_URL.format(symbol=symbol),
+                params={"interval": "1m", "range": "1d", "includePrePost": "false"},
+                headers={"User-Agent": _YAHOO_UA},
+                timeout=12,
+            )
+        except requests.RequestException as exc:
+            meta["yahoo_error"] = str(exc)[:200]
+            continue
+        if resp.status_code >= 400:
+            meta["yahoo_error"] = f"http{resp.status_code}"
+            continue
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            meta["yahoo_error"] = str(exc)[:200]
+            continue
+        results = ((payload.get("chart") or {}).get("result")) or []
+        if not results:
+            err = ((payload.get("chart") or {}).get("error")) or {}
+            if err:
+                meta["yahoo_error"] = str(err)[:200]
+            continue
+        chart = results[0]
+        m = chart.get("meta") or {}
+        raw_px = m.get("regularMarketPrice")
+        if raw_px is None:
+            continue
+        try:
+            px = _round_px(float(raw_px))
+        except (TypeError, ValueError):
+            continue
+        if px <= 0:
+            continue
+        meta["quote_source"] = f"yahoo_chart:{symbol}:1m"
+        meta["yahoo_prev_close"] = m.get("chartPreviousClose") or m.get("previousClose")
+        meta["momentum_horizon"] = "1m_bars_lookback_1_2"
+        closes_raw = (((chart.get("indicators") or {}).get("quote") or [{}])[0].get("close")) or []
+        closes = [float(c) for c in closes_raw if c is not None]
+        meta["n_1m_bars"] = len(closes)
+        if closes:
+            meta.update(_mom_from_closes(closes, px))
+        return px, meta
+    return None, meta
+
+
+def fetch_last_print_yahoo(stock_id: str) -> tuple[float | None, dict[str, Any]]:
+    """Latest print + short momentum · Chart API first, yfinance 1d history fallback."""
+    px, meta = fetch_yahoo_chart_quote(stock_id)
+    if px is not None:
+        return px, meta
+
+    # Fallback: short history only (avoid 5‑day 1m pull — slow + sticky).
     today = datetime.now(_TPE).date()
-    start = today - timedelta(days=5)
+    start = today - timedelta(days=1)
     for interval in ("1m", "5m"):
         for symbol in tw_yahoo_symbol_candidates(stock_id):
             try:
@@ -220,23 +607,16 @@ def fetch_last_print_yahoo(stock_id: str) -> tuple[float | None, dict[str, Any]]
             close = df["Close"].dropna()
             if close.empty:
                 continue
-            px = float(close.iloc[-1])
-            meta["quote_source"] = f"yahoo:{symbol}:{interval}"
+            last = _round_px(float(close.iloc[-1]))
+            meta["quote_source"] = f"yahoo_hist:{symbol}:{interval}"
             meta["bar_time"] = str(close.index[-1])
-            if len(close) >= 2:
-                px1 = float(close.iloc[-2])
-                if px1 > 0:
-                    meta["mom_1bar_pct"] = round((px / px1 - 1.0) * 100, 3)
-            if len(close) >= 3:
-                px2 = float(close.iloc[-3])
-                if px2 > 0:
-                    meta["mom_2bar_pct"] = round((px / px2 - 1.0) * 100, 3)
-            # ~2 min lookback only meaningful on 1m bars
+            closes = [_round_px(float(x)) for x in close.tolist()]
+            meta.update(_mom_from_closes(closes, last))
             if interval == "1m":
                 meta["momentum_horizon"] = "1m_bars_lookback_1_2"
             else:
                 meta["momentum_horizon"] = f"{interval}_bars_lookback_1_2"
-            return px, meta
+            return last, meta
     return None, meta
 
 
@@ -411,6 +791,7 @@ def build_live_ta_state(
     last_print: float | None = None,
     quote_meta: dict[str, Any] | None = None,
     disposition_ids: set[str] | None = None,
+    ta_30m: dict[str, Any] | None = None,
 ) -> LiveTaState:
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
     disp = disposition_ids if disposition_ids is not None else parse_disposition_ids()
@@ -429,7 +810,21 @@ def build_live_ta_state(
     if px is None:
         px, qmeta = fetch_last_print_yahoo(stock_id)
         meta.update(qmeta)
-    prev = fetch_prev_close_db(conn, stock_id)
+    if px is not None:
+        px = _round_px(float(px))
+    # Prefer Yahoo session previousClose (aligned with regularMarketPrice).
+    # Local stock_daily_bars can lag days and inflate 漲跌% (e.g. 6505).
+    prev_db = fetch_prev_close_db(conn, stock_id)
+    prev_yahoo: float | None = None
+    yprev = meta.get("yahoo_prev_close")
+    try:
+        if yprev is not None:
+            prev_yahoo = float(yprev)
+            if prev_yahoo <= 0:
+                prev_yahoo = None
+    except (TypeError, ValueError):
+        prev_yahoo = None
+    prev = prev_yahoo if prev_yahoo is not None else prev_db
     name = resolve_stock_name(conn, stock_id, stock_name)
     pct_from_prev = round((px / prev - 1.0) * 100, 3) if px and prev else None
     mom_1 = meta.get("mom_1bar_pct")
@@ -453,16 +848,30 @@ def build_live_ta_state(
             pct_from_prev=pct_from_prev,
         )
 
+    if ta_30m is not None:
+        ta30 = dict(ta_30m)
+    else:
+        try:
+            ta30 = get_ta_30m_anchors(stock_id, now=now, last_print=px)
+        except Exception as exc:  # noqa: BLE001
+            ta30 = {
+                "ta_30m_ready": False,
+                "ta_30m_note_zh": f"30m 暫不可用（{str(exc)[:80]}）；觀察用・非下單訊號。",
+                "fade30_observe": None,
+            }
     anchors: dict[str, Any] = {
         "mode": mode,
         "horizon": horizon,
         "auction_interval_min": 20 if is_disp else None,
         "prev_close": prev,
+        "prev_close_db": prev_db,
+        "prev_close_source": "yahoo" if prev_yahoo is not None else ("db" if prev_db is not None else None),
         "pct_from_prev": pct_from_prev,
         "mins_to_next": (
             max(0, int((nxt - now).total_seconds() // 60)) if nxt else None
         ),
         **meta,
+        **ta30,
     }
     if (
         is_disp

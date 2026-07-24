@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Poll holdings Live TA → ops.live_ta（mini · ~60s 安全重入）.
+"""Poll holdings Live TA → ops.live_ta（mini · ~15s 安全重入）.
 
 Universe = order_holdings_snapshot ∪ ops.holdings ∪ OPS_LIVE_TA_STOCKS extras.
 Disposition auction clock only for OPS_LIVE_TA_DISPOSITION（default 2492）.
+現價＝Yahoo Chart regularMarketPrice（會隨 poll 跳動）；非券商「限價單」價。
 
 Examples:
   PYTHONPATH=src .venv/bin/python scripts/order/run_ops_live_ta_poll.py

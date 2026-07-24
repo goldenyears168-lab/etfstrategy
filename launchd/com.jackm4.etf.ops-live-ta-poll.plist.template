@@ -21,11 +21,11 @@
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 每 60 秒；實際窗由 .command 過濾 -->
+	<!-- 每 15 秒；實際窗由 .command 過濾 · 價用 Yahoo Chart 輕量 quote -->
 	<key>StartInterval</key>
-	<integer>60</integer>
+	<integer>15</integer>
 	<key>ExitTimeOut</key>
-	<integer>180</integer>
+	<integer>120</integer>
 	<key>StandardOutPath</key>
 	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-live-ta-poll.launchd.log</string>
 	<key>StandardErrorPath</key>

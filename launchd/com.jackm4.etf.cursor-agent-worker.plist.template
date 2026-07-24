@@ -10,7 +10,7 @@
 		<string>{{CURSOR_AGENT_WORKER_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>{{PROJECT_ROOT}}</string>
+	<string>{{WORKER_DIR}}</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>

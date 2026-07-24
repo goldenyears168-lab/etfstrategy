@@ -51,3 +51,4 @@ vendor/cftc-cot/
 
 # Claude local machine settings
 .claude/settings.local.json
+.cursor_api_key_tmp

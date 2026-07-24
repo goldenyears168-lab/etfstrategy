@@ -62,7 +62,7 @@
 
 | 腳本 | 用途 | mini 自動 |
 |------|------|-----------|
-| `scripts/order/run_ops_live_ta_poll.py` | 持倉 Live TA（處置股另有 ~20分撮合鐘）→ `ops.live_ta` | `com.jackm4.etf.ops-live-ta-poll`（08:50–13:35 · 15s） |
+| `scripts/order/run_ops_live_ta_poll.py` | 持倉 Live TA（處置股另有 ~20分撮合鐘）→ `ops.live_ta` | `com.jackm4.etf.ops-live-ta-poll`（08:50–13:35 · 60s） |
 | `scripts/order/write_ops_console_snapshot.py` | watch／risk／thermo／branches／today → `ops.snapshots`（可 `--also-digest`） | `com.jackm4.etf.ops-console-evening-sync`（20:40） |
 | `scripts/order/write_ops_sleeve_status.py` | `order.yaml`+env → `ops.sleeve_status` | 同上 20:40 |
 | `scripts/order/run_ops_holdings_sync.py` | 富邦持倉 → `ops.holdings` | 同上 20:40（`.venv-fubon`） |

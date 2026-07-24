@@ -4,8 +4,10 @@
 # ~/Library/Application Support/com.jackm4.etf/cursor-agent-worker.sh
 #
 # 閘門：.env CURSOR_AGENT_WORKER_ENABLED=1
-# 認證：.env CURSOR_API_KEY=...（Dashboard → Integrations；勿 commit）
+# 認證：Aqua session `agent login`，或 .env CURSOR_API_KEY
 # 名稱：CURSOR_AGENT_WORKER_NAME（預設 mac-mini）
+# 目錄：CURSOR_AGENT_WORKER_DIR（預設 $HOME/etf-stocks → 指向中文路徑的 ASCII symlink）
+#       Cursor exec-daemon 無法吃非 Latin-1 路徑（股票研究），必須走 symlink。
 
 set -euo pipefail
 
@@ -39,19 +41,24 @@ if [[ -z "${AGENT_BIN}" ]]; then
   exit 1
 fi
 
-if [[ -z "${CURSOR_API_KEY:-}" ]]; then
-  echo "✗ CURSOR_API_KEY missing in ${ROOT}/.env" >&2
-  exit 1
+NAME="${CURSOR_AGENT_WORKER_NAME:-mac-mini}"
+# Prefer ASCII symlink; fall back to explicit env, then ROOT
+WORKER_DIR="${CURSOR_AGENT_WORKER_DIR:-}"
+if [[ -z "${WORKER_DIR}" && -d "${HOME}/etf-stocks" ]]; then
+  WORKER_DIR="${HOME}/etf-stocks"
+fi
+if [[ -z "${WORKER_DIR}" ]]; then
+  WORKER_DIR="${ROOT}"
 fi
 
-NAME="${CURSOR_AGENT_WORKER_NAME:-mac-mini}"
-cd "${ROOT}"
+cd "${WORKER_DIR}"
 
-echo "starting: agent worker start --name ${NAME} --worker-dir ${ROOT}"
+echo "starting: agent worker start --name ${NAME} --worker-dir ${WORKER_DIR}"
 echo "=== launchd cursor-agent-worker $(date '+%Y-%m-%d %H:%M:%S') ===" \
   >>"${ROOT}/logs/launchd_cursor-agent-worker.log"
 
-exec "${AGENT_BIN}" worker start \
-  --name "${NAME}" \
-  --worker-dir "${ROOT}" \
-  --api-key "${CURSOR_API_KEY}"
+args=(worker start --name "${NAME}" --worker-dir "${WORKER_DIR}")
+if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+  args+=(--api-key "${CURSOR_API_KEY}")
+fi
+exec "${AGENT_BIN}" "${args[@]}"

@@ -218,23 +218,31 @@ Gmail：`GMAIL_USER` + App Password。
 **一次性啟用（僅 mini）**
 
 1. CLI 已裝：`~/.local/bin/agent`（`curl https://cursor.com/install -fsS | bash`）。
-2. 在 [Cursor Dashboard → Integrations](https://cursor.com/dashboard/integrations) 建 **個人 API key**（無頭機勿依賴 `agent login`／Keychain；SSH session Keychain 常鎖）。
-3. mini `.env` 加入（勿 commit、勿貼進聊天）：
+2. **ASCII symlink**（exec-daemon 無法處理路徑中的非 Latin-1 字元）：
+
+```bash
+ln -sfn ~/Documents/ETF/股票研究 ~/etf-stocks
+```
+
+3. 認證二選一：
+   - **推薦**：在 mini 的 Aqua／launchd 環境跑 `agent login`（SSH 會卡 Keychain；用 Screen Sharing 或本安裝腳本觸發的 login）。
+   - 或 [Integrations](https://cursor.com/dashboard/integrations) 個人 API key 寫入 mini `.env` 的 `CURSOR_API_KEY`。
+4. mini `.env`：
 
 ```bash
 CURSOR_AGENT_WORKER_ENABLED=1
-CURSOR_API_KEY=cursor_...
 CURSOR_AGENT_WORKER_NAME=mac-mini
+CURSOR_AGENT_WORKER_DIR=/Users/jackm4/etf-stocks
+# CURSOR_API_KEY=...   # 若未 agent login 才需要
 ```
 
-4. 同步程式後安裝 KeepAlive：
+5. 安裝 KeepAlive：
 
 ```bash
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull && bash scripts/install-cursor-agent-worker-launchd.sh'
-ssh mac-mini 'bash scripts/install-cursor-agent-worker-launchd.sh --status'
+ssh mac-mini 'cd ~/Documents/ETF/股票研究 && bash scripts/install-cursor-agent-worker-launchd.sh --status'
 ```
 
-5. 手機：Add Workspace → 本 repo → 開 Agent 時環境選 **mac-mini**（名稱須與 `CURSOR_AGENT_WORKER_NAME` 一致）。
+6. 手機：Add Workspace → 本 repo → 開 Agent 時環境選 **mac-mini**。
 
 **護欄**
 

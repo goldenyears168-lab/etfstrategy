@@ -22,6 +22,8 @@ UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 LABEL="com.jackm4.etf.cursor-agent-worker"
 LAUNCHER="${APP_SUPPORT}/cursor-agent-worker.sh"
+# Cursor exec-daemon 無法處理非 Latin-1 路徑；ASCII symlink → 中文倉庫
+WORKER_DIR="${CURSOR_AGENT_WORKER_DIR:-${HOME}/etf-stocks}"
 
 usage() {
   cat <<EOF
@@ -69,6 +71,11 @@ install_agents() {
     exit 1
   fi
 
+  if [[ ! -d "${WORKER_DIR}" ]]; then
+    echo "→ 建立 ASCII symlink ${WORKER_DIR} → ${PROJECT_ROOT}"
+    ln -sfn "${PROJECT_ROOT}" "${WORKER_DIR}"
+  fi
+
   mkdir -p "${AGENT_DIR}" "${APP_SUPPORT}" "${PROJECT_ROOT}/logs" \
     "${HOME}/Library/Logs/com.jackm4.etf"
 
@@ -88,13 +95,15 @@ install_agents() {
   bootout_label
   sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
       -e "s|{{CURSOR_AGENT_WORKER_LAUNCHER}}|${LAUNCHER}|g" \
+      -e "s|{{WORKER_DIR}}|${WORKER_DIR}|g" \
       -e "s|{{HOME}}|${HOME}|g" \
       "${plist_src}" >"${dest}"
   bootstrap_label "${dest}"
   echo "✓ ${LABEL}"
+  echo "  worker-dir=${WORKER_DIR}"
   echo ""
-  echo "確認 .env：CURSOR_AGENT_WORKER_ENABLED=1 與 CURSOR_API_KEY"
-  echo "手機／Book Cloud Agent 選 worker=mac-mini（或 CURSOR_AGENT_WORKER_NAME）"
+  echo "確認 .env：CURSOR_AGENT_WORKER_ENABLED=1（可選 CURSOR_API_KEY）"
+  echo "手機／Book Cloud Agent 選 worker=mac-mini"
 }
 
 case "${1:-}" in
