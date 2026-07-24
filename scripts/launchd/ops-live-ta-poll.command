@@ -40,6 +40,7 @@ trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
 echo "=== launchd ops-live-ta-poll LOOP start $(date '+%Y-%m-%d %H:%M:%S') ==="
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
+export PYTHONUNBUFFERED=1
 cd "${ROOT}"
 
 if [[ -r "${ROOT}/.env" ]]; then

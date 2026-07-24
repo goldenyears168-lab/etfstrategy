@@ -166,10 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from order.fubon_session import connect_fubon
 
-        print("[INFO] 登入富邦 Neo（realtime）一次，之後迴圈重用 session…")
+        print("[INFO] 登入富邦 Neo（realtime）一次，之後迴圈重用 session…", flush=True)
         session = connect_fubon(realtime=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[ERROR] 富邦登入失敗：{exc}", file=sys.stderr)
+        print(f"[ERROR] 富邦登入失敗：{exc}", file=sys.stderr, flush=True)
         if conn is not None:
             conn.close()
         return 1
@@ -203,13 +203,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"[OK] round={n_rounds} n={len(rows)} "
                     f"at {datetime.now(_TPE).strftime('%H:%M:%S')} "
-                    f"quote={((rows[0].get('anchors') or {}).get('quote_source') if rows else None)}"
+                    f"quote={((rows[0].get('anchors') or {}).get('quote_source') if rows else None)}",
+                    flush=True,
                 )
             except Exception as exc:  # noqa: BLE001 — keep loop alive
-                print(f"[WARN] round failed: {exc}", file=sys.stderr)
+                print(f"[WARN] round failed: {exc}", file=sys.stderr, flush=True)
             elapsed = time.monotonic() - round_start
             time.sleep(max(0.0, float(args.interval_sec) - elapsed))
-        print(f"[INFO] 窗口結束，共 {n_rounds} 輪。")
+        print(f"[INFO] 窗口結束，共 {n_rounds} 輪。", flush=True)
         return 0
     finally:
         if conn is not None:
