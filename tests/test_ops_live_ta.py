@@ -20,6 +20,7 @@ from ops_live_ta import (
     fetch_yahoo_chart_quote,
     get_mom_1m_anchors,
     get_ta_30m_anchors,
+    idx_or_inside_at,
     last_closed_30m_window,
     load_holdings_from_db,
     next_auction,
@@ -60,6 +61,45 @@ def _fake_5m(
                 "close": px,
                 "volume": volume,
             }
+        )
+    return out
+
+
+def _fake_5m_fade_near_high(*, day: datetime, n: int = 30) -> list[dict]:
+    """Climb from 09:00 so last midday close sits on day high (fade temp=-1)."""
+    out: list[dict] = []
+    px = 100.0
+    for i in range(n):
+        ts = day.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(minutes=5 * i)
+        o = px
+        px = px * 1.004
+        out.append(
+            {
+                "ts": ts,
+                "open": o,
+                "high": px,
+                "low": min(o, px),
+                "close": px,
+                "volume": 1000.0,
+            }
+        )
+    return out
+
+
+def _fake_0050_or(*, day: datetime, n: int = 30, break_or: bool = False) -> list[dict]:
+    """0050-like 5m: flat inside OR, or break above OR after first 6 bars."""
+    out: list[dict] = []
+    for i in range(n):
+        ts = day.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(minutes=5 * i)
+        if i < 6:
+            o, c = 100.0, 100.2 if i % 2 == 0 else 99.8
+            hi, lo = 101.0, 99.0
+        elif break_or:
+            o, c, hi, lo = 101.5, 103.0, 103.5, 101.0
+        else:
+            o, c, hi, lo = 100.0, 100.0, 100.5, 99.5
+        out.append(
+            {"ts": ts, "open": o, "high": hi, "low": lo, "close": c, "volume": 1000.0}
         )
     return out
 
@@ -517,11 +557,51 @@ class TestOpsLiveTa(unittest.TestCase):
                     "label": "fade30m·偏弱",
                     "disclaimer_zh": "研究觀察",
                 },
+                "fade30_rule": "fade_idx_or_inside",
+                "idx_or_inside": True,
             },
         )
         self.assertTrue(st.anchors["ta_30m_ready"])
         self.assertEqual(st.anchors["ta_30m_bias"], "偏多")
         self.assertEqual(st.anchors["fade30_observe"]["temp"], -1)
+        self.assertEqual(st.anchors["fade30_rule"], "fade_idx_or_inside")
+        self.assertTrue(st.anchors["idx_or_inside"])
+
+    def test_idx_or_inside_at_true_and_false(self) -> None:
+        day = datetime(2026, 7, 23, tzinfo=_TPE)
+        asof = day.replace(hour=10, minute=55)
+        inside = _fake_0050_or(day=day, break_or=False)
+        broken = _fake_0050_or(day=day, break_or=True)
+        self.assertTrue(idx_or_inside_at(inside, asof=asof))
+        self.assertFalse(idx_or_inside_at(broken, asof=asof))
+        self.assertIsNone(idx_or_inside_at([], asof=asof))
+
+    def test_fade30_champion_requires_idx_or_inside(self) -> None:
+        day = datetime(2026, 7, 23, tzinfo=_TPE)
+        stock = _fake_5m_fade_near_high(day=day, n=30)
+        # now=11:35 → last closed 30m ends 11:30; thermo last bar ~11:25 (midday).
+        now = datetime(2026, 7, 23, 11, 35, tzinfo=_TPE)
+        bench_in = _fake_0050_or(day=day, break_or=False)
+        bench_out = _fake_0050_or(day=day, break_or=True)
+
+        snap_in = compute_ta_30m_snapshot(stock, now=now, bench_5m=bench_in)
+        self.assertTrue(snap_in["ta_30m_ready"])
+        self.assertEqual(snap_in["fade30_rule"], "fade_idx_or_inside")
+        self.assertTrue(snap_in["idx_or_inside"])
+        self.assertIsNotNone(snap_in["fade30_observe"])
+        assert snap_in["fade30_observe"] is not None
+        self.assertEqual(snap_in["fade30_observe"]["temp"], -1)
+        self.assertEqual(snap_in["fade30_observe"]["rule"], "fade_idx_or_inside")
+        self.assertIn("非下單", snap_in["fade30_observe"]["disclaimer_zh"])
+        self.assertIn("大盤OR未破", snap_in["ta_30m_note_zh"])
+
+        snap_out = compute_ta_30m_snapshot(stock, now=now, bench_5m=bench_out)
+        self.assertFalse(snap_out["idx_or_inside"])
+        self.assertIsNone(snap_out["fade30_observe"])
+
+        snap_miss = compute_ta_30m_snapshot(stock, now=now, bench_5m=None)
+        self.assertIsNone(snap_miss["idx_or_inside"])
+        self.assertIsNone(snap_miss["fade30_observe"])
 
 
 if __name__ == "__main__":

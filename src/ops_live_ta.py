@@ -12,13 +12,16 @@ Two modes (honest horizon — do **not** claim false precision):
 
 Also attaches **observe-only 30m TA** (last closed half-hour from 5m bars):
 return vs bar open, vs session VWAP, simple bias — not an Order signal.
-Optional research badge ``fade30_observe`` when ``fade_near_ext`` fires
-(stock-heterogeneous; do **not** claim ≥60% as a site guarantee).
+Research badge ``fade30_observe`` uses champion rule ``fade_idx_or_inside``:
+afternoon ``fade_near_ext`` **and** 0050 opening-range still intact
+(research OOS ~71%; stock-heterogeneous; do **not** claim live hit-rate /
+Order graduation). EMA/beta filters are intentionally omitted.
 
 **Data source (default: all Fubon Neo · ``.venv-fubon``)**
   1. ``intraday.quote`` → ``last_print`` / 昨收漲跌% · bid/ask
   2. ``intraday.candles(timeframe=1)`` → 1–2m short momentum (TTL ~45s)
   3. ``intraday.candles(timeframe=5)`` → 30m observe + fade30 (TTL ~90s)
+  4. 0050 5m (shared TTL cache) → ``idx_or_inside`` gate for fade30
   One ``connect_fubon(realtime=True)`` per poll (not per stock).
 
 Yahoo Chart is **off by default**. Enable only for emergency/debug via
@@ -99,6 +102,17 @@ _MOM_1M_CACHE: dict[str, tuple[float, list[float], dict[str, Any]]] = {}
 # 30m snap cache: sid → (fetched_at, anchors)
 _TA30M_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _TA30M_BIAS_EPS = 0.15  # % · quiet zone around flat
+# Champion fade30 gate · 0050 OR-inside (shared across ~19 stocks / poll).
+_FADE30_RULE_ID = "fade_idx_or_inside"
+_FADE30_BENCH_SID = "0050"
+_FADE30_BENCH_TTL_SEC = float(
+    os.environ.get("OPS_LIVE_TA_FADE30_BENCH_TTL", "120") or "120"
+)
+_FADE30_BENCH_CACHE: tuple[float, list[dict[str, Any]], dict[str, Any]] | None = None
+_FADE30_DISCLAIMER_ZH = (
+    "研究觀察·fade_idx_or_inside（fade∧0050 OR未破）；"
+    "OOS研究約71%·非保證·非下單訊號"
+)
 
 
 def _quote_backend() -> str:
@@ -879,11 +893,14 @@ def compute_ta_30m_snapshot(
     *,
     now: datetime | None = None,
     last_print: float | None = None,
+    bench_5m: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Pure observe-only 30m fields from session 5m bars (no network).
 
     Ready after first closed half-hour (~09:30) with enough 5m bars.
     Bias is descriptive (vs bar open + session VWAP), not a forecast.
+    Optional ``bench_5m`` (0050) gates research ``fade30_observe`` via
+    ``fade_idx_or_inside`` (fade_near_ext ∧ index OR intact).
     """
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
     base: dict[str, Any] = {
@@ -896,6 +913,8 @@ def compute_ta_30m_snapshot(
         "ta_30m_bar_end": None,
         "ta_30m_n_5m": 0,
         "fade30_observe": None,
+        "fade30_rule": _FADE30_RULE_ID,
+        "idx_or_inside": None,
     }
     mins = now.hour * 60 + now.minute
     if now.weekday() >= 5:
@@ -967,9 +986,11 @@ def compute_ta_30m_snapshot(
         "ta_30m_high": _round_px(hi),
         "ta_30m_low": _round_px(lo),
         "fade30_observe": None,
+        "fade30_rule": _FADE30_RULE_ID,
+        "idx_or_inside": None,
     }
 
-    # Optional research observe badge — never presented as Order / ≥60% guarantee.
+    # Research champion observe badge — never Order / never live hit-rate claim.
     try:
         from research.intraday_direction_thermometer import (  # noqa: WPS433
             Bar,
@@ -989,56 +1010,123 @@ def compute_ta_30m_snapshot(
             for b in session
             if b["ts"] < bar_end
         ]
+        asof = thermo_bars[-1].ts if thermo_bars else bar_end
+        inside = idx_or_inside_at(bench_5m or [], asof=asof)
+        out["idx_or_inside"] = inside
         layer = fade_near_ext_from_bars(thermo_bars, midday_only=True)
-        if layer.ready and layer.temp in (-1, 1):
+        fade_on = bool(layer.ready and layer.temp in (-1, 1))
+        # Champion: fade_near_ext ∧ 0050 OR-inside (unknown OR → no badge).
+        if fade_on and inside is True:
             out["fade30_observe"] = {
                 "temp": layer.temp,
                 "label": layer.label,
                 "action": layer.action,
                 "reason": layer.reason,
-                "disclaimer_zh": "研究觀察·fade_near_ext；異質性高·非全市場60%保證·非下單訊號",
+                "rule": _FADE30_RULE_ID,
+                "idx_or_inside": True,
+                "disclaimer_zh": _FADE30_DISCLAIMER_ZH,
             }
-            out["ta_30m_note_zh"] += "｜研究觀察 fade30"
+            out["ta_30m_note_zh"] += "｜研究觀察 fade30·大盤OR未破"
     except Exception:  # noqa: BLE001 — observe must not break poll
         pass
     return out
 
 
-def fetch_yahoo_5m_bars(stock_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Yahoo Chart v8 5m bars for today (lightweight vs yfinance)."""
-    meta: dict[str, Any] = {"ta_30m_source": None}
-    for symbol in _tw_yahoo_symbol_candidates(stock_id):
-        try:
-            resp = requests.get(
-                _YAHOO_CHART_URL.format(symbol=symbol),
-                params={"interval": "5m", "range": "1d", "includePrePost": "false"},
-                headers={"User-Agent": _YAHOO_UA},
-                timeout=12,
-            )
-        except requests.RequestException as exc:
-            meta["ta_30m_error"] = str(exc)[:200]
-            continue
-        if resp.status_code >= 400:
-            meta["ta_30m_error"] = f"http{resp.status_code}"
-            continue
-        try:
-            payload = resp.json()
-        except ValueError as exc:
-            meta["ta_30m_error"] = str(exc)[:200]
-            continue
-        results = ((payload.get("chart") or {}).get("result")) or []
-        if not results:
-            err = ((payload.get("chart") or {}).get("error")) or {}
-            if err:
-                meta["ta_30m_error"] = str(err)[:200]
-            continue
-        bars = _parse_chart_ohlcv(results[0])
-        if not bars:
-            meta["ta_30m_error"] = "empty_5m"
-            continue
-        meta["ta_30m_source"] = f"yahoo_chart:{symbol}:5m"
-        return bars, meta
-    return [], meta
+def idx_or_inside_at(
+    bench_5m: list[dict[str, Any]],
+    *,
+    asof: datetime,
+) -> bool | None:
+    """Whether bench (0050) close at ``asof`` is inside session opening range.
+
+    Mirrors research ``fade_idx_or_inside`` / TRACK_VS_MARKET: first
+    ``TA30M_OR_BARS`` session bars define OR; last bench close ≤ asof must
+    sit in [OR_lo, OR_hi]. Returns ``None`` when bars are insufficient.
+    """
+    if not bench_5m:
+        return None
+    try:
+        from research.intraday_direction_thermometer import (  # noqa: WPS433
+            Bar,
+            TA30M_OR_BARS,
+            opening_range_hl,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+    asof_tpe = asof.astimezone(_TPE)
+    day = asof_tpe.date()
+    bprev = [
+        Bar(
+            ts=b["ts"],
+            open=float(b["open"]),
+            high=float(b["high"]),
+            low=float(b["low"]),
+            close=float(b["close"]),
+            volume=float(b.get("volume") or 0.0),
+        )
+        for b in bench_5m
+        if b["ts"].astimezone(_TPE).date() == day
+        and (b["ts"].hour * 60 + b["ts"].minute) >= _CONT_OPEN_MIN
+        and b["ts"] <= asof_tpe
+    ]
+    if len(bprev) < TA30M_OR_BARS:
+        return None
+    or_hl = opening_range_hl(bprev)
+    if or_hl is None:
+        return None
+    or_hi, or_lo = or_hl
+    bc = bprev[-1].close
+    return bool(or_lo <= bc <= or_hi)
+
+
+def get_fade30_bench_5m(
+    *,
+    force_refresh: bool = False,
+    rest_stock: Any | None = None,
+    session: Any | None = None,
+    cache_ttl_sec: float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """0050 5m bars for fade30 OR gate · aggressive shared TTL cache."""
+    global _FADE30_BENCH_CACHE
+    ttl = _FADE30_BENCH_TTL_SEC if cache_ttl_sec is None else float(cache_ttl_sec)
+    cached = _FADE30_BENCH_CACHE
+    if (
+        not force_refresh
+        and cached is not None
+        and (time.time() - cached[0]) < ttl
+    ):
+        bars, meta = cached[1], dict(cached[2])
+        meta["fade30_bench_cached_age_sec"] = round(time.time() - cached[0], 1)
+        return list(bars), meta
+
+    meta: dict[str, Any] = {"fade30_bench": _FADE30_BENCH_SID}
+    bars: list[dict[str, Any]] = []
+    if rest_stock is not None or _quote_backend() == "fubon":
+        bars, fmeta = fetch_fubon_candles(
+            _FADE30_BENCH_SID,
+            timeframe="5",
+            rest_stock=rest_stock,
+            session=session,
+            gap_sec=0.0,
+        )
+        meta.update(fmeta)
+        if bars:
+            meta["fade30_bench_source"] = meta.get("fubon_candles_source") or "fubon"
+    if not bars and _yahoo_fallback_enabled():
+        bars, ymeta = fetch_yahoo_5m_bars(_FADE30_BENCH_SID)
+        meta.update(ymeta)
+        if bars:
+            meta["fade30_bench_source"] = ymeta.get("ta_30m_source") or "yahoo"
+            meta["fade30_bench_source_fallback"] = "yahoo"
+    if bars:
+        _FADE30_BENCH_CACHE = (time.time(), list(bars), dict(meta))
+    elif cached is not None:
+        # Stale reuse on miss — avoid hammering while poll continues.
+        bars, meta = list(cached[1]), dict(cached[2])
+        meta["fade30_bench_stale"] = True
+        meta["fade30_bench_cached_age_sec"] = round(time.time() - cached[0], 1)
+    return bars, meta
 
 
 def get_ta_30m_anchors(
@@ -1051,6 +1139,7 @@ def get_ta_30m_anchors(
     cache_ttl_sec: float | None = None,
     rest_stock: Any | None = None,
     session: Any | None = None,
+    bench_5m: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """30m observe anchors with TTL cache (default ~90s). Prefer Fubon 5m candles."""
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
@@ -1090,15 +1179,73 @@ def get_ta_30m_anchors(
             out["ta_30m_cached_age_sec"] = round(time.time() - cached[0], 1)
             out["fubon_candles_error"] = meta.get("fubon_candles_error") or "fetch_failed"
             return out
-    snap = compute_ta_30m_snapshot(bars_5m, now=now, last_print=last_print)
+
+    bench_meta: dict[str, Any] = {}
+    if bench_5m is None:
+        bench_5m, bench_meta = get_fade30_bench_5m(
+            rest_stock=rest_stock,
+            session=session,
+        )
+    snap = compute_ta_30m_snapshot(
+        bars_5m, now=now, last_print=last_print, bench_5m=bench_5m
+    )
     snap.update(meta)
+    if bench_meta:
+        for k in (
+            "fade30_bench",
+            "fade30_bench_source",
+            "fade30_bench_source_fallback",
+            "fade30_bench_cached_age_sec",
+            "fade30_bench_stale",
+        ):
+            if k in bench_meta:
+                snap[k] = bench_meta[k]
     if bars_5m or snap.get("ta_30m_ready"):
         _TA30M_CACHE[stock_id] = (time.time(), dict(snap))
     return snap
 
 
 def clear_ta_30m_cache() -> None:
+    global _FADE30_BENCH_CACHE
     _TA30M_CACHE.clear()
+    _FADE30_BENCH_CACHE = None
+
+
+def fetch_yahoo_5m_bars(stock_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Yahoo Chart v8 5m bars for today (lightweight vs yfinance)."""
+    meta: dict[str, Any] = {"ta_30m_source": None}
+    for symbol in _tw_yahoo_symbol_candidates(stock_id):
+        try:
+            resp = requests.get(
+                _YAHOO_CHART_URL.format(symbol=symbol),
+                params={"interval": "5m", "range": "1d", "includePrePost": "false"},
+                headers={"User-Agent": _YAHOO_UA},
+                timeout=12,
+            )
+        except requests.RequestException as exc:
+            meta["ta_30m_error"] = str(exc)[:200]
+            continue
+        if resp.status_code >= 400:
+            meta["ta_30m_error"] = f"http{resp.status_code}"
+            continue
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            meta["ta_30m_error"] = str(exc)[:200]
+            continue
+        results = ((payload.get("chart") or {}).get("result")) or []
+        if not results:
+            err = ((payload.get("chart") or {}).get("error")) or {}
+            if err:
+                meta["ta_30m_error"] = str(err)[:200]
+            continue
+        bars = _parse_chart_ohlcv(results[0])
+        if not bars:
+            meta["ta_30m_error"] = "empty_5m"
+            continue
+        meta["ta_30m_source"] = f"yahoo_chart:{symbol}:5m"
+        return bars, meta
+    return [], meta
 
 
 def fetch_yahoo_chart_quote(stock_id: str) -> tuple[float | None, dict[str, Any]]:
@@ -1546,6 +1693,8 @@ def build_live_ta_state(
                 "ta_30m_ready": False,
                 "ta_30m_note_zh": f"30m 暫不可用（{str(exc)[:80]}）；觀察用・非下單訊號。",
                 "fade30_observe": None,
+                "fade30_rule": _FADE30_RULE_ID,
+                "idx_or_inside": None,
             }
     anchors: dict[str, Any] = {
         "mode": mode,
@@ -1626,6 +1775,13 @@ def run_live_ta_poll(
             if batch_err:
                 fubon_connect_err = batch_err
                 print(f"[ops_live_ta] Fubon quote batch error: {batch_err}")
+            # Shared 0050 5m once / poll for fade30 OR gate (TTL cache).
+            try:
+                get_fade30_bench_5m(
+                    rest_stock=rest_stock, session=fubon_session or _sess
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[ops_live_ta] fade30 bench warn: {exc}")
 
     for i, (sid, name) in enumerate(pairs):
         # Prefer Fubon candle gap over Yahoo gap when on Fubon path.
@@ -1666,6 +1822,8 @@ def run_live_ta_poll(
                 "ta_30m_ready": False,
                 "ta_30m_note_zh": f"30m 暫不可用（{str(exc)[:80]}）；觀察用・非下單訊號。",
                 "fade30_observe": None,
+                "fade30_rule": _FADE30_RULE_ID,
+                "idx_or_inside": None,
             }
         state = build_live_ta_state(
             sid,
