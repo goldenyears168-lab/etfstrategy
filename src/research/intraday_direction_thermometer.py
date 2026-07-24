@@ -496,6 +496,92 @@ def rolling_beta_residual(
     return out
 
 
+# --- Short-horizon residual momentum (research · H3 · 1m bars) -------------
+# Live short-mom uses 1–2 completed 1m bars; H3 tests residual vs raw on
+# forward 5–15 minutes. Defaults are 1m-oriented (not fade30 / 5m).
+SHORT_MOM_BARS = 2
+SHORT_BETA_LOOKBACK = 30  # ~30m of 1-bar returns for β
+SHORT_RESID_EPS_PCT = 0.02  # quiet zone (% points) on 1–2m residual
+SHORT_MOM_EPS_PCT = 0.02
+
+
+def short_residual_mom_from_bars(
+    stock_prev: Sequence[Bar],
+    bench_prev: Sequence[Bar],
+    *,
+    mom_bars: int = SHORT_MOM_BARS,
+    beta_lookback: int = SHORT_BETA_LOOKBACK,
+    resid_eps_pct: float = SHORT_RESID_EPS_PCT,
+    mom_eps_pct: float = SHORT_MOM_EPS_PCT,
+    beta_eps: float = BETA_EPS,
+) -> dict[str, Any]:
+    """PIT short-mom + β-adjusted residual on completed bars (typically 1m).
+
+    Residual% = 100 * (r_s − β × r_b) over the last ``mom_bars`` closes.
+    Also returns raw stock / bench short-mom signs for baselines.
+    """
+    out: dict[str, Any] = {
+        "ready": False,
+        "mom_bars": int(mom_bars),
+        "raw_mom": 0,
+        "mkt_mom": 0,
+        "resid_mom": 0,
+        "resid_beta1_mom": 0,
+        "raw_pct": None,
+        "mkt_pct": None,
+        "resid_pct": None,
+        "resid_beta1_pct": None,
+        "beta": None,
+    }
+    mb = int(mom_bars)
+    if mb < 1:
+        return out
+    need = max(beta_lookback + 1, mb + 1)
+    if len(stock_prev) < need or len(bench_prev) < need:
+        return out
+    t_end = stock_prev[-1].ts
+    b_al = [b for b in bench_prev if b.ts <= t_end]
+    if len(b_al) < need:
+        return out
+    s0, s1 = stock_prev[-mb - 1].close, stock_prev[-1].close
+    b0, b1 = b_al[-mb - 1].close, b_al[-1].close
+    if not s0 or not b0:
+        return out
+    r_s = s1 / s0 - 1.0
+    r_b = b1 / b0 - 1.0
+    raw_pct = 100.0 * r_s
+    mkt_pct = 100.0 * r_b
+    beta_pack = rolling_beta_residual(
+        stock_prev,
+        b_al,
+        lookback=beta_lookback,
+        ret_bars=mb,
+        beta_eps=beta_eps,
+        resid_eps_pct=resid_eps_pct,
+    )
+    if not beta_pack.get("ready"):
+        return out
+    resid_pct = float(beta_pack["resid_pct"])
+    resid_b1 = raw_pct - mkt_pct  # fixed β=1 residual
+    out.update(
+        {
+            "ready": True,
+            "raw_pct": round(raw_pct, 4),
+            "mkt_pct": round(mkt_pct, 4),
+            "resid_pct": round(resid_pct, 4),
+            "resid_beta1_pct": round(resid_b1, 4),
+            "beta": beta_pack.get("beta"),
+            "raw_mom": _sign_eps(raw_pct, mom_eps_pct),
+            "mkt_mom": _sign_eps(mkt_pct, mom_eps_pct),
+            "resid_mom": _sign_eps(resid_pct, resid_eps_pct),
+            "resid_beta1_mom": _sign_eps(resid_b1, resid_eps_pct),
+            "beta_abs_ge1": beta_pack.get("beta_abs_ge1"),
+            "beta_abs_lt1": beta_pack.get("beta_abs_lt1"),
+        }
+    )
+    return out
+
+
 # --- Multi-factor ~30m bias (research · 2026-07-24) -------------------------
 # Horizon for evaluation: H=6 (~30m). Factors are PIT signed votes ∈ {-1,0,+1}.
 TA30M_HORIZON_BARS = 6

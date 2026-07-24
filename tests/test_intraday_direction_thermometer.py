@@ -14,6 +14,7 @@ from research.intraday_direction_thermometer import (
     fuse_ta30m_bias,
     or_fail_break_temp,
     rolling_beta_residual,
+    short_residual_mom_from_bars,
     swing_1h_from_bars,
     ta30m_factors_from_bars,
 )
@@ -237,6 +238,29 @@ class TestEmaBeta(unittest.TestCase):
         self.assertTrue(out["ready"])
         self.assertIsNotNone(out["beta"])
         self.assertIsNotNone(out["resid_pct"])
+
+    def test_short_residual_mom_ready_and_signs(self) -> None:
+        base = datetime(2026, 3, 2, 9, 0)
+        stock: list[Bar] = []
+        bench: list[Bar] = []
+        ps, pb = 100.0, 100.0
+        for i in range(50):
+            ts = base + timedelta(minutes=i)
+            # Last 2 bars: stock up hard while bench flat → residual long.
+            if i >= 48:
+                shock_s, shock_b = 0.004, 0.0001
+            else:
+                shock = 0.001 if i % 2 == 0 else -0.0005
+                shock_s, shock_b = shock * 1.2, shock
+            ps *= 1.0 + shock_s
+            pb *= 1.0 + shock_b
+            stock.append(Bar(ts=ts, open=ps, high=ps * 1.001, low=ps * 0.999, close=ps))
+            bench.append(Bar(ts=ts, open=pb, high=pb * 1.001, low=pb * 0.999, close=pb))
+        out = short_residual_mom_from_bars(stock, bench, mom_bars=2, beta_lookback=30)
+        self.assertTrue(out["ready"])
+        self.assertEqual(out["raw_mom"], 1)
+        self.assertEqual(out["resid_mom"], 1)
+        self.assertIsNotNone(out["beta"])
 
 
 if __name__ == "__main__":
