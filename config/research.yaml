@@ -4261,6 +4261,7 @@ topics:
     run_scripts:
       - scripts/research/run_intraday_direction_thermometer.py
       - scripts/research/run_trend3d_thermometer_backtest.py
+      - scripts/research/run_swing_1h_thermometer_backtest.py
     frozen_defaults:
       open_guard_bars: 6
       swing_ready_bars: 12
@@ -4272,19 +4273,40 @@ topics:
         statement: >
           開盤後 N=6～8 根5分K不追高，可降低追價單的後續1h負期望；
           1h波段層需 L≥6～12 根才顯示；三日層結合日K＋相對IX0001＋三大法人淨額。
-        status: proposed
+        status: testing
         adoptable_status: proposed
+      - id: H-THERMO-SWING1H
+        statement: >
+          Frozen swing_1h（斜率＋短溫）對後續≈60m 方向命中 OOS≥60%
+          （directed hit · temp≠0 · |fwd|≥0.05% · n≥500）。
+        status: rejected
+        evidence: reports/research/intraday_direction_thermometer/SWING_1H_EVAL.md
+        note: >
+          2026-07-24 Book：Primary OOS best≈48.4%（slope_only_L12 · n≈37k）；
+          baseline≈46.5%。MR 翻轉僅≈51–53%。未過閘。Hard-stop 再掃 L。
+      - id: H-THERMO-FADE30
+        statement: >
+          午盤贴近日高/日低之≈30m 均值回歸淡化（fade_near_ext）
+          OOS directed≥60%（H=6 · midday · IS-champion 參數）。
+        status: testing
+        evidence: reports/research/intraday_direction_thermometer/SWING_1H_EVAL.md
+        note: >
+          2026-07-24：OOS≈62.1% n≈1846；個股異質（2330/2454 驅動；
+          2303/0050/3189 弱）。非 Primary 60m；需 fresh holdout 才可談 overlay。
     do_not:
       - 未過閘寫入 strategy.yaml / Order live
       - 把溫度計當自動下單訊號
+      - 以 Secondary 30m 結果宣稱 Swing 1h / 60m 過閘
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: pending
+        G2_oos_holdout: pending  # Primary 60m failed; fade30m testing
         G3_regime_stratification: pending
         G4_rejection_registry: pending
         G5_frozen_spec: pending
-
+    notes: >
+      2026-07-24 Swing 1h Primary directed-hit OOS 未達 60%。詳見 SWING_1H_EVAL.md。
+      旁支 fade_near_ext_30m 過 60% 但異質性高，仍屬 research。
   second-disp-expert-pool-copytrade:
     title: 處置股專家池跟單策略
     status: active

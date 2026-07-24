@@ -193,7 +193,13 @@ def apply_open_guard(short: LayerOut, bars_elapsed: int, cfg: ThermoConfig) -> L
 
 
 def swing_1h_from_bars(prev: Sequence[Bar], cfg: ThermoConfig) -> LayerOut:
-    """~1h direction bias; ready only after swing_ready_bars."""
+    """~1h direction bias; ready only after swing_ready_bars.
+
+    Research note (2026-07-24): frozen momentum+short fusion has OOS directed
+    hit ≈46–48% on liquid 5m universe — below coin-flip usefulness. Kept for
+    observe snapshot continuity; see ``fade_near_ext_from_bars`` for the
+    stronger ~30m mean-reversion candidate (still research-only).
+    """
     n = len(prev)
     if n < cfg.swing_ready_bars:
         return LayerOut(
@@ -236,6 +242,114 @@ def swing_1h_from_bars(prev: Sequence[Bar], cfg: ThermoConfig) -> LayerOut:
             "horizon_bars": cfg.swing_horizon_bars,
             "slope_pct": round(100.0 * slope / w[0].close, 3) if w[0].close else None,
             "short_temp": st,
+        },
+    )
+
+
+# Research candidate (2026-07-24 IS-champion): ~30m fade at day extreme · midday
+FADE_LOOKBACK_BARS = 4
+FADE_READY_BARS = 8
+FADE_HORIZON_BARS = 6  # ≈30m @ 5m — NOT the primary Swing 1h (~60m) metric
+FADE_MIN_SLOPE_PCT = 0.3
+FADE_NEAR_TOL = 0.001  # within 0.1% of session high/low so far
+FADE_MIDDAY_START_HM = 10 * 60
+FADE_MIDDAY_END_HM = 12 * 60 + 30
+
+
+def fade_near_ext_from_bars(
+    prev: Sequence[Bar],
+    *,
+    lookback: int = FADE_LOOKBACK_BARS,
+    ready: int = FADE_READY_BARS,
+    min_slope_pct: float = FADE_MIN_SLOPE_PCT,
+    near_tol: float = FADE_NEAR_TOL,
+    midday_only: bool = True,
+    midday_start_hm: int = FADE_MIDDAY_START_HM,
+    midday_end_hm: int = FADE_MIDDAY_END_HM,
+) -> LayerOut:
+    """Mean-reversion fade when last close is near session extreme (research).
+
+    Signal (PIT): if close near day-high → temp=-1 (fade); near day-low → +1.
+    Requires lookback slope magnitude ≥ ``min_slope_pct``. Optional midday
+    clock filter. Horizon for evaluation is ``FADE_HORIZON_BARS`` (≈30m),
+    distinct from Swing 1h's 12-bar / ~60m primary metric.
+    """
+    n = len(prev)
+    if n < ready:
+        return LayerOut(
+            temp=None,
+            label="fade未就緒",
+            action="等滿就緒根數",
+            reason=f"需滿 {ready} 根5分K",
+            ready=False,
+            meta={"bars": n, "need": ready},
+        )
+    last = prev[-1]
+    hm = last.ts.hour * 60 + last.ts.minute
+    if midday_only and not (midday_start_hm <= hm <= midday_end_hm):
+        return LayerOut(
+            temp=0,
+            label="fade·非午盤窗",
+            action="非10:00–12:30不發 fade 訊號",
+            reason="midday_only",
+            ready=True,
+            meta={"hhmm": last.ts.strftime("%H:%M"), "midday_only": True},
+        )
+    L = min(lookback, n)
+    w = list(prev[-L:])
+    slope = w[-1].close - w[0].close
+    slope_pct = (100.0 * slope / w[0].close) if w[0].close else 0.0
+    if abs(slope_pct) < min_slope_pct:
+        return LayerOut(
+            temp=0,
+            label="fade·斜率不足",
+            action="觀望",
+            reason=f"|slope|={slope_pct:.3f}% < {min_slope_pct}%",
+            ready=True,
+            meta={"slope_pct": round(slope_pct, 3)},
+        )
+    day_hi = max(b.high for b in prev)
+    day_lo = min(b.low for b in prev)
+    near_hi = last.close >= day_hi * (1.0 - near_tol)
+    near_lo = last.close <= day_lo * (1.0 + near_tol)
+    if near_hi and not near_lo:
+        temp = -1
+        reason = "貼近日前高→偏空淡化"
+    elif near_lo and not near_hi:
+        temp = 1
+        reason = "貼近日前低→偏多反彈"
+    else:
+        return LayerOut(
+            temp=0,
+            label="fade·非極值",
+            action="觀望",
+            reason="收盤未單獨贴近日高或日低",
+            ready=True,
+            meta={
+                "day_hi": day_hi,
+                "day_lo": day_lo,
+                "near_tol": near_tol,
+                "slope_pct": round(slope_pct, 3),
+            },
+        )
+    return LayerOut(
+        temp=temp,
+        label=f"fade30m·{TEMP_LABELS[temp]}",
+        action={
+            1: "近低淡化空：反彈偏多（研究）",
+            -1: "近高淡化多：回落偏空（研究）",
+        }[temp],
+        reason=reason,
+        ready=True,
+        meta={
+            "lookback_bars": L,
+            "horizon_bars": FADE_HORIZON_BARS,
+            "slope_pct": round(slope_pct, 3),
+            "day_hi": day_hi,
+            "day_lo": day_lo,
+            "near_tol": near_tol,
+            "midday_only": midday_only,
+            "research_candidate": "fade_near_ext_30m",
         },
     )
 
