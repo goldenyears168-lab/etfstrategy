@@ -53,11 +53,15 @@ def _print_rows(rows: list[dict], disp: set[str]) -> None:
         qsrc = anchors.get("quote_source") or "?"
         ft3 = anchors.get("ft3_rel_20")
         conf = anchors.get("ft3_confirm")
+        t1 = anchors.get("ft3_rel_20_t1")
+        shift = anchors.get("ft3_shift_zh") or ""
         if ft3 is None:
             ft3_s = "ft3=—"
         else:
             flag = "OK" if conf else "SKIP"
-            ft3_s = f"ft3_rel_20={float(ft3):+.1%}({flag})"
+            t1_s = f" t1={float(t1):+.1%}" if t1 is not None else ""
+            sh = f" {shift}" if shift else ""
+            ft3_s = f"ft3_rel_20={float(ft3):+.1%}({flag}){t1_s}{sh}"
         print(
             f"{r['stock_id']} {r.get('stock_name') or ''} "
             f"mode={mode} px={r.get('last_print')} phase={r.get('phase')} "

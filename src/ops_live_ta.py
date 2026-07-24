@@ -19,7 +19,8 @@ Order graduation). EMA/beta filters are intentionally omitted.
 
 Chip confirm monitor（日更・DB）:
   ``ft3_rel_20`` = FT3 / Σ|F+IT| over last 20 trading days（ratio）.
-  Sign matches hard gate FT3>0；跨股可比。Not an Order signal.
+  ``ft3_rel_20_t1`` = same metric as of prior institutional day（轉折觀察）.
+  Sign of ``ft3_rel_20`` matches hard gate FT3>0；跨股可比。Not an Order signal.
 
 **Data source (default: all Fubon Neo · ``.venv-fubon``)**
   1. ``intraday.quote`` → ``last_print`` / 昨收漲跌% · bid/ask
@@ -124,7 +125,7 @@ _FT3_ABS_MIN_DAYS = 10
 _FT3_SOURCE = "finmind"
 _FT3_REL_TTL_SEC = float(os.environ.get("OPS_LIVE_TA_FT3_TTL", "1800") or "1800")
 _FT3_NOTE_ZH = (
-    "FT3/近20日Σ|F+IT|·>0＝法人確認通過·觀察用・非下單訊號"
+    "FT3/近20日Σ|F+IT|·當日>0＝確認通過；T-1 看轉折・觀察用・非下單訊號"
 )
 # sid → (fetched_at, anchors_dict)
 _FT3_REL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -1391,8 +1392,26 @@ def _empty_ft3_rel_anchors(*, note: str | None = None) -> dict[str, Any]:
         "ft3": None,
         "ft3_abs20": None,
         "ft3_asof": None,
+        "ft3_rel_20_t1": None,
+        "ft3_confirm_t1": None,
+        "ft3_asof_t1": None,
+        "ft3_rel_20_delta": None,
+        "ft3_shift_zh": None,
         "ft3_note_zh": note or _FT3_NOTE_ZH,
     }
+
+
+def _ft3_shift_label(confirm: bool | None, confirm_t1: bool | None) -> str | None:
+    """Human label for T-1 → T confirm transition (observe only)."""
+    if confirm is None or confirm_t1 is None:
+        return None
+    if (not confirm_t1) and confirm:
+        return "新確認"
+    if confirm_t1 and confirm:
+        return "延續"
+    if confirm_t1 and (not confirm):
+        return "轉弱"
+    return "持續未過"
 
 
 def ft3_rel_20_from_ft_series(
@@ -1423,12 +1442,12 @@ def compute_ft3_rel_20_anchors(
     conn: sqlite3.Connection | None,
     stock_id: str,
 ) -> dict[str, Any]:
-    """Load FinMind institutional rows and compute ``ft3_rel_20`` anchors."""
+    """Load FinMind institutional rows and compute ``ft3_rel_20`` (+ T-1) anchors."""
     empty = _empty_ft3_rel_anchors()
     if conn is None or not (stock_id or "").strip():
         return empty
     sid = stock_id.strip()
-    # Fetch enough calendar span for ~20+ trading days.
+    # Fetch enough calendar span for ~20+ trading days (+1 for T-1 window).
     try:
         rows = conn.execute(
             """
@@ -1437,7 +1456,7 @@ def compute_ft3_rel_20_anchors(
             FROM stock_institutional_daily
             WHERE stock_id = ? AND source = ?
             ORDER BY trade_date DESC
-            LIMIT 40
+            LIMIT 45
             """,
             (sid, _FT3_SOURCE),
         ).fetchall()
@@ -1450,21 +1469,47 @@ def compute_ft3_rel_20_anchors(
         (str(r[0]), float(r[1] or 0.0)) for r in reversed(rows)
     ]
     asof = chrono[-1][0]
-    rel, ft3, abs20 = ft3_rel_20_from_ft_series([v for _, v in chrono])
+    vals = [v for _, v in chrono]
+    rel, ft3, abs20 = ft3_rel_20_from_ft_series(vals)
+
+    rel_t1: float | None = None
+    asof_t1: str | None = None
+    if len(chrono) >= 2:
+        asof_t1 = chrono[-2][0]
+        rel_t1, _, _ = ft3_rel_20_from_ft_series(vals[:-1])
+
+    confirm = bool(rel > 0) if rel is not None else None
+    confirm_t1 = bool(rel_t1 > 0) if rel_t1 is not None else None
+    delta = (
+        round(rel - rel_t1, 6)
+        if rel is not None and rel_t1 is not None
+        else None
+    )
+
     if rel is None:
         return {
             **empty,
             "ft3": ft3,
             "ft3_abs20": abs20,
             "ft3_asof": asof,
+            "ft3_rel_20_t1": round(rel_t1, 6) if rel_t1 is not None else None,
+            "ft3_confirm_t1": confirm_t1,
+            "ft3_asof_t1": asof_t1,
+            "ft3_rel_20_delta": None,
+            "ft3_shift_zh": None,
             "ft3_note_zh": "法人樣本不足・ft3_rel_20 暫缺",
         }
     return {
         "ft3_rel_20": round(rel, 6),
-        "ft3_confirm": bool(rel > 0),
+        "ft3_confirm": confirm,
         "ft3": round(ft3, 2) if ft3 is not None else None,
         "ft3_abs20": round(abs20, 2) if abs20 is not None else None,
         "ft3_asof": asof,
+        "ft3_rel_20_t1": round(rel_t1, 6) if rel_t1 is not None else None,
+        "ft3_confirm_t1": confirm_t1,
+        "ft3_asof_t1": asof_t1,
+        "ft3_rel_20_delta": delta,
+        "ft3_shift_zh": _ft3_shift_label(confirm, confirm_t1),
         "ft3_note_zh": _FT3_NOTE_ZH,
     }
 

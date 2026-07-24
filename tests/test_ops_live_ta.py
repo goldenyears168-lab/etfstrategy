@@ -650,6 +650,16 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(a["ft3_asof"], "2026-06-20")
         # FT3 = 3*(100+50)=450; abs20 = 17*10 + 3*150 = 170+450=620; rel=450/620
         self.assertAlmostEqual(float(a["ft3_rel_20"]), 450.0 / 620.0, places=5)
+        self.assertIsNotNone(a["ft3_rel_20_t1"])
+        # T-1 series = days 0..18: last3 = 10+150+150=310; abs19 = 17*10+300=470
+        self.assertAlmostEqual(float(a["ft3_rel_20_t1"]), 310.0 / 470.0, places=5)
+        self.assertTrue(a["ft3_confirm_t1"])
+        self.assertEqual(a["ft3_shift_zh"], "延續")
+        self.assertAlmostEqual(
+            float(a["ft3_rel_20_delta"]),
+            450.0 / 620.0 - 310.0 / 470.0,
+            places=5,
+        )
         now = datetime(2026, 7, 24, 10, 0, tzinfo=_TPE)
         st = build_live_ta_state(
             "2330",
@@ -662,6 +672,7 @@ class TestOpsLiveTa(unittest.TestCase):
         )
         self.assertAlmostEqual(float(st.anchors["ft3_rel_20"]), 450.0 / 620.0, places=5)
         self.assertTrue(st.anchors["ft3_confirm"])
+        self.assertIn("ft3_rel_20_t1", st.anchors)
         conn.close()
 
 
