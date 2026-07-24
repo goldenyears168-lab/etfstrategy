@@ -35,6 +35,7 @@ class SongshanCopytradeOrderConfig:
     mega_path: Path
     hold_days: int
     submit_notify: bool
+    allow_pyramid: bool  # False = never rebuy symbol already submitted/filled/working
 
 
 def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
@@ -115,5 +116,10 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
         submit_notify=_env_flag(
             "ORDER_SONGSHAN_COPYTRADE_SUBMIT_EMAIL",
             "1" if raw.get("submit_notify", True) else "0",
+        ),
+        # Default off: no Songshan pyramid research adopted; block rebuy if already bought.
+        allow_pyramid=_env_flag(
+            "ORDER_SONGSHAN_COPYTRADE_ALLOW_PYRAMID",
+            "1" if raw.get("allow_pyramid", False) else "0",
         ),
     )

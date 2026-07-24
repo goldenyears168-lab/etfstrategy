@@ -110,6 +110,7 @@ strategies:
     market_type: intraday_odd  # 預算制預設零股；≥1000 股自動改 common
     user_def: ss5d
     hold_days: 7
+    allow_pyramid: false  # 已買過不重複；加碼規格未採納前保持 false
     submit_notify: true
     ledger: data/order/songshan_copytrade_ledger.json
     mega_path: reports/research/branch-footprint-screen/ab58_xMega_copytrade/mega_blacklist_v1.json
@@ -118,6 +119,7 @@ strategies:
     notes: >
       Research 冠軍路徑進 Order（2026-07-22）。預算制 10 萬零股（2026-07-24 改）。
       夜信尺同名；進場須 25m 非 fail。僅進場（hold_days 參數無自動出場；暫接受）。
+      本袖已 submitted/filled/working 的標的不重複買（allow_pyramid=false）。
       運維 SSOT：deploy/mac-mini/MIGRATION_PLAN.md §0。
       Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
 

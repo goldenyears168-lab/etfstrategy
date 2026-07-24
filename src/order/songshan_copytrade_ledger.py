@@ -35,7 +35,18 @@ _HANDLED_STATUSES = frozenset(
         "dry_run",
         "skipped_fail",
         "skipped_duplicate",
+        "skipped_already_bought",
         "submit_failed",
+    }
+)
+
+# Sleeve already owns / is buying this symbol → block another entry
+# (unless allow_pyramid; Songshan pyramid rules not adopted yet).
+_BOUGHT_STATUSES = frozenset(
+    {
+        "submitted",
+        "filled",
+        "working",
     }
 )
 
@@ -45,6 +56,16 @@ def already_handled(ledger: dict[str, Any], *, signal_date: str, symbol: str) ->
         if str(e.get("signal_date")) == signal_date and str(e.get("symbol")) == symbol:
             if str(e.get("status") or "") in _HANDLED_STATUSES:
                 return True
+    return False
+
+
+def symbol_already_bought(ledger: dict[str, Any], *, symbol: str) -> bool:
+    """True if this sleeve already submitted/holds ``symbol`` (any signal_date)."""
+    for e in ledger.get("entries") or []:
+        if str(e.get("symbol")) != symbol:
+            continue
+        if str(e.get("status") or "") in _BOUGHT_STATUSES:
+            return True
     return False
 
 

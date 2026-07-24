@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from order.songshan_copytrade_ledger import already_handled, append_entry
+from order.songshan_copytrade_ledger import (
+    already_handled,
+    append_entry,
+    symbol_already_bought,
+)
 from order.songshan_copytrade_order import evaluate_25m_nonfail
 from order.timed_limit_order import run_timed_limit_job
 
@@ -55,6 +59,36 @@ def test_ledger_submit_failed_burns_slot() -> None:
         },
     )
     assert already_handled(ledger, signal_date="2026-07-22", symbol="2492") is True
+
+
+def test_symbol_already_bought_blocks_new_signal_day() -> None:
+    """Same symbol on a later signal_date must not rebuy unless pyramid allowed."""
+    ledger: dict = {"entries": []}
+    assert symbol_already_bought(ledger, symbol="2492") is False
+    append_entry(
+        ledger,
+        {
+            "signal_date": "2026-07-20",
+            "entry_date": "2026-07-21",
+            "symbol": "2492",
+            "status": "submitted",
+            "quantity_shares": 500,
+        },
+    )
+    assert symbol_already_bought(ledger, symbol="2492") is True
+    assert symbol_already_bought(ledger, symbol="2330") is False
+    # Fail / reject do not count as bought
+    ledger2: dict = {"entries": []}
+    append_entry(
+        ledger2,
+        {"signal_date": "2026-07-22", "symbol": "2492", "status": "submit_failed"},
+    )
+    append_entry(
+        ledger2,
+        {"signal_date": "2026-07-22", "symbol": "2330", "status": "skipped_fail"},
+    )
+    assert symbol_already_bought(ledger2, symbol="2492") is False
+    assert symbol_already_bought(ledger2, symbol="2330") is False
 
 
 def test_resolve_quantity_from_budget() -> None:

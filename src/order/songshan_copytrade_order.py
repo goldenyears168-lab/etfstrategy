@@ -22,6 +22,7 @@ from order.songshan_copytrade_ledger import (
     append_entry,
     load_ledger,
     save_ledger,
+    symbol_already_bought,
 )
 
 _TZ = ZoneInfo("Asia/Taipei")
@@ -184,6 +185,23 @@ def process_songshan_copytrade_poll(
     ledger = load_ledger(cfg.ledger_path)
     if already_handled(ledger, signal_date=signal_date, symbol=symbol):
         payload["status"] = "already_handled"
+        return payload
+
+    # 已買過（本袖 submitted/filled/working）→ 不再重複，除非允許加碼（目前無採納規格）
+    if (not cfg.allow_pyramid) and symbol_already_bought(ledger, symbol=symbol):
+        row = {
+            "signal_date": signal_date,
+            "entry_date": session_date,
+            "symbol": symbol,
+            "status": "skipped_already_bought",
+            "reason": "sleeve_already_bought",
+            "allow_pyramid": False,
+            "at": datetime.now(tz=_TZ).isoformat(timespec="seconds"),
+        }
+        append_entry(ledger, row)
+        save_ledger(cfg.ledger_path, ledger)
+        payload["entries"].append(row)
+        payload["status"] = "skipped_already_bought"
         return payload
 
     # Live quote gate + submit
