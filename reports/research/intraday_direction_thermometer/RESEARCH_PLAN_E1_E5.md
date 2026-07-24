@@ -93,8 +93,8 @@ reports/research/intraday_direction_thermometer/
 | Date | Event |
 |------|-------|
 | 2026-07-24 | Plan frozen from PRO_METHODS_WEB_REVIEW §4 + MULTI_SIGNAL_70 gates；E1–E5 agents launched |
-| *(pending)* | TRACK_E* land → synthesis |
-| *(pending)* | Final keep/kill + 70% verdict |
+| 2026-07-24 | TRACK_E1…E5 landed；see `SYNTHESIS_E1_E5.md` |
+| 2026-07-24 | Final: **no new gate passer**；keep `fade_idx_or_inside` only；hard-stop volume/ADX stacks；**still no Order** |
 
 ---
 
