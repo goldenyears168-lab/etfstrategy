@@ -31,6 +31,11 @@ Research only · **未採納** · not Order / not `strategy.yaml`
 - IS champion (grid): `fade_idx_at_2s` · IS 75.11% · OOS 73.77%
 - Helps toward 70%? **NO — e3_full OOS 41.61% < idx 70.66% (Δ-29.05pp); stack thins or hurts**
 
+## Exploratory note（not claim）
+
+- Grid IS-top `fade_idx_at_2s` OOS **73.77%** (n=427) — gates_all=False (hit≥70∧n≥500=False; name_stab=False).
+- Higher point estimate than `fade_idx_or_inside` does **not** clear shared n/stability floors; do not treat as new champion.
+
 ## Gates（`e3_full` OOS）
 
 - `gate_oos_hit_ge70_n500`: **False**
