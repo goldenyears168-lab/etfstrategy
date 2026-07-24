@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# launchd：ops Live TA disposition poll · 盤中每 30–60s（plist StartInterval）
+# launchd：ops Live TA · 持倉∪extras · 盤中每 ~60s（plist StartInterval）
+# 處置 20 分撮合僅 OPS_LIVE_TA_DISPOSITION；其餘為連續競價短動能。
 # 僅 mini 安裝；Book 不裝 live launchd。
 
 set -euo pipefail

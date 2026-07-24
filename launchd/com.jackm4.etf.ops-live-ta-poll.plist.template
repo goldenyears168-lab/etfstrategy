@@ -13,16 +13,19 @@
 	<string>/tmp</string>
 	<key>EnvironmentVariables</key>
 	<dict>
+		<!-- extras only · universe = holdings ∪ these；處置撮合見 OPS_LIVE_TA_DISPOSITION -->
 		<key>OPS_LIVE_TA_STOCKS</key>
 		<string>2492:華新科</string>
+		<key>OPS_LIVE_TA_DISPOSITION</key>
+		<string>2492</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 每 45 秒；實際窗由 .command 過濾 -->
+	<!-- 每 60 秒；實際窗由 .command 過濾 -->
 	<key>StartInterval</key>
-	<integer>45</integer>
+	<integer>60</integer>
 	<key>ExitTimeOut</key>
-	<integer>120</integer>
+	<integer>180</integer>
 	<key>StandardOutPath</key>
 	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-live-ta-poll.launchd.log</string>
 	<key>StandardErrorPath</key>

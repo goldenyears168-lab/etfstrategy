@@ -93,6 +93,25 @@ def upsert_live_ta(row: dict[str, Any]) -> None:
     _post("ops_live_ta", body, prefer="return=minimal")
 
 
+def fetch_latest_ops_holdings_payload() -> dict[str, Any] | None:
+    """Latest ``ops_holdings`` row payload (service role · for Live TA universe)."""
+    if not supabase_ops_configured():
+        return None
+    resp = requests.get(
+        _rest("ops_holdings"),
+        headers=_headers(prefer="return=representation"),
+        params={"select": "asof,payload", "order": "asof.desc", "limit": "1"},
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"ops_holdings get failed: {resp.status_code} {resp.text[:400]}")
+    rows = resp.json()
+    if not isinstance(rows, list) or not rows:
+        return None
+    payload = rows[0].get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
 def insert_holdings(
     payload: dict[str, Any],
     *,

@@ -78,7 +78,7 @@ usage() {
     holdings-branch-sell-monitor  週一至五 20:10（富邦持倉×專家分點淨賣預警 · 不下單）
     branch-tape-prewarm        週一至五 18:30（分點 tape 補檔 POOLS∪持倉 · 讓 20:00 起純讀 DB · 不下單）
     crash-thermometer-daily    週一至五 09:00（大跌溫度計 · 加權8家+共識 · email · 不下單）
-    ops-live-ta-poll           週一至五 08:50–13:35 每 45 秒（處置 Live TA → ops.live_ta · 不下單）
+    ops-live-ta-poll           週一至五 08:50–13:35 每 60 秒（持倉 Live TA → ops.live_ta · 不下單）
     ops-console-evening-sync   週一至五 20:40（ops.snapshots／sleeve／holdings 上牆 · 不下單）
 
   已退役（不再安裝；手動仍可用 scripts/launchd/*.command 或 1630收盤雷達）：
