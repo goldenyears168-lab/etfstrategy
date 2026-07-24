@@ -43,6 +43,7 @@ from ops_console_sync import (
     delete_live_ta_except,
     fetch_latest_ops_holdings_payload,
     now_tpe_iso,
+    supabase_ops_configured,
     upsert_live_ta,
 )
 
@@ -1304,6 +1305,38 @@ def _merge_pairs(*groups: list[tuple[str, str | None]]) -> list[tuple[str, str |
     return sorted(merged.items(), key=lambda x: x[0])
 
 
+def load_live_ta_watch_from_ops() -> list[tuple[str, str | None]]:
+    """Website-managed extras from ``ops.live_ta_watch`` / ``ops_live_ta_watch``."""
+    if not supabase_ops_configured():
+        return []
+    try:
+        from ops_console_sync import _headers, _rest
+
+        resp = requests.get(
+            _rest("ops_live_ta_watch"),
+            headers=_headers(prefer="return=representation"),
+            params={"select": "stock_id,stock_name", "order": "stock_id"},
+            timeout=30,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    if resp.status_code >= 400:
+        return []
+    rows = resp.json()
+    if not isinstance(rows, list):
+        return []
+    out: list[tuple[str, str | None]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        sid = str(r.get("stock_id") or "").strip()
+        if not sid:
+            continue
+        name = str(r.get("stock_name") or "").strip() or None
+        out.append((sid, name))
+    return out
+
+
 def resolve_live_ta_universe(
     conn: sqlite3.Connection | None = None,
     *,
@@ -1312,15 +1345,18 @@ def resolve_live_ta_universe(
     live_holdings: list[tuple[str, str | None]] | None = None,
     fubon_session: Any | None = None,
 ) -> list[tuple[str, str | None]]:
-    """Current holdings ∪ optional ``OPS_LIVE_TA_STOCKS`` extras.
+    """Current holdings ∪ website watch ∪ ``OPS_LIVE_TA_STOCKS`` extras.
 
     Priority for holdings (do **not** union stale sources):
       1. ``live_holdings`` if provided
       2. live Fubon session inventories if ``fubon_session`` given
       3. ``ops.holdings`` (cloud · evening／manual sync)
       4. local ``order_holdings_snapshot`` fallback only if ops empty
+
+    Then merge ``ops.live_ta_watch`` (website) + env/CLI extras.
     """
-    extras = parse_stock_list(extras_raw, default_if_empty=False)
+    env_extras = parse_stock_list(extras_raw, default_if_empty=False)
+    web_extras = load_live_ta_watch_from_ops()
     primary: list[tuple[str, str | None]] = []
     if live_holdings is not None:
         primary = list(live_holdings)
@@ -1330,7 +1366,7 @@ def resolve_live_ta_universe(
         primary = load_holdings_from_ops()
     if not primary:
         primary = load_holdings_from_db(conn)
-    merged = _merge_pairs(primary, extras)
+    merged = _merge_pairs(primary, web_extras, env_extras)
     return merged if merged else list(_DEFAULT_STOCKS)
 
 
