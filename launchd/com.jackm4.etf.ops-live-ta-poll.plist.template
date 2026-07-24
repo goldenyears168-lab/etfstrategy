@@ -21,9 +21,51 @@
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 每 15 秒；實際窗由 .command 過濾 · 價用 Yahoo Chart 輕量 quote -->
-	<key>StartInterval</key>
-	<integer>15</integer>
+	<!-- 週一至五 08:50 觸發一次；腳本 --loop 跑到 13:35（一登入＋進程內 TTL） -->
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key>
+			<integer>1</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>50</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key>
+			<integer>2</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>50</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key>
+			<integer>3</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>50</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key>
+			<integer>4</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>50</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key>
+			<integer>5</integer>
+			<key>Hour</key>
+			<integer>8</integer>
+			<key>Minute</key>
+			<integer>50</integer>
+		</dict>
+	</array>
+	<!-- bootout 時等待長駐行程結束 -->
 	<key>ExitTimeOut</key>
 	<integer>120</integer>
 	<key>StandardOutPath</key>

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# launchd：ops Live TA · 持倉∪extras · 盤中每 ~15s（plist StartInterval）
-# 處置 20 分撮合僅 OPS_LIVE_TA_DISPOSITION；其餘為連續競價短動能。
-# 現價／漲跌%＝富邦 Neo realtime marketdata（Fugle quote）；失敗才 Yahoo。
-# 1–2m 短動能與 30m TA 仍多半來自 Yahoo bars（見 anchors.bar_source）。
-# 必須用 .venv-fubon（Neo SDK 3.8–3.13）。僅 mini 安裝；Book 不裝 live launchd。
+# launchd：ops Live TA · 長駐迴圈（週一至五 08:50 觸發一次，腳本跑到 13:35）
+# 一輪登入富邦，進程內 TTL（1m≈45s／5m≈90s）才真正生效；現價仍約每 15s。
+# Universe = 富邦持倉同步（SQLite∪ops.holdings）∪ OPS_LIVE_TA_STOCKS extras。
+# 處置 20 分撮合僅 OPS_LIVE_TA_DISPOSITION。必須 .venv-fubon。僅 mini。
 
 set -euo pipefail
 
@@ -16,27 +15,29 @@ mkdir -p "${ROOT}/logs/intraday"
 exec >>"${LAUNCHD_LOG}" 2>&1
 
 WD="$(date '+%u')"
-H=$((10#$(date '+%H')))
-M=$((10#$(date '+%M')))
 if [[ "${WD}" -gt 5 ]]; then
   echo "skip: weekend $(date '+%Y-%m-%d %H:%M:%S')"
   exit 0
 fi
-# 08:50–13:35 提醒窗（含開盤前）
-if [[ "${H}" -lt 8 ]] || [[ "${H}" -gt 13 ]]; then
-  echo "skip: outside window $(date '+%Y-%m-%d %H:%M:%S')"
-  exit 0
-fi
-if [[ "${H}" -eq 8 && "${M}" -lt 50 ]]; then
-  echo "skip: before 08:50 $(date '+%Y-%m-%d %H:%M:%S')"
-  exit 0
-fi
-if [[ "${H}" -eq 13 && "${M}" -gt 35 ]]; then
-  echo "skip: after 13:35 $(date '+%Y-%m-%d %H:%M:%S')"
-  exit 0
-fi
 
-echo "=== launchd ops-live-ta-poll $(date '+%Y-%m-%d %H:%M:%S') ==="
+# Portable lock (macOS often has no flock) · avoid double long-running sessions
+LOCK_DIR="${ROOT}/logs/intraday/ops-live-ta-poll.lockdir"
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  # Stale lock: if no live python loop, reclaim
+  if ! pgrep -f "run_ops_live_ta_poll.py --loop" >/dev/null 2>&1; then
+    rmdir "${LOCK_DIR}" 2>/dev/null || true
+    mkdir "${LOCK_DIR}" 2>/dev/null || {
+      echo "skip: already running $(date '+%Y-%m-%d %H:%M:%S')"
+      exit 0
+    }
+  else
+    echo "skip: already running $(date '+%Y-%m-%d %H:%M:%S')"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+
+echo "=== launchd ops-live-ta-poll LOOP start $(date '+%Y-%m-%d %H:%M:%S') ==="
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
 cd "${ROOT}"
@@ -50,7 +51,6 @@ if [[ -r "${ROOT}/.env" ]]; then
   set -e
 fi
 
-# Prefer Fubon Neo venv; fall back to .venv only if missing (Yahoo-only then).
 PY="${ROOT}/.venv-fubon/bin/python"
 if [[ ! -x "${PY}" ]]; then
   echo "warn: missing ${PY} · fallback .venv (Yahoo quotes)"
@@ -62,4 +62,18 @@ if [[ ! -x "${PY}" ]]; then
   exit 1
 fi
 
-exec "${PY}" "${ROOT}/scripts/order/run_ops_live_ta_poll.py"
+INTERVAL="${OPS_LIVE_TA_INTERVAL_SEC:-15}"
+START_TIME="${OPS_LIVE_TA_START:-08:50:00}"
+END_TIME="${OPS_LIVE_TA_END:-13:35:00}"
+
+set +e
+"${PY}" "${ROOT}/scripts/order/run_ops_live_ta_poll.py" \
+  --loop \
+  --interval-sec "${INTERVAL}" \
+  --start-time "${START_TIME}" \
+  --end-time "${END_TIME}"
+EXIT=$?
+set -e
+
+echo "=== launchd ops-live-ta-poll LOOP end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+exit "${EXIT}"

@@ -62,7 +62,7 @@
 
 | 腳本 | 用途 | mini 自動 |
 |------|------|-----------|
-| `scripts/order/run_ops_live_ta_poll.py` | 持倉 Live TA：現價＝富邦 realtime（失敗→Yahoo）；30m／1–2m bars 仍多半 Yahoo → `ops.live_ta` | `com.jackm4.etf.ops-live-ta-poll`（08:50–13:35 · 15s · `.venv-fubon`） |
+| `scripts/order/run_ops_live_ta_poll.py` | 持倉 Live TA：現價／短動能／30m＝富邦 Neo → `ops.live_ta` | `com.jackm4.etf.ops-live-ta-poll`（週一至五 **08:50 觸發一次** · `--loop` 至 13:35 · 現價≈15s · 一登入 · `.venv-fubon`） |
 | `scripts/order/write_ops_console_snapshot.py` | watch／risk／thermo／branches／today → `ops.snapshots`（可 `--also-digest`） | `com.jackm4.etf.ops-console-evening-sync`（20:40） |
 | `scripts/order/write_ops_sleeve_status.py` | `order.yaml`+env → `ops.sleeve_status` | 同上 20:40 |
 | `scripts/order/run_ops_holdings_sync.py` | 富邦持倉 → `ops.holdings` | 同上 20:40（`.venv-fubon`） |
