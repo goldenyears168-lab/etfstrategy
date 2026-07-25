@@ -36,6 +36,11 @@ from research.expert_pool_pattern_risk import (  # noqa: E402
     detect_pattern_risk,
     format_pattern_risk_lines,
 )
+from research.expert_pool_stage_quality import (  # noqa: E402
+    detect_stage_quality,
+    flag_enabled as stage_quality_flag_enabled,
+    format_stage_quality_lines,
+)
 from research.expert_pool_yellow_annotation import (  # noqa: E402
     detect_top10_light2_yellow,
     eligible_sid as yellow_eligible_sid,
@@ -1025,6 +1030,7 @@ def format_alert_body(
     include_trades: bool = True,
     yellow: dict | None = None,
     pattern_risk: dict | None = None,
+    stage_quality: dict | None = None,
     include_ops_ref: bool = True,
     w0_hard: dict | None = None,
 ) -> str:
@@ -1077,6 +1083,7 @@ def format_alert_body(
         lines.append("")
     lines += yellow_annotation_lines(yellow)
     lines += format_pattern_risk_lines(pattern_risk)
+    lines += format_stage_quality_lines(stage_quality)
     # Sell annotation only when caller passes w0（綠燈主信附註；禁止 sell-only 寄信）
     lines += format_w0_hard_lines(w0_hard)
     lines += format_entry_hint(sig_close=sig_close, sma5=sma5)
@@ -1250,6 +1257,13 @@ def run_one(
     w0 = detect_w0_hard(conn, spec, asof)
     if w0:
         print(f"[{spec.stock_id}] W0_hard n={w0['n_hard']} (annotate only if green mail)")
+    stage_quality = None
+    if email_hits and stage_quality_flag_enabled():
+        stage_quality = detect_stage_quality(conn, stock_id=spec.stock_id, asof=asof)
+        print(
+            f"[{spec.stock_id}] stage_quality="
+            f"{(stage_quality or {}).get('ta_quality', 'n/a')} (research-only)"
+        )
     body = format_alert_body(
         spec=spec,
         asof=asof,
@@ -1260,6 +1274,7 @@ def run_one(
         registry=registry,
         yellow=yellow,
         pattern_risk=pattern_risk,
+        stage_quality=stage_quality,
         # 僅綠燈主訊號信附註；禁止 sell-only 寄信（H_EXPERT_SELL_OBS_DESIGN）
         w0_hard=w0 if email_hits else None,
     )
@@ -1400,6 +1415,11 @@ def simulate_signal_emails(
                 asof=asof,
                 today_core_events=events_today,
             )
+            stage_quality = (
+                detect_stage_quality(conn, stock_id=spec.stock_id, asof=asof)
+                if stage_quality_flag_enabled()
+                else None
+            )
             w0 = detect_w0_hard(conn, spec, asof)
             body = format_alert_body(
                 spec=spec,
@@ -1411,6 +1431,7 @@ def simulate_signal_emails(
                 registry=registry,
                 yellow=yellow,
                 pattern_risk=pattern_risk,
+                stage_quality=stage_quality,
                 w0_hard=w0 if email_hits else None,
             )
             subject = signal_subject(spec=spec, asof=asof, registry=registry)

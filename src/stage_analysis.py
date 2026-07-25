@@ -81,24 +81,37 @@ def daily_to_weekly(df: pd.DataFrame) -> pd.DataFrame:
     return weekly
 
 
-def classify_weinstein_stage(df: pd.DataFrame) -> dict[str, Any]:
-    """Classify Weinstein stage (1–4) from daily OHLCV via weekly 30-week SMA."""
+def classify_weinstein_stage(
+    df: pd.DataFrame,
+    *,
+    ma_period: int = WEEKLY_MA_PERIOD,
+    slope_lookback: int = WEEKLY_SLOPE_LOOKBACK,
+) -> dict[str, Any]:
+    """Classify Weinstein stage (1–4) from daily OHLCV via weekly SMA.
+
+    Default ``ma_period=30`` is the classic Weinstein 30-week MA (SSOT for
+    research gates / watch ``weinstein_stage``). Pass ``ma_period=10`` for a
+    faster diagnostic cycle (``stage_fast``) — do **not** overwrite the 30W
+    field in production annotations.
+    """
     weekly = daily_to_weekly(df)
-    min_bars = WEEKLY_MA_PERIOD + WEEKLY_SLOPE_LOOKBACK + 8
+    min_bars = ma_period + slope_lookback + 8
     if len(weekly) < min_bars:
         return {
             "stage": 0,
             "stage_name": STAGE_NAMES[0],
+            "ma_period": ma_period,
+            "slope_lookback": slope_lookback,
             "error": f"Insufficient weekly data (need {min_bars}+ bars)",
         }
 
     close = weekly["Close"]
     low = weekly["Low"]
-    ma = close.rolling(WEEKLY_MA_PERIOD, min_periods=WEEKLY_MA_PERIOD).mean()
+    ma = close.rolling(ma_period, min_periods=ma_period).mean()
 
     price = float(close.iloc[-1])
     ma_now = float(ma.iloc[-1])
-    ma_prev = float(ma.iloc[-1 - WEEKLY_SLOPE_LOOKBACK])
+    ma_prev = float(ma.iloc[-1 - slope_lookback])
     ma_slope_pct = (ma_now - ma_prev) / ma_prev * 100.0 if ma_prev else 0.0
     extension_pct = (price - ma_now) / ma_now * 100.0 if ma_now else 0.0
 
@@ -114,7 +127,7 @@ def classify_weinstein_stage(df: pd.DataFrame) -> dict[str, Any]:
     ma_flat = not ma_rising and not ma_falling
     price_above = price > ma_now
 
-    # Weinstein Ch.2 rules — weekly 30W MA + lifecycle structure
+    # Weinstein Ch.2 rules — weekly MA + lifecycle structure
     if not price_above and ma_falling:
         stage: Stage = 4
     elif not price_above and extension_pct < -3.0:
@@ -137,15 +150,24 @@ def classify_weinstein_stage(df: pd.DataFrame) -> dict[str, Any]:
         "stage": stage,
         "stage_name": STAGE_NAMES[stage],
         "price": round(price, 4),
-        "ma30": round(ma_now, 4),
+        "ma30": round(ma_now, 4),  # legacy key (value = MA of ma_period)
+        "ma": round(ma_now, 4),
+        "ma_period": ma_period,
+        "slope_lookback": slope_lookback,
         "ma_slope_pct": round(ma_slope_pct, 2),
         "extension_pct": round(extension_pct, 2),
         "higher_lows": higher_lows,
-        "price_above_ma30": price_above,
+        "price_above_ma30": price_above,  # legacy key
+        "price_above_ma": price_above,
         "ma_rising": ma_rising,
         "ma_falling": ma_falling,
         "weekly_bars": len(weekly),
     }
+
+
+def classify_weinstein_stage_fast(df: pd.DataFrame) -> dict[str, Any]:
+    """10-week MA diagnostic cycle (``stage_fast``). Does not replace 30W SSOT."""
+    return classify_weinstein_stage(df, ma_period=10)
 
 
 def ix_stage_to_trend_posture(

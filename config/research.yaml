@@ -422,6 +422,468 @@ topics:
       非隔日均值。F-α 掃描見 reports/research/chip-overlays/coil_release/。
       Reject：Lift 門檻未過；勿寫進日報綠燈。與 RRG 蓄力帶、2492 surge-branch 邊界見 Track F。
 
+  # ── 2492 華新科 · 籌碼–價格背離／回歸（2026-07-25）──
+  # Report: reports/research/chip-overlays/2492_knowledge/chip_price_divergence/REPORT.md
+  2492-chip-price-divergence:
+    title: 華新科 · 籌碼變動 vs 價格變動回歸／背離（Track 0–3）
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/2492_knowledge/chip_price_divergence
+    run_scripts:
+      - scripts/research/run_2492_chip_price_divergence.py
+    split_spec: single_stock_oos_2026
+    hypotheses:
+      - id: H-A
+        statement: >
+          價格低於「籌碼回歸線」（PIT 殘差 ≤P20）＝便宜＝潛在買點，OOS fwd5 單調占優
+        status: superseded  # 由 chip-price-divergence-v2 推翻：v1 方法有誤（見 v2 REPORT §0）
+      - id: H-B
+        statement: >
+          新轉確認（未過→通過）∧ 兩日價弱 → OOS fwd5 med excess ≥ +1.5pp 且 n≥30
+        status: rejected  # OOS n=5（過少）且 excess −5.7pp；判 REJECT/INSUFFICIENT
+      - id: H-C
+        statement: >
+          確認持續（confirm ∧ confirm_{T-1}）= 續航，勝過「便宜回歸」
+        status: rejected  # v2 多股複核：persistence IS 為負、OOS 正 = regime 假象
+    context: >
+      v1（單股 2492）結論已由 `chip-price-divergence-v2` 取代。v1 六個方法缺陷：日對日 Δ 回歸而非
+      累積籌碼線結構、未相對市場、在背離當日進場、單一 melt-up 股 OOS 僅 130 日、未測 persistence、
+      無純價格對照組。保留本條目僅供方法對照，勿引用其數字。FT=外資+投信。
+
+  # ── 籌碼×價格背離 v2 · 相對市場 · 167 檔複核（2026-07-25）──
+  chip-price-divergence-v2:
+    title: 籌碼累積線 vs 價格結構背離 · 相對市場 · 多股
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/divergence_v2
+    run_scripts:
+      - scripts/research/run_chip_price_divergence_v2.py
+    split_spec: universe167_is2019_2025_oos2026
+    hypotheses:
+      - id: H-1
+        statement: >
+          價格創 20 日新低但累積相對籌碼線未破底（底背離），在同為「價格新低」的日子中
+          xfwd20 超額報酬占優，且 IS／OOS 同號
+        status: supported  # 價差 IS +0.60pp／OOS +3.20pp・勝率 65.6% vs 55.7%；6/8 年為正
+      - id: H-2
+        statement: >
+          跌價日中相對籌碼為買方者，優於相對籌碼為賣方者
+        status: supported  # 價差 IS +0.29pp／OOS +1.59pp；6/8 年為正・廣度 59.4%
+      - id: H-3
+        statement: >
+          頂背離（價創高、籌碼線未創高）可預測相對弱勢
+        status: rejected  # 扣掉「價格 20 日新高」對照後 OOS lift −0.24pp = 純動能
+      - id: H-4
+        statement: >
+          實務教學的「等背離結束＋量增價漲再進場」優於在弱勢日直接進場
+        status: rejected  # OOS 比量增上漲日對照低 2.73pp・IS 亦為負
+      - id: H-5
+        statement: >
+          連續 3／5 日相對買超（flow persistence）或「籌碼進＋融資減」鎖碼可獨立預測
+        status: rejected  # IS 皆為負、OOS 才轉正 = 2026 regime 假象
+    context: >
+      修正 v1 六缺陷後，使用者原始直覺（價格比籌碼弱＝潛在買點）**成立但幅度小**：
+      這是橫斷面排序濾網等級（跨股廣度僅 59.4%），不足以當單股觸發或 Live TA 色階。
+      2022 空頭年價差翻負（−0.11），效果逐年放大（2023 +0.67 → 2026 +3.20）表示近年
+      數字含高分散多頭紅利，合理預期應取 IS 的 +0.3~0.7pp。上線前缺：成本／流動性過濾、
+      與現有 sleeve 相關性、空頭年開關。決定性方法論：所有籌碼訊號都必須對**配對純價格
+      對照組**測 lift，否則會把動能誤判成籌碼發現（H-3 即為此例）。
+
+  # ── 2492 華新科 · 訂單流價格發現／未反映資訊（2026-07-25）──
+  2492-chip-price-impact-v3:
+    title: 華新科籌碼×價格 · Flow innovation／價格衝擊／環境條件
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2492_knowledge/price_impact_v3
+    run_scripts:
+      - scripts/research/run_2492_chip_price_impact_v3.py
+    split_spec: annual_walk_forward_2022_2026_purged
+    hypotheses:
+      - id: H-PI1
+        statement: 法人淨流與華新科同日盤中價格發現呈中高度正相關
+        status: supported  # FT vs intraday Spearman=0.523；close-to-close β超額=0.481
+      - id: H-PI2
+        statement: 法人淨流可不分環境直接預測華新科 T+1／T+5 方向
+        status: rejected  # 全期 fwd IC≈0.05；完整模型 WFA rank IC T+1=.022/T+5=.035
+      - id: H-PI3
+        statement: 高成交環境下，法人流的短期領先關係高於低成交環境
+        status: supported  # hot fwd1 IC=.116／fwd5=.094；cold =−.047／−.014
+      - id: H-PI4
+        statement: 高成交環境的 FT 高尾相對低尾可作短線相對強弱排序
+        status: supported  # H1 med spread +0.60pp (7/9年正)；H5 +1.01pp (6/9年正)
+      - id: H-PI5
+        statement: 分點多席訊號既有 raw n 可視為獨立樣本數
+        status: rejected  # H7 OOS raw n=17/24，但重疊聚類後均僅 8 episodes；CI 跨 0
+    context: >
+      依 Kyle／Hasbrouck／Chordia 與 TWSE marketable order-imbalance 文獻重構：
+      分離外資／投信，以淨買 NTD÷前20日 ADV 正規化，rolling AR(5) 取不可預期流，
+      rolling 價格衝擊分離已反映與未反映部分；固定年度 walk-forward，禁止以同日相關冒充預測。
+      華新科籌碼的高參考價值主要在「同日價格發現」與 hot-market 相對強弱／低流否決，
+      不是每日獨立買點。公開日資料缺 marketable/aggressive order、成交方向、母單與盤中時序，
+      因此不能完整複製學術微結構研究。分點融合仍 research only，重疊 episode 有效樣本過薄。
+
+  # ── 跨股外資分點 bakeoff · 167 檔（2026-07-25）──
+  foreign-desk-universe-bakeoff:
+    title: 外資券商分點跨股 vs 官方外資
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/foreign_desk_universe
+    run_scripts:
+      - scripts/research/run_foreign_desk_universe_bakeoff.py
+    split_spec: universe167_branch2022_oos2026
+    hypotheses:
+      - id: H-U1
+        statement: 存在單一白名單外資席，跨股 IS 買日 lift≥+0.3pp、OOS 同號、廣度≥55%
+        status: rejected  # 全數 WEAK／INSUFFICIENT；無人 KEEP
+      - id: H-U2
+        statement: 摩通 8440 或摩士 1470 的跨股買日 lift 優於官方外資
+        status: rejected  # 官方 +0.07；摩士 −0.01；摩通 −0.05
+      - id: H-U3
+        statement: 摩士／高盛在單股 IC 上打贏官方的股票比例 ≥55%
+        status: rejected  # beat_foreign_pct 最高 49.7%
+      - id: H-U4
+        statement: 官方外資作為基線，IS 買日 lift>0 且廣度 IC>0 ≥60%
+        status: weak  # lift +0.07 · 廣度 64.4% · 未達 KEEP 的 +0.3 門檻
+    context: >
+      延續 2492 單股 bakeoff。白名單 8 席、固定 β=1.15×IX0001、月切塊載入分點。
+      2492「摩通略優」不外推：跨股後官方外資買日 lift 仍是最乾淨基線；分點 IC 正但
+      sign>0 lift 常為負（微幅買超噪音）。不採納；分點 alpha 應回本土專家池而非外資席賽馬。
+
+  # ── 2492 · 外資分點 vs 官方外資 bakeoff（2026-07-25）──
+  2492-foreign-desk-bakeoff:
+    title: 華新科 · 外資券商分點 vs 官方外資預測力
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/2492_knowledge/foreign_desk_bakeoff
+    run_scripts:
+      - scripts/research/run_2492_foreign_desk_bakeoff.py
+    split_spec: branch_2021_is_to_2025_oos2026
+    hypotheses:
+      - id: H-D1
+        statement: 外資券商分點合計可近似替代官方 foreign_net（覆蓋率中位 ≥0.7）
+        status: rejected  # 中位 0.00 · P75 0.47；多數外資走本土席
+      - id: H-D2
+        statement: 存在單一外資席，IS 買日 lift≥+0.3pp 且 OOS 同號、前瞻 IC>官方外資
+        status: rejected  # 最佳摩通 IS lift 僅 +0.02；無人 KEEP
+      - id: H-D3
+        statement: 8440 摩通或 1470 摩士的 IS 前瞻 IC 高於官方外資
+        status: weak  # 0.055／0.044 vs 0.033，幅度小且 lift 未過門檻
+      - id: H-D4
+        statement: 1590 花旗買超為華新科正向訊號
+        status: rejected  # IS fwd IC −0.059 → REVERSE_IC
+      - id: H-D5
+        statement: 投信可用明確分點 ID 替代
+        status: rejected  # 分點帶無投信專戶標識
+    context: >
+      嚴格外資券商白名單（禁用關鍵字，避免群益高盛／元大和平誤判）。Outcome=β超額 vs IX0001。
+      核心限制：外資≠外資券商；華新科外資席 IS 幾乎達不到 0.5 億門檻；OOS 2026 熔漲不可 KEEP。
+      不採納為 Live TA／策略；若疊加僅作摩通／摩士方向描述。
+
+  # ── 相對大盤籌碼 · 同價日配對 · 反指標（2026-07-25）──
+  market-relative-chip-matched:
+    title: 相對大盤外資投信 × 同價日配對 × 反指標
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/market_relative_chip
+    run_scripts:
+      - scripts/research/run_market_relative_chip_study.py
+    split_spec: universe167_is2019_2025_oos2026
+    hypotheses:
+      - id: H-M1
+        statement: >
+          大盤跌價日，相對吸籌（大盤賣、個股買）的 5 日 β 超額優於同步賣，且 IS／OOS 同號
+        status: rejected  # IS +0.021／OOS −0.004；逐年 4/8 年為負
+      - id: H-M2
+        statement: >
+          相對大盤強度（ft_part 或 r20_gap 自身歷史高分位）有穩定橫斷面排序力（|hi−lo|≥0.3pp）
+        status: rejected  # IS 價差 −0.02~−0.07 = FLAT
+      - id: H-M3
+        statement: >
+          高相對籌碼／高 m_r20 為反指標（hi−lo ≤ −0.3pp）
+        status: weak  # 大盤 m_r20 hi−lo h5=−0.14；個股層未達門檻；標 weak 非 supported
+      - id: H-M4
+        statement: >
+          大盤跌價日外資+投信雙邊相對吸籌優於同步賣，IS／OOS 同號
+        status: weak  # IS +0.089／OOS +0.226 同號但幅度小，未過實務門檻
+      - id: H-M5
+        statement: >
+          2492 自身或相對大盤 gap 低分位為否決訊號（hi−lo ≥ +0.5pp）
+        status: supported  # IS self +0.65／gap +0.79；靠避開低尾
+    context: >
+      破解先前盲點：改用官方大盤外資+投信（非橫斷面個股中位）、同大盤漲跌日配對、顯式反指標、
+      F/IT 分欄。文獻（Taiwan threshold VAR、Chordia OIB、Campbell/Ramadorai）支持同日 discovery
+      與條件化／異質代理人，不支持無條件「相對吸籌=買點」。使用者「大盤一樣跌結果必不同」直覺
+      在二元相對吸籌上被否決。大盤層 m_r20 弱反指標；投信前瞻略正、外資略負。Cache：
+      reports/research/chip-overlays/market_relative_chip/cache_market_ft_totals.csv。
+
+  # ── ft3_rel_20 趨勢 vs 水準 · Live TA 欄位驗證（2026-07-25）──
+  ft3-rel-20-trend-vs-level:
+    title: ft3_rel_20 趨勢 × 價格 · 斜率是否比水準多資訊
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/ft3_rel_trend
+    run_scripts:
+      - scripts/research/run_ft3_rel_trend_study.py
+    split_spec: universe167_is2019_2025_oos2026
+    hypotheses:
+      - id: H-T1
+        statement: >
+          Live TA 的 T-1 欄（ft3_rel_20 兩日變動）代表有意義的籌碼趨勢
+        status: rejected  # 與 (FT_T − FT_{T−3})/Σ|FT|20 的 R²=0.981，純機械；delta 自相關僅 0.081
+      - id: H-T2
+        statement: >
+          ft3_rel_20 的斜率（5／20／60 日）比水準值提供更多前瞻資訊
+        status: rejected  # IS 橫斷面 IC 三個窗全為顯著負值（slope20 x20 t=−3.68）；雙重排序 IS 價差≈0
+      - id: H-T3
+        statement: >
+          籌碼趨勢↑ × 價格趨勢↓（SMFI accumulation-into-weakness）為潛在買點
+        status: rejected  # IS lift 僅 +0.043pp；60 日窗持續越久越差（OOS ≥20d −0.89pp）
+      - id: H-T4
+        statement: >
+          ft3_rel_20 水準值在熱絡盤具橫斷面排序力（五分位價差 ≥ +0.3pp／10 日）
+        status: supported  # +0.49pp・NW t=3.65・bootstrap CI[+0.23,+0.77]・11/12 年為正；冷盤 IC≈0
+      - id: H-T5
+        statement: >
+          2492 的 ft3_rel_20 水準值前瞻顯著，且低分位為否決訊號而非高分位為買進訊號
+        status: supported  # block bootstrap x1/x5/x10/x20 CI 全不含 0；Q1 −0.65pp/勝率45%，Q2–Q5 無差別
+    context: >
+      直接驗證 Live TA 已上線的 ft3_rel_20 與 T-1 欄。核心結論：**趨勢沒有比水準多資訊，甚至更差**。
+      3 日滾動和造成 lag1 自相關 0.808 的重疊假象（lag3 才降到 0.358 = 真實流量持續性）；
+      兩日變動的高同日相關（0.390）來自「含今日 FT」，跨日即歸零。斜率為負的方向與
+      Froot–Ramadorai／Hasbrouck 價格衝擊後回吐一致。外部 SMFI「持續數週背離」主張在台股個股不成立。
+      方法要點：橫斷面 rank IC 才是排序濾網的正確檢定；重疊 10 日標籤需 NW／block bootstrap 校正
+      （naive t 6.41 → NW 3.65）。資料衛生：stock_daily_bars 有 410 筆 close=0 佔位列須濾除
+      （v2 未濾但其結論建立在中位數上，不受影響，惟 v2 的 mean 欄位不可用）。
+      Live TA 建議：保留水準欄、T-1 欄改標示為「今日 FT vs 三天前」、不要加斜率欄。
+
+  # ── 2327 國巨 · EP 綠燈 × 籌碼 overlay（veto／confirm · 2026-07-25）──
+  2327-ep-chip-overlay:
+    title: 國巨專家池綠燈 × 籌碼否決／確認 overlay
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2327_ep_chip_overlay
+    run_scripts:
+      - scripts/research/run_2327_ep_chip_overlay.py
+    hypotheses:
+      - id: H-2327-C1
+        statement: >
+          綠燈日 FT3>0 作確認，OOS med r_adj 高於綠燈 baseline
+        status: rejected  # OOS Δmed≈−5.8pp · FT3>0 子集更差
+      - id: H-2327-V1
+        statement: >
+          綠燈日 rel_dump（大盤買／個股賣）否決可提升 OOS med
+        status: rejected  # OOS Δmed≈−12.6pp · dump 日反而較好（與 2492 日頻方向相反）
+      - id: H-2327-V2
+        statement: >
+          綠燈日 ft3_rel_20 落在自身歷史 Q1 否決可提升 OOS med
+        status: rejected  # OOS Δ≈0 · n_trig=2
+      - id: H-2327-V3
+        statement: >
+          綠燈日 FT_z≥2 climax 否決可提升 OOS med（boot 穩健）
+        status: rejected  # 點估計 +0.9pp 但 n_trig=1 · boot CI 跨 0 · 收緊閘門後不過
+      - id: H-2327-S1
+        statement: >
+          scoop_resid soft confirm 僅觀察、不凍結
+        status: exploratory  # OOS Δ≈+1.9pp · n=3 · boot 不穩；永不凍結
+    context: >
+      掛在已採納 EP sleeve 2327（回看1日共識／≥0.5億／H10_skip／L1H7）上測籌碼 overlay，
+      不重挖 2492、不寫 order。綠燈 n=12（IS=1／OOS=11）→ thin_IS + episode bootstrap。
+      結論：優先臂（FT3 confirm／rel_dump／ft3 Q1）在國巨綠燈上未過關；freeze=`no_arm_passed`。
+      產物：2327_ep_chip_overlay_frozen.json · REPORT.md。未採納勿寫 strategy／order。
+      盲點後續：真正槓桿不在籌碼否決，而在**進場技術階段**——見 topic `2327-ta-stage-entry-gate`。
+
+  # ── 2327 國巨 · 技術面進場階段閘門（盲點突破 · 2026-07-25）──
+  2327-ta-stage-entry-gate:
+    title: 國巨籌碼綠燈 × 技術階段（Weinstein Stage 2）進場確認
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2327_ta_adaptive
+    run_scripts:
+      - scripts/research/run_2327_ta_adaptive_exit.py
+    hypotheses:
+      - id: H-TA1
+        statement: >
+          綠燈追高晚期反轉 → 需縮短持有／移動停利（自適應退出）勝過固定 H7
+        status: rejected  # 反轉假設錯；延伸度與 H7 正相關（動能延續）；trailing/短持不勝 H7
+      - id: H-TA2
+        statement: >
+          綠燈日技術延伸度／RS／Weinstein 乖離 與 H7 報酬正相關（動能延續）
+        status: supported  # OR 池 Spearman ext20+0.43 ext60+0.48 runup20+0.48 dist_low20+0.53 wein_ext+0.52
+      - id: H-TA3
+        statement: >
+          籌碼綠燈 × Weinstein Stage 2 進場確認提升 H7 中位（regime 衛生濾網）
+        status: supported  # 國巨 OR Δmed+7.5 CI[+1.3,+18.4] p0.99；非Stage2(下跌/打底)幾乎全賠
+      - id: H-TA4
+        statement: >
+          Stage 2 進場閘門跨 A 級專家股泛化
+        status: exploratory  # 8檔7正(僅緯穎負)；合併Δ+1.95 CI[-0.5,+4.2] p0.94（略含0）；主值為避開非Stage2重災
+    context: >
+      打破「只做籌碼、固定 H7」盲點。既有 whale_chip_precursor 對國巨挖遍分點/集保/法人但 0 條技術。
+      本輪加技術面（乖離/漲幅/RSI/ATR/Weinstein stage/RS）+ 退出自適應對照。關鍵發現：
+      進場的**技術階段**才是槓桿——籌碼綠燈落 Stage 4/1 幾乎全賠、落 Stage 2 幾乎全賺；
+      退出時機（trailing/短持）不勝固定 H7。限制：IS 綠燈全非 Stage2 → 無時間 OOS，國巨大 Δ
+      集中於 2026 單一多頭；跨股合併僅邊際顯著。用法：專家綠燈**品質分層/確認**（Stage2 才認真跟），
+      持有仍 L1H7；等不同波段再驗才談採納。產物：ta_adaptive_result.json · REPORT.md · trade_panel.csv。
+      未採納勿寫 strategy／order。
+      延伸：多波段驗證 → `2327-ta-stage2-multiwave`；watch 觀察欄 → `expert-pool-stage2-observe`。
+
+  # ── Stage2 多波段驗證（Leave-one-wave · 2026-07-25）──
+  2327-ta-stage2-multiwave:
+    title: 專家池綠燈 × Stage2 · 多波段 holdout 驗證
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/chip-overlays/2327_ta_adaptive/multiwave
+    run_scripts:
+      - scripts/research/run_stage2_multiwave_validate.py
+    hypotheses:
+      - id: H-MW1
+        statement: >
+          以個股 Weinstein Stage2 spell 為波段，leave-one-wave／rolling-wave
+          上 Stage2 閘門 Δmed>0（打破單一2026多頭依賴）
+        status: insufficient_data  # 2327 僅 2 個 Stage2 波段（W<3）→ H1=insufficient_waves；
+          # H2 唯一一步 train(wave_rank≤1) n=0 → no_prior_stage2／verdict n/a。無法驗證，需更多波段。
+      - id: H-MW2
+        statement: >
+          Leave-one-stock 跨 A 級 ≥6/8（或≥6/7 若6669 explained）Δmed>0；
+          pooled cluster CI 下緣≥0
+        status: mixed  # H3a: OR 6/8 PASS，HARD 3/8 FAIL；pooled cluster CI 下緣皆<0
+          # （HARD[-4.09,+7.44]／OR[-0.77,+5.45]）→ 方向對但未達顯著，G1/G4 未過。
+          # 延伸：雙閘 stock∧IX S2 → H3a OR **8/8 PASS** · HARD 5/8 MIXED（仍未≥6/8）；CI 仍含 0。
+      - id: H-MW3
+        statement: >
+          HARD（回看共識）與 OR 同向；HARD 為採納分子
+        status: supported  # pooled Δmed 同號：HARD+1.00／OR+1.73；雙閘同向 HARD+1.94／OR+3.08
+      - id: H-MW4
+        statement: >
+          緯穎6669 反向可由 E1–E5 預註冊診斷解釋
+        status: supported  # E5 主因；雙閘後 HARD held Δ 翻正至 +1.68（agree）
+      - id: H-MW5
+        statement: >
+          W≥3 個股上 leave-one-wave（H1）多數 PASS，證明非單一波段偶然
+        status: rejected  # HARD 0 PASS／3 MIXED／1 FAIL；OR 1 PASS／3 MIXED → 總評 MIXED，未達 G2
+      - id: H-MW6
+        statement: >
+          W≥3 個股上 rolling-wave（H2）多數 PASS（時間因果）
+        status: mixed  # OR **PASS**（3/4）；HARD MIXED（2 PASS／1 FAIL）。OR 時間穩健較佳
+      - id: H-MW7
+        statement: >
+          雙閘 stock_S2∧ix_S2 優於單閘 stock_S2，可救 HARD 跨股
+        status: exploratory  # Δmed 提升（HARD +1.0→+1.9 · OR +1.7→+3.1）；H3a OR 8/8；
+          # HARD 仍僅 5/8；cluster CI 仍含 0 → 可作觀察欄升級候選，未過採納閘
+    context: >
+      傳統時間 OOS 對國巨無效（IS 綠燈 0 筆 Stage2）。改用可 PIT 的個股 Stage2 spell
+      作 H1 leave-one-wave／H2 rolling-wave／H3 leave-one-stock+IX-wave。
+      HARD/OR 分報；6669 例外預註冊。延伸相位（不必等國巨第3波）：W≥3 股 H1/H2、
+      雙閘 E5、知識庫 510 筆 Stage 回填（S2_confirm med+4.0 vs non_S2 +2.7）。
+      結論：方向一致、OR 雙閘跨股 8/8，但 H1 未過、HARD 未滿 6/8、CI 含 0 →
+      freeze 仍 observe（G0–G5 未全過）。不寫 strategy／order。
+      產物：multiwave/REPORT_EXTEND.md · extend_result.json ·
+      expert_pool/knowledge/stage_quality_backfill.csv。
+
+  # ── 30W × 10W stage_fast 搭配回測（2026-07-25）──
+  2327-ta-stage-fast-combo:
+    title: 專家池綠燈 × weinstein_stage(30W) × stage_fast(10W) 搭配
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/2327_ta_adaptive/stage_fast_combo
+    run_scripts:
+      - scripts/research/run_stage_fast_combo_backtest.py
+    hypotheses:
+      - id: H-SF1
+        statement: >
+          雙週期 both（30W==2 ∧ 10W==2）相對單閘 s30 提升 H7 Δmed（犧牲覆蓋）
+        status: rejected  # OR Δ +1.95 vs s30 +1.73（接近）；覆蓋 0.61 vs 0.66；
+          # 在 s30 內再要求 s10 僅 Δ+0.22、CI 含0；H3a OR both 5/3 MIXED < s30 6/2 PASS
+      - id: H-SF2
+        statement: >
+          慢多＋快跌背離（30W==2 ∧ 10W==4）為雷區；s30_not4／s30_fast23 優於裸 s30
+        status: rejected  # 綠燈日幾乎無 30W=2×10W=4 格子；s30_not4 Δ=s30；
+          # s30_fast23 略差（OR Δ+1.57 < +1.73）
+      - id: H-SF3
+        statement: >
+          單用 stage_fast(10W==2) 不優於／不替代 weinstein_stage(30W) SSOT
+        status: supported  # OR s10 Δ+0.82 < s30 +1.73；H3a OR s10 MIXED 4/4 vs s30 PASS
+    context: >
+      熱力圖並排後驗證 10W 診斷如何搭配 30W SSOT。結論：10W 不能替代／強化 30W；
+      既有 s30∧IX30 仍優於 any 10W 組合。未採納；不覆寫 weinstein_stage。
+      產物：stage_fast_combo/REPORT.md · stage_fast_combo_result.json。
+
+  # ── 30W × 15W × RRG(L=20)（2026-07-25）──
+  2327-ta-stage-horizon-rrg:
+    title: 專家池綠燈 × 30W × 15W mid × RRG WMA20
+    status: active
+    phase: research
+    layer: research
+    priority: P1
+    report_dir: reports/research/chip-overlays/2327_ta_adaptive/stage_horizon_rrg
+    run_scripts:
+      - scripts/research/run_stage_horizon_rrg_combo.py
+    hypotheses:
+      - id: H-HR1
+        statement: 30W∧15W mid 優於裸 30W
+        status: rejected  # OR both15 Δ+1.55 ≈/略遜 s30 +1.73；H3a OR MIXED < s30 PASS
+      - id: H-HR2
+        statement: 30W∧RRG(rs>100 或 leading) 優於裸 30W
+        status: supported  # OR s30∧rs>100 Δ+3.08 CI[+0.03,+5.26]（下緣>0）；
+          # H3a OR PASS；leading 同 Δ 但 cov 更低、CI 含0；HARD 增益不明顯
+      - id: H-HR3
+        statement: 長中短＋RRG 可作診斷分類，但進場主閘仍以 30W（±IX）為主
+        status: supported  # 診斷軸可並存；進場：30W 主閘＋RRG/IX 觀察加權；
+          # 15W/10W 同族 Weinstein 縮短週期無穩定增益
+      - id: H-HR4
+        statement: RRG WMA5 比 WMA20 更快且不犧牲 HARD／跨股穩定性
+        status: rejected  # s30∧rs>100：OR Δ+3.06 接近 WMA20 +3.08，但 CI 含0；
+          # HARD Δ-1.63、H3a FAIL（WMA20 HARD Δ+1.00、MIXED）。WMA5 單獨亦弱。
+    context: >
+      10W 無增益後測中線 15W 與正交軸 RRG(L=20)。15W 同 10W 無增益；
+      30W∧rs_ratio>100 在 OR 上顯著優於裸 30W（且接近 s30∧IX）。
+      三重 s30∧IX∧rs>100 OR Δ+3.65 CI 下緣>0 但覆蓋更低。未採納；不覆寫 weinstein_stage。
+      WMA5 敏感度：OR 表面接近，但 HARD 反向、跨股轉 FAIL，故不取代 WMA20。
+      產物：stage_horizon_rrg/REPORT.md · stage_horizon_rrg_wma5/REPORT.md。
+
+  # ── 專家池 watch · Stage2 品質觀察欄（非下單）──
+  expert-pool-stage2-observe:
+    title: 專家池夜間觀測 · Weinstein Stage2 品質分層註解
+    status: active
+    phase: research
+    layer: research
+    priority: P0
+    report_dir: reports/research/branch-footprint-screen/expert_pool
+    run_scripts:
+      - scripts/research/run_expert_pool_watch.py
+    hypotheses:
+      - id: H-OBS1
+        statement: >
+          Watch 郵件／日報顯示 weinstein_stage／ta_quality／follow_weight
+          作為觀察註解，不改變寄信觸發也不擋單
+        status: supported  # 2026-07-25：綠燈日掛註解；EXPERT_POOL_STAGE_QUALITY=0 可關；不改寄信/Order
+    context: >
+      模組 src/research/expert_pool_stage_quality.py；掛在 run_expert_pool_watch
+      format_alert_body（同 yellow／pattern_risk 模式）。ENV EXPERT_POOL_STAGE_QUALITY=0 可關。
+      Research observe only · 非 Order 閘門。
+
   # ── 2492 華新科 · 大漲前分點 × 相對籌碼（2026-07-24）──
   # Plan SSOT: reports/research/chip-overlays/2492_knowledge/SURGE_BRANCH_RESEARCH_PLANS.md
   2492-surge-branch-precursor:

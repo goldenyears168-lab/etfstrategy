@@ -55,6 +55,21 @@ class StageAnalysisTests(unittest.TestCase):
         out = classify_weinstein_stage(_downtrend_daily())
         self.assertIn(out["stage"], (3, 4))
 
+    def test_weinstein_default_ma_period_is_30(self) -> None:
+        out = classify_weinstein_stage(_uptrend_daily())
+        self.assertEqual(out["ma_period"], 30)
+
+    def test_weinstein_stage_fast_10w_is_separate(self) -> None:
+        from stage_analysis import classify_weinstein_stage_fast
+
+        slow = classify_weinstein_stage(_uptrend_daily())
+        fast = classify_weinstein_stage_fast(_uptrend_daily())
+        self.assertEqual(slow["ma_period"], 30)
+        self.assertEqual(fast["ma_period"], 10)
+        # strong uptrend should still be stage 2 on both; fields must not collide
+        self.assertEqual(slow["stage"], 2)
+        self.assertEqual(fast["stage"], 2)
+
     def test_minervini_all_eight_on_uptrend_with_rs(self) -> None:
         out = calculate_minervini_trend_template(_uptrend_daily(), rs_rank=85)
         self.assertEqual(out["criteria_met"], MINERVINI_CRITERIA_TOTAL)
