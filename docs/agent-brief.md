@@ -49,7 +49,7 @@
 | **回測 · 採納策略** | `config/strategy.yaml`, `docs/evaluation-contract.md` | `src/research/backtest/`（production 48 模組）· sweep 見 `backtest/archive/` |
 | **探索 sweep** | `config/research.yaml`, `scripts/run_research_sweep.py` | `src/research/` |
 | **FinMind 策略市集回測** | `docs/strategy-marketplace/README.md`, `config/research.yaml` · `topics.finmind-*`（archived backlog） | `scripts/research/archive/run_finmind_*` |
-| **Readdy 公開站** | `docs/architecture.md` § Readdy | 前端 · Supabase publish 腳本 |
+| ~~**Readdy 公開站**~~ | **RETIRED 2026-07-23**（見 `archives/PUBLIC_SITE_RETIRED.md`） | ~~前端 · Supabase publish 腳本~~ |
 | **FinMind 取數** | `src/finmind_client.py`, `.cursor/rules/finmind.mdc` | ingest `src/sync_*` |
 
 ---

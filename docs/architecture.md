@@ -1,6 +1,8 @@
 # Architecture · Research OS
 
 > **Single source of truth**：`config/pipelines/daily_close.yaml`（workflow DAG）、`scripts/daily_sync.sh`、launchd 排程。
+>
+> ⚠️ **2026-07-23 重大變更**：公開站 Readdy 已退役。現行產出為**本地 markdown 報告** + **私人 ops 後台**（非公開展示站）。詳見 [`archives/PUBLIC_SITE_RETIRED.md`](../archives/PUBLIC_SITE_RETIRED.md)。
 
 ## Pipeline
 
@@ -74,17 +76,26 @@ Copytrade 採納規格：**L1H9** · [00981a-copytrade-research-methodology.md](
 
 ---
 
-## 公開站 IA（Readdy · Supabase 為 runtime SSOT）
+## 公開站 IA（**RETIRED 2026-07-23**）
 
-| 層 | Runtime SSOT | Authoring |
-|----|--------------|-----------|
-| 日報 · 表一 | `stock_research.daily_briefs` | Python sync · `reports/daily/` |
-| 策略 registry · 靜態頁 | `stock_research.site_content` | git `supabase/site/*.md` → `resync_readdy_ui_copy.sh --site-only` |
-| 績效列 | `stock_research.strategy_performance_yearly` | `scripts/sync_strategy_performance.py` |
+> ⚠️ **已退役**：原公開站 Readdy (`stock_research.*` Supabase schema) 已於 2026-07-23 退役並清空。  
+> 現行為**私人運維後台** `haoshi-quant-ops.pages.dev`，僅供個人查看持倉與實時 TA，**非公開展示站**。
 
-**Canonical nav**：`/` · `/briefs` · `/strategies` · `/about` — 詳見 [readdy-regime-strategy-lineage.md §1.3](./readdy-regime-strategy-lineage.md)。
+**舊架構（已封存）**：
 
-**勿作主 nav**：獨立 Research 層 · `/pages/strategy_catalog`（→ `/strategies#…`）。
+| 層 | Runtime SSOT（已清空） | Authoring（已停用） |
+|----|----------------------|-------------------|
+| 日報 · 表一 | ~~`stock_research.daily_briefs`~~ | ~~Python sync · `reports/daily/`~~ |
+| 策略 registry · 靜態頁 | ~~`stock_research.site_content`~~ | ~~git `supabase/site/*.md` → `resync_readdy_ui_copy.sh --site-only`~~ |
+| 績效列 | ~~`stock_research.strategy_performance_yearly`~~ | ~~`scripts/sync_strategy_performance.py`~~ |
+
+**現行**：
+- 私人 ops 後台：`haoshi-quant-ops` repo → `https://haoshi-quant-ops.pages.dev`
+- 數據來源：`ops.*` schema（非 `stock_research.*`）
+- 功能：Live TA、持倉狀態、策略袖狀態
+- 同步方式：`scripts/ops/` 腳本（詳見 [`scripts/ops/README.md`](../scripts/ops/README.md)）
+
+**舊前端封存位置**：`~/Documents/股市資料備份封存_20260723/舊站原始碼/`
 
 ---
 

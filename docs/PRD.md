@@ -2,21 +2,29 @@
 
 | 欄位 | 內容 |
 |------|------|
-| 版本 | 2.0 |
+| 版本 | 2.1 |
+| 最後更新 | 2026-07-24 |
 | 狀態 | **Living doc** — 以程式與 `config/` 為準 |
 | 詳細架構 | [architecture.md](./architecture.md) · [daily-operations.md](./daily-operations.md) · [agent-brief.md](./agent-brief.md) |
 
-> 免責：產出僅供個人研究，不構成投資建議；下單層僅本機 infra（不進公開網站、非投資建議）；公開站僅唯讀展示。
+> **免責**：產出僅供個人研究，不構成投資建議；下單層僅本機 infra，所有數據與報告皆在本地。
+
+> ⚠️ **2026-07-23 重大變更**：公開站 Readdy 已退役，`stock_research.*` Supabase schema 已清空。現行系統為**本地研究 OS + 下單執行層**兩部分，外加私人 ops 後台（非公開展示站）。詳見 §7 與 [`archives/PUBLIC_SITE_RETIRED.md`](../archives/PUBLIC_SITE_RETIRED.md)。
 
 ---
 
 ## 1. 產品定位
 
-台股 **量化交易研究系統**（**Multi-Research OS**），由三個互不重疊的部分組成：
+台股 **量化交易研究系統**（**Multi-Research OS**），由**兩個核心部分**組成：
 
 1. **本地研究 OS** — SQLite（`data/stocks.db`）+ 排程 ingest + **多條 alpha 軌並列**（無 ensemble 加權），核心是**個股層級**的策略研究：RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等。各軌 backtest spec 在 `config/strategy.yaml`，探索主題在 `config/research.yaml`。
-2. **公開研究站（唯讀）** — Readdy 前端直連 Supabase，展示 daily brief、策略 registry、分年績效。**不**接受下單、**不**暴露券商憑證。
-3. **下單層（本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。完整藍圖見 [order-layer-prd.md](./order-layer-prd.md)。
+2. **下單執行層（本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。完整藍圖見 [order-layer-prd.md](./order-layer-prd.md)。Mac mini 常開自動執行。
+
+**產出形式**：
+- 📊 本地 markdown 報告（`reports/daily/`）
+- 📁 SQLite 數據庫（104 張表，2.4GB）
+- 📧 郵件通知（策略訊號、下單確認）
+- 🔐 私人 ops 後台（`haoshi-quant-ops.pages.dev`，非公開展示站）
 
 > **專案沿革**：起源自 ETF 持股追蹤（git 初始 commit「Phase 0: 5 ETF daily sync」），現行 `scripts/` 162 支腳本中僅 2 支與 ETF 直接相關，其餘（RRG 48 支、backtest 26 支、VCP 6 支、copytrade 3 支、signal radar 4 支等）皆為個股層級策略研究。**ETF 持股變化現在是資料層的一項訊號來源**（`etf-daily` Facts 層 + `00981a-l1h9` 跟單訊號輸入），**不是**整個系統的核心；核心是 §6 的多軌策略研究。
 
@@ -104,17 +112,29 @@
 
 ---
 
-## 7. 公開研究站（Readdy · Supabase 唯讀展示）
+## 7. 私人 Ops 後台（haoshi-quant-ops · 已退役公開站功能）
 
-| 層 | Runtime SSOT | Authoring |
-|----|--------------|-----------|
-| 日報 · 表一 | `stock_research.daily_briefs` | Python sync · `reports/daily/` |
-| 策略 registry · 靜態頁 | `stock_research.site_content` | git `supabase/site/*.md` → `resync_readdy_ui_copy.sh --site-only` |
-| 績效列 | `stock_research.strategy_performance_yearly` | `scripts/sync_strategy_performance.py`（手動 / `RUN_STRATEGY_PERF_SYNC=1`） |
-| Lens · 當日 headline | `stock_daily_lens` · `lens_daily_alert` | 16:30 `daily_sync`（`RUN_STOCK_DAILY_LENS` · `RUN_SUPABASE_LENS_SYNC`） |
-| RRG 象限 | `rrg_universe_scores` | 13:00 / 16:30 |
+> ⚠️ **RETIRED 2026-07-23**：原公開站 Readdy (`stock_research.*` Supabase schema) 已退役並清空。  
+> 現行為**私人運維後台**，僅供個人查看持倉與實時 TA，**非公開展示網站**。
 
-**Canonical nav**：`/` · `/briefs` · `/strategies` · `/about`。健康檢查：`scripts/supabase_health_check.py --notify`。詳見 [architecture.md](./architecture.md) § Readdy。
+| 項目 | 說明 |
+|------|------|
+| **新站** | 獨立 repo `haoshi-quant-ops` → `https://haoshi-quant-ops.pages.dev` |
+| **性質** | 私人運維後台（非公開展示站） |
+| **功能** | Live TA（如 2492 華新科）· 持倉狀態 · 策略袖狀態 |
+| **數據來源** | `ops.*` schema（非 `stock_research.*`） |
+| **同步方式** | `scripts/ops/` 腳本（非 `supabase_sync`） |
+
+**環境變數（已標記 RETIRED）**：
+```bash
+RUN_SUPABASE_RESEARCH_SYNC=0  # RETIRED 2026-07-23
+RUN_SUPABASE_LENS_SYNC=0
+RUN_SUPABASE_SIGNAL_SYNC=0
+```
+
+**舊前端封存位置**：`~/Documents/股市資料備份封存_20260723/舊站原始碼/`
+
+**詳細說明**：[`archives/PUBLIC_SITE_RETIRED.md`](../archives/PUBLIC_SITE_RETIRED.md) · [`scripts/ops/README.md`](../scripts/ops/README.md)
 
 ---
 
@@ -164,15 +184,19 @@
 
 ## 11. 已移除（勿再引用）
 
-| 項目 | 說明 |
-|------|------|
-| `00981a-v9-hybrid` / behavior stack | 見 [00981a-retired-research.md](./00981a-retired-research.md) |
-| `qlib-tw-factor` | 已自 repo 移除（DB 表 `qlib_tw_factor_scores` 仍留審計） |
-| E0 下單 / `order_intents` / `execution_eval` | 舊 E0 執行軌退役（現行下單層見 `src/order/`） |
-| Swing 軌 / `portfolio_engine` / `portfolio_weights` | 突破計畫與 E0 部位建議已移除 |
-| `exposure_coach_tw` / Exposure overlay | Market posture 合成與 live gate 已移除 |
-| Evaluation layer · `track_evaluation` · `evaluation_contract` · `signal_review` | 跨軌 ex-post 審計已移除；backtest spec 併入 `strategy.yaml` |
-| LLM Memo / 催化引擎 / ensemble digest | 不在現行 scope |
+| 項目 | 退役日期 | 說明 |
+|------|---------|------|
+| **Readdy 公開站** | 2026-07-23 | 移至獨立 repo `haoshi-quant-ops`（私人後台） |
+| **`stock_research.*` schema** | 2026-07-23 | Supabase 已清空，改用 `ops.*` |
+| **`RUN_SUPABASE_*_SYNC`** | 2026-07-23 | 環境變數標記為 RETIRED |
+| `00981a-v9-hybrid` / behavior stack | — | 見 [00981a-retired-research.md](./00981a-retired-research.md) |
+| `qlib-tw-factor` | — | 已自 repo 移除（DB 表 `qlib_tw_factor_scores` 仍留審計） |
+| E0 下單 / `order_intents` / `execution_eval` | 2026-07-16 | 舊 E0 執行軌退役（現行下單層見 `src/order/`） |
+| **ABC Order** | 2026-07-16 | `abc-v3-f1-*` 下單軌退役（`buy-signal-radar` ABC 觀察軌關閉） |
+| Swing 軌 / `portfolio_engine` / `portfolio_weights` | — | 突破計畫與 E0 部位建議已移除 |
+| `exposure_coach_tw` / Exposure overlay | — | Market posture 合成與 live gate 已移除 |
+| Evaluation layer · `track_evaluation` · `evaluation_contract` · `signal_review` | — | 跨軌 ex-post 審計已移除；backtest spec 併入 `strategy.yaml` |
+| LLM Memo / 催化引擎 / ensemble digest | — | 不在現行 scope |
 
 Copytrade 方法論保留：[00981a-copytrade-research-methodology.md](./00981a-copytrade-research-methodology.md)。
 
@@ -180,15 +204,16 @@ Copytrade 方法論保留：[00981a-copytrade-research-methodology.md](./00981a-
 
 ## 12. 非目標（Out of Scope）
 
-- 公開站**接受下單**、匿名前端暴露券商憑證（公開站僅唯讀展示，見 §7）
+- ~~公開站接受下單~~（公開站已於 2026-07-23 退役）
 - Ensemble 加權合併多軌訊號
 - 即時 Level-2（僅 FinMind tick 盤中快照）
+- 多券商統一接口（僅富邦 Neo）
 
 ---
 
 ## 13. 成功標準（現行）
 
-1. 每交易日 **16:30 後** 可讀 Facts（`etf-daily`）與 Regime（`regime-daily`）daily brief
+1. 每交易日 **16:30 後** 可讀 Facts（`etf-daily`）與 Regime（`regime-daily`）本地 daily brief
 2. Strategy 採納規格 **獨立** 回測／launchd；**不** ensemble 合成指令
 3. 增刪採納策略：**只改** `config/strategy.yaml` + `strategies.yaml` 對齊；探索主題改 `config/research.yaml`
-4. 公開站資料 **不 stale**：`supabase_health_check.py` 每日收盤後跑過且 PASS
+4. ~~公開站資料不 stale~~（**RETIRED 2026-07-23**：改為私人 ops 後台，無公開站健康檢查需求）
