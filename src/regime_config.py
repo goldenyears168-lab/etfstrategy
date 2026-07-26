@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from stock_db import PROJECT_ROOT
+
+if TYPE_CHECKING:
+    from market_breadth_impulse import BreadthImpulseParams
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "regime.yaml"
 LEGACY_CONFIG = PROJECT_ROOT / "config" / "market_regime.yaml"
@@ -53,7 +56,7 @@ def rhythm_tiers_from_regime(cfg: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def impulse_params_from_regime(cfg: dict[str, Any]) -> "BreadthImpulseParams":
+def impulse_params_from_regime(cfg: dict[str, Any]) -> BreadthImpulseParams:
     from market_breadth_impulse import BreadthImpulseParams
 
     b = breadth_block(cfg)
