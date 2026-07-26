@@ -117,18 +117,6 @@ def _sleeve_rows(cfg: dict[str, Any]) -> list[dict[str, Any]]:
         note="Expert pool staged gate",
     )
 
-    # Timed limit · order.yaml top-level list
-    timed = cfg.get("timed_limit_orders") or []
-    enabled_timed = False
-    if isinstance(timed, list):
-        enabled_timed = any(bool(j.get("enabled")) for j in timed if isinstance(j, dict))
-    add(
-        "timed-limit-orders",
-        enabled=enabled_timed,
-        dry_run=_env_bool("ORDER_TIMED_LIMIT_DRY_RUN", True),
-        note="Timed limit orders",
-    )
-
     # Buy radar observe-only
     add(
         "buy-signal-radar",

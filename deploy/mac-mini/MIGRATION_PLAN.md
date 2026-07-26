@@ -23,7 +23,7 @@
 | 主機名 | `JackM4deMacBook-Air` | `minim4deMac-mini` |
 | 路徑／使用者 | `/Users/jackm4/Documents/ETF/股票研究` · `jackm4` | 同左 |
 | `com.jackm4.etf.*` launchd | **0 支**（禁止 live） | **≈16 支已載入**（含 `order-wake`） |
-| Order live（送單） | 不送單 | **C18acc** + **Leading Dip** + **Songshan copytrade** + **timed-limit** + **expert-pool-staged-gate** |
+| Order live（送單） | 不送單 | **C18acc** + **Leading Dip** + **Songshan copytrade** + **expert-pool-staged-gate** |
 | 觀測／不下單 | — | **Detach = RED 寄信、不半砍**；buy/sell radar 不下單 |
 | SSH（Book→mini） | `Host mac-mini` | 可 `BatchMode` 登入 |
 
@@ -34,7 +34,6 @@
 com.jackm4.etf.rrg-c18acc-poll
 com.jackm4.etf.leading-dip-poll
 com.jackm4.etf.songshan-copytrade-poll   # live（POLL/ENABLED=1 · DRY_RUN=0 · AUTO_SUBMIT=1）
-com.jackm4.etf.timed-limit-orders
 com.jackm4.etf.expert-pool-staged-gate   # live
 com.jackm4.etf.detach-gate               # 排程在；ORDER_ENABLED=0 · RED 只寄信
 com.jackm4.etf.buy-signal-radar
@@ -60,7 +59,6 @@ com.jackm4.etf.fubon-premarket-quote-collect
 | `RUN_RRG_C18ACC_SCREEN` / `ORDER_C18ACC_DRY_RUN` | `0` / `1` | `1` / `0`（live） |
 | `RUN_LEADING_DIP_POLL` / `ORDER_LEADING_DIP_DRY_RUN` | `0` / `1` | `1` / `0`（live） |
 | `RUN_SONGSHAN_COPYTRADE_POLL` / `ENABLED` / `DRY_RUN` / `AUTO_SUBMIT` | 關 | **`1` / `1` / `0` / `1`（live）** |
-| `RUN_TIMED_LIMIT_ORDERS` / `ORDER_TIMED_LIMIT_DRY_RUN` | — | `1` / `0`（live once） |
 | `RUN_EP_STAGED_GATE` / `ORDER_EP_STAGED_GATE_DRY_RUN` | — | `1` / `0`（live） |
 | `RUN_DETACH_GATE` / `ORDER_DETACH_GATE_ORDER_ENABLED` / `RUN_DETACH_GATE_EMAIL` | 關 | `1` / **`0`（不送單）** / **`1`（RED 寄信）** |
 | `ABC_V3_F1_ORDER_ENABLED` | `0` | `0` |
@@ -96,6 +94,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 
 - 稽核發現 `com.jackm4.etf.order-chase-open` 仍掛在 mini launchd 上（`ORDER_LAUNCHD_ENABLED=1`，閘門開），與本文「不裝」的決策不符；根因是舊版 `install-order-launchd.sh` 靠 §4.6 手動 bootout 步驟撤除，某次重跑安裝腳本（例如加裝 Songshan／EP staged gate 等較新 order 功能時）沒有重做這一步就又裝回去。
 - 處理：SSH 到 mini 執行 `bootout` + 刪除 plist，即時撤除；同時把 `install-order-launchd.sh` 改成 `order-chase-open` 進 `LEGACY_LABELS`，之後每次執行安裝腳本都會自動卸載，不再依賴人工步驟。
+- `timed-limit-orders`（限時限價單，09:05 once-date 排程）確認之後不會再用，整支移除：mini 撤 launchd + 刪 plist/wrapper + 清 `data/order/timed_limit_orders_state.json`；Book 端刪除 `src/order/timed_limit_order.py`、`scripts/order/run_timed_limit_orders.py`、對應 launchd 樣板與 `install-launchd.sh` 註冊、`config/order.yaml` 的 `timed_limit_orders` 清單、`.env`/`.env.example`/`order.env` 的 `*_TIMED_LIMIT_*` 旗標。共用函式 `_order_still_open`（EP staged gate 也在用）先搬到 `order/fubon_orders.py`（改名 `order_still_open`，公開函式）才刪整個模組，避免誤傷還在跑的 EP staged gate。
 
 ---
 
@@ -127,8 +126,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 |---|-----|------|------|
 | 1 | `rrg-c18acc-poll` | 週一至五 09:00–13:30 每 5 分 | C18acc 主袖：換倉／進場／袖內退場 · **live** |
 | 2 | `leading-dip-poll` | 週一至五 09:05–13:25 每 5 分 | Leading Dip 衛星袖 · **live**（與 C18 互斥） |
-| 2b | `songshan-copytrade-poll` | 週一至五 09:25–09:40 每 5 分 | 跟單松山（凱基 `9217`）· 5d淨比95∩!mega + 25m nonfail · **買 1 張** · **live** |
-| 2c | `timed-limit-orders` | 週一至五 09:05 | `config/order.yaml` timed_limit_orders · **live once** |
+| 2b | `songshan-copytrade-poll` | 週一至五 09:25–09:40 每 5 分 | 跟單松山（凱基 `9217`）· 5d淨比95∩!mega + 25m nonfail · **預算制約10萬** · **live** |
 | 2d | `expert-pool-staged-gate` | 週一至五 09:00／01／05／25 | 專家池 gap→05→25 · **live** · **≠** 松山五日尺 |
 | 3 | `buy-signal-radar` | 週一至五 09:00–13:20 每 5 分 | 買訊觀察／通知 · **不送單** |
 | 4 | `sell-signal-radar` | 週一至五 09:06–13:20 每 5 分 | 過熱／extension advisory · 通知為主 |
@@ -157,7 +155,6 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 | C18acc poll | 自動買／換／賣（主袖） |
 | Leading Dip poll | 自動買／賣（衛星袖） |
 | Songshan copytrade | 昨訊號 → T+1 09:25 nonfail 買約10萬台幣預算（零股/整股，live） |
-| timed-limit-orders | 09:05 限價單 · 逾時撤 |
 | expert-pool-staged-gate | 專家池 gap／05／25（≠ 松山） |
 | Buy／Sell radar | 觀察，不送單 |
 | Detach Gate | RED 達標寄信 · **不半砍**（`ORDER_ENABLED=0`） |
@@ -266,7 +263,7 @@ MacBook（研究機 · 唯一 IDE）                Mac mini（無頭生產機�
 pytest / 小回測（讀 replica）                  WRITE SSOT：data/stocks.db
 git push → GitHub  ←──────── git pull ───────── launchd：Order 袖 + radar + 夜間
 SSH → 遙控部署與看 log                         live：C18 + Leading Dip + Songshan
-本地 Agent（研究）                             + EP gate + timed-limit
+本地 Agent（研究）                             + EP gate
 無 live Order／無 agent-worker                 Detach：RED 寄信 · 不送單
                                                cursor-agent-worker（My Machines）
 手機 Cursor App ── worker=mac-mini ──────────► 工具呼叫落在 mini
@@ -364,17 +361,13 @@ RUN_SONGSHAN_COPYTRADE_POLL=1
 ORDER_SONGSHAN_COPYTRADE_ENABLED=1
 ORDER_SONGSHAN_COPYTRADE_DRY_RUN=0
 ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT=1
-ORDER_SONGSHAN_COPYTRADE_QTY=1000
+ORDER_SONGSHAN_COPYTRADE_BUDGET_TWD=100000  # 預算制約10萬台幣，2026-07-24 起（非固定股數）
 ORDER_SONGSHAN_COPYTRADE_SUBMIT_EMAIL=1
 
 # === 專家池漏斗閘門 live ===
 RUN_EP_STAGED_GATE=1
 ORDER_EP_STAGED_GATE_ENABLED=1
 ORDER_EP_STAGED_GATE_DRY_RUN=0
-
-# === 限時限價（once jobs）===
-RUN_TIMED_LIMIT_ORDERS=1
-ORDER_TIMED_LIMIT_DRY_RUN=0
 
 # === Radars（不送單）===
 RUN_BUY_SIGNAL_RADAR=1

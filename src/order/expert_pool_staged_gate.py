@@ -263,9 +263,9 @@ def _place_buy(
     out["order_no"] = submit.get("order_no")
     if timeout_sec > 0:
         time.sleep(max(1, int(timeout_sec)))
-        from order.timed_limit_order import _order_still_open
+        from order.fubon_orders import order_still_open
 
-        still = _order_still_open(
+        still = order_still_open(
             session,
             order_no=out.get("order_no"),
             symbol=symbol,

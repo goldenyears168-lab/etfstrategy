@@ -14,7 +14,7 @@
 
 > **免責**：本文件描述本機 infra 與個人研究執行框架；**不**構成投資建議。Order layer **不**進公開網站、**不**暴露券商憑證。
 >
-> **2026-07-23 現況**（SSOT：[MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md)）：Live sleeves = **C18acc** + **Leading Dip** + **Songshan copytrade** + **timed-limit** + **expert-pool staged gate**；**Detach Gate = RED 只寄信 · 不半砍**（`ORDER_DETACH_GATE_ORDER_ENABLED=0`）。  
+> **2026-07-26 現況**（SSOT：[MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md)）：Live sleeves = **C18acc** + **Leading Dip** + **Songshan copytrade** + **expert-pool staged gate**；**Detach Gate = RED 只寄信 · 不半砍**（`ORDER_DETACH_GATE_ORDER_ENABLED=0`）。`timed-limit-orders` 已於 2026-07-26 整支移除（launchd + 程式碼 + config），之後不再使用。  
 > **ABC Order 已退役**（送單入口硬擋；`ABC_V3_F1_ORDER_ENABLED=0`）。下文含歷史 Phase／ABC 段落時以本框為準。
 
 ---

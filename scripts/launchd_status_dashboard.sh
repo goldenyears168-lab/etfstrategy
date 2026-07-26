@@ -28,7 +28,6 @@ JOBS=(
   "com.jackm4.etf.detach-gate|Detach Gate 台美脫鉤|週一至五 09:40–12:30 每 5 分|logs/intraday/launchd_detach-gate.log|1-5"
   "com.jackm4.etf.leading-dip-poll|Leading Dip Order|週一至五 09:05–13:25 每 5 分|logs/intraday/launchd_leading-dip-poll.log|1-5"
   "com.jackm4.etf.songshan-copytrade-poll|跟單松山 Order|週一至五 09:25–09:40 每 5 分|logs/intraday/launchd_songshan-copytrade-poll.log|1-5"
-  "com.jackm4.etf.timed-limit-orders|限時限價單|週一至五 09:05|logs/intraday/launchd_timed-limit-orders.log|1-5"
 )
 
 USE_COLOR=1

@@ -32,7 +32,7 @@
 - `ops-live-ta-poll` 08:50 起 · `crash-thermometer-daily` 09:00（多半昨收、**只算不寄**）· Order 窗開啟
 
 #### 盤中 · Order／觀測
-- live：`rrg-c18acc-poll` · `leading-dip-poll` · `songshan-copytrade-poll` · `timed-limit-orders` · `expert-pool-staged-gate`
+- live：`rrg-c18acc-poll` · `leading-dip-poll` · `songshan-copytrade-poll` · `expert-pool-staged-gate`
 - 觀測：`detach-gate`（RED 仍即時寄）· `buy/sell-signal-radar`（不下單）· `ops-live-ta-poll`
 - 另有 `order-wake`（`install-order-launchd.sh` · 防睡眠）
 

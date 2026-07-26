@@ -25,7 +25,6 @@ LABELS=(
   com.jackm4.etf.detach-gate
   com.jackm4.etf.leading-dip-poll
   com.jackm4.etf.songshan-copytrade-poll
-  com.jackm4.etf.timed-limit-orders
   com.jackm4.etf.expert-pool-staged-gate
   com.jackm4.etf.winbond-expert-pool-watch
   com.jackm4.etf.second-disp-expert-pool-watch
@@ -44,7 +43,6 @@ TEMPLATES=(
   com.jackm4.etf.detach-gate.plist.template
   com.jackm4.etf.leading-dip-poll.plist.template
   com.jackm4.etf.songshan-copytrade-poll.plist.template
-  com.jackm4.etf.timed-limit-orders.plist.template
   com.jackm4.etf.expert-pool-staged-gate.plist.template
   com.jackm4.etf.winbond-expert-pool-watch.plist.template
   com.jackm4.etf.second-disp-expert-pool-watch.plist.template
@@ -69,8 +67,7 @@ usage() {
     sell-signal-radar       週一至五 09:06–13:20 每 5 分（extension 持倉賣出 advisory）
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
-    songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 1 張）
-    timed-limit-orders      週一至五 09:05（config timed_limit_orders · 逾時撤；6451 once_date）
+    songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 預算制約10萬）
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
     winbond-expert-pool-watch  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
@@ -107,7 +104,6 @@ LAUNCHD_COMMANDS=(
   detach-gate
   leading-dip-poll
   songshan-copytrade-poll
-  timed-limit-orders
   expert-pool-staged-gate
   winbond-expert-pool-watch
   second-disp-expert-pool-watch
@@ -354,7 +350,6 @@ render_template() {
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
         -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
-        -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
         -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -379,7 +374,6 @@ render_template() {
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
         -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
-        -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
         -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
         "${template}" \
@@ -446,7 +440,6 @@ render_template() {
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
       -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
-      -e "s|{{TIMED_LIMIT_LAUNCHER}}|${TIMED_LIMIT_LAUNCHER}|g" \
       -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
       -e "s|{{WINBOND_EXPERT_LAUNCHER}}|${WINBOND_EXPERT_LAUNCHER}|g" \
       -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
@@ -482,7 +475,7 @@ sync_order_env_mirror() {
     echo "# Whitelist only · no passwords / cert paths"
     if [[ -f "${src_env}" ]]; then
       # shellcheck disable=SC2016
-      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_TIMED_LIMIT_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_TIMED_LIMIT_|RUN_EP_STAGED_GATE|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
+      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_EP_STAGED_GATE|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
         "${src_env}" 2>/dev/null \
         | grep -Eiv '(PASSWORD|SECRET|TOKEN|CERT|KEY|PIN)=' || true
     fi
@@ -583,20 +576,6 @@ install_songshan_copytrade_launcher() {
   APP_SUPPORT="${app_support}"
   render_template "${src}" "${SONGSHAN_COPYTRADE_LAUNCHER}"
   chmod +x "${SONGSHAN_COPYTRADE_LAUNCHER}"
-}
-
-install_timed_limit_launcher() {
-  local src="${LAUNCHD_SRC}/timed-limit-orders-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
-  TIMED_LIMIT_LAUNCHER="${app_support}/timed-limit-orders.sh"
-  if [[ ! -f "${src}" ]]; then
-    echo "✗ 缺少 ${src}" >&2
-    exit 1
-  fi
-  mkdir -p "${app_support}"
-  APP_SUPPORT="${app_support}"
-  render_template "${src}" "${TIMED_LIMIT_LAUNCHER}"
-  chmod +x "${TIMED_LIMIT_LAUNCHER}"
 }
 
 install_ep_staged_gate_launcher() {
@@ -920,7 +899,6 @@ install_agents() {
   DETACH_GATE_LAUNCHER=""
   LEADING_DIP_LAUNCHER=""
   SONGSHAN_COPYTRADE_LAUNCHER=""
-  TIMED_LIMIT_LAUNCHER=""
   EP_STAGED_GATE_LAUNCHER=""
   WINBOND_EXPERT_LAUNCHER=""
   SECOND_DISP_EXPERT_LAUNCHER=""
@@ -947,7 +925,6 @@ install_agents() {
   install_detach_gate_launcher
   install_leading_dip_launcher
   install_songshan_copytrade_launcher
-  install_timed_limit_launcher
   install_ep_staged_gate_launcher
   install_winbond_expert_launcher
   install_second_disp_expert_launcher

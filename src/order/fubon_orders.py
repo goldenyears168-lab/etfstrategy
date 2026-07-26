@@ -321,6 +321,21 @@ def order_results(session: FubonSession, acc: Any | None = None) -> list[dict[st
     return rows
 
 
+def order_still_open(
+    session: FubonSession, *, order_no: Any, symbol: str, user_def: str
+) -> bool:
+    account = session.primary
+    data = _result_data(session.sdk.stock.get_order_results(account))
+    for item in list(data or []):
+        ono = str(getattr(item, "order_no", "") or "")
+        if order_no and ono == str(order_no):
+            return bool(is_open_order(item))
+        if str(getattr(item, "stock_no", "") or "") == symbol and is_open_order(item):
+            if str(getattr(item, "user_def", "") or "") == user_def:
+                return True
+    return False
+
+
 def resolved_orders_preview(
     session: FubonSession,
     batch: OrderIntentBatch,

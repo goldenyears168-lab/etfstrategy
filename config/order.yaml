@@ -323,49 +323,6 @@ expert_pool_staged_gate:
     launchd=com.jackm4.etf.expert-pool-staged-gate
     state=data/order/expert_pool_staged_gate_state.json
 
-# 限時限價單（launchd 09:05 · 多筆同時送、共用 timeout 後撤）
-# 6451 訊芯：2026-07-23 09:05 限價賣 1 張 @462 · 10 分鐘撤
-# 專家池買進改走 expert_pool_staged_gate（上方）；此處固定 09:05 買已停用。
-timed_limit_orders:
-  - id: sell_6451_462_20260723
-    enabled: true
-    once_date: "2026-07-23"
-    time: "09:05"
-    symbol: "6451"
-    side: sell
-    quantity_shares: 1000
-    price: "462"
-    timeout_sec: 600
-    market_type: common
-    user_def: t6451
-    notes: "人工指定 · 隔日限價賣；ORDER_TIMED_LIMIT_DRY_RUN=0 才送券商"
-
-  - id: buy_2303_ep_a_20260723
-    enabled: false
-    once_date: "2026-07-23"
-    time: "09:05"
-    symbol: "2303"
-    side: buy
-    budget_twd: 10000
-    price: "140.5"
-    timeout_sec: 600
-    market_type: intraday_odd
-    user_def: epA1
-    notes: "DISABLED 2026-07-23 · 專家池漏斗改人工／非固定09:05限價"
-
-  - id: buy_2327_ep_a_20260723
-    enabled: false
-    once_date: "2026-07-23"
-    time: "09:05"
-    symbol: "2327"
-    side: buy
-    budget_twd: 10000
-    price: "710"
-    timeout_sec: 600
-    market_type: intraday_odd
-    user_def: epA2
-    notes: "DISABLED 2026-07-23 · 國巨改人工漏斗（開/<717→05→25）"
-
 # Phase 1 · mini-OMS lifecycle（C18acc / Leading Dip · 可 env 覆寫）
 lifecycle:
   poll_max_attempts: 3
