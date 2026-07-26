@@ -92,6 +92,11 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 2. Book／mini 的 `data/order/*.json` **不同 inode**；生產寫入只在 mini。  
 3. 改 `.env` 後須同步 `order.env`（`install-launchd.sh` 或手動 upsert），否則 launcher 仍讀舊值。
 
+**運維事件（2026-07-26）**
+
+- 稽核發現 `com.jackm4.etf.order-chase-open` 仍掛在 mini launchd 上（`ORDER_LAUNCHD_ENABLED=1`，閘門開），與本文「不裝」的決策不符；根因是舊版 `install-order-launchd.sh` 靠 §4.6 手動 bootout 步驟撤除，某次重跑安裝腳本（例如加裝 Songshan／EP staged gate 等較新 order 功能時）沒有重做這一步就又裝回去。
+- 處理：SSH 到 mini 執行 `bootout` + 刪除 plist，即時撤除；同時把 `install-order-launchd.sh` 改成 `order-chase-open` 進 `LEGACY_LABELS`，之後每次執行安裝腳本都會自動卸載，不再依賴人工步驟。
+
 ---
 
 ## 1. 決策摘要（現行）
@@ -413,14 +418,12 @@ ssh mac-mini 'bash -lc "
 cd ~/Documents/ETF/股票研究
 bash scripts/install-launchd.sh
 bash scripts/install-order-launchd.sh
-# 不裝開盤追價
-UID_NUM=\$(id -u)
-launchctl bootout gui/\${UID_NUM}/com.jackm4.etf.order-chase-open 2>/dev/null || true
-rm -f ~/Library/LaunchAgents/com.jackm4.etf.order-chase-open.plist
 bash scripts/install-launchd.sh --status
 launchctl list | grep jackm4.etf
 "'
 ```
+
+開盤窗追價（`order-chase-open`）**不裝**：`install-order-launchd.sh` 把它列在 `LEGACY_LABELS`，每次執行都會自動 `bootout` + 刪除其 plist，不需要再手動撤（2026-07-26 前的版本靠手動步驟，曾因此在 mini 上重跑安裝腳本後意外復活過一次，已改成自動清除）。
 
 預期載入：`rrg-c18acc-poll` · `leading-dip-poll` · `buy-signal-radar` · `sell-signal-radar` · `detach-gate` · `order-wake`。
 

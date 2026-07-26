@@ -43,6 +43,10 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 
 **已退役 daily 鏈**：`p6-tier-flow`（`score_engine` → `pm_watchlist` · `RUN_SCORE_ENGINE=0`）
 
+### 績效回填（非 daily_close 主線・選用）
+
+`strategy_performance_yearly.py`（`RUN_STRATEGY_PERF_SYNC`，slim profile 預設關）── 重算已採納策略的年度績效（Sharpe／CAGR／win rate）寫入 SQLite + Supabase。**明確允許** import L5 `research.backtest.*`（`chunge_funnel_backtest`、`copytrade_backtest`、`rrg_mono_backtest`、`rrg_mono_score_swap_c`、`finpilot_local_backtest`）── 這是規則 3 的例外：目的就是「用回測引擎算出歷史績效數字」，不是產生每日訊號，且不在 `daily_close` 主線（`etf-daily`／`regime-daily`）或關鍵 L4 track screen 的 import 鏈上。
+
 ---
 
 ## L5 Research（`src/research/`）
@@ -74,8 +78,8 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 |------|------|
 | `order/` | `intent` · `config` · `fubon_session` · `fubon_account` · `fubon_orders` |
 | `scripts/order/` | `submit_intents.py` · `fubon_login_test.py` |
-| `scripts/order/chase_scheduled.py` | 開盤窗追價（每分鐘 · 限價=賣一 · 最多 5 輪） |
-| `scripts/launchd/order-chase-open.command` | 週一至五 09:00–09:04（`install-order-launchd.sh`） |
+| `scripts/order/chase_scheduled.py` | 開盤窗追價（每分鐘 · 限價=賣一 · 最多 5 輪）· **已退役、不裝 launchd**（2026-07-26 撤 mini；`install-order-launchd.sh` 每次執行會自動卸載，見 `LEGACY_LABELS`） |
+| `scripts/launchd/order-chase-open.command` | 程式碼仍在，僅供需要時手動 bootstrap；非日常排程 |
 | `reports/order/` | intent JSON · 帳戶 snapshot（執行時寫入） |
 
 策略 / research 腳本 **勿** import `order`；只寫 `reports/order/intents/*.json`（schema `order-intent-v1`）。
@@ -95,7 +99,7 @@ Ops 工具：`backfill_market_data` · `etfedge_*`
 
 1. `copytrade.signals` → 僅 L0 + `holdings_research` 語意
 2. L3 daily pipeline → **不** import `research.backtest.*`
-3. L4 launchd briefs → import `analytics.bench`，不 import `copytrade_backtest`
+3. L4 launchd briefs（每日訊號／screen 產出）→ import `analytics.bench`，不 import `copytrade_backtest`；例外見上「績效回填」（非 screen，選用、算歷史績效用）
 4. Backtest JSON → `slot_backtest_summary` + 各 `run_*_backtest.py`
 
 ---

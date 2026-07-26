@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 安裝下單層 launchd：08:55 防睡眠 · 09:00–09:04 每分鐘追價
+# 安裝下單層 launchd：08:55 防睡眠（order-wake）
 #
 # 用法：
 #   scripts/install-order-launchd.sh
@@ -19,19 +19,17 @@ ORDER_WAKE_LAUNCHER="${APP_SUPPORT}/order-wake.sh"
 
 LABELS=(
   com.jackm4.etf.order-wake
-  com.jackm4.etf.order-chase-open
 )
 TEMPLATES=(
   com.jackm4.etf.order-wake.plist.template
-  com.jackm4.etf.order-chase-open.plist.template
 )
 COMMANDS=(
   order-wake
-  order-chase-open
 )
-# 舊版單次送單 label（升級時卸載）
+# 已退役／不裝：升級時自動卸載（見 deploy/mac-mini/MIGRATION_PLAN.md §4.6「不裝開盤追價」）
 LEGACY_LABELS=(
   com.jackm4.etf.order-5347-open
+  com.jackm4.etf.order-chase-open
 )
 
 usage() {
@@ -39,12 +37,11 @@ usage() {
 用法: $(basename "$0") [--uninstall|--status]
 
   order-wake：鐘面每 5 分 · Mon–Fri 08:50–13:40 caffeinate（盤中防休眠）
-  09:00–09:04 每分鐘 order-chase-open（限價追賣一 · 最多 5 輪）
 
-  閘門：.env ORDER_LAUNCHD_ENABLED=1
-  僅撤 user_def=chase_open 的程式單，不動人工掛單
-
-  log：${PROJECT_ROOT}/logs/launchd_order-chase-open.log
+  開盤窗追價（order-chase-open）已退役、不裝：每次執行本腳本會自動
+  bootout + 移除其 plist（見 LEGACY_LABELS）。程式碼仍在
+  scripts/order/chase_scheduled.py／src/order/chase.py，需要時可手動
+  bootstrap launchd/com.jackm4.etf.order-chase-open.plist.template。
 EOF
 }
 
@@ -117,7 +114,6 @@ install_agents() {
   done
 
   echo ""
-  echo "spec：reports/order/intents/scheduled/open_market_10000.json"
   if grep -q '^ORDER_LAUNCHD_ENABLED=1' "${PROJECT_ROOT}/.env" 2>/dev/null; then
     echo "✓ .env ORDER_LAUNCHD_ENABLED=1"
   else
