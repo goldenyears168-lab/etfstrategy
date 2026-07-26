@@ -22,7 +22,7 @@ DEFAULT_PIPELINE = ROOT / "config" / "pipelines" / "daily_close.yaml"
 class PipelineNode:
     node_id: str
     label: str
-    module: str
+    module: str | None
     args: tuple[str, ...]
     args_if_quiet: tuple[str, ...]
     env_flag: str | None
@@ -43,7 +43,7 @@ def _load_phase(path: Path, phase_id: str) -> tuple[dict[str, Any], list[Pipelin
                 PipelineNode(
                     node_id=str(body["id"]),
                     label=str(body["label"]),
-                    module=str(body["module"]),
+                    module=str(body["module"]) if body.get("module") else None,
                     args=tuple(str(a) for a in (body.get("args") or [])),
                     args_if_quiet=tuple(str(a) for a in (body.get("args_if_quiet") or [])),
                     env_flag=str(body["env_flag"]) if body.get("env_flag") else None,
@@ -93,6 +93,11 @@ def _run_node(
     t0 = time.time()
     _log_line(f"--- {node.label} ---", log_file=log_file, quiet=quiet, show_report=show_report)
 
+    if node.module is None:
+        raise SystemExit(
+            f"node {node.node_id!r} has no `module` (composite/documentation-only node; "
+            "not directly executable via run_nodes.py)"
+        )
     module_path = root / node.module
     cmd = [
         str(python),

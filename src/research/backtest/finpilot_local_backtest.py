@@ -200,7 +200,7 @@ def select_stocks(
         hist = close.loc[:signal_date]
         if len(hist) < 250:
             return []
-        new_high = c >= hist.tail(250).max()
+        new_high = c > hist.iloc[:-1].tail(250).max()
         mask = new_high & liquid.reindex(c.index).fillna(False)
         return _top_n_by_value(mask, c, 20)
 
@@ -221,7 +221,7 @@ def select_stocks(
         hist = close.loc[:signal_date]
         if len(hist) < 250:
             return []
-        new_high = c >= hist.tail(250).max()
+        new_high = c > hist.iloc[:-1].tail(250).max()
         mask = pd.Series(False, index=c.index)
         for sid in c.index:
             sid_s = str(sid)
@@ -235,7 +235,7 @@ def select_stocks(
         hist = close.loc[:signal_date]
         if len(hist) < 250:
             return []
-        new_high = c >= hist.tail(250).max()
+        new_high = c > hist.iloc[:-1].tail(250).max()
         mask = pd.Series(False, index=c.index)
         for sid in c.index:
             sid_s = str(sid)

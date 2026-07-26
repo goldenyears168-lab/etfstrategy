@@ -176,14 +176,17 @@ class TestOpsLiveTa(unittest.TestCase):
         )
         rows = load_holdings_from_db(conn)
         self.assertEqual(rows, [("2330", "台積電")])
-        # Prefer ops.holdings over stale DB — do not union ghosts.
-        with patch("ops_live_ta.load_holdings_from_ops", return_value=[("2454", "聯發科")]):
-            uni = resolve_live_ta_universe(conn, extras_raw="2492:華新科")
-        self.assertEqual([r[0] for r in uni], ["2454", "2492"])
-        # Ops empty → fall back to DB + extras
-        with patch("ops_live_ta.load_holdings_from_ops", return_value=[]):
-            uni2 = resolve_live_ta_universe(conn, extras_raw="2492:華新科")
-        self.assertEqual([r[0] for r in uni2], ["2330", "2492"])
+        # Isolate from live ops.live_ta_watch (Supabase) so this test is
+        # deterministic regardless of what's currently on the website watchlist.
+        with patch("ops_live_ta.load_live_ta_watch_from_ops", return_value=[]):
+            # Prefer ops.holdings over stale DB — do not union ghosts.
+            with patch("ops_live_ta.load_holdings_from_ops", return_value=[("2454", "聯發科")]):
+                uni = resolve_live_ta_universe(conn, extras_raw="2492:華新科")
+            self.assertEqual([r[0] for r in uni], ["2454", "2492"])
+            # Ops empty → fall back to DB + extras
+            with patch("ops_live_ta.load_holdings_from_ops", return_value=[]):
+                uni2 = resolve_live_ta_universe(conn, extras_raw="2492:華新科")
+            self.assertEqual([r[0] for r in uni2], ["2330", "2492"])
         conn.close()
 
     def test_build_continuous_vs_disposition(self) -> None:

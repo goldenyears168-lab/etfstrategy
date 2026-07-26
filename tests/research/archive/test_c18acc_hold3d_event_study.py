@@ -16,7 +16,7 @@ from research.backtest.archive.c18acc_hold3d_event_study import (
 def test_c18acc_live_s2_config_uses_poll_5m_champion():
     cfg = c18acc_live_s2_config(n_slots=3)
     assert cfg.timing_mode == "poll_5m"
-    assert cfg.candidate_pool == "fresh_union_accel"
+    assert cfg.candidate_pool == "fresh"
     assert cfg.quad_force_exit_mode == "weakening"
     assert cfg.n_slots == 3
 

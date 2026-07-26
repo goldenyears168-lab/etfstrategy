@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,6 +32,7 @@ from rrg_mono_swap_accel_screen import (
     _resolve_prior_ret_max,
     _scan_row_from_dict,
     _scan_row_to_dict,
+    _spread_gate_anchor,
     _spread_gate_allows,
     _spread_gate_blocker_clause,
     _swap_allowed,
@@ -79,8 +80,13 @@ class TestC18accLiveScreen(unittest.TestCase):
         self.assertFalse(_poll_window_ok(sat))
 
     def test_swap_after_0930(self) -> None:
-        self.assertFalse(_swap_allowed(datetime(2026, 6, 23, 9, 29)))
-        self.assertTrue(_swap_allowed(datetime(2026, 6, 23, 9, 30)))
+        # Anchor = champion no_trade_before (SSOT), currently 13:00 near-close
+        # entry (was 09:30 in an earlier champion generation).
+        anchor = _spread_gate_anchor()
+        hh, mm = (int(x) for x in anchor.split(":")[:2])
+        at_anchor = datetime(2026, 6, 23, hh, mm)
+        self.assertFalse(_swap_allowed(at_anchor - timedelta(minutes=1)))
+        self.assertTrue(_swap_allowed(at_anchor))
 
     def test_scan_row_roundtrip(self) -> None:
         row = ScanRow("2330", "台積電", True, True, 1.2, 1.5, [1.0], ["leading"], 100.0, 101.0, None)
@@ -231,6 +237,11 @@ class TestC18accLiveScreen(unittest.TestCase):
         class _Conn:
             pass
 
+        # poll_minute must be >= the spread-gate anchor (champion no_trade_before,
+        # currently 13:00) so this test exercises the px/quote blocker path being
+        # tested here rather than the earlier spread-gate-not-open-yet blocker.
+        poll_minute = _spread_gate_anchor()
+
         with patch(
             "rrg_mono_swap_accel_screen._c0_scale_diagnostics",
             side_effect=[(True, False), (True, True)],
@@ -242,7 +253,7 @@ class TestC18accLiveScreen(unittest.TestCase):
                 held=set(),
                 entries_today=set(),
                 session="2026-06-24",
-                poll_minute="12:50",
+                poll_minute=poll_minute,
                 conn=_Conn(),
                 close=pd.DataFrame(),
                 kbar_cache={},
@@ -252,7 +263,7 @@ class TestC18accLiveScreen(unittest.TestCase):
                 has_entry_action=False,
             )
         self.assertIn("6488", blocker)
-        self.assertIn("尚無盤中報價 @ 12:50", blocker)
+        self.assertIn(f"尚無盤中報價 @ {poll_minute}", blocker)
 
     def test_lot_shares_odd_lot_default(self) -> None:
         self.assertEqual(_lot_shares(644.0, 20000), 31)

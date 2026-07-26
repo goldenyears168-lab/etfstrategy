@@ -91,38 +91,31 @@ class TestVerdict(unittest.TestCase):
 
 class TestRenderMd(unittest.TestCase):
     def test_render_contains_verdict(self) -> None:
+        overlap = {
+            "c18_executed_pairs": 10,
+            "abc_executed_pairs": 20,
+            "entry_jaccard_executed": 0.05,
+            "same_day_stock_rate_executed": 0.02,
+            "c18_underfill_days": 50,
+            "abc_executed_on_c18_underfill_days": 10,
+            "abc_candidates_on_c18_underfill_days": 15,
+        }
+        correlation = {"daily_return_corr": 0.1, "n_aligned_days": 100}
+        # Use the real verdict builder so `summary` reflects actual go/no-go
+        # wording instead of an arbitrary hand-written string.
+        verdict = phase0_verdict(overlap, correlation)
         md = render_c18acc_abc_dual_sleeve_phase0_md(
             {
                 "date_start": "2024-01-01",
                 "date_end": "2024-06-30",
                 "n_trade_dates": 120,
                 "source": "test",
-                "overlap": {
-                    "c18_executed_pairs": 10,
-                    "abc_executed_pairs": 20,
-                    "entry_jaccard_executed": 0.05,
-                    "same_day_stock_rate_executed": 0.02,
-                    "c18_underfill_days": 50,
-                    "abc_executed_on_c18_underfill_days": 10,
-                    "abc_candidates_on_c18_underfill_days": 15,
-                },
-                "correlation": {"daily_return_corr": 0.1, "n_aligned_days": 100},
-                "verdict": {
-                    "go_phase1_dual_sleeve": True,
-                    "summary": "GO test",
-                    "checks": {
-                        "entry_jaccard_ok": True,
-                        "same_day_conflict_ok": True,
-                        "daily_return_corr_ok": True,
-                    },
-                    "thresholds": {
-                        "max_entry_jaccard": 0.3,
-                        "max_same_day_stock_rate": 0.2,
-                        "max_daily_return_corr": 0.5,
-                    },
-                },
+                "overlap": overlap,
+                "correlation": correlation,
+                "verdict": verdict,
             }
         )
+        self.assertTrue(verdict["go_phase1_dual_sleeve"])
         self.assertIn("GO_PHASE1_DUAL_SLEEVE", md)
         self.assertIn("Jaccard", md)
 

@@ -22,10 +22,10 @@ class Tw100MlBacktestTests(unittest.TestCase):
         cfg = load_research_config()
         topic = cfg.get("tw100-alpha158-wfa")
         assert topic is not None
-        self.assertEqual(topic.phase, "hypothesis")
+        self.assertEqual(topic.phase, "rejected")
         self.assertEqual(topic.split_spec, "tw100_wfa_504_100")
-        self.assertIn("scripts/run_tw100_ml_backtest.py", topic.run_scripts)
-        self.assertIn("scripts/run_tw100_monthly_wfa.py", topic.run_scripts)
+        self.assertIn("scripts/research/archive/run_tw100_ml_backtest.py", topic.run_scripts)
+        self.assertIn("scripts/research/archive/run_tw100_monthly_wfa.py", topic.run_scripts)
         hids = {h["id"] for h in topic.hypotheses}
         self.assertIn("H-TW100-3", hids)
 

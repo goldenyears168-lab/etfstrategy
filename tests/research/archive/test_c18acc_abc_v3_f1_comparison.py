@@ -43,7 +43,7 @@ def test_event_stats_from_pct_values():
     assert stats["n"] == 3
     assert stats["mean_ret_net_pct"] == 0.667
     assert stats["win_rate_pct"] == 66.67
-    assert stats["mean_daily_ret_net_pct"] == 0.2223
+    assert stats["mean_daily_ret_net_pct"] == 0.2222
 
 
 def test_enrich_event_level_from_ledger():

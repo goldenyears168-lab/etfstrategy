@@ -10,6 +10,7 @@ from research.backtest.c18acc_rotation_selective_exit_sweep import (
 )
 from research.backtest.rrg_mono_score_swap_c import (
     ScoreSwapCConfig,
+    close_champion_score_swap_c_config,
     quad_force_exit_eligible,
 )
 
@@ -101,10 +102,14 @@ class TestRotationSelectiveExitSweepConfigs(unittest.TestCase):
         self.assertEqual(s7.quad_force_exit_min_days, 1)
         self.assertEqual(s7.quad_force_exit_loss_pct, -0.03)
 
-    def test_s0_no_force_exit(self) -> None:
+    def test_s0_matches_champion_close(self) -> None:
+        # S0 = "baseline · champion close" — it has no overrides of its own, so
+        # its force-exit fields just mirror whatever the champion currently is
+        # (e.g. a promoted S-variant), not a fixed "no force exit" literal.
         s0 = next(c for c in rotation_selective_exit_sweep_configs() if c.variant_id == "S0")
-        self.assertEqual(s0.quad_force_exit_mode, "none")
-        self.assertIsNone(s0.quad_force_exit_loss_pct)
+        champion = close_champion_score_swap_c_config()
+        self.assertEqual(s0.quad_force_exit_mode, champion.quad_force_exit_mode)
+        self.assertEqual(s0.quad_force_exit_loss_pct, champion.quad_force_exit_loss_pct)
 
 
 class TestPickBestSelective(unittest.TestCase):

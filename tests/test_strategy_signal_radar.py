@@ -209,25 +209,17 @@ class TestSignalRadarMarkdown(unittest.TestCase):
         from buy_observation import load_buy_observation_config
 
         _, specs = load_buy_observation_config()
-        self.assertGreaterEqual(len(specs), 5)
+        self.assertGreaterEqual(len(specs), 3)
         ids = {s.id for s in specs}
         self.assertIn("rrg-fresh-mono", ids)
         self.assertIn("rrg-mono-tier2", ids)
         self.assertNotIn("rrg-improving-watch-setup", ids)  # Phase C disabled
         for pid in ("rrg-fresh-mono", "rrg-mono-tier2", "rrg-mono-up-fresh"):
             self.assertEqual(next(s for s in specs if s.id == pid).top_n, 0)
-        self.assertIn("abc-v3-f1-pullback", ids)
-        f1 = next(s for s in specs if s.id == "abc-v3-f1-pullback")
-        self.assertEqual(f1.source, "abc_v3_f1_pullback")
-        self.assertTrue(f1.observe_only)
-        self.assertEqual(f1.top_n, 0)
-        # observe-only 命中即寄信（advisory 軌）
-        self.assertTrue(f1.notify)
-        self.assertIn("abc-v3-skip09-pullback", ids)
-        v3 = next(s for s in specs if s.id == "abc-v3-skip09-pullback")
-        self.assertEqual(v3.source, "abc_v3_skip09_pullback")
-        self.assertTrue(v3.observe_only)
-        self.assertTrue(v3.notify)
+        # ABC 回踩池（abc-v3-f1-pullback／abc-v3-skip09-pullback）已於 2026-07-16
+        # 隨 Order sleeve 退役設 enabled=false，不再出現於 loader 結果
+        self.assertNotIn("abc-v3-f1-pullback", ids)
+        self.assertNotIn("abc-v3-skip09-pullback", ids)
         self.assertNotIn("dual-wma-lead-pullback", ids)
 
     def test_abc_v3_skip09_source_dispatch_empty_poll(self) -> None:

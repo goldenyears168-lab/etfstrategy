@@ -219,9 +219,19 @@ class TestLeadPullbackObservationPool(unittest.TestCase):
                 "rrg_universe_intraday_panel.load_price_panels",
                 return_value=(MagicMock(), None, None),
             ) as load_px:
+                class _IndexList(list):
+                    """list + `.tolist()` — mimics `DataFrame.index.astype(str)`."""
+
+                    def tolist(self) -> list:
+                        return list(self)
+
                 close = MagicMock()
                 close.columns = ["2330"]
-                close.index.astype.return_value = ["2026-07-03"]
+                close.index.astype.return_value = _IndexList(["2026-07-03"])
+                # Column-subsetting (`close[universe_cols]`) on a real DataFrame
+                # keeps the same row index; mimic that here so the mock doesn't
+                # lose its configured `.index` after the subset.
+                close.__getitem__.return_value = close
                 load_px.return_value = (close, None, None)
                 with patch(
                     "rrg_universe_intraday_panel.load_benchmark_close",
@@ -240,6 +250,7 @@ class TestLeadPullbackObservationPool(unittest.TestCase):
                                 side_effect=[
                                     (MagicMock(), MagicMock(), None),
                                     (MagicMock(), MagicMock(), None),
+                                    (MagicMock(), MagicMock(), None),
                                 ],
                             ) as compute:
                                 rs5 = MagicMock()
@@ -254,9 +265,14 @@ class TestLeadPullbackObservationPool(unittest.TestCase):
                                 rs20.at = MagicMock(return_value=103.0)
                                 mom20 = MagicMock()
                                 mom20.at = MagicMock(return_value=104.0)
+                                # W3 micro (rs3/mom3) — used only for optional
+                                # w3_mom enrichment, unconfigured mock is fine.
+                                rs3 = MagicMock()
+                                mom3 = MagicMock()
                                 compute.side_effect = [
                                     (rs5, mom5, None),
                                     (rs20, mom20, None),
+                                    (rs3, mom3, None),
                                 ]
                                 with patch(
                                     "rrg_universe_intraday_panel.classify_dual_wma_trade_signal",
