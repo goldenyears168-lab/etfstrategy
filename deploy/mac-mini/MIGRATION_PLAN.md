@@ -145,7 +145,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 | Strategy id | `songshan-copytrade`（`config/order.yaml`） |
 | 分點 | 凱基-松山 `9217` |
 | 訊號 | 昨交易日：五日買 ≥ 0.5億 ∩ 淨比 ≥ 0.95 ∩ !mega |
-| 進場 | T+1 09:25–09:40 · live `entry_25m_nonfail` · `chase_ask` · 1000 股 |
+| 進場 | T+1 09:25–09:40 · live `entry_25m_nonfail` · `chase_ask` · **預算制 約10萬台幣**（`qty = budget_twd / 買一價`；<1000股走零股、≥1000股走整股，2026-07-24 起，見 `docs/songshan-copytrade-budget-migration.md`；舊版固定 1000 股/1張 已停用） |
 | 出場 | `hold_days: 7` **僅參數** · **無自動賣出腳本**（暫接受只進場） |
 | 夜信同尺 | `RUN_SONGSHAN_FOLLOW_EMAIL`（併入 20:00 digest · 不下單） |
 | live 四鍵 | `RUN_SONGSHAN_COPYTRADE_POLL=1` · `ORDER_SONGSHAN_COPYTRADE_ENABLED=1` · `DRY_RUN=0` · `AUTO_SUBMIT=1` |
@@ -156,7 +156,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 |------|------|
 | C18acc poll | 自動買／換／賣（主袖） |
 | Leading Dip poll | 自動買／賣（衛星袖） |
-| Songshan copytrade | 昨訊號 → T+1 09:25 nonfail 買 1 張（live） |
+| Songshan copytrade | 昨訊號 → T+1 09:25 nonfail 買約10萬台幣預算（零股/整股，live） |
 | timed-limit-orders | 09:05 限價單 · 逾時撤 |
 | expert-pool-staged-gate | 專家池 gap／05／25（≠ 松山） |
 | Buy／Sell radar | 觀察，不送單 |
