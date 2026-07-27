@@ -48,16 +48,24 @@
       }
     ]
   },
+  "validation_20260728": {
+    "report": "reports/research/branch-footprint-screen/expanded/EXPERT_POOL_SEATS_DISPOSITION_VALIDATION.md",
+    "basis": "處置股子樣本 L1H7（118 episodes / 64 檔 / 全 2026）· baseline 中位 +2.92% p=0.0015",
+    "caveat": "⚠️ IN-SAMPLE：seats 原本就從這批處置股資料選出，非獨立 OOS。相對強弱可辨，不構成有效性證明。下次處置窗做前推 OOS 才算驗證。",
+    "verdict": "留:1360/9A9R/9A81/779n/9216（BH顯著且勝過基準）；移除:9227（超額-0.51%，兩場皆弱）；降權:920F（超額+0.18%無增量，floor 0.1→0.3）；觀察:9217（n=7薄）/9325（p=0.082未過FDR）"
+  },
   "seats": [
-    {"id": "1360", "name": "港商麥格理", "abs_floor_yi": 0.3, "tag": "外資", "source": "原"},
-    {"id": "9A9R", "name": "永豐金信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "新增"},
-    {"id": "9325", "name": "華南永昌-忠孝", "abs_floor_yi": 0.1, "tag": "本土", "source": "原"},
-    {"id": "9A81", "name": "永豐金-匯立", "abs_floor_yi": 0.7, "tag": "本土", "source": "原"},
-    {"id": "9217", "name": "凱基松山", "abs_floor_yi": 0.3, "tag": "本土·薄樣本", "source": "原"},
-    {"id": "779n", "name": "國票南京", "abs_floor_yi": 0.1, "tag": "本土·近帶", "source": "新增"},
-    {"id": "9227", "name": "凱基城中", "abs_floor_yi": 0.3, "tag": "本土", "source": "原"},
-    {"id": "9216", "name": "凱基-信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "原"},
-    {"id": "920F", "name": "凱基-站前", "abs_floor_yi": 0.1, "tag": "本土", "source": "原"}
+    {"id": "1360", "name": "港商麥格理", "abs_floor_yi": 0.3, "tag": "外資", "source": "原", "verdict": "留·處置主場最佳(中位+16.4%)"},
+    {"id": "9A9R", "name": "永豐金信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "新增", "verdict": "留·+14.2% win80%"},
+    {"id": "9325", "name": "華南永昌-忠孝", "abs_floor_yi": 0.1, "tag": "本土·觀察", "source": "原", "verdict": "觀察·+9.0%但p=0.082未過FDR"},
+    {"id": "9A81", "name": "永豐金-匯立", "abs_floor_yi": 0.7, "tag": "本土", "source": "原", "verdict": "留·+12.4%"},
+    {"id": "9217", "name": "凱基松山", "abs_floor_yi": 0.3, "tag": "本土·薄樣本", "source": "原", "verdict": "觀察·n=7均值負"},
+    {"id": "779n", "name": "國票南京", "abs_floor_yi": 0.1, "tag": "本土·近帶", "source": "新增", "verdict": "留·+12.0% win81%"},
+    {"id": "9216", "name": "凱基-信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "原", "verdict": "留·+7.2%"},
+    {"id": "920F", "name": "凱基-站前", "abs_floor_yi": 0.3, "tag": "本土·降權", "source": "原", "verdict": "降權·超額+0.18%無增量，floor 0.1→0.3"}
+  ],
+  "removed_seats": [
+    {"id": "9227", "name": "凱基城中", "removed": "2026-07-28", "reason": "處置股驗證中位+2.41%低於baseline+2.92%(超額-0.51%,p=0.27)；通用universe亦顯著負向。兩場皆弱。"}
   ],
   "email": {
     "env_flag": "RUN_SECOND_DISP_EXPERT_POOL_EMAIL",
