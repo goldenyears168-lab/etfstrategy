@@ -411,6 +411,7 @@ def process_leading_dip_poll(
                 )["blocked"]
             )
             | main_ledger.open_symbols()
+            | main_ledger.failed_symbols_on_day(day)
         )
 
         picks = _pick_day_entries(
@@ -477,6 +478,7 @@ def process_leading_dip_poll(
                     )["blocked"]
                 )
                 | mid_ledger.open_symbols()
+                | mid_ledger.failed_symbols_on_day(day)
                 | {str(e.get("symbol") or "") for e in out["entries"] if e.get("symbol")}
                 | {str(p.get("symbol") or "") for p in main_ledger.entries_on_day(day)}
             )
@@ -710,14 +712,29 @@ def _submit_entry(
                 }
             )
         except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
+            # Worker crashed before it could write its own ledger row (e.g. Fubon
+            # connect failed, outside _submit_entry's try). Record the failed
+            # attempt here so the poll driver can skip this symbol for the rest of
+            # the day instead of re-firing every tick.
+            append_position(
+                ledger,
+                {**base, "status": "failed", "qty": 0, "error": f"fubon_subprocess_failed:{exc}"},
+                path=ledger_path,
+            )
             return {**base, "status": "error", "error": f"fubon_subprocess_failed:{exc}"}
         if isinstance(worker_out, dict):
             return worker_out
+        append_position(
+            ledger,
+            {**base, "status": "failed", "qty": 0, "error": "fubon_subprocess_bad_result"},
+            path=ledger_path,
+        )
         return {**base, "status": "error", "error": "fubon_subprocess_bad_result"}
 
     from order.chase_runner import chase_ask_price
+    from order.fubon_account import bank_remain
     from order.fubon_orders import place_resolved_order
-    from order.fubon_session import connect_fubon, fetch_available_balance
+    from order.fubon_session import connect_fubon
     from order.abc_v3_f1_lifecycle import (
         outer_status_from_lifecycle,
         poll_order_lifecycle,
@@ -736,7 +753,7 @@ def _submit_entry(
 
     notional = qty * ask
     try:
-        cash = int(fetch_available_balance(session))
+        cash = int(bank_remain(session).get("available_balance", 0) or 0)
     except Exception:
         cash = 0
     ok, reason = can_afford_buy(notional_twd=notional, available_balance=cash)

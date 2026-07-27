@@ -52,6 +52,24 @@ class LeadingDipLedger:
             and str(p.get("status") or "") not in {"failed", "cancelled", "skipped"}
         ]
 
+    def failed_symbols_on_day(self, session_date: str) -> set[str]:
+        """Symbols whose buy hard-failed today (submit crash or broker reject).
+
+        Used to stop the poll from re-firing the same doomed entry every tick.
+        Deliberately excludes ``skipped`` (qty_zero / insufficient cash), which is
+        transient and should stay retryable.
+        """
+        day = str(session_date)
+        return {
+            str(p.get("symbol") or "").strip()
+            for p in self.positions
+            if isinstance(p, dict)
+            and str(p.get("entry_date") or "") == day
+            and str(p.get("side") or "buy").lower() == "buy"
+            and str(p.get("status") or "") in {"failed", "cancelled", "rejected"}
+            and p.get("symbol")
+        }
+
 
 def load_ledger(path: Path | None = None) -> LeadingDipLedger:
     p = path or LEDGER_PATH

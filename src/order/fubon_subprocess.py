@@ -100,7 +100,21 @@ def run_fubon_order_worker(payload: dict[str, Any], *, timeout_sec: float = 120.
             env=env,
         )
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+            # Worker writes its real reason to out_path before exiting non-zero
+            # (see _worker_main). Prefer that over a bare "exit N" so callers and
+            # logs can see the true cause (e.g. Fubon connect/login failure).
+            reason = ""
+            try:
+                raw_err = json.loads(out_path.read_text(encoding="utf-8"))
+                if isinstance(raw_err, dict):
+                    reason = str(raw_err.get("reason") or "").strip()
+            except (OSError, json.JSONDecodeError):
+                reason = ""
+            err = (
+                reason
+                or (proc.stderr or proc.stdout or "").strip()
+                or f"exit {proc.returncode}"
+            )
             raise RuntimeError(f"fubon_subprocess_failed:{err}")
         raw = json.loads(out_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict) or "result" not in raw:

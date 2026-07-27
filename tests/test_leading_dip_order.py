@@ -121,6 +121,88 @@ def test_ledger_roundtrip(tmp_path: Path) -> None:
     assert loaded.open_symbols() == {"6505"}
 
 
+def test_failed_symbols_on_day() -> None:
+    led = LeadingDipLedger(
+        positions=[
+            {"symbol": "6505", "side": "buy", "entry_date": "2026-07-27", "status": "failed"},
+            {"symbol": "2492", "side": "buy", "entry_date": "2026-07-27", "status": "rejected"},
+            {"symbol": "2330", "side": "buy", "entry_date": "2026-07-27", "status": "skipped"},
+            {"symbol": "2454", "side": "buy", "entry_date": "2026-07-27", "status": "open"},
+            {"symbol": "1101", "side": "buy", "entry_date": "2026-07-24", "status": "failed"},
+        ]
+    )
+    # skipped (transient) stays retryable; open is not a failure; other days ignored.
+    assert led.failed_symbols_on_day("2026-07-27") == {"6505", "2492"}
+
+
+def test_submit_entry_records_failed_on_subprocess_crash(tmp_path: Path, monkeypatch) -> None:
+    import dataclasses
+
+    from order import fubon_subprocess
+    from order.leading_dip_order import _submit_entry
+
+    def _boom(_payload, **_kw):
+        raise RuntimeError("fubon_subprocess_failed:connect refused")
+
+    monkeypatch.setattr(fubon_subprocess, "host_needs_fubon_venv", lambda: True)
+    monkeypatch.setattr(fubon_subprocess, "run_fubon_order_worker", _boom)
+
+    conf = dataclasses.replace(
+        load_leading_dip_order_config(),
+        order_enabled=True,
+        auto_submit=True,
+        dry_run=False,
+    )
+    ledger_path = tmp_path / "ld.json"
+    ledger = LeadingDipLedger()
+    ent = _submit_entry(
+        row={"sid": "6505", "minute": "09:10"},
+        conf=conf,
+        session_date="2026-07-27",
+        poll_minute="09:39",
+        trading_dates=["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30"],
+        ledger=ledger,
+        ledger_path=ledger_path,
+        dry=False,
+        strategy_id="leading-dip",
+        user_def=conf.user_def,
+        budget_twd=20000,
+        sleeve="main",
+    )
+    assert ent["status"] == "error"
+    # A failed row is now persisted so the poll won't re-fire this symbol all day.
+    reloaded = load_ledger(ledger_path)
+    assert reloaded.failed_symbols_on_day("2026-07-27") == {"6505"}
+    assert reloaded.entries_on_day("2026-07-27") == []  # failed does not count as an entry
+
+
+def test_live_submit_path_imports_resolve() -> None:
+    # _submit_entry imports these lazily inside the live path, so a missing symbol
+    # (the old `fetch_available_balance`, which never existed) only crashed at real
+    # submit time -> worker exit 1 -> no ledger -> re-fired every poll. Import them
+    # here so the drift is caught by CI, not by a live order attempt.
+    from order.abc_v3_f1_lifecycle import (
+        outer_status_from_lifecycle,
+        poll_order_lifecycle,
+        reconcile_before_submit,
+    )
+    from order.chase_runner import chase_ask_price
+    from order.fubon_account import bank_remain
+    from order.fubon_orders import place_resolved_order
+    from order.fubon_session import connect_fubon
+
+    for fn in (
+        bank_remain,
+        place_resolved_order,
+        connect_fubon,
+        chase_ask_price,
+        outer_status_from_lifecycle,
+        poll_order_lifecycle,
+        reconcile_before_submit,
+    ):
+        assert callable(fn)
+
+
 def test_config_budget_and_mid_defaults(monkeypatch) -> None:
     monkeypatch.delenv("ORDER_LEADING_DIP_BUDGET_TWD", raising=False)
     monkeypatch.delenv("ORDER_LEADING_DIP_MID_ENABLED", raising=False)
