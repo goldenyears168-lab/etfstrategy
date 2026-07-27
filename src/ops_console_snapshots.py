@@ -367,12 +367,66 @@ def build_today_payload() -> dict[str, Any]:
     }
 
 
+STAGE_HEATMAP_JSON = (
+    ROOT / "reports/research/chip-overlays/2327_ta_adaptive/stage_heatmap_1y.json"
+)
+
+
+def build_stage_heatmap_payload() -> dict[str, Any]:
+    """Weekly Weinstein Stage (30W SSOT) + S2 tier — latest per-stock state.
+
+    Source: build_stage_heatmap_1y.py's JSON sidecar (same data backing
+    stage_heatmap_1y.html). Research/observe only — not an Order signal.
+    """
+    data = _read_json(STAGE_HEATMAP_JSON)
+    if data is None:
+        return {
+            "schema": "ops-stage-heatmap-v1",
+            "title": "Weinstein Stage 熱力圖",
+            "present": False,
+            "note": "尚無 stage_heatmap_1y.json（跑 build_stage_heatmap_1y.py）",
+        }
+    rows = [
+        {
+            "sid": r.get("sid"),
+            "name": r.get("name"),
+            "stage": r.get("last_stage"),
+            "slope_pct": r.get("last_slope"),
+            "extension_pct": r.get("last_extension"),
+            "s2_tier": r.get("last_s2_tier"),
+            "pinned": bool(r.get("pinned")),
+        }
+        for r in (data.get("rows") or [])
+    ]
+    return {
+        "schema": "ops-stage-heatmap-v1",
+        "title": "Weinstein Stage 熱力圖 · 30W",
+        "present": True,
+        "field_ssot": data.get("field_ssot"),
+        "engine": data.get("engine"),
+        "confirm_days": data.get("confirm_days"),
+        "asof": data.get("last_date"),
+        "built_at": data.get("built_at"),
+        "pin": data.get("pin"),
+        "ix_stage": data.get("ix_stage"),
+        "counts_30w": data.get("counts_30w"),
+        "s2_tier_counts": data.get("s2_tier_counts"),
+        "s2_gradient": data.get("s2_gradient"),
+        "rows": rows,
+        "note_zh": (
+            "weinstein_stage（30週當量 SSOT，日更＋2日確認引擎）＋S2強度＝"
+            "max(正規化MA斜率,正規化乖離)。研究觀察用，非下單訊號。"
+        ),
+    }
+
+
 BUILDERS: dict[str, Any] = {
     "watch": build_watch_payload,
     "risk": build_risk_payload,
     "thermo": build_thermo_payload,
     "branches": build_branches_payload,
     "today": build_today_payload,
+    "stage_heatmap": build_stage_heatmap_payload,
 }
 
 KINDS = tuple(BUILDERS.keys())

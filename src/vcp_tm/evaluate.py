@@ -119,6 +119,7 @@ def evaluate_vcp_tm(
         min_contraction_days=p.min_contraction_days,
         min_contractions=p.min_contractions,
         t1_depth_min=p.t1_depth_min,
+        t1_depth_max=p.t1_depth_max,
         contraction_ratio=p.contraction_ratio,
         wide_and_loose_threshold=p.wide_and_loose_threshold,
     )
@@ -278,6 +279,7 @@ def evaluate_vcp_tm_diagnostic(
         min_contraction_days=p.min_contraction_days,
         min_contractions=p.min_contractions,
         t1_depth_min=p.t1_depth_min,
+        t1_depth_max=p.t1_depth_max,
         contraction_ratio=p.contraction_ratio,
         wide_and_loose_threshold=p.wide_and_loose_threshold,
     )

@@ -65,6 +65,10 @@ def _digest_for(kind: str, payload: dict[str, Any]) -> tuple[str, str, str] | No
     if kind == "branches":
         n = payload.get("n_evening_fires") or 0
         return (f"ops-branches:{asof}", f"分點／專家池 · 觸發 {n}", "info")
+    if kind == "stage_heatmap":
+        counts = payload.get("counts_30w") or {}
+        n_s2 = counts.get("2") or counts.get(2) or 0
+        return (f"ops-stage-heatmap:{asof}", f"Weinstein Stage · S2 {n_s2} 檔", "info")
     return None
 
 
@@ -125,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         elif kind == "today":
             summary["risk_level"] = payload.get("risk_level")
             summary["thermo_temp_pct"] = payload.get("thermo_temp_pct")
+        elif kind == "stage_heatmap":
+            summary["asof"] = payload.get("asof")
+            summary["counts_30w"] = payload.get("counts_30w")
+            summary["n_rows"] = len(payload.get("rows") or [])
 
         print(json.dumps(summary, ensure_ascii=False))
         if args.print_payload:

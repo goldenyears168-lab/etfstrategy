@@ -137,6 +137,11 @@ def classify_weinstein_stage(
             stage = 3
         else:
             stage = 2
+    elif price_above and ma_rising:
+        # higher_lows failed but price is still above a rising MA — a shallow
+        # pullback inside an uptrend, not a full reset to basing (fixed
+        # 2026-07-27: was falling through to stage=1 below).
+        stage = 3
     elif price_above and ma_flat:
         stage = 3
     elif not price_above and (ma_flat or ma_rising):
@@ -168,6 +173,114 @@ def classify_weinstein_stage(
 def classify_weinstein_stage_fast(df: pd.DataFrame) -> dict[str, Any]:
     """10-week MA diagnostic cycle (``stage_fast``). Does not replace 30W SSOT."""
     return classify_weinstein_stage(df, ma_period=10)
+
+
+DAILY_TRADING_DAYS_PER_WEEK = 5
+DAILY_CONFIRM_DAYS = 2
+DAILY_HIGHER_LOW_TOLERANCE_PCT = 1.0
+
+
+def stage_series_daily(
+    df: pd.DataFrame,
+    *,
+    ma_weeks: int = WEEKLY_MA_PERIOD,
+    slope_weeks: int = WEEKLY_SLOPE_LOOKBACK,
+    confirm_days: int = DAILY_CONFIRM_DAYS,
+    higher_low_tolerance_pct: float = DAILY_HIGHER_LOW_TOLERANCE_PCT,
+) -> pd.DataFrame:
+    """Daily-native Weinstein stage — updates every trading day, not just at the
+    weekly close. Rolls the SMA/slope/low-comparison directly on daily bars
+    (``ma_weeks*5`` / ``slope_weeks*5`` trading days) instead of resampling to
+    weekly bars first, so every day is a fully-settled reading rather than an
+    in-progress weekly bar (that partial-bar noise is what makes naive daily
+    recompute *more* whipsaw-prone, not less).
+
+    Two changes versus :func:`classify_weinstein_stage` address the "real" jumps
+    (S2 -> S4 / S2 -> S1 in one bar) rather than resample artifacts:
+
+    - ``higher_low_tolerance_pct``: a small undercut of the prior low still counts
+      as "higher lows", so a normal shallow pullback inside an uptrend doesn't
+      reset a stock all the way from S2 straight to S1 (it now lands on S3
+      instead — see the fixed fallthrough below).
+    - ``confirm_days``: a new raw stage only takes effect once it has held for
+      this many consecutive trading days, damping single-bar whipsaws (e.g. one
+      bad session pushing price >3% below the MA doesn't instantly flip S2->S4).
+
+    Also fixes a fallthrough in the original rule chain: "price above a rising MA
+    but higher_lows failed" fell through to the catch-all ``stage = 1`` (full
+    reset to basing) instead of a milder ``stage = 3`` (slowing/consolidating).
+
+    Diagnostic only — does **not** replace ``weinstein_stage`` (the 30W
+    weekly-chart SSOT from :func:`classify_weinstein_stage`).
+
+    Returns one row per trading day in ``df``'s range: ``date``, ``stage``
+    (confirmed), ``raw_stage`` (unconfirmed), ``ma_slope_pct``, ``extension_pct``.
+    """
+    norm = _normalize_ohlcv(df)
+    cols = ["date", "stage", "raw_stage", "ma_slope_pct", "extension_pct"]
+    if norm.empty:
+        return pd.DataFrame(columns=cols)
+
+    ma_period = ma_weeks * DAILY_TRADING_DAYS_PER_WEEK
+    slope_period = slope_weeks * DAILY_TRADING_DAYS_PER_WEEK
+    close = norm["Close"]
+    low = norm["Low"]
+
+    ma = close.rolling(ma_period, min_periods=ma_period).mean()
+    ma_prev = ma.shift(slope_period)
+    ma_slope_pct = (ma - ma_prev) / ma_prev * 100.0
+    extension_pct = (close - ma) / ma * 100.0
+
+    recent_low = low.rolling(slope_period, min_periods=slope_period).min()
+    prior_low = recent_low.shift(slope_period)
+    higher_lows = recent_low > prior_low * (1 - higher_low_tolerance_pct / 100.0)
+
+    ma_rising = ma_slope_pct > 0.25
+    ma_falling = ma_slope_pct < -0.25
+    ma_flat = ~ma_rising & ~ma_falling
+    price_above = close > ma
+
+    # All branches below are mutually exclusive (each keyed off price_above plus
+    # a disjoint ma_rising/ma_flat/ma_falling/higher_lows combination), so
+    # assignment order doesn't matter — unmatched rows (price_above with
+    # ma_falling) keep the default stage=1, same as the weekly SSOT rule chain.
+    raw = pd.Series(1, index=norm.index, dtype=int)
+    s2_setup = price_above & ma_rising & higher_lows
+    s2_overext = s2_setup & (extension_pct > 12.0) & (ma_slope_pct < 0.75)
+    raw[price_above & ma_flat] = 3
+    raw[(~price_above) & (ma_flat | ma_rising)] = 3
+    raw[price_above & ma_rising & ~higher_lows] = 3  # fixed: was falling to S1
+    raw[s2_setup & ~s2_overext] = 2
+    raw[s2_overext] = 3
+    raw[(~price_above) & ma_falling] = 4
+    raw[(~price_above) & (extension_pct < -3.0)] = 4
+
+    valid = ma.notna() & ma_prev.notna() & recent_low.notna() & prior_low.notna()
+    raw = raw.where(valid, other=0)
+
+    confirmed: list[int] = []
+    run_val: int | None = None
+    run_len = 0
+    held = 0
+    for s in raw.tolist():
+        if s == run_val:
+            run_len += 1
+        else:
+            run_val = s
+            run_len = 1
+        if run_len >= confirm_days:
+            held = s
+        confirmed.append(held)
+
+    return pd.DataFrame(
+        {
+            "date": norm.index,
+            "stage": confirmed,
+            "raw_stage": raw.values,
+            "ma_slope_pct": ma_slope_pct.round(2).values,
+            "extension_pct": extension_pct.round(2).values,
+        }
+    )
 
 
 def ix_stage_to_trend_posture(

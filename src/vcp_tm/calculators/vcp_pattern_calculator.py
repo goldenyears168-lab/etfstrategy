@@ -29,6 +29,7 @@ def calculate_vcp_pattern(
     min_contraction_days: int = 5,
     min_contractions: int = 2,
     t1_depth_min: float = 8.0,
+    t1_depth_max: float = 40.0,
     contraction_ratio: float = 0.75,
     wide_and_loose_threshold: float = 15.0,
 ) -> dict:
@@ -117,7 +118,9 @@ def calculate_vcp_pattern(
             min_contraction_days=min_contraction_days,
         )
         if len(candidate) >= min_contractions:
-            v = _validate_vcp(candidate, n, min_contractions, t1_depth_min, contraction_ratio)
+            v = _validate_vcp(
+                candidate, n, min_contractions, t1_depth_min, t1_depth_max, contraction_ratio
+            )
             s = _score_vcp(candidate, v)
         else:
             v = {"valid": False}
@@ -150,7 +153,9 @@ def calculate_vcp_pattern(
         }
 
     # Step C: Validate VCP
-    validation = _validate_vcp(contractions, n, min_contractions, t1_depth_min, contraction_ratio)
+    validation = _validate_vcp(
+        contractions, n, min_contractions, t1_depth_min, t1_depth_max, contraction_ratio
+    )
 
     # Pivot price = high of the last contraction
     pivot_price = _get_pivot_price(contractions, highs, swing_highs)
@@ -513,6 +518,7 @@ def _validate_vcp(
     total_days: int,
     min_contractions: int = 2,
     t1_depth_min: float = 8.0,
+    t1_depth_max: float = 40.0,
     contraction_ratio: float = 0.75,
 ) -> dict:
     """Validate whether the contraction pattern qualifies as a VCP."""
@@ -522,13 +528,13 @@ def _validate_vcp(
     if len(contractions) < min_contractions:
         return {"valid": False, "issues": [f"Need at least {min_contractions} contractions"]}
 
-    # Check T1 depth (8-35% for large-caps)
+    # Check T1 depth (t1_depth_min-t1_depth_max for large-caps)
     t1_depth = contractions[0]["depth_pct"]
     if t1_depth < t1_depth_min:
         issues.append(f"T1 depth too shallow ({t1_depth:.1f}%, need >= {t1_depth_min}%)")
         valid = False
-    elif t1_depth > 35:
-        issues.append(f"T1 depth too deep ({t1_depth:.1f}%, prefer <= 35%)")
+    elif t1_depth > t1_depth_max:
+        issues.append(f"T1 depth too deep ({t1_depth:.1f}%, prefer <= {t1_depth_max}%)")
         # Don't invalidate, just flag
 
     # Check contraction tightening (each T should be <= 75% of previous)

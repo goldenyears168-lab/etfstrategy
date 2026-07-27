@@ -58,6 +58,18 @@ else
     EXIT=1
   fi
 
+  # 2026-07-27 新增：Weinstein Stage 熱力圖（30週當量·日更2日確認引擎），跑完才有
+  # 當天資料可以被下面的 write_ops_console_snapshot.py --kind stage_heatmap 讀到。
+  set +e
+  "${PY}" "${ROOT}/scripts/research/build_stage_heatmap_1y.py" \
+    2>&1 | tee -a "${RUN_LOG}"
+  rc_stage_heatmap=${PIPESTATUS[0]}
+  set -e
+  if [[ "${rc_stage_heatmap}" -ne 0 ]]; then
+    echo "✗ stage heatmap evening refresh exit=${rc_stage_heatmap}"
+    EXIT=1
+  fi
+
   set +e
   "${PY}" "${ROOT}/scripts/order/write_ops_console_snapshot.py" \
     --kind all --also-digest \

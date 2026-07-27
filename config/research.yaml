@@ -1473,6 +1473,291 @@ topics:
       Run: scripts/research/run_xd_50m_stock_futures_timing.py
       Run night50: ... --universe night50 [--start 2024-07-17] [--ah-source daily]
 
+  whale-buy-concentration:
+    title: 分點買超集中度 · 單一大戶主導吃貨 vs 對手盤分散（散戶承接推論）
+    status: active
+    phase: hypothesis
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/scan_whale_buy_concentration.py
+      - scripts/research/study_whale_buy_concentration_forward_return.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-WHALE-BUY-FORWARD
+        statement: >
+          當某股單日（或短窗）買超金額中，Top1 或 Top1+2 分點占比 ≥80%
+          且絕對金額 ≥2億（排除 mega 權值股與 ETF），事件後 forward
+          excess return（vs IX0001）顯著為正
+        status: rejected  # IS(n=63) H1/H9/H20 勝率<50%、Sharpe 0.03~0.13 效果量太薄；OOS(n=28)遠低於 min_oos_n=80 不具統計意義，但 H20 出現 -12.5%(n=9) 需留意非下結論
+    methodology: >
+      單位 (trade_date, stock_id)：對 stock_broker_branch_daily 當日所有出手
+      分點算買超金額（buy股數×close），排序後取 Top1/Top1+2 占比。門檻：
+      Top1+2 金額≥2億 · Top1+2 占比≥80% · Top3 占比<10%（避免 3-4 位大戶平分
+      誤判）· 出手分點數≥15（確認對手盤分散非資料稀疏）。排除 mega 黑名單
+      （ab58_xMega_copytrade/mega_blacklist_v1.json）與 ETF（"00"開頭代碼，
+      實物申購常態性單一參與券商大額申報會誤觸發）。同一 (stock_id,
+      top1_trader_id) 短窗內（≤10 交易日）連續事件合併為一個「行情」，僅取
+      首日為進場點，避免同一波吃貨被拆成多筆偽獨立事件、灌水統計顯著性。
+    notes: >
+      資料涵蓋率限制：stock_broker_branch_daily 在 2024-07 之前僅追蹤極少數
+      分點（多數日期 n_branches=1），2024-07 起穩定在 266 家分點，2026-05
+      起擴大到近千家。研究期間固定為 2024-07-01 起，之前資料不具集中度計算
+      意義。校準（2024-07-01～2026-07-22）：ETF/mega排除後 115 個原始事件、
+      合併同分點連續行情後 92 筆。IS(n=63)：H1/H9/H20 勝率 39.7%/42.9%/44.4%
+      （皆<50%），H5 勝率 49.2%；平均 excess 0.1~1.2%、Sharpe-like 僅
+      0.03~0.13，效果量薄弱。OOS(n=28，長 horizon 因近期事件缺未來資料只剩
+      9~11 筆)遠低於 min_oos_n=80，不具統計意義，但 H20 出現 -12.5%
+      （勝率22.2%、n=9）方向性負值值得後續留意。結論：目前定義下的買方集中度
+      訊號本身看不出明確預測力，暫不建議投入更多回測資源，見報告
+      whale_buy_concentration_study.md「建議」段落（累積更多資料 / 改測賣方
+      集中度 / 疊加濾網三個方向）。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: insufficient_n  # 28 < min_oos_n 80
+        G3_regime_stratification: na  # 未做，n 太小無意義分層
+        G4_rejection_registry: passed
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: rejected · do-not-adopt（原始定義；見 notes 三個後續方向）
+
+  whale-branch-l1h7-discovery:
+    title: 分點層級 L1H7 廣泛篩選 · 尋找新的「優質分點」（比照凱基松山 9217）
+    status: active
+    phase: hypothesis
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/study_whale_branch_consistency.py
+      - scripts/research/whale_branch_deepdive_980T.py
+      - scripts/research/whale_branch_deepdive_9227_v2.py
+      - scripts/research/study_whale_branch_deepdive_9217.py
+      - scripts/research/study_whale_branch_l1h7_universe.py
+      - scripts/research/whale_branch_l1h7_deepdive_9239_probe.py
+      - scripts/research/whale_branch_l1h7_deepdive_779Z.py
+      - scripts/research/whale_branch_deepdive_920F_local.py
+      - scripts/research/whale_branch_l1h7_deepdive_11neg_marketmaking_check.py
+      - scripts/research/whale_branch_l1h7_deepdive_8440_1650_reversal_decompose.py
+      - scripts/research/study_whale_branch_l1h7_top3_multihorizon.py
+      - scripts/research/whale_branch_deepdive_9216.py
+      - scripts/research/whale_branch_round3_deepdive_9B2a_5852.py
+      - scripts/research/whale_branch_round3_9268_9800_year_split.py
+      - scripts/research/whale_branch_round3_9268_9800_marketmaking_check.py
+      - scripts/research/scan_whale_branch_pairs_step1_identify.py
+      - scripts/research/scan_whale_branch_pairs_step2_forward_returns.py
+      - scripts/research/scan_whale_branch_pairs_step3_compare.py
+      - scripts/research/whale_branch_round3_perstock_top_branch.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-BRANCH-CONSISTENCY
+        statement: >
+          whale-buy-concentration 用小樣本「極端集中度事件」判斷分點好壞不可靠；
+          改用「該分點全部 Top1 買方日」（不套集中度門檻）的大樣本重新評估，
+          方向會不同且更可信
+        status: passed  # 9227：集中度子集 n=4 H9-6.1% → 全樣本 n=140 H9+4.7%，完全翻轉；驗證了方法論教訓本身
+      - id: H2-L1H7-PROTOCOL-CORRECTION
+        statement: >
+          用專案標準 L1H7 協議（T+1開盤進場、7交易日收盤出場、30bps成本、
+          r_adj=r-1.15×r_IX0001）+ 大樣本重算，會比「訊號日收盤進場、無成本、
+          無β調整」的簡化算法產生方向不同的結論——尤其是進場時機（跳空）、
+          成本、β調整三者疊加後可能翻轉表面上的正向訊號
+        status: passed  # 8440摩根大通/1650瑞銀：舊法判正向，L1H7+全母體(n=4308/5309)判顯著負向(p<1e-4)；隔夜跳空+0.33~0.35%+30bps+β合計約-0.6~0.7pp可解釋部分落差，但決定性因素是舊研究的小樣本選擇偏誤（即使沿用舊算法看全母體，中位數也早是負的）
+      - id: H3-MARKET-MAKER-SIGNATURE
+        statement: >
+          BH-FDR 顯著負向的分點，若在其最活躍股票上呈現「近乎每日交易＋買賣
+          金額比例接近50/50」，代表其為造市/避險/綜合客戶流通道而非方向性
+          大戶，訊號本身不具方向意義、應從候選宇宙排除而非當作反向訊號
+        status: passed  # 11個顯著負向分點中10個（除已知980T）平均交易日數佔比93~100%、買賣平衡44.9~51.7%，與980T已知造市簽名一致；黑名單見 market_maker_branch_exclusion_v1.json
+      - id: H4-NEW-CANDIDATE-9239
+        statement: >
+          全分點宇宙 L1H7 篩選能找到新的、統計輪廓優於既有候選 9217 的正向分點
+        status: rejected  # 9239: 統計面(n=22,p=0.070)一度看似優於9217，但補完建倉細節後反證：91%(20/22)事件訊號後25日內轉淨賣超、32%(7/22)隔日賣出金額即達買超50%以上，且該分點在這22檔標的上交易天數中位數307天(~490日窗口內近乎每天在買賣)——不是「廣泛一次性重押」而是高週轉短線帳戶，訊號不可信。同日對倒查核未發現特定協同賣方(排除最粗暴的對敲假設)，但無法挽救自身高週轉這個更根本疑慮。詳見 whale_branch_l1h7_deepdive_9239_followup_position_crossing.md
+      - id: H5-LARGE-N-SMALL-EFFECT
+        statement: >
+          大樣本但效果量小、p值接近顯著的候選（如n>100但效果量<1%），隨樣本
+          持續累積會收斂到顯著
+        status: rejected  # 920F反例：n=141看似大樣本正向，但排除單一月份(2026-05,16%樣本)後mean/median/勝率/p全部崩解到雜訊水準（p 0.193→0.917），效果本身可能不存在、非樣本不足問題
+      - id: H6-TOP3-MULTIHORIZON-BROADENING
+        statement: >
+          放寬事件定義（當日唯一Top1買方 → Top1~Top3排名前三皆納入）+ 多天期
+          同測（H7/H14/H20，非只測H7），能找到 Top1-only+H7-only 篩選法遺漏
+          的正向候選
+        status: rejected  # 774個分點裡H7/H14/H20 BH-FDR(5%)顯著分別只有6/7/8個，且逐一深挖後全數是既有12分點造市簽名的變體或統計假象（見H7-H10），未新增任何可採納候選；此協議擴展本身未被證偽，但目前產出是null result
+      - id: H7-H14H20-DELAYED-SIGNAL-ARTIFACT
+        statement: >
+          「H7無訊號、H14/H20才顯著」型態代表訊號需要時間發酵，是比H7-only
+          篩選更敏感的偵測方法
+        status: rejected  # 9216(凱基-信義,n=250)反證：leg分解顯示只有第8-14天增量段乾淨顯著(Wilcoxon p=0.021)，第15-20天增量段完全不顯著且中位數為負(p=0.645)——H20 headline比H14更漂亮純粹是右尾極端值堆疊；9B2a/5852同樣是報酬std隨天期擴大(9B2a 17.7%→30.7%；5852 11.2%→24.9%)後t檢定對極端值更敏感的統計假象，非真實訊號發酵。正確結論：此型態本身應視為造市/綜合流量帳戶的警訊，不是加分項
+      - id: H8-NEW-CANDIDATES-9216-9B2A-5852
+        statement: >
+          Top1-3+多天期篩選裡效果隨天期增強的三個新候選（9216凱基信義/9B2a
+          台新松德/5852統一敦南）為真實方向性大戶訊號
+        status: rejected  # 三者交易剖面(100%交易日全勤、買賣金額比44.9~51.7%接近50/50、觸及全市場2100+檔個股)與既有12分點造市簽名完全一致；5852另有Wilcoxon不顯著+中位數為負+去極端值後消失+67%事件集中重複同股四項獨立瑕疵；9B2a另有112天內3個不同登記名稱橫跨2券商品牌的身分不穩定問題。三者均併入 market_maker_branch_exclusion_v1.json
+      - id: H9-LARGEST-SAMPLE-9268-9800
+        statement: >
+          9268(凱基-台北)/9800(元大HQ代碼)這兩個樣本量遠超既有造市黑名單
+          （n=17,759/12,824，最大既有分點8440僅n=4,308）的顯著負向分點，
+          代表大型券商總公司具備系統性但微弱的負向選股能力，而非純粹造市/
+          綜合流量帳戶
+        status: rejected  # 兩者100%交易日活躍、平均每天觸及1,803/1,412檔股票(近乎全市場，觸及總數2,347/2,019檔)、最活躍股票買賣金額比46.2~51.6%；三年(2024/25/26)×三天期(H7/H14/H20)共48格中位數與勝率全部為負/低於50%，僅mean在長天期因離群值轉正——本質是既有12分點造市簽名的「廣度」極端版本(既有12個是「深度」——集中在少數個股天天出現)，非新現象。建議併入排除清單(agent回傳的recommendation欄位誤標「worth_tracking」，但reasoning本身完整支持exclude，已依內容而非欄位標籤採用reject結論，詳見notes)
+      - id: H10-BRANCH-PAIR-CONSENSUS
+        statement: >
+          仿照既有 expert_pool 系統的「同股多分點共識」邏輯，用資料驅動方式
+          系統性挖掘「經常同日同股共同出現、且同時出現時 forward return 優於
+          各自單獨出現」的分點配對，能找到比單一分點篩選更強的候選
+        status: rejected  # 30個候選配對(15高頻+15排除超高頻分點後的精品配對)逐一比較joint vs solo的H7/H14/H20，無一同時滿足樣本足夠+跨股票可類化+joint優於solo且經濟上有意義；高頻配對組效果量僅0.03-0.4pp(大樣本撐出的雜訊)，精品配對組樣本普遍n<20且多數joint事件100%集中單一股票。交叉檢查顯示既有4個專家分點(9217/9801/9661/9227)彼此間幾乎不同日同股共同出現(最高165次且對象是已知負向分點9800)，印證「好分點各自獨立行動」而非「好分點會一起出手」
+      - id: H11-PERSTOCK-SPECIALIST
+        statement: >
+          反過來以「個股優先」切角（對特定股票找歷史戰績最好的分點，而非
+          跨股票彙總找哪個分點整體最好）能發現分點整體樣本不夠大、但在
+          特定1-2檔股票上有扎實重複優勢的「分點×個股」專屬配對
+        status: pending  # 20檔股票池、17組候選裡僅2組p<0.05：9699(富邦經紀)×7769(展宏) n=9 H20 median+13.75%/勝率88.9%/p=0.024，分點宇宙極窄(僅5檔股票)結構上最像9217；另一組9875×8358(n=4)與既有run_ab58_follow_consensus_study.py的「忙碌≠edge」負樣本判定矛盾，可信度存疑。多重比較下17組測2組顯著並不算遠超隨機水位(5%水準預期~0.85組)。9699×7769是本輪唯一交叉驗證後仍站得住腳的新線索，但n=9需要更多樣本外事件才能判斷，暫不歸入rejected也不算worth_tracking，留待下一輪深挖
+    methodology: >
+      L1H7 協議（SSOT：scripts/research/build_expert_pool_trade_knowledge.py）：
+      進場＝訊號日次一交易日開盤；出場＝進場起算第7個交易日收盤；成本30bps；
+      r_adj = r_股 − 1.15×r_IX0001（IX0001 同樣用 L1H7 對齊日期算，非曆日相減）。
+      全分點宇宙主表：對 2024-07-01 起、排除 mega(ab58_xMega_copytrade/
+      mega_blacklist_v1.json)+ETF("00"開頭) 的每個 (trade_date, stock_id)，
+      用 SQL window function（非 Python groupby，220M 列全表 pandas groupby
+      會逾時）取 Top1 買方（金額≥500萬），同分點同股5日內去重。165 個 n≥10
+      的分點做單樣本 t-test，並用 Benjamini-Hochberg FDR（5%）做多重比較
+      校正（同時測 165 個分點，不校正會有大量假陽性）。分點層級判斷至少要
+      交叉驗證 t-test + Wilcoxon signed-rank + bootstrap CI 三種方法，任一
+      不支持就不算穩健正向（教訓來自 779Z：t-test p=0.051 但 Wilcoxon
+      p=0.146、median bootstrap CI 含0，判 inconclusive 而非 worth_tracking）。
+    notes: >
+      資料背景：2026-07-27 使用者完成分點資料兩年期回補，覆蓋率從 2024-07~
+      2026-04 期間的 ~266~268 家分點大幅提升到 ~831 家（2026-05起~930~1010
+      家），資料量從 8600萬列增至 2.2億列。**這份新資料只在 mini 上，Book
+      本地複本是舊的**，此後任何分點層級研究都必須 SSH mac-mini-lan 執行，
+      不能用 Book 本地 DEFAULT_DB_PATH。已於 2026-07-27 在
+      stock_broker_branch_daily 加兩個索引：
+      (securities_trader_id, trade_date) 與 (stock_id, trade_date)
+      （原本只有 PK 索引、trade_date 開頭，單分點或單股全市場查詢等同全表
+      掃描，實測曾讓深挖腳本卡 90 分鐘以上；加索引後降到秒級）。
+
+      全分點宇宙掃描結果：110,298 筆原始 Top1 買方事件（697分點×475股票）→
+      去重後 59,065 筆 → 165 個分點 n≥10 可測 → BH-FDR(5%) 顯著 11 個，
+      **全部負向、無一正向**（980T mean正但median≈0，屬已知造市帳戶）。
+
+      候選結論：
+      - **9217（凱基松山，現行 live）**：唯一持續驗證為正的既有候選，n=25，
+        median+5.90%/勝率64.0%，p=0.126未達BH-FDR但方向乾淨（median>mean）。
+      - **9239（凱基-市政）**：p=0.070 統計面一度是165個分點裡最接近顯著者，
+        但加索引後補完建倉細節，反證推翻了「廣泛一次性重押」的假設——這
+        個分點在其22檔候選標的上交易天數中位數307天（~490日窗口內近乎
+        每天在買賣，只是多數日子沒大到觸發Top1門檻），且91%(20/22)事件
+        訊號後25日內轉淨賣超、32%(7/22)隔日賣出金額即達買超50%以上，是
+        高週轉短線帳戶而非知情一次性重押者，**判定 rejected**。這是本輪
+        另一個方法論教訓：n_stocks==n（零重複標的）不能直接推論「廣泛
+        一次性重押」，要查完整交易歷史才能排除「高頻但少觸發門檻」的
+        替代解釋。
+      - **779Z（國票-安和）／920F（凱基站前）**：均判定不採納。779Z 統計
+        方法交叉驗證本就不一致（t-test p=0.051邊緣顯著、Wilcoxon p=0.146
+        不顯著、median bootstrap CI含0），加索引後補完建倉型態分析確認
+        原因：最活躍10檔股票每檔都有400~500/~500交易日在動（幾乎天天
+        交易）、買賣金額比例多在48~53%平衡（例：2344買168億/賣166億），
+        部位分類多為「波段進出後出清」或「部分了結」——跟11個造市分點
+        同一種簽名，已併入排除清單。920F 效果完全由單一月份撐起、排除後
+        歸零，是「大樣本≠強訊號」的示範案例。
+      - **12個造市/綜合流量分點**（8440摩根大通/1650瑞銀/1440美林/8890大和
+        國泰/9600富邦/1590花旗環球/7000兆豐/8900法銀巴黎/9100群益/980C元大
+        斗六/980T元大自營/779Z國票-安和）：列入排除清單
+        market_maker_branch_exclusion_v1.json，未來分點宇宙篩選應在建立
+        候選池前先排除，不要等跑出負向或邊緣訊號才發現。8440/1650 是本輪
+        最重要的方法論教訓——舊版研究（訊號日收盤進場、無成本、無β調整、
+        17/7筆人工篩選樣本）判定它們正向，這次 L1H7+全母體(n=4308/5309)
+        判定顯著負向(p<1e-4)；協議差異只解釋約0.6~0.7個百分點的落差，
+        決定性因素是**舊研究的樣本選擇偏誤**（小樣本剛好抽到右尾）。
+
+      下一步：9217 維持現行 live 不變；其餘候選（9239/779Z/920F）皆不採納，
+      暫無新的分點候選可以升級；未來若要繼續找，應先套用
+      market_maker_branch_exclusion_v1.json 排除造市分點、且對任何
+      「零重複標的」的候選都要查完整交易歷史排除「高頻但少觸發門檻」誤判。
+
+      【第三輪：Top1-3+多天期廣泛篩選（2026-07-27）】背景：使用者指出 mini
+      上仍有更多分點資料未探索，且統一改用L1H7規格找更多9217式候選。用
+      study_whale_branch_l1h7_top3_multihorizon.py 把事件定義從「當日唯一
+      Top1買方」放寬到「Top1~Top3排名前三」、天期從只測H7擴展到同測
+      H7/H14/H20，套用12分點造市排除清單後，203,686筆事件→去重89,065筆
+      →774個分點，BH-FDR(5%)顯著分點數 H7=6/H14=7/H20=8（全新結果，非
+      沿用第一輪的11個負向分點）。5個並行agent分別深挖：
+
+      1. **9216（凱基-信義）**：n=250，H7/H14/H20 mean+1.89%/+5.06%/+5.92%
+         看似效果隨天期增強且乾淨，但leg分解證偽——只有第8-14天增量段
+         (leg_h14_minus_h7)乾淨顯著(Wilcoxon p=0.021)，第15-20天增量段
+         (leg_h20_minus_h14)完全不顯著且中位數為負(p=0.645)。分點剖面
+         (100%交易日全勤/117檔股票高度分散/買賣股數比0.967/多檔活躍個股
+         雙邊交易日65-85%)與既有12分點造市簽名一致。擇時品質顯示追漲於
+         20日高點(median百分位0.881)，方向與「提前布局」假設相反。
+         **判定 reject，已併入排除清單**。
+      2. **9B2a（台新-松德）＋5852（統一敦南）**：兩者都是H7不顯著、H14/H20
+         顯著的型態。分點層級查證：112/501個交易日100%全勤、買賣金額比
+         0.498/0.503(近乎完美50/50)、觸及2138/2288檔個股(近乎全市場)。
+         5852額外有Wilcoxon不顯著+中位數為負(H20 median-0.53%)+去除前3-5
+         大正報酬事件後顯著性消失+67%事件集中重複同一批股票(2363出現16次)
+         四項獨立瑕疵。9B2a另有112天內出現3個不同登記名稱(台新-松德/
+         元富松德/台新松德)橫跨2個券商品牌的身分不穩定問題。**兩者皆
+         reject，已併入排除清單**。方法論結論：「H7雜訊、H14/H20顯著」
+         本身不是「訊號需要時間發酵」的證據，而是報酬標準差隨天期擴大
+         (9B2a std 17.7%→30.7%；5852 11.2%→24.9%)後t檢定對極端值更敏感
+         的統計假象——這與9216的leg分解結論互相印證，應視為篩選階段的
+         優先過濾器（entity-level造市檢查應提前到return-based統計篩選
+         之前），而非事後解釋用。
+      3. **9268（凱基-台北）＋9800（元大HQ代碼）**：兩者是本輪樣本量最大
+         的顯著負向分點(n=17,759/12,824，遠超既有最大的8440 n=4,308)。
+         100%交易日活躍、平均每天觸及1,803/1,412檔股票(近乎全上市櫃市場，
+         觸及總數2,347/2,019檔)、最活躍股票買賣金額比46.2-51.6%。三年
+         (2024/25/26)×三天期(H7/H14/H20)共48格中，median與勝率全部為負
+         /低於50%，只有mean在長天期因少數離群值轉正——確認是既有12分點
+         造市簽名的「廣度」極端版本（既有12個是「深度」：集中在少數個股
+         天天出現；這兩個是「廣度」：幾乎覆蓋全市場天天出現），本質同一
+         現象非新解讀。**判定 reject，已併入排除清單**（agent回傳的
+         recommendation欄位技術性誤標為"worth_tracking"，但完整reasoning
+         全文清楚支持exclude；已依內容而非欄位標籤採用reject結論，此為
+         agent輸出格式的已知瑕疵，未來應留意結構化欄位與敘述文字的一致性
+         校驗）。
+      4. **分點配對共識訊號**（仿照expert_pool的「同股多分點共識」邏輯，
+         改用資料驅動找「常同日同股共現、且共現時報酬優於各自單獨出現」
+         的分點配對）：挖了6,625個配對(freq≥5有1,285對)，30個候選逐一比較
+         joint vs solo，無一同時滿足樣本足夠+跨股票可類化+經濟顯著。交叉
+         檢查發現既有4個專家分點(9217/9801/9661/9227)彼此間幾乎不曾同日
+         同股共現(最高僅165次且對象是已知負向分點9800)——印證「好分點
+         各自獨立行動」，跟「到處都在買的綜合/造市分點才會常常一起出現」
+         是兩類不同東西。**判定 reject（誠實null result）**。
+      5. **個股專屬分點排行**（反向切角：對20檔股票池逐股找「頭號候選
+         分點」，而非跨股票彙總找哪個分點整體最好）：17組候選裡僅2組
+         p<0.05。**9699（富邦經紀）×7769（展宏）** n=9、H20 median+13.75%
+         /勝率88.9%/p=0.024，且9699在整個宇宙裡只交易過5檔股票（極窄
+         專精，結構上最像9217/松山）——本輪唯一交叉驗證後仍站得住腳的
+         新線索。另一組9875×8358(n=4)與既有run_ab58_follow_consensus_
+         study.py的「忙碌≠edge」負樣本判定直接矛盾，可信度存疑。17組測
+         2組顯著不算遠超隨機水位(5%水準下預期~0.85組)。**9699×7769列為
+         pending，需更多樣本外事件才能判斷是否 worth_tracking**，其餘
+         判定 reject。
+
+      本輪未發現任何新的、可直接升級的候選；但確認了一個重要方法論教訓
+      （H7-H14H20-DELAYED-SIGNAL-ARTIFACT）：H7無訊號、H14/H20才顯著的
+      型態本身應視為造市/綜合流量帳戶的紅旗，而非訊號需要時間發酵的證據，
+      未來任何分點研究都應優先用leg分解（拆解H14-H7、H20-H14增量段）驗證
+      「效果隨天期增強」的敘事是否真實。market_maker_branch_exclusion_v1
+      .json 已從12個擴增到17個（新增9216/9B2a/5852/9268/9800）。
+
+      下一步（更新）：9217 維持現行live不變；9699×7769是唯一值得下一輪
+      追蹤的新線索（需擴大樣本/樣本外驗證），其餘本輪候選全數不採納。
+      建議未來篩選流程把「分點層級全勤率/買賣平衡度/觸及股票分散度」的
+      entity-level造市檢查前移到return-based統計篩選之前，作為候選宇宙
+      建立前的第一道過濾器，可省下大量對假陽性候選做多天期回測與Wilcoxon
+      /bootstrap驗證的工夫。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: insufficient_n  # 9217 n=25 遠低於 min_oos_n=80
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # 779Z/920F/9239/9216/9B2a/5852/9268/9800/consensus_pairs 均明確拒絕並記錄理由
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: pure research（9217維持現行live不變；三輪篩選後仍未找到可採納新候選；9699×7769為唯一pending線索，待樣本外驗證）
+
   copytrade-rrg-audit:
     title: 00981A 持股變動 × RRG 互動稽核
     status: archived
@@ -1495,27 +1780,32 @@ topics:
     archive_action: 稽核完畢 · lane 互動非 alpha · 無採納路徑
   chunge-funnel-sweep:
     title: VCP funnel L4 · Minervini composite sweep
-    status: graduated
-    phase: graduated
+    status: needs_rerun
+    phase: testing
     run_scripts:
       - scripts/run_chunge_funnel_sweep.py
       - scripts/run_chunge_funnel_backtest.py
     report_dir: reports/research/vcp
-    graduated_strategies:
-      - vcp-pivot-gate
-      - vcp-coil-close
+    note: >
+      2026-07-27 稽核（多agent研究）：champion_artifact 引用的兩個 JSON 從未存在於 repo
+      或 git 歷史（git log --all --full-history 零命中，本機磁碟目錄不存在）。
+      docs/evaluation-contract.md 早在 2026-07-05（commit 8cb5ba67）已標註「需重跑」，
+      本次 status/gates 同步下修，不再宣稱 graduated。另外用嚴格 VCP 定義（拉回逐次
+      收斂+量能萎縮）在 124檔股票 universe 上重新回測「裸價量形態」（未套用 production
+      真正的 composite gate，即 Trend Template 25%+RS 15%權重），結果顯著弱於已驗證的
+      S2 tier 訊號，部分horizon甚至輸給隨機弱基準——但因未套用完整複合門檻，不能直接
+      判定 production 完整版本無效，見 reports/research/vcp/VCP_VS_S2TIER_EVAL.md。
+    graduated_strategies: []
     graduation:
       strategy_ids: [vcp-pivot-gate, vcp-coil-close]
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: passed
+        G2_oos_holdout: needs_rerun
         G3_regime_stratification: pending
-        G4_rejection_registry: passed
-        G5_frozen_spec: passed
+        G4_rejection_registry: needs_rerun
+        G5_frozen_spec: needs_rerun
         G6_adoption_report: pending
-      champion_artifacts:
-        vcp-pivot-gate: reports/research/vcp/vcp_pivot_gate_slot_backtest_2026.json
-        vcp-coil-close: reports/research/vcp/vcp_coil_close_slot_backtest_2026.json
+      champion_artifacts: {}
 
   vcp-calibration-archive:
     title: VCP 文獻校準 · benchmark（封存）
@@ -3288,22 +3578,33 @@ topics:
     archive_action: 未勝 hold7/C18acc
   broad-momentum-sepa:
     title: Minervini SEPA basket ad-hoc 回測
-    status: graduated
-    phase: graduated
+    status: needs_rerun
+    phase: testing
     run_scripts:
       - scripts/research/archive/run_broad_momentum_tv_backtest.py
       - scripts/run_minervini_sepa_daily_brief.py
     config_ref: config/broad_momentum_tv.yaml
+    note: >
+      2026-07-27 稽核（多agent研究）：champion_artifact 引用的 backtest_summary.json
+      從未存在於 repo 或 git 歷史（git log --all --full-history 零命中，本機磁碟目錄
+      不存在）。docs/evaluation-contract.md 早在 2026-07-05（commit 8cb5ba67）已標註
+      「需重跑」，本次 status/gates 同步下修，不再宣稱 graduated。目前生產環境僅
+      dry-run（月末等權、Trend Template 7/7 不含RS）。另外用 production 真正的
+      vectorized_minervini_criteria_count 公式在124檔股票 universe 上重新回測，
+      原始報酬優於弱基準但扣除同期大盤(IX0001)報酬後於任何horizon皆不再顯著
+      （60日p=0.105、120日p=0.079），顯示其原始報酬優勢主要是牛市beta，且明顯弱於
+      已驗證的 S2 tier 訊號（S2 tier 扣大盤後 60日 p=0.00027 仍顯著）。見
+      reports/research/chip-overlays/2327_ta_adaptive/MINERVINI_VS_S2TIER_EVAL.md。
     graduation:
       strategy_id: minervini-sepa-basket
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: passed
+        G2_oos_holdout: needs_rerun
         G3_regime_stratification: na
-        G4_rejection_registry: passed
-        G5_frozen_spec: passed
+        G4_rejection_registry: needs_rerun
+        G5_frozen_spec: needs_rerun
         G6_adoption_report: pending
-      champion_artifact: reports/minervini-sepa-basket/backtest_summary.json
+      champion_artifact: null
 
   cz-track5-or-fade:
     title: OR fade short · C18acc overlay vs I36 · bar-by-bar sweep
