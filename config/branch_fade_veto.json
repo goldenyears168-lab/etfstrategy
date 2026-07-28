@@ -1,0 +1,482 @@
+{
+  "title": "分點 fade 否決名單（日報同日進場否決濾網）",
+  "layer": "research",
+  "status": "observe_only",
+  "protocol": {
+    "usage": "某股當日被名單內分點『主導買方或賣方』時，當日否決該股進場（veto filter）。這是「今天別碰這檔」的濾網，不是買賣方向訊號。",
+    "basis": "branch-footprint 擴大 L1H7 · BH-FDR 顯著負向 · n>=100（濾掉小樣本雜訊）",
+    "excess": "stock − 1.15 × IX0001 · L1H7（T+1 open → T+7 close · 30bps）",
+    "why": "跟這些分點同方向買/賣，事件後個股顯著跑輸大盤；多為外資避險/造市對手盤與大型零售分點的 flow，非方向 alpha，故當否決濾網最穩。"
+  },
+  "caveat": {
+    "regime": "此名單僅適用『通用 universe 進場否決』。名單內 1360（港商麥格理）、9227（凱基城中）等在『處置股主場』反而是正向 seat（見 second_disp_expert_pool_watch.json）——勿跨 regime 套用。",
+    "core_vs_tail": "產品級核心 = 大樣本外資席（1440/1470/1480/1650/8440）+ 凱基 9268（n=20588, p=1.1e-57）。n 較小者穩健度較弱，用整體名單即可，勿逐一外推小樣本的極端 median。"
+  },
+  "snapshot": {
+    "source_db": "data/stocks.db",
+    "branch_snapshot_mtime": "2026-07-28 14:45:22",
+    "data_max": "2026-07-27",
+    "window": [
+      "2024-07-01",
+      "2026-07-27"
+    ],
+    "run_dir": "reports/research/branch-footprint-screen/expanded_rerun_20260728",
+    "generated": "regenerate via scripts/research/build_fade_veto_config.py"
+  },
+  "filters": {
+    "bh_significant": true,
+    "median_r_adj_pct_lt": 0,
+    "min_n": 100
+  },
+  "counts": {
+    "buy_fade": 24,
+    "sell_fade": 17,
+    "union_branches": 30
+  },
+  "union_ids": [
+    "1360",
+    "1440",
+    "1470",
+    "1480",
+    "1560",
+    "1590",
+    "1650",
+    "5850",
+    "5852",
+    "601d",
+    "6160",
+    "7000",
+    "779G",
+    "779J",
+    "779c",
+    "8440",
+    "8560",
+    "8840",
+    "8880",
+    "8888",
+    "8890",
+    "8900",
+    "9100",
+    "9200",
+    "9227",
+    "9268",
+    "9600",
+    "961C",
+    "9800",
+    "9A00"
+  ],
+  "buy_fade": [
+    {
+      "id": "8888",
+      "name": "國泰敦南",
+      "tag": "本土",
+      "n": 363,
+      "n_stocks": 213,
+      "median_r_adj_pct": -3.181,
+      "win_rate_pct": 33.9,
+      "p_value": 2.7540901164808243e-05
+    },
+    {
+      "id": "779J",
+      "name": "國票北高雄",
+      "tag": "本土",
+      "n": 175,
+      "n_stocks": 64,
+      "median_r_adj_pct": -2.59,
+      "win_rate_pct": 25.1,
+      "p_value": 1.2801652812345112e-10
+    },
+    {
+      "id": "9100",
+      "name": "群益",
+      "tag": "本土",
+      "n": 849,
+      "n_stocks": 288,
+      "median_r_adj_pct": -2.471,
+      "win_rate_pct": 31.2,
+      "p_value": 3.704150563954278e-13
+    },
+    {
+      "id": "8900",
+      "name": "法銀巴黎證",
+      "tag": "外資",
+      "n": 100,
+      "n_stocks": 76,
+      "median_r_adj_pct": -2.344,
+      "win_rate_pct": 31.0,
+      "p_value": 0.0022397396881175
+    },
+    {
+      "id": "8890",
+      "name": "大和國泰",
+      "tag": "外資",
+      "n": 275,
+      "n_stocks": 135,
+      "median_r_adj_pct": -2.156,
+      "win_rate_pct": 34.2,
+      "p_value": 1.331975351152985e-06
+    },
+    {
+      "id": "9800",
+      "name": "元大",
+      "tag": "本土",
+      "n": 9297,
+      "n_stocks": 658,
+      "median_r_adj_pct": -2.122,
+      "win_rate_pct": 39.6,
+      "p_value": 1.4075142587689876e-11
+    },
+    {
+      "id": "9268",
+      "name": "凱基-台北",
+      "tag": "本土",
+      "n": 20588,
+      "n_stocks": 793,
+      "median_r_adj_pct": -2.114,
+      "win_rate_pct": 37.4,
+      "p_value": 1.0873713712166961e-57
+    },
+    {
+      "id": "779c",
+      "name": "國票-敦北法人",
+      "tag": "本土",
+      "n": 264,
+      "n_stocks": 161,
+      "median_r_adj_pct": -2.109,
+      "win_rate_pct": 37.1,
+      "p_value": 0.0011583085052655
+    },
+    {
+      "id": "9600",
+      "name": "富邦",
+      "tag": "本土",
+      "n": 2221,
+      "n_stocks": 475,
+      "median_r_adj_pct": -2.017,
+      "win_rate_pct": 38.2,
+      "p_value": 3.4408843492867614e-09
+    },
+    {
+      "id": "601d",
+      "name": "奔亞鑫豐",
+      "tag": "本土",
+      "n": 120,
+      "n_stocks": 81,
+      "median_r_adj_pct": -1.985,
+      "win_rate_pct": 31.7,
+      "p_value": 0.0013299085255291
+    },
+    {
+      "id": "5850",
+      "name": "統一",
+      "tag": "本土",
+      "n": 1343,
+      "n_stocks": 451,
+      "median_r_adj_pct": -1.927,
+      "win_rate_pct": 39.8,
+      "p_value": 0.0044958040214507
+    },
+    {
+      "id": "6160",
+      "name": "中國信託證",
+      "tag": "本土",
+      "n": 412,
+      "n_stocks": 204,
+      "median_r_adj_pct": -1.855,
+      "win_rate_pct": 37.9,
+      "p_value": 0.0001152570690482
+    },
+    {
+      "id": "1560",
+      "name": "港商野村",
+      "tag": "外資",
+      "n": 1127,
+      "n_stocks": 352,
+      "median_r_adj_pct": -1.808,
+      "win_rate_pct": 37.2,
+      "p_value": 6.978917279026759e-05
+    },
+    {
+      "id": "1590",
+      "name": "花旗環球",
+      "tag": "外資",
+      "n": 813,
+      "n_stocks": 219,
+      "median_r_adj_pct": -1.685,
+      "win_rate_pct": 36.8,
+      "p_value": 3.7457689849987346e-07
+    },
+    {
+      "id": "8840",
+      "name": "玉山證券",
+      "tag": "本土",
+      "n": 224,
+      "n_stocks": 113,
+      "median_r_adj_pct": -1.594,
+      "win_rate_pct": 33.9,
+      "p_value": 5.248298137454773e-05
+    },
+    {
+      "id": "1480",
+      "name": "美商高盛亞",
+      "tag": "外資",
+      "n": 8371,
+      "n_stocks": 479,
+      "median_r_adj_pct": -1.511,
+      "win_rate_pct": 39.8,
+      "p_value": 6.156910369583831e-15
+    },
+    {
+      "id": "1650",
+      "name": "星洲瑞銀",
+      "tag": "外資",
+      "n": 7865,
+      "n_stocks": 565,
+      "median_r_adj_pct": -1.51,
+      "win_rate_pct": 39.6,
+      "p_value": 5.830502469543201e-16
+    },
+    {
+      "id": "1440",
+      "name": "美林證券",
+      "tag": "外資",
+      "n": 3728,
+      "n_stocks": 442,
+      "median_r_adj_pct": -1.453,
+      "win_rate_pct": 38.7,
+      "p_value": 1.197573643183129e-11
+    },
+    {
+      "id": "1360",
+      "name": "港商麥格理",
+      "tag": "外資",
+      "n": 728,
+      "n_stocks": 183,
+      "median_r_adj_pct": -1.432,
+      "win_rate_pct": 38.9,
+      "p_value": 0.0032554630941209
+    },
+    {
+      "id": "7000",
+      "name": "兆豐",
+      "tag": "本土",
+      "n": 543,
+      "n_stocks": 201,
+      "median_r_adj_pct": -1.399,
+      "win_rate_pct": 40.0,
+      "p_value": 2.7310470792064128e-05
+    },
+    {
+      "id": "1470",
+      "name": "摩根士丹利",
+      "tag": "外資",
+      "n": 6262,
+      "n_stocks": 477,
+      "median_r_adj_pct": -1.385,
+      "win_rate_pct": 40.8,
+      "p_value": 1.4305026143735888e-05
+    },
+    {
+      "id": "9200",
+      "name": "凱基",
+      "tag": "本土",
+      "n": 1253,
+      "n_stocks": 346,
+      "median_r_adj_pct": -1.385,
+      "win_rate_pct": 39.3,
+      "p_value": 7.0692598582312596e-06
+    },
+    {
+      "id": "8440",
+      "name": "摩根大通",
+      "tag": "外資",
+      "n": 5341,
+      "n_stocks": 548,
+      "median_r_adj_pct": -1.232,
+      "win_rate_pct": 40.8,
+      "p_value": 1.8421709648074516e-10
+    },
+    {
+      "id": "9A00",
+      "name": "永豐金",
+      "tag": "本土",
+      "n": 1498,
+      "n_stocks": 355,
+      "median_r_adj_pct": -1.185,
+      "win_rate_pct": 41.2,
+      "p_value": 0.0003945109500684
+    }
+  ],
+  "sell_fade": [
+    {
+      "id": "779G",
+      "name": "國票新莊",
+      "tag": "本土",
+      "n": 105,
+      "n_stocks": 22,
+      "median_r_adj_pct": -4.322,
+      "win_rate_pct": 29.5,
+      "p_value": 3.092784363111534e-05
+    },
+    {
+      "id": "9227",
+      "name": "凱基-城中",
+      "tag": "本土",
+      "n": 250,
+      "n_stocks": 189,
+      "median_r_adj_pct": -3.879,
+      "win_rate_pct": 33.2,
+      "p_value": 0.0030644116857639
+    },
+    {
+      "id": "961C",
+      "name": "富邦南京",
+      "tag": "本土",
+      "n": 112,
+      "n_stocks": 83,
+      "median_r_adj_pct": -3.659,
+      "win_rate_pct": 26.8,
+      "p_value": 0.0014185296138276
+    },
+    {
+      "id": "5852",
+      "name": "統一敦南",
+      "tag": "本土",
+      "n": 109,
+      "n_stocks": 63,
+      "median_r_adj_pct": -2.286,
+      "win_rate_pct": 28.4,
+      "p_value": 2.0251788271160565e-05
+    },
+    {
+      "id": "9268",
+      "name": "凱基-台北",
+      "tag": "本土",
+      "n": 20156,
+      "n_stocks": 808,
+      "median_r_adj_pct": -2.278,
+      "win_rate_pct": 36.9,
+      "p_value": 6.660871600687754e-70
+    },
+    {
+      "id": "9800",
+      "name": "元大",
+      "tag": "本土",
+      "n": 8819,
+      "n_stocks": 648,
+      "median_r_adj_pct": -2.048,
+      "win_rate_pct": 39.5,
+      "p_value": 3.2739172281563906e-10
+    },
+    {
+      "id": "8560",
+      "name": "新光",
+      "tag": "本土",
+      "n": 565,
+      "n_stocks": 295,
+      "median_r_adj_pct": -2.037,
+      "win_rate_pct": 37.7,
+      "p_value": 0.0001164270865139
+    },
+    {
+      "id": "1480",
+      "name": "美商高盛亞",
+      "tag": "外資",
+      "n": 8229,
+      "n_stocks": 498,
+      "median_r_adj_pct": -1.67,
+      "win_rate_pct": 38.4,
+      "p_value": 1.0241793651467024e-21
+    },
+    {
+      "id": "9100",
+      "name": "群益",
+      "tag": "本土",
+      "n": 1009,
+      "n_stocks": 325,
+      "median_r_adj_pct": -1.574,
+      "win_rate_pct": 38.7,
+      "p_value": 3.54382092840242e-05
+    },
+    {
+      "id": "1650",
+      "name": "星洲瑞銀",
+      "tag": "外資",
+      "n": 7670,
+      "n_stocks": 556,
+      "median_r_adj_pct": -1.52,
+      "win_rate_pct": 39.6,
+      "p_value": 7.262686109108282e-16
+    },
+    {
+      "id": "8440",
+      "name": "摩根大通",
+      "tag": "外資",
+      "n": 5077,
+      "n_stocks": 511,
+      "median_r_adj_pct": -1.455,
+      "win_rate_pct": 39.8,
+      "p_value": 7.887191066940517e-13
+    },
+    {
+      "id": "8880",
+      "name": "國泰綜合",
+      "tag": "本土",
+      "n": 1215,
+      "n_stocks": 358,
+      "median_r_adj_pct": -1.449,
+      "win_rate_pct": 39.6,
+      "p_value": 0.0004467043643257
+    },
+    {
+      "id": "9A00",
+      "name": "永豐金",
+      "tag": "本土",
+      "n": 1730,
+      "n_stocks": 405,
+      "median_r_adj_pct": -1.355,
+      "win_rate_pct": 41.2,
+      "p_value": 0.0011160273871615
+    },
+    {
+      "id": "1470",
+      "name": "摩根士丹利",
+      "tag": "外資",
+      "n": 6313,
+      "n_stocks": 455,
+      "median_r_adj_pct": -1.314,
+      "win_rate_pct": 40.1,
+      "p_value": 1.3438226967700116e-11
+    },
+    {
+      "id": "1560",
+      "name": "港商野村",
+      "tag": "外資",
+      "n": 946,
+      "n_stocks": 359,
+      "median_r_adj_pct": -1.21,
+      "win_rate_pct": 40.7,
+      "p_value": 0.0024184560929534
+    },
+    {
+      "id": "1590",
+      "name": "花旗環球",
+      "tag": "外資",
+      "n": 837,
+      "n_stocks": 213,
+      "median_r_adj_pct": -1.139,
+      "win_rate_pct": 40.1,
+      "p_value": 0.0021184172982321
+    },
+    {
+      "id": "1440",
+      "name": "美林證券",
+      "tag": "外資",
+      "n": 3635,
+      "n_stocks": 428,
+      "median_r_adj_pct": -1.139,
+      "win_rate_pct": 40.4,
+      "p_value": 1.1517208013787264e-08
+    }
+  ]
+}
