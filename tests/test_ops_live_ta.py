@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ from ops_live_ta import (
     clear_mom_1m_cache,
     clear_ta_30m_cache,
     compute_ft3_rel_20_anchors,
+    compute_mom1_fade_threshold,
     compute_ta_30m_snapshot,
     fetch_last_print,
     fetch_yahoo_chart_quote,
@@ -202,7 +203,10 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(cont.anchors["mode"], "continuous")
         self.assertEqual(cont.phase, "continuous")
         self.assertIsNone(cont.next_auction_at)
-        self.assertEqual(cont.action, "偏強")
+        # No conn/threshold available (retired fixed ±0.35% "偏強/偏弱" heuristic
+        # tested at 35-39% OOS in H3_RESIDUAL_SHORT_MOM.md); action stays the
+        # base phase label rather than making an unvalidated directional call.
+        self.assertEqual(cont.action, "觀望")
 
         disp = build_live_ta_state(
             "2492",
@@ -215,6 +219,58 @@ class TestOpsLiveTa(unittest.TestCase):
         self.assertEqual(disp.anchors["mode"], "disposition")
         self.assertEqual(disp.phase, "pre_match")
         self.assertIsNotNone(disp.next_auction_at)
+
+    def test_mom1_fade_threshold_and_action(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(
+            """
+            CREATE TABLE stock_kbar_1m (
+                stock_id TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                minute TEXT NOT NULL,
+                open REAL, high REAL, low REAL,
+                close REAL NOT NULL,
+                volume INTEGER,
+                source TEXT NOT NULL DEFAULT 'test',
+                synced_at TEXT NOT NULL DEFAULT ''
+            );
+            """
+        )
+        # 6 trailing trading days, each with one ~0.3% 1-bar jump (seeds the
+        # top-5% amplitude threshold) among quiet sub-eps noise bars.
+        days = ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24", "2026-07-27"]
+        rows = []
+        for d in days:
+            px = 100.0
+            for i in range(20):
+                px *= 1.003 if i == 10 else 1.0001
+                rows.append((d, f"09:{i:02d}:00", px))
+        conn.executemany(
+            "INSERT INTO stock_kbar_1m (stock_id, trade_date, minute, close, synced_at) "
+            "VALUES ('2330', ?, ?, ?, '')",
+            rows,
+        )
+        conn.commit()
+
+        thr = compute_mom1_fade_threshold(conn, "2330", today=date(2026, 7, 28))
+        self.assertIsNotNone(thr["threshold"])
+        self.assertEqual(thr["n_days"], 6)
+        self.assertEqual(thr["stale_days"], 1)
+
+        now = datetime(2026, 7, 28, 10, 0, tzinfo=_TPE)
+        st = build_live_ta_state(
+            "2330",
+            now=now,
+            conn=conn,
+            last_print=103.0,
+            quote_meta={"mom_1bar_pct": 1.5, "quote_source": "test"},
+            disposition_ids={"2492"},
+            ta_30m={"ta_30m_ready": False, "ta_30m_bias": None},
+        )
+        self.assertEqual(st.action, "急漲(觀察拉回)")
+        self.assertIn("研究OOS", st.note_zh)
+        self.assertEqual(st.anchors["mom1_fade_rule"], "raw_mom_1__pct_top5_D10")
+        conn.close()
 
     def test_prefer_yahoo_prev_close_over_stale_db(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -517,13 +573,16 @@ class TestOpsLiveTa(unittest.TestCase):
 
     def test_ta_30m_ready_after_first_half_hour(self) -> None:
         day = datetime(2026, 7, 23, tzinfo=_TPE)
-        bars = _fake_5m(day=day, n=12, step=0.3)  # up → 偏多
+        bars = _fake_5m(day=day, n=12, step=0.3)  # up bar, but no bench → no bias call
         now = datetime(2026, 7, 23, 10, 5, tzinfo=_TPE)
         snap = compute_ta_30m_snapshot(bars, now=now, last_print=103.0)
         self.assertTrue(snap["ta_30m_ready"])
         self.assertIsNotNone(snap["ta_30m_ret_pct"])
         self.assertGreater(snap["ta_30m_ret_pct"], 0)
-        self.assertEqual(snap["ta_30m_bias"], "偏多")
+        # bias only fires via the gated fade30_observe champion badge (needs
+        # bench_5m to resolve idx_or_inside); without it, stays 中性 — no
+        # false-precision call from the retired ret/vwap confluence heuristic.
+        self.assertEqual(snap["ta_30m_bias"], "中性")
         self.assertIn("非下單訊號", snap["ta_30m_note_zh"])
         self.assertIsNotNone(snap["ta_30m_vs_vwap_pct"])
 

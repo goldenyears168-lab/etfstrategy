@@ -7,8 +7,11 @@ Two modes (honest horizon — do **not** claim false precision):
   - **disposition** (``OPS_LIVE_TA_DISPOSITION``, default ``2492``): ~20‑min
     call-auction clock; ``pre_match`` is the real ~2‑minute checkpoint window.
   - **continuous** (normal holdings): last print + % vs prev close + short
-    1m-bar momentum (~1–2 min lookback). This is short momentum, **not** a
-    price prediction 2 minutes ahead.
+    1m-bar momentum (~1–2 min lookback). Action label uses the amplitude-
+    filtered **fade** rule ``raw_mom_1__pct_top5_D10`` (fires only when
+    |1-bar mom| is in the stock's own top-5% of its trailing 10-trading-day
+    distribution; research OOS ≈73%, n=10649 — see ``_MOM1_FADE_DISCLAIMER_ZH``).
+    Otherwise this stays a descriptive readout, **not** a price prediction.
 
 Also attaches **observe-only 30m TA** (last closed half-hour from 5m bars):
 return vs bar open, vs session VWAP, simple bias — not an Order signal.
@@ -129,6 +132,101 @@ _FT3_NOTE_ZH = (
 )
 # sid → (fetched_at, anchors_dict)
 _FT3_REL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+# Champion 1-2m amplitude-filtered fade-mom (replaces old fixed ±0.35% continuation
+# heuristic, which H3_RESIDUAL_SHORT_MOM.md rejected at 35-39% OOS). Rule:
+# fade sign of 1-bar (~1min) momentum, fired only when |mom_1bar_pct| is in the
+# stock's own top-5% of its trailing 10-trading-day |1-bar mom| distribution
+# (PIT: trailing window excludes the live/forming day). Champion
+# raw_mom_1__pct_top5_D10, H=5min: OOS 72.97% hit, n=10649, all stability gates
+# pass (reports/research/intraday_direction_thermometer/short_mom_fade_amplitude_filter.json).
+_MOM1_FADE_RULE_ID = "raw_mom_1__pct_top5_D10"
+_MOM1_FADE_D = 10  # trailing trading days
+_MOM1_FADE_P = 5  # top P% amplitude filter
+_MOM1_FADE_EPS_PCT = 0.02  # matches backtest floor · ignore near-zero noise
+_MOM1_FADE_MIN_DAYS = 5  # need at least this many trailing days to trust the threshold
+_MOM1_FADE_STALE_WARN_DAYS = 10  # local 1m history older than this ⇒ note flags staleness
+_MOM1_FADE_OOS_HIT_PCT = 72.97
+_MOM1_FADE_OOS_N = 10649
+_MOM1_FADE_DISCLAIMER_ZH = (
+    "研究觀察·raw_mom_1__pct_top5_D10（近10日內前5%極端之1分bar動能→"
+    "反向觀察5分鐘）；OOS研究約73%(n=10649)·非保證·非下單訊號"
+)
+# (sid, trade_date_iso) → threshold dict; rebuilt once per calendar day per stock.
+_MOM1_FADE_THRESH_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
+
+def compute_mom1_fade_threshold(
+    conn: sqlite3.Connection | None,
+    stock_id: str,
+    *,
+    today: date,
+) -> dict[str, Any]:
+    """Trailing ``_MOM1_FADE_D``-trading-day top-``_MOM1_FADE_P``% |1-bar mom| threshold.
+
+    PIT-safe: only trading days strictly before ``today`` are pooled (mirrors
+    ``run_short_mom_fade_amplitude_filter.py``'s "update trailing-day history
+    AFTER this day's filters computed"). Source is local ``stock_kbar_1m`` —
+    that table is **not** continuously synced for the live dynamic universe
+    (coverage varies from same-day to 3+ weeks stale per stock as of
+    2026-07-28), so callers must treat ``fresh`` / ``stale_days`` as an honest
+    confidence signal, not assume the threshold reflects current volatility.
+    """
+    key = (stock_id, today.isoformat())
+    cached = _MOM1_FADE_THRESH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    out: dict[str, Any] = {
+        "threshold": None,
+        "n_days": 0,
+        "n_samples": 0,
+        "last_trade_date": None,
+        "stale_days": None,
+    }
+    if conn is not None:
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT trade_date FROM stock_kbar_1m "
+                "WHERE stock_id=? AND trade_date<? ORDER BY trade_date DESC LIMIT ?",
+                (stock_id, today.isoformat(), _MOM1_FADE_D),
+            ).fetchall()
+            days = sorted(r[0] for r in rows)
+            out["n_days"] = len(days)
+            if days:
+                out["last_trade_date"] = days[-1]
+                out["stale_days"] = (today - date.fromisoformat(days[-1])).days
+            if len(days) >= _MOM1_FADE_MIN_DAYS:
+                qmarks = ",".join("?" for _ in days)
+                bar_rows = conn.execute(
+                    f"SELECT trade_date, minute, close FROM stock_kbar_1m "
+                    f"WHERE stock_id=? AND trade_date IN ({qmarks}) "
+                    f"ORDER BY trade_date, minute",
+                    (stock_id, *days),
+                ).fetchall()
+                by_day: dict[str, list[float]] = {}
+                for td, _minute, close in bar_rows:
+                    if close is None or float(close) <= 0:
+                        continue
+                    by_day.setdefault(td, []).append(float(close))
+                abs_vals: list[float] = []
+                for closes in by_day.values():
+                    for i in range(1, len(closes)):
+                        prev = closes[i - 1]
+                        if prev <= 0:
+                            continue
+                        raw_pct = abs((closes[i] / prev - 1.0) * 100.0)
+                        if raw_pct >= _MOM1_FADE_EPS_PCT:
+                            abs_vals.append(raw_pct)
+                if abs_vals:
+                    abs_vals.sort()
+                    m = len(abs_vals)
+                    idx = min(max(int((1.0 - _MOM1_FADE_P / 100.0) * m), 0), m - 1)
+                    out["threshold"] = abs_vals[idx]
+                    out["n_samples"] = m
+        except sqlite3.Error:
+            pass
+    _MOM1_FADE_THRESH_CACHE[key] = out
+    return out
 
 
 def _quote_backend() -> str:
@@ -914,9 +1012,13 @@ def compute_ta_30m_snapshot(
     """Pure observe-only 30m fields from session 5m bars (no network).
 
     Ready after first closed half-hour (~09:30) with enough 5m bars.
-    Bias is descriptive (vs bar open + session VWAP), not a forecast.
-    Optional ``bench_5m`` (0050) gates research ``fade30_observe`` via
-    ``fade_idx_or_inside`` (fade_near_ext ∧ index OR intact).
+    ``ta_30m_ret_pct`` / ``vs_open_pct`` / ``vs_vwap_pct`` are purely
+    descriptive. ``ta_30m_bias`` defaults to 中性 (no call) and only becomes
+    偏多/偏空 when the champion research badge ``fade30_observe`` fires — the
+    older fixed-eps ret/vwap "confluence" bias tested at 45.23% OOS (no better
+    than chance; see TA_30M_BIAS_EVAL.md) and has been removed. Optional
+    ``bench_5m`` (0050) gates ``fade30_observe`` via ``fade_idx_or_inside``
+    (fade_near_ext ∧ index OR intact; requires ``bench_5m`` to ever fire).
     """
     now = (now or datetime.now(_TPE)).astimezone(_TPE)
     base: dict[str, Any] = {
@@ -969,17 +1071,11 @@ def compute_ta_30m_snapshot(
     if vwap and vwap > 0:
         vs_vwap = round((ref_px / vwap - 1.0) * 100, 3)
 
-    # Simple confluence bias (expert-practice-ish · not a hit-rate claim).
+    # bias defaults to 中性 (no call) until the champion-gated fade badge below
+    # fires. The old fixed-eps ret/vwap "confluence" heuristic was tested at
+    # 45.23% OOS (TA_30M_BIAS_EVAL.md baseline_live_confluence — no better than
+    # a coin flip) and is removed rather than kept as a false-precision label.
     bias = "中性"
-    if ret_pct >= _TA30M_BIAS_EPS and (vs_vwap is None or vs_vwap >= 0):
-        bias = "偏多"
-    elif ret_pct <= -_TA30M_BIAS_EPS and (vs_vwap is None or vs_vwap <= 0):
-        bias = "偏空"
-    elif vs_vwap is not None and abs(ret_pct) < _TA30M_BIAS_EPS:
-        if vs_vwap >= _TA30M_BIAS_EPS:
-            bias = "偏多"
-        elif vs_vwap <= -_TA30M_BIAS_EPS:
-            bias = "偏空"
 
     note_parts = [
         f"閉合30m至 {bar_end.strftime('%H:%M')}",
@@ -1043,6 +1139,9 @@ def compute_ta_30m_snapshot(
                 "disclaimer_zh": _FADE30_DISCLAIMER_ZH,
             }
             out["ta_30m_note_zh"] += "｜研究觀察 fade30·大盤OR未破"
+            # ta_30m_bias mirrors this same gated champion call — no separate
+            # ungated heuristic. temp>0 (fade a low → bounce) = 偏多, else 偏空.
+            out["ta_30m_bias"] = "偏多" if layer.temp > 0 else "偏空"
     except Exception:  # noqa: BLE001 — observe must not break poll
         pass
     return out
@@ -1756,7 +1855,16 @@ def _continuous_action_note(
     mom_1: float | None,
     mom_2: float | None,
     pct_from_prev: float | None,
+    fade_thr: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
+    """Action label from short momentum.
+
+    Uses the amplitude-filtered **fade** rule (``_MOM1_FADE_RULE_ID``), not the
+    old fixed ±0.35% continuation heuristic — that framing was tested
+    (H3_RESIDUAL_SHORT_MOM.md) and rejected at 35-39% OOS. Only fires when the
+    local trailing-day threshold is available (``fade_thr["threshold"]`` not
+    None); otherwise this stays a descriptive readout with no directional call.
+    """
     if phase != "continuous":
         return base_action, base_note
     parts = [base_note]
@@ -1764,15 +1872,21 @@ def _continuous_action_note(
         parts.append(f"相對昨收 {pct_from_prev:+.2f}%")
     if mom_2 is not None:
         parts.append(f"近2分bar {mom_2:+.2f}%")
-    elif mom_1 is not None:
+    if mom_1 is not None:
         parts.append(f"近1分bar {mom_1:+.2f}%")
     action = base_action
-    ref = mom_2 if mom_2 is not None else mom_1
-    if ref is not None:
-        if ref >= 0.35:
-            action = "偏強"
-        elif ref <= -0.35:
-            action = "偏弱"
+    thr = (fade_thr or {}).get("threshold")
+    if mom_1 is not None and thr is not None and abs(mom_1) >= thr:
+        stale_days = (fade_thr or {}).get("stale_days")
+        stale_tag = (
+            f"·樣本已{stale_days}天前" if stale_days and stale_days > _MOM1_FADE_STALE_WARN_DAYS else ""
+        )
+        if mom_1 > 0:
+            action = "急漲(觀察拉回)"
+            parts.append(f"近10日前{_MOM1_FADE_P}%極端急漲{stale_tag}·研究OOS≈{_MOM1_FADE_OOS_HIT_PCT:.0f}%拉回")
+        else:
+            action = "急跌(觀察反彈)"
+            parts.append(f"近10日前{_MOM1_FADE_P}%極端急跌{stale_tag}·研究OOS≈{_MOM1_FADE_OOS_HIT_PCT:.0f}%反彈")
     return action, "｜".join(parts)
 
 
@@ -1861,7 +1975,9 @@ def build_live_ta_state(
     else:
         mom_2_f = None
 
+    mom1_fade_thr: dict[str, Any] | None = None
     if not is_disp:
+        mom1_fade_thr = compute_mom1_fade_threshold(conn, stock_id, today=now.date())
         action, note = _continuous_action_note(
             phase,
             action,
@@ -1869,6 +1985,7 @@ def build_live_ta_state(
             mom_1=mom_1_f,
             mom_2=mom_2_f,
             pct_from_prev=pct_from_prev,
+            fade_thr=mom1_fade_thr,
         )
 
     if ta_30m is not None:
@@ -1894,6 +2011,15 @@ def build_live_ta_state(
                 **_empty_ft3_rel_anchors(),
                 "ft3_note_zh": f"FT3 暫不可用（{str(exc)[:80]}）・觀察用",
             }
+    mom1_fade_anchors: dict[str, Any] = {
+        "mom1_fade_rule": _MOM1_FADE_RULE_ID,
+        "mom1_fade_threshold_pct": (mom1_fade_thr or {}).get("threshold"),
+        "mom1_fade_n_days": (mom1_fade_thr or {}).get("n_days"),
+        "mom1_fade_stale_days": (mom1_fade_thr or {}).get("stale_days"),
+        "mom1_fade_oos_hit_pct": _MOM1_FADE_OOS_HIT_PCT,
+        "mom1_fade_oos_n": _MOM1_FADE_OOS_N,
+        "mom1_fade_disclaimer_zh": _MOM1_FADE_DISCLAIMER_ZH,
+    }
     anchors: dict[str, Any] = {
         "mode": mode,
         "horizon": horizon,
@@ -1908,6 +2034,7 @@ def build_live_ta_state(
         **meta,
         **ta30,
         **ft3,
+        **mom1_fade_anchors,
     }
     if (
         is_disp
