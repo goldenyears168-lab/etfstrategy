@@ -49,9 +49,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_specialty-expert-pool-watch.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/specialty-expert-pool-watch.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_specialty-expert-pool-watch.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/specialty-expert-pool-watch.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

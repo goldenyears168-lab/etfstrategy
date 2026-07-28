@@ -47,9 +47,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_second-disp-expert-pool-watch.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/second-disp-expert-pool-watch.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_second-disp-expert-pool-watch.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/second-disp-expert-pool-watch.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

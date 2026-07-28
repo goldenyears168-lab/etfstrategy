@@ -46,9 +46,9 @@
 		<dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>4</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_order-chase-open.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-chase-open.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_order-chase-open.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-chase-open.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

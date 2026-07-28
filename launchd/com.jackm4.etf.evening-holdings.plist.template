@@ -53,9 +53,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_evening-holdings.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/evening-holdings.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_evening-holdings.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/evening-holdings.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

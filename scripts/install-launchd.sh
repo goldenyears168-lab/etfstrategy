@@ -958,6 +958,17 @@ install_agents() {
     # calendar-branch sed may leave {{HOME}}; resolve for Library/Logs paths
     sed -i '' "s|{{HOME}}|${HOME}|g" "${dest}" 2>/dev/null \
       || sed -i "s|{{HOME}}|${HOME}|g" "${dest}"
+    # Guard: launchd cannot open StandardOut/ErrorPath under ~/Documents (TCC →
+    # silent EX_CONFIG 78, job never spawns). Fail loudly instead of shipping it.
+    local _sp
+    for _sp in StandardOutPath StandardErrorPath; do
+      local _v
+      _v="$(/usr/bin/plutil -extract "${_sp}" raw -o - "${dest}" 2>/dev/null || true)"
+      if [[ "${_v}" == "${HOME}/Documents/"* || "${_v}" == *"/Documents/"*"/logs/"* ]]; then
+        echo "✗ ${label}: ${_sp}=${_v} 落在 ~/Documents（TCC→EX_CONFIG 78）；請改用 ~/Library/Logs/com.jackm4.etf/" >&2
+        exit 1
+      fi
+    done
     bootstrap_label "${dest}"
     echo "✓ ${label}"
   done

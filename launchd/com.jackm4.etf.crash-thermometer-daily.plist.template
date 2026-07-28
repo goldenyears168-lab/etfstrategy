@@ -47,9 +47,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_crash-thermometer-daily.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/crash-thermometer-daily.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_crash-thermometer-daily.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/crash-thermometer-daily.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

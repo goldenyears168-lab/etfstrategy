@@ -47,9 +47,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_expert-pool-chart-digest.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-chart-digest.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_expert-pool-chart-digest.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-chart-digest.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

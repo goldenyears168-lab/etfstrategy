@@ -27,9 +27,9 @@
 		<dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>35</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_minervini-sepa-basket.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/minervini-sepa-basket.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_minervini-sepa-basket.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/minervini-sepa-basket.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

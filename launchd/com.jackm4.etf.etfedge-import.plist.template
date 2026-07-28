@@ -31,9 +31,9 @@
 		<integer>20</integer>
 	</dict>
 	<key>StandardOutPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_etfedge-import.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/etfedge-import.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{PROJECT_ROOT}}/logs/launchd_etfedge-import.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.etf/etfedge-import.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>
