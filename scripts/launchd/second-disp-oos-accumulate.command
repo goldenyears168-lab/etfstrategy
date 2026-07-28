@@ -8,8 +8,10 @@
 #   PLIST=~/Library/LaunchAgents/com.jackm4.etf.second-disp-oos-accumulate.plist
 #   sed -e "s#{{SECOND_DISP_OOS_LAUNCHER}}#$(pwd)/scripts/launchd/second-disp-oos-accumulate.command#g" \
 #       -e "s#{{PROJECT_ROOT}}#$(pwd)#g" \
+#       -e "s#{{HOME}}#${HOME}#g" \
 #       launchd/com.jackm4.etf.second-disp-oos-accumulate.plist.template > "${PLIST}"
 #   launchctl bootstrap "gui/$(id -u)" "${PLIST}"
+# 註：launchd StdOut/StdErr 走 ~/Library/Logs（路徑在 ~/Documents 下會因 TCC 靜默 exit 78）。
 #
 # 卸載：
 #   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.etf.second-disp-oos-accumulate.plist
@@ -20,8 +22,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAMP="$(date '+%Y%m%d')"
-RUN_LOG="${ROOT}/logs/second_disp_oos_accumulate_${STAMP}.log"
-mkdir -p "${ROOT}/logs"
+# log 走 ~/Library/Logs（launchd 下 ~/Documents 受 TCC 限制，避免 exit 78 / 寫入失敗）
+LOG_DIR="${HOME}/Library/Logs/etf"
+RUN_LOG="${LOG_DIR}/second_disp_oos_accumulate_${STAMP}.log"
+mkdir -p "${LOG_DIR}"
 
 echo "" | tee -a "${RUN_LOG}"
 echo "=== launchd second-disp-oos-accumulate 開始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${RUN_LOG}"
