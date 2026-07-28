@@ -79,18 +79,32 @@ def build_side(df: pd.DataFrame, sh_col: str, side: str) -> pd.DataFrame:
 
 
 def main() -> int:
-    PARTS_DIR.mkdir(parents=True, exist_ok=True)
-    assert REPLICA_DB.exists(), f"missing {REPLICA_DB}"
-    conn = sqlite3.connect(f"file:{REPLICA_DB}?mode=ro", uri=True)
-    snap = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(REPLICA_DB.stat().st_mtime))
-    data_max = conn.execute("SELECT MAX(trade_date) FROM stock_broker_branch_daily").fetchone()[0]
-    manifest = {"source_db": str(REPLICA_DB), "snapshot_file_mtime": snap,
-                "data_max_trade_date": data_max, "window": [DATE_START, DATE_END],
-                "basis": "shares (price-invariant ranking)", "built_parts": []}
-    print(f"[SNAPSHOT] replica mtime={snap} data_max={data_max}")
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--branch-db", default=str(REPLICA_DB),
+                    help="分點 tape 來源 DB（預設 replica；mini 上傳 data/stocks.db=完整 SSOT）")
+    ap.add_argument("--date-start", default=DATE_START)
+    ap.add_argument("--date-end", default=None, help="預設=DB data_max")
+    ap.add_argument("--out-dir", default=str(OUT_DIR),
+                    help="輸出目錄（重跑用獨立目錄避免覆蓋上輪，如 …/expanded_rerun）")
+    args = ap.parse_args()
 
-    for tag, lo, hi in month_ranges(DATE_START, DATE_END):
-        part = PARTS_DIR / f"{tag}.parquet"
+    branch_db = Path(args.branch_db)
+    assert branch_db.exists(), f"missing {branch_db}"
+    out_dir = Path(args.out_dir); parts_dir = out_dir / "master_parts"
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    # immutable=1：mini 的 WAL 庫在回填寫入中，mode=ro 常開不了；immutable 可讀（尾端可能略舊）
+    conn = sqlite3.connect(f"file:{branch_db}?mode=ro&immutable=1", uri=True)
+    snap = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(branch_db.stat().st_mtime))
+    data_max = conn.execute("SELECT MAX(trade_date) FROM stock_broker_branch_daily").fetchone()[0]
+    date_end = args.date_end or data_max
+    manifest = {"source_db": str(branch_db), "snapshot_file_mtime": snap,
+                "data_max_trade_date": data_max, "window": [args.date_start, date_end],
+                "basis": "shares (price-invariant ranking)", "built_parts": []}
+    print(f"[SNAPSHOT] db={branch_db.name} mtime={snap} data_max={data_max} window={args.date_start}..{date_end}")
+
+    for tag, lo, hi in month_ranges(args.date_start, date_end):
+        part = parts_dir / f"{tag}.parquet"
         if part.exists():
             print(f"[SKIP] {tag}"); manifest["built_parts"].append(tag); continue
         t0 = time.time()
@@ -99,7 +113,7 @@ def main() -> int:
                FROM stock_broker_branch_daily
                WHERE source='finmind' AND trade_date>=? AND trade_date<? AND trade_date<=?
                  AND (buy>0 OR sell>0)""",
-            conn, params=(lo, hi, DATE_END))
+            conn, params=(lo, hi, date_end))
         if br.empty:
             print(f"[EMPTY] {tag}"); continue
         parts = [build_side(br, "buy", "buy"), build_side(br, "sell", "sell")]
@@ -109,10 +123,10 @@ def main() -> int:
         manifest["built_parts"].append(tag)
         print(f"[OK] {tag} br_rows={len(br):,} out_rows={len(out):,} ({time.time()-t0:.0f}s)")
 
-    (OUT_DIR / "master_manifest.json").write_text(
+    (out_dir / "master_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     conn.close()
-    print(f"[DONE] parts={len(manifest['built_parts'])}")
+    print(f"[DONE] parts={len(manifest['built_parts'])} → {parts_dir}")
     return 0
 
 

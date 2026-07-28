@@ -29,6 +29,7 @@ from scipy import stats
 ROOT = Path(__file__).resolve().parents[2]
 REPLICA_DB = ROOT / "data/replica/stocks.db"
 LOCAL_DB = ROOT / "data/stocks.db"
+NAMES_DB = REPLICA_DB  # 分點名稱查詢庫；main() 可用 --branch-db 覆蓋
 OUT_DIR = ROOT / "reports/research/branch-footprint-screen/expanded"
 PARTS_DIR = OUT_DIR / "master_parts"
 MEGA_BLACKLIST_PATH = (
@@ -70,7 +71,7 @@ def load_prices() -> pd.DataFrame:
     for db, pref in [(LOCAL_DB, 0), (REPLICA_DB, 1)]:
         if not db.exists():
             continue
-        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        c = sqlite3.connect(f"file:{db}?mode=ro&immutable=1", uri=True)
         d = pd.read_sql_query(
             """SELECT stock_id, trade_date, open, close FROM stock_daily_bars
                WHERE source='finmind' AND trade_date>='2024-05-01' AND close>0""", c)
@@ -85,7 +86,7 @@ def load_prices() -> pd.DataFrame:
 
 
 def load_ix() -> pd.DataFrame:
-    c = sqlite3.connect(f"file:{LOCAL_DB}?mode=ro", uri=True)
+    c = sqlite3.connect(f"file:{LOCAL_DB}?mode=ro&immutable=1", uri=True)
     rows = c.execute(
         """SELECT date, open, close FROM daily_bars WHERE code='IX0001'
            AND date>='2024-05-01' AND open>0 AND close>0
@@ -187,6 +188,13 @@ def aggregate(ev) -> pd.DataFrame:
 
 
 def main() -> int:
+    global OUT_DIR, PARTS_DIR, NAMES_DB
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out-dir", default=str(OUT_DIR), help="讀 master_parts 並寫 leaderboard 的目錄(重跑用獨立目錄)")
+    ap.add_argument("--branch-db", default=str(REPLICA_DB), help="分點名稱查詢來源(mini 傳 data/stocks.db)")
+    a = ap.parse_args()
+    OUT_DIR = Path(a.out_dir); PARTS_DIR = OUT_DIR / "master_parts"; NAMES_DB = Path(a.branch_db)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     seats, mega = load_seats(), load_mega()
     manifest = json.loads((OUT_DIR / "master_manifest.json").read_text("utf-8"))
@@ -199,7 +207,7 @@ def main() -> int:
     print(f"[INFO] price stocks={px.stock_id.nunique()} rows={len(px):,}")
     close_map = {(s, d): c for s, d, c in zip(px["stock_id"], px["trade_date"], px["close"])}
 
-    c = sqlite3.connect(f"file:{REPLICA_DB}?mode=ro", uri=True)
+    c = sqlite3.connect(f"file:{NAMES_DB}?mode=ro&immutable=1", uri=True)
     names = dict(c.execute("SELECT DISTINCT securities_trader_id, securities_trader FROM stock_broker_branch_daily").fetchall())
     c.close()
 
