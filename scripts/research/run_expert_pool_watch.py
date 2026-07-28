@@ -349,6 +349,20 @@ def research_tier(row: dict | None, *, thin_flag: bool = False) -> str:
     return "D"
 
 
+def retest_note(row: dict | None) -> str | None:
+    """新數據體檢注記（EVAL_REGISTRY.retest_20260728）· 常態顯示於池 email。"""
+    rt = (row or {}).get("retest_20260728")
+    if not rt:
+        return None
+    med = rt.get("new_med_radj_pct")
+    ms = f"{med:+.1f}%" if med is not None else "—"
+    om = rt.get("orig_med_radj_pct")
+    trend = ""
+    if om is not None and med is not None:
+        trend = f"（採納時 {om:+.1f}% → 現 {ms}）"
+    return f"體檢2026-07-28：{rt.get('action','?')} · med {ms}·n={rt.get('new_n', 0)}{trend}"
+
+
 def tier_cx_hint(tier: str) -> str:
     return {
         "A": "A · 強專家＋高超額 → 優先認真跟",
@@ -527,6 +541,9 @@ def format_research_card_lines(
         "—— 研究成績單 ——",
         f"分級：{tier_cx_hint(tier)}",
     ]
+    _rt = retest_note(row)
+    if _rt:
+        lines.append(f"◆ {_rt}")
     if not row:
         lines.append("  （尚無回測統計 · 僅依當日分點判斷）")
     else:
@@ -1058,10 +1075,15 @@ def format_alert_body(
     reg = registry if registry is not None else load_registry_by_sid()
     thin_flag = "單薄" in (spec.origin_note or "")
     tier = research_tier(reg.get(spec.stock_id), thin_flag=thin_flag)
+    _rt = retest_note(reg.get(spec.stock_id))
     lines = [
         f"{spec.stock_name}（{spec.stock_id}）專家池共識觀測 · {asof}",
         "",
         f"【怎麼看這封信】{tier_cx_hint(tier)}",
+    ]
+    if _rt:
+        lines.append(f"◆ {_rt}")
+    lines += [
         f"專家核心：{core_s}",
         f"主訊號：{rule_lb}（含自己昨買仍算在場）",
         "動作：觀測通知（不下單）",
