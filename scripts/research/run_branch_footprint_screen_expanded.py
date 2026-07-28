@@ -53,10 +53,12 @@ def load_mega() -> set[str]:
 
 
 def load_master() -> pd.DataFrame:
-    parts = sorted(PARTS_DIR.glob("*.parquet"))
+    parts = sorted(PARTS_DIR.glob("*.parquet")) + sorted(PARTS_DIR.glob("*.csv"))
     if not parts:
         raise SystemExit(f"no master parts in {PARTS_DIR}")
-    df = pd.concat([pd.read_parquet(p) for p in parts], ignore_index=True)
+    def _rd(p):
+        return pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p, dtype={"stock_id": str, "top1_id": str, "top2_id": str, "top3_id": str})
+    df = pd.concat([_rd(p) for p in parts], ignore_index=True)
     df["stock_id"] = df["stock_id"].astype(str)
     df["top12_sh"] = df["top1_sh"] + df["top2_sh"]
     df["top1_share"] = df["top1_sh"] / df["total_shares"]

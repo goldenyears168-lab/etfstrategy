@@ -104,7 +104,7 @@ def main() -> int:
     print(f"[SNAPSHOT] db={branch_db.name} mtime={snap} data_max={data_max} window={args.date_start}..{date_end}")
 
     for tag, lo, hi in month_ranges(args.date_start, date_end):
-        part = parts_dir / f"{tag}.parquet"
+        part = parts_dir / f"{tag}.csv"
         if part.exists():
             print(f"[SKIP] {tag}"); manifest["built_parts"].append(tag); continue
         t0 = time.time()
@@ -119,7 +119,7 @@ def main() -> int:
         parts = [build_side(br, "buy", "buy"), build_side(br, "sell", "sell")]
         out = pd.concat([p for p in parts if not p.empty], ignore_index=True)
         out["stock_id"] = out["stock_id"].astype(str)
-        out.to_parquet(part, index=False)
+        out.to_csv(part, index=False)
         manifest["built_parts"].append(tag)
         print(f"[OK] {tag} br_rows={len(br):,} out_rows={len(out):,} ({time.time()-t0:.0f}s)")
 
