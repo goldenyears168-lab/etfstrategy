@@ -36,11 +36,30 @@ from research.expert_pool_pattern_risk import (  # noqa: E402
     detect_pattern_risk,
     format_pattern_risk_lines,
 )
-from research.expert_pool_stage_quality import (  # noqa: E402
-    detect_stage_quality,
-    flag_enabled as stage_quality_flag_enabled,
-    format_stage_quality_lines,
-)
+# expert_pool_stage_quality imports pandas at module load. Keep it OUT of this
+# module's import chain so lightweight callers that only need POOLS /
+# refresh_stock_tape (e.g. the .venv-fubon branch-tape prewarm) don't require
+# pandas installed. Resolve the real implementations lazily on first use.
+def stage_quality_flag_enabled(*args, **kwargs):  # noqa: E402
+    from research.expert_pool_stage_quality import flag_enabled
+
+    return flag_enabled(*args, **kwargs)
+
+
+def detect_stage_quality(*args, **kwargs):  # noqa: E402
+    from research.expert_pool_stage_quality import (
+        detect_stage_quality as _detect_stage_quality,
+    )
+
+    return _detect_stage_quality(*args, **kwargs)
+
+
+def format_stage_quality_lines(*args, **kwargs):  # noqa: E402
+    from research.expert_pool_stage_quality import (
+        format_stage_quality_lines as _format_stage_quality_lines,
+    )
+
+    return _format_stage_quality_lines(*args, **kwargs)
 from research.expert_pool_yellow_annotation import (  # noqa: E402
     detect_top10_light2_yellow,
     eligible_sid as yellow_eligible_sid,

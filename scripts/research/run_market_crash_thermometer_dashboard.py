@@ -12,10 +12,13 @@ net(股)×close 加總，前 5 個交易日累計，對分點自身歷史取百�
 取代原本的具名 panel／單純 2 家平權版本：
 
 - 加權8家（權重＝各分點在 bounded-rolling walk-forward 驗證的個別判別力−50，
-  越強的分點權重越高）：平均判別力 84.5%、最差一次 46.3%（15個滾動大跌
-  事件，2024-07~2026-07），優於等權2家（80.3%／38.3%）與等權8家
-  （78.6%／5.6%，混入弱分點反而拖累）。
-- 逐家個別判別力見下方 `PANEL`／`WEIGHT_SOURCE_NOTE`。
+  越強的分點權重越高）：**平均判別力 71.9%、最差一次 1.6%**（16個滾動大跌
+  事件，2024-07~2026-07；2026-07-27 修正後重新驗證，見下方「已知限制」的
+  lb_pctile look-ahead 修正說明）。
+  等權2家（80.3%／38.3%）與等權8家（78.6%／5.6%）這兩組對照數字**尚未**用
+  同一套修正重新驗證，「加權8家優於等權版本」這個排序目前不能視為已確認。
+- 逐家個別判別力見下方 `PANEL`／`WEIGHT_SOURCE_NOTE`——**這組個別分點權重
+  本身也是用未修正的舊方法算的，尚未重新驗證**，見下方限制第4點。
 
 ## 兩個讀數
 
@@ -37,7 +40,7 @@ net(股)×close 加總，前 5 個交易日累計，對分點自身歷史取百�
   系列研究。若目前 asof_date 落在最近一次大跌事件後 10 個交易日內，
   dashboard 會額外標注「可能為前次大跌延續訊號」。
 - 本溫度計的分點組合是用全部歷史資料篩選＋加權出來的（非嚴格逐日
-  walk-forward 重新選股），84.5% 判別力反映「這個固定公式套用在更大
+  walk-forward 重新選股），判別力數字反映「這個固定公式套用在更大
   樣本事件上是否還站得住腳」，不是「從零開始只用過去資料會不會選中
   這8家」。
 - 兩個計算步驟都需要長歷史才能貼近研究驗證數字（2026-07-23 修正）：
@@ -45,8 +48,21 @@ net(股)×close 加總，前 5 個交易日累計，對分點自身歷史取百�
   計算，太短會稀釋 top10%尾端定義；(2) 溫度百分位用 bounded-rolling
   常態日基準池（`--history-days`，預設120天）＋排除任一大跌/大漲事件
   ±`--lookback-days`個交易日內的日子，與
-  `run_market_precursor_thermometer_candidates.py` 驗證 84.5% 判別力
-  同一套方法。
+  `run_market_precursor_thermometer_candidates.py` 同一套方法。
+- **2026-07-27 修正（look-ahead bug）**：舊版 `compute_lb_pctile()` 用
+  `lb_sum.rank(pct=True)` 對整個載入的 grid 一次性排名——分點資料只從
+  2024-07-01起算，grid常常還不到 self_rank_days 長，等於任何一天的自我
+  百分位都拿「到 asof 為止」的整段資料（含當天之後、直到 asof 之間的未來
+  資料）去排序。實測：早期事件（2024-07~09）受影響最大，例如 2024-07-26
+  從虛增的93.8%修正回43.8%；16個滾動大跌事件的平均判別力從舊版82.3%
+  （worst=1.6%，跟原本記錄的84.5%/46.3%已經對不上，推測是更早一版
+  程式碼／參數算出來、後續改參數沒有回頭重新驗證）修正為71.9%
+  （worst=1.6%）。已改成逐日只用「當天為止」的滾動窗排名（walk-forward
+  -safe），時間愈接近 asof 兩版差距愈小，印證問題根源正是未來資料汙染，
+  不是隨機雜訊。**注意**：分點清單／個別權重本身仍是用未修正的舊方法
+  篩選出來的（見上方第2點提醒），只有「複合分數對常態池排名」這一段
+  已修正；要徹底乾淨還需要重新做一次分點篩選＋個別權重的 walk-forward
+  驗證。
 
 輸出：
   reports/daily/{YYYYMMDD}_crash_thermometer.md
@@ -64,6 +80,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from scipy import stats
 
@@ -217,16 +234,48 @@ def build_full_grid(panel: pd.DataFrame, ids: list[str], cal: list[str]) -> pd.D
     return grid
 
 
-def compute_lb_pctile(grid: pd.DataFrame, lookback_days: int) -> pd.DataFrame:
-    grid = grid.sort_values(["securities_trader_id", "trade_date"]).copy()
+def compute_lb_pctile(grid: pd.DataFrame, lookback_days: int, self_rank_days: int) -> pd.DataFrame:
+    """各分點「自我百分位」：lb_sum 對「該日之前最多 self_rank_days 個交易日」
+    取百分位排名（walk-forward-safe，不看未來）。
 
-    def _per_branch(g: pd.DataFrame) -> pd.DataFrame:
+    2026-07-27 修正：舊版用 `lb_sum.rank(pct=True)` 對整個載入的 grid 一次性
+    排名——分點資料只從 2024-07-01 起算（見 SELF_RANK_DAYS_DEFAULT 註解），
+    grid 常常還不到 self_rank_days 長，等於任何一天的百分位都拿「到 asof
+    為止」的整段資料（含當天之後、直到 asof 之間的未來資料）去排序。
+    對早期事件影響尤其大：實測 2024-07-26 事件因此從真實的 43.8%（乾淨版）
+    虛增到 93.8%（舊版），拖累全部 16 個滾動大跌事件的平均判別力從乾淨版的
+    71.9% 灌水成舊版的 82.3%。改成逐日只用「當天為止」的滾動窗排名後才是
+    walk-forward-safe，時間愈晚（愈接近 asof）跟舊版差距愈小——2026年之後
+    的事件兩版幾乎完全一致，印證問題根源正是未來資料汙染。見驗證腳本
+    （對話記錄 2026-07-27）。"""
+    grid = grid.sort_values(["securities_trader_id", "trade_date"]).reset_index(drop=True).copy()
+    lb_sum_col = pd.Series(np.nan, index=grid.index, dtype=float)
+    lb_pctile_col = pd.Series(np.nan, index=grid.index, dtype=float)
+
+    # 逐分點用 .loc[真實 row label] 賦值（不靠 groupby.apply 之後的位置對齊），
+    # 避免分點數一多（248家實測）pandas groupby.apply + positional concat
+    # 可能出現的組間列序對不齊，導致大量分點在多個事件日被誤判成 NaN。
+    for _bid, g in grid.groupby("securities_trader_id", sort=False):
+        idx = g.index
         lb_sum = g["net_amt"].shift(1).rolling(lookback_days).sum()
-        lb_pctile = lb_sum.rank(pct=True, na_option="keep")
-        return pd.DataFrame({"lb_sum_ntd": lb_sum, "lb_pctile": lb_pctile})
+        vals = lb_sum.to_numpy()
+        n = len(vals)
+        pct = np.full(n, np.nan)
+        for i in range(n):
+            if np.isnan(vals[i]):
+                continue
+            lo = max(0, i - self_rank_days + 1)
+            window = vals[lo : i + 1]
+            window = window[~np.isnan(window)]
+            if len(window) == 0:
+                continue
+            pct[i] = stats.percentileofscore(window, vals[i], kind="mean") / 100.0
+        lb_sum_col.loc[idx] = lb_sum.to_numpy()
+        lb_pctile_col.loc[idx] = pct
 
-    out = grid.groupby("securities_trader_id", group_keys=False).apply(_per_branch, include_groups=False)
-    return pd.concat([grid.reset_index(drop=True), out.reset_index(drop=True)], axis=1)
+    grid["lb_sum_ntd"] = lb_sum_col
+    grid["lb_pctile"] = lb_pctile_col
+    return grid
 
 
 def weighted_composite(scored: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
@@ -263,7 +312,7 @@ def band_for(pctrank: float | None) -> str:
 def load_event_dates(conn: sqlite3.Connection, cal: list[str]) -> tuple[set[str], set[str]]:
     """回傳 (crash_dates, all_event_dates)。all_event_dates=大跌(≤-3%)∪大漲(≥+3%)，
     用於下方 bounded normal pool 排除「事件鄰近日」——避免用大跌/大漲當天附近
-    的異常日去稀釋「正常基準」，這是研究驗證 84.5% 判別力用的同一套
+    的異常日去稀釋「正常基準」，這是研究驗證判別力用的同一套
     bounded-rolling + 事件排除方法（見
     `run_market_precursor_thermometer_candidates.py`）。"""
     from market_benchmark import load_benchmark_close
@@ -294,7 +343,18 @@ def bounded_pctrank(
     """對 test_date 的複合分數，對「test_date 之前 history_days 個交易日、且距任一
     事件日 > lookback_days 個交易日」的 bounded normal pool 取百分位排名。
     與研究驗證（`run_market_precursor_thermometer_candidates.py` walk_forward_candidate）
-    同一套方法，kind='mean' 百分位。"""
+    同一套方法，kind='mean' 百分位。
+
+    2026-07-27 修正（NaN 傳染 bug）：`d in scores_by_date` 只檢查 key 存不存在，
+    不檢查值是不是 NaN——單一分點（非組合分數）在暖身期前幾天 lb_pctile 是
+    NaN 但 key 仍在字典裡，只要常態池剛好含到這幾天，`scipy.percentileofscore`
+    只要輸入陣列裡有任何一個 NaN 就會讓整包結果變 NaN（即使 test_score 本身
+    是合法數字），且呼叫端若對多個事件日的結果取 sum()/mean()，一個 NaN
+    事件就會讓整個平均報廢。舊版複合分數（`weighted_composite`）剛好在合成
+    前就用 `dropna(subset=["lb_pctile"])` 把全 NaN 的日子從結果中整列拿掉
+    （key 直接不存在，不是「key 在但值 NaN」），純屬僥倖沒踩到這個洞；單一
+    分點直接用 lb_pctile 序列（跳過 weighted_composite）时会直接踩雷。
+    改成明確過濾 NaN 值，而不是只檢查 key 是否存在。"""
     idx_of = {d: i for i, d in enumerate(cal)}
     if test_date not in idx_of:
         return None, 0
@@ -306,10 +366,11 @@ def bounded_pctrank(
     floor_idx = max(0, test_idx - history_days)
     normal_pool = [
         d for d in cal
-        if floor_idx <= idx_of[d] < test_idx and is_far(idx_of[d]) and d in scores_by_date
+        if floor_idx <= idx_of[d] < test_idx and is_far(idx_of[d])
+        and scores_by_date.get(d) is not None and not pd.isna(scores_by_date[d])
     ]
     test_score = scores_by_date.get(test_date)
-    if test_score is None:
+    if test_score is None or pd.isna(test_score):
         return None, len(normal_pool)
     normal_scores = [scores_by_date[d] for d in normal_pool]
     if not normal_scores:
@@ -391,7 +452,7 @@ def main() -> None:
     print(f"panel rows={len(panel_raw)}", flush=True)
 
     grid = build_full_grid(panel_raw, ids, cal)
-    scored = compute_lb_pctile(grid, args.lookback_days)
+    scored = compute_lb_pctile(grid, args.lookback_days, args.self_rank_days)
 
     weights = {bid: w for bid, (_, w) in PANEL.items()}
     series = weighted_composite(scored, weights)
@@ -507,13 +568,14 @@ def main() -> None:
         "",
         "===== 已知限制 =====",
         "",
-        "- 這是「風險升溫提醒」，不是「精準預警」——研究驗證的判別力約84.5%",
-        "  （50%=亂猜），紅燈時仍有相當比例是誤報或前次大跌的延續訊號。",
-        f"- {WEIGHT_SOURCE_NOTE}",
+        "- 這是「風險升溫提醒」，不是「精準預警」——16個滾動大跌事件重新",
+        "  驗證（2026-07-27修正look-ahead後）平均判別力約71.9%、最差一次僅",
+        "  1.6%（50%=亂猜），紅燈時仍有相當比例是誤報或前次大跌的延續訊號。",
+        f"- {WEIGHT_SOURCE_NOTE}（此組個別權重尚未套用2026-07-27的修正重新驗證）",
         "- 溫度百分位計算：bounded-rolling常態日基準池（最近120個交易日）＋",
-        "  排除任一大跌/大漲事件前後5個交易日內的日子，與研究驗證84.5%同一套",
-        "  方法；自我百分位另用500個交易日（≈2年）長窗計算，避免tail-10%定義",
-        "  被稀釋（2026-07-23修正：舊版用短窗曾把7/17大跌日低估為76%/3家）。",
+        "  排除任一大跌/大漲事件前後5個交易日內的日子；自我百分位另用500個",
+        "  交易日（≈2年）滾動窗逐日計算（walk-forward-safe，2026-07-27修正",
+        "  取代舊版一次性排名，避免早期事件誤用未來資料虛增判別力）。",
         "- 非可下單訊號；不作為單獨買賣依據。",
         "",
     ]

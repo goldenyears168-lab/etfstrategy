@@ -1187,6 +1187,32 @@ CREATE TABLE IF NOT EXISTS fubon_premarket_quote_snapshot (
 
 CREATE INDEX IF NOT EXISTS idx_fubon_premarket_quote_snapshot_date
     ON fubon_premarket_quote_snapshot (trade_date, stock_id);
+
+CREATE TABLE IF NOT EXISTS stock_price_adjustment_events (
+    stock_id TEXT NOT NULL,
+    ex_date TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    before_price REAL,
+    after_price REAL,
+    detail TEXT,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, ex_date, event_type, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_price_adjustment_events_stock
+    ON stock_price_adjustment_events (stock_id, ex_date DESC);
+
+CREATE TABLE IF NOT EXISTS stock_close_adjusted (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    adj_close_v2 REAL NOT NULL,
+    cum_factor REAL NOT NULL,
+    n_events_applied INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'finmind',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
 """
 
 

@@ -241,13 +241,31 @@ def build_full_grid(
 
 def compute_lookback_percentiles(grid: pd.DataFrame, lookback_days: int) -> pd.DataFrame:
     """Per branch: rolling sum of net_amt over the `lookback_days` days BEFORE each row,
-    then self-normalized percentile rank (0..1, low = heavy relative selling)."""
+    then self-normalized percentile rank (0..1, low = heavy relative selling).
+
+    2026-07-27 修正（look-ahead bug，與 `run_market_crash_thermometer_dashboard.py`
+    `compute_lb_pctile()` 同一個問題）：舊版用 `lb_sum.rank(pct=True)` 對整個
+    grid 一次性排名——任何一天的自我百分位都拿「載入視窗內全部日子」（含當天
+    之後的未來資料）去排序。改成 **expanding window**：每一天只用「當天為止」
+    已發生的資料排名，不看未來。這會連帶影響下游 `score_branches()` 算出的
+    hit_count／p_value（用來篩分點、決定 PANEL 權重），因為早期事件的
+    「異常重賣超」判定，舊版其實部分借用了事件發生後才出現的資料。"""
     grid = grid.sort_values(["securities_trader_id", "trade_date"]).copy()
 
     def _per_branch(g: pd.DataFrame) -> pd.DataFrame:
         lb_sum = g["net_amt"].shift(1).rolling(lookback_days).sum()
-        lb_pctile = lb_sum.rank(pct=True, na_option="keep")
-        return pd.DataFrame({"lb_sum_ntd": lb_sum, "lb_pctile": lb_pctile})
+        vals = lb_sum.to_numpy()
+        n = len(vals)
+        pct = np.full(n, np.nan)
+        for i in range(n):
+            if np.isnan(vals[i]):
+                continue
+            window = vals[: i + 1]
+            window = window[~np.isnan(window)]
+            if len(window) == 0:
+                continue
+            pct[i] = stats.percentileofscore(window, vals[i], kind="mean") / 100.0
+        return pd.DataFrame({"lb_sum_ntd": lb_sum, "lb_pctile": pct}, index=g.index)
 
     out = grid.groupby("securities_trader_id", group_keys=False).apply(
         _per_branch, include_groups=False

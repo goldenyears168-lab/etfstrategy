@@ -107,18 +107,28 @@ set -e
 echo "${OUT}"
 
 # Email policy (once-focused, no 5m flood):
-# - SIGNAL=1 → always mail (有下單／intent)
-# - 13:00（或 C18ACC_NO_TRADE_BEFORE）那一輪若無動作 → 寄一封「沒下單」
+# - SIGNAL=1 → 每個「不同動作組合」當天只寄一次（動作簽章去重；避免持續性訊號每 5m 重複轟炸）
+# - NTB（C18ACC_NO_TRADE_BEFORE）那一輪若無動作 → 寄一封「沒下單」（每日一次）
 STAMP="$(date '+%Y%m%d')"
 NTB="${C18ACC_NO_TRADE_BEFORE:-13:00}"
 NOBUY_FLAG="${ROOT}/logs/intraday/c18acc_nobuy_mail_${STAMP}.flag"
 LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
+TICK_LOG_FILE="${ROOT}/logs/intraday/rrg_c18acc_poll_tick.log"
 POLL_MINUTE="$(echo "${OUT}" | sed -n 's/.*minute=\([0-9][0-9]:[0-9][0-9]\).*/\1/p' | head -1)"
+# 本輪動作簽章（tick log 最新一列的 actions 欄）· 同一組動作當天只寄一次
+ACT_SIG="$(grep "session=$(date '+%Y-%m-%d')" "${TICK_LOG_FILE}" 2>/dev/null | tail -1 | sed -n 's/.*| actions=\([^|]*\) |.*/\1/p' | tr -d '[:space:]')"
+[[ -z "${ACT_SIG}" ]] && ACT_SIG="none"
+SIG_HASH="$(printf '%s' "${ACT_SIG}" | shasum 2>/dev/null | cut -c1-12)"
+SIG_FLAG="${ROOT}/logs/intraday/c18acc_sigmail_${STAMP}_${SIG_HASH}.flag"
 SHOULD_MAIL=0
+IS_SIGNAL=0
 SUBJECT_PREFIX="C18acc 盤中訊號"
 if echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
-  SHOULD_MAIL=1
-  SUBJECT_PREFIX="C18acc 盤中訊號"
+  IS_SIGNAL=1
+  if [[ ! -f "${SIG_FLAG}" ]]; then
+    SHOULD_MAIL=1
+    SUBJECT_PREFIX="C18acc 盤中訊號"
+  fi
 elif [[ "${POLL_MINUTE}" == "${NTB}" ]] && [[ ! -f "${NOBUY_FLAG}" ]]; then
   SHOULD_MAIL=1
   SUBJECT_PREFIX="C18acc ${NTB} 無下單"
@@ -142,9 +152,12 @@ if [[ "${SHOULD_MAIL}" -eq 1 ]]; then
     --env-flag="RUN_RRG_C18ACC_EMAIL"
   NOTIFY_RC=$?
   set -e
-  if [[ "${NOTIFY_RC}" -eq 0 ]] && [[ "${POLL_MINUTE}" == "${NTB}" ]] \
-    && ! echo "${OUT}" | grep -q 'C18ACC_SIGNAL=1'; then
-    : >"${NOBUY_FLAG}"
+  if [[ "${NOTIFY_RC}" -eq 0 ]]; then
+    if [[ "${IS_SIGNAL}" -eq 1 ]]; then
+      : >"${SIG_FLAG}"
+    elif [[ "${POLL_MINUTE}" == "${NTB}" ]]; then
+      : >"${NOBUY_FLAG}"
+    fi
   fi
 fi
 
