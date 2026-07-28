@@ -69,6 +69,19 @@ def _digest_for(kind: str, payload: dict[str, Any]) -> tuple[str, str, str] | No
         counts = payload.get("counts_30w") or {}
         n_s2 = counts.get("2") or counts.get(2) or 0
         return (f"ops-stage-heatmap:{asof}", f"Weinstein Stage · S2 {n_s2} 檔", "info")
+    if kind == "rotation":
+        if not payload.get("present"):
+            return None
+        tb = payload.get("top_buy") or []
+        ts = payload.get("top_sell") or []
+        nm = lambda r: r.get("name") or r.get("stock_id")  # noqa: E731
+        buy_s = "、".join(nm(r) for r in tb[:3]) or "—"
+        sell_s = "、".join(nm(r) for r in ts[:3]) or "—"
+        return (
+            f"ops-rotation:{payload.get('asof') or asof}",
+            f"外資輪動 · 買 {buy_s} / 賣 {sell_s}",
+            "info",
+        )
     return None
 
 

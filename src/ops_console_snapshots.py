@@ -420,6 +420,104 @@ def build_stage_heatmap_payload() -> dict[str, Any]:
     }
 
 
+# 外資分點關鍵字（美系／港系外資券商分公司）。用於聚合外資單日淨買賣。
+FOREIGN_BRANCH_KEYWORDS = (
+    "美林", "摩根", "高盛", "瑞銀", "港商野村", "港麥格理", "花旗環球",
+    "香港上海", "台灣摩根", "美商高盛", "法商", "德意志", "星展", "匯豐",
+    "滙豐", "大和", "野村", "瑞士信貸",
+)
+
+
+def _load_stock_names(conn) -> dict[str, str]:
+    try:
+        rows = conn.execute(
+            "SELECT stock_id, MAX(stock_name) FROM etf_holdings "
+            "WHERE stock_name IS NOT NULL AND stock_name != '' GROUP BY stock_id"
+        ).fetchall()
+        return {str(r[0]): str(r[1]) for r in rows if r[1]}
+    except Exception:  # noqa: BLE001 — names are best-effort
+        return {}
+
+
+def build_rotation_payload() -> dict[str, Any]:
+    """外資分點單日輪動：latest trade_date 的外資淨買/淨賣 Top-N + 前日同向持續性.
+
+    Source: stock_broker_branch_daily（每晚 backfill 全市場）。外資分點多為
+    代理/造市，單日易反覆——研究觀察用，非個股買賣依據。
+    """
+    from stock_db import DEFAULT_DB_PATH, connect
+
+    conn = connect(DEFAULT_DB_PATH)
+    try:
+        latest = conn.execute(
+            "SELECT MAX(trade_date) FROM stock_broker_branch_daily"
+        ).fetchone()[0]
+        if not latest:
+            return {
+                "schema": "ops-rotation-v1",
+                "title": "外資分點輪動",
+                "present": False,
+                "note": "尚無 stock_broker_branch_daily（等分點 backfill）",
+            }
+        prev = conn.execute(
+            "SELECT MAX(trade_date) FROM stock_broker_branch_daily WHERE trade_date < ?",
+            (latest,),
+        ).fetchone()[0]
+        names = _load_stock_names(conn)
+
+        def foreign_net_by_stock(d: str) -> dict[str, float]:
+            agg: dict[str, float] = {}
+            for sid, tr, net in conn.execute(
+                "SELECT stock_id, securities_trader, net "
+                "FROM stock_broker_branch_daily WHERE trade_date = ?",
+                (d,),
+            ):
+                if any(k in (tr or "") for k in FOREIGN_BRANCH_KEYWORDS):
+                    agg[str(sid)] = agg.get(str(sid), 0.0) + float(net or 0.0)
+            return agg
+
+        cur = foreign_net_by_stock(latest)
+        pre = foreign_net_by_stock(prev) if prev else {}
+        universe_n = conn.execute(
+            "SELECT COUNT(DISTINCT stock_id) FROM stock_broker_branch_daily "
+            "WHERE trade_date = ?",
+            (latest,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    def row(sid: str) -> dict[str, Any]:
+        f = cur.get(sid, 0.0)
+        fp = pre.get(sid, 0.0)
+        return {
+            "stock_id": sid,
+            "name": names.get(sid),
+            "net_lots": round(f / 1000.0),       # 張（1 張 = 1000 股）
+            "net_lots_prev": round(fp / 1000.0),
+            "persist": (f > 0 and fp > 0) or (f < 0 and fp < 0),
+        }
+
+    ranked = sorted(cur.items(), key=lambda x: x[1], reverse=True)
+    top_buy = [row(s) for s, v in ranked[:10] if v > 0]
+    top_sell = [row(s) for s, v in ranked[::-1][:10] if v < 0]
+    return {
+        "schema": "ops-rotation-v1",
+        "title": "外資分點輪動",
+        "present": True,
+        "asof": latest,
+        "prev": prev,
+        "universe_n": universe_n,
+        "unit": "張",
+        "top_buy": top_buy,
+        "top_sell": top_sell,
+        "note_zh": (
+            "外資分點單日淨買/賣（聚合美系・港系外資分公司，單位：張）。"
+            "外資分點多為代理／造市，單日易反覆、常含空單回補——"
+            "研究觀察用，非個股買賣依據；跨日同向（persist ✓）較有參考性。"
+        ),
+    }
+
+
 BUILDERS: dict[str, Any] = {
     "watch": build_watch_payload,
     "risk": build_risk_payload,
@@ -427,6 +525,7 @@ BUILDERS: dict[str, Any] = {
     "branches": build_branches_payload,
     "today": build_today_payload,
     "stage_heatmap": build_stage_heatmap_payload,
+    "rotation": build_rotation_payload,
 }
 
 KINDS = tuple(BUILDERS.keys())
