@@ -34,6 +34,9 @@ from scipy import stats
 ROOT = Path(__file__).resolve().parents[2]
 REPLICA_DB = ROOT / "data/replica/stocks.db"
 LOCAL_DB = ROOT / "data/stocks.db"
+# 分點 tape 來源：優先 SSOT data/stocks.db（mini 上為權威且當前；處置窗全 2026，local 2026 覆蓋完整）。
+# Book 上 replica 為 fallback。OOS 累積需要「當前」資料，故不用凍結時的 replica 快照。
+BRANCH_DB = LOCAL_DB if LOCAL_DB.exists() else REPLICA_DB
 CFG = ROOT / "config/second_disp_expert_pool_watch.json"
 EP_JSON = ROOT / "reports/research/branch-footprint-screen/second_disp_top30_l1h7/twse_second_disp_2026.json"
 OUT = ROOT / "reports/research/branch-footprint-screen/expanded/oos_freeze"
@@ -41,6 +44,7 @@ FREEZE_MANIFEST = OUT / "freeze_manifest.json"
 
 COST, HOLD, BETA, DEDUP_DAYS = 0.003, 7, 1.15, 5
 GAP_SKIP_PCT = 5.0  # open_filters.hard_skip gap_t1_gt5
+FROZEN_DECISION_DATE = "2026-07-28"  # 名單定案日；OOS=announce晚於此的處置窗（固定，不隨 data_max 漂移）
 
 # 審計影子（凍結時一併評分，回頭驗證 2026-07-28 的去留決定）
 AUDIT_SHADOWS = [
@@ -58,13 +62,15 @@ def months(lo, hi):
 
 
 def load_candidates():
+    """凍結時的候選名單：現行 seats + 審計影子（以 id+floor 區分，永遠納入以回頭驗證去留/降權）。"""
     cfg = json.loads(CFG.read_text("utf-8"))
     cands = [{"id": str(s["id"]), "abs_floor_yi": float(s["abs_floor_yi"]),
               "name": s.get("name", "?"), "role": "seat"} for s in cfg["seats"]]
-    have = {c["id"].upper() for c in cands}
+    have = {(c["id"].upper(), round(c["abs_floor_yi"], 4)) for c in cands}
     for sh in AUDIT_SHADOWS:
-        if sh["id"].upper() not in have:
-            cands.append({**sh, "name": sh["id"]})
+        key = (sh["id"].upper(), round(float(sh["abs_floor_yi"]), 4))
+        if key not in have:  # 只在「同 id 同 floor」已存在時才略過，floor 不同＝獨立審計候選
+            cands.append({**sh, "name": sh.get("name", sh["id"])})
     return cands
 
 
@@ -78,6 +84,8 @@ def load_episodes():
 def load_prices(sids):
     frames = []
     for db, pref in [(LOCAL_DB, 0), (REPLICA_DB, 1)]:
+        if not db.exists():
+            continue
         c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         ph = ",".join("?" * len(sids))
         d = pd.read_sql_query(
@@ -110,7 +118,7 @@ def score(cands, episodes, freeze_date, oos_only):
     if not sids:
         return pd.DataFrame(), {"n_episodes": 0}
 
-    conn = sqlite3.connect(f"file:{REPLICA_DB}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"file:{BRANCH_DB}?mode=ro", uri=True)
     data_max = conn.execute("SELECT MAX(trade_date) FROM stock_broker_branch_daily").fetchone()[0]
     lo_scan = min(e["p_start"] for e in episodes)
     ph = ",".join("?" * len(sids)); frames = []
@@ -129,7 +137,7 @@ def score(cands, episodes, freeze_date, oos_only):
 
     def win_hit(sid, td):
         for a, b, ann in wins.get(sid, []):
-            if a <= td <= b and (not oos_only or a > freeze_date):
+            if a <= td <= b and (not oos_only or ann > freeze_date):
                 return True
         return False
     tape = tape[[win_hit(s, t) for s, t in zip(tape.stock_id, tape.trade_date)]]
@@ -196,50 +204,58 @@ def score(cands, episodes, freeze_date, oos_only):
             "p_value": float(stats.ttest_1samp(ra, 0.0)[1]) if n >= 5 else None,
         })
     meta = {"n_episodes": len(episodes), "data_max": data_max,
-            "oos_episodes": sum(1 for e in episodes if e["p_start"] > freeze_date)}
+            "oos_episodes": sum(1 for e in episodes if e.get("announce", e["p_start"]) > freeze_date)}
     return pd.DataFrame(rows), meta
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--freeze-date", default=None, help="YYYY-MM-DD；預設沿用既有 manifest 或今日 data_max")
+    ap.add_argument("--refreeze", action="store_true",
+                    help="重設凍結：以當前 config seats+審計影子重建 manifest 與 frozen reference（僅在名單定案變更時用）")
+    ap.add_argument("--freeze-date", default=None, help="YYYY-MM-DD；配 --refreeze 使用，預設 data_max")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
-
-    cands = load_candidates()
     episodes = load_episodes()
-    snap_mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(REPLICA_DB.stat().st_mtime))
+    snap_mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(BRANCH_DB.stat().st_mtime))
+    REF_CSV = OUT / "frozen_reference_live_rule.csv"
 
-    # freeze manifest：首次建立，之後沿用
-    if FREEZE_MANIFEST.exists() and not args.freeze_date:
-        man = json.loads(FREEZE_MANIFEST.read_text("utf-8"))
-        freeze_date = man["freeze_date"]
-    else:
-        conn = sqlite3.connect(f"file:{REPLICA_DB}?mode=ro", uri=True)
+    refreeze = args.refreeze or not FREEZE_MANIFEST.exists()
+    if refreeze:
+        # 凍結：以當前 config 定案名單建立 manifest + 一次性 frozen reference（之後不再重算）
+        conn = sqlite3.connect(f"file:{BRANCH_DB}?mode=ro", uri=True)
         dm = conn.execute("SELECT MAX(trade_date) FROM stock_broker_branch_daily").fetchone()[0]
         conn.close()
-        freeze_date = args.freeze_date or dm
-        man = {"freeze_date": freeze_date, "frozen_at_replica_mtime": snap_mtime,
-               "candidates": cands, "rule": {"hold": "L1H7", "cost_bps": 30, "beta": 1.15,
-               "gap_skip_pct": GAP_SKIP_PCT, "price": "adj_close-corrected", "dedupe_cal_days": DEDUP_DAYS},
-               "note": "只在 p_start > freeze_date 的處置窗上算 OOS。第三次處置窗到來須先更新 twse cache 再重跑。"}
+        cands = load_candidates()
+        freeze_date = args.freeze_date or FROZEN_DECISION_DATE
+        ref, m_ref = score(cands, episodes, freeze_date, oos_only=False)
+        ref.to_csv(REF_CSV, index=False)
+        man = {"freeze_date": freeze_date, "frozen_at_branch_mtime": snap_mtime,
+               "frozen_at_data_max": dm, "candidates": cands,
+               "rule": {"hold": "L1H7", "cost_bps": 30, "beta": 1.15, "gap_skip_pct": GAP_SKIP_PCT,
+                        "price": "adj_close-corrected", "dedupe_cal_days": DEDUP_DAYS},
+               "note": "OOS 只算 p_start > freeze_date 的處置窗，且以此 candidates（含審計影子）為準，不隨 config 後續變動。第三次窗到來先更新 twse cache 再重跑。"}
         FREEZE_MANIFEST.write_text(json.dumps(man, ensure_ascii=False, indent=2), "utf-8")
+        print(f"[FREEZE] 建立凍結：freeze_date={freeze_date} candidates={len(cands)} → {FREEZE_MANIFEST.name}")
+    else:
+        man = json.loads(FREEZE_MANIFEST.read_text("utf-8"))
+    freeze_date = man["freeze_date"]
+    cands = man["candidates"]  # 一律用凍結名單，不用當前 config
 
-    # 兩份：凍結日內樣本（reference，套 live 規則）＋ OOS（p_start>freeze）
-    ref, m_ref = score(cands, episodes, freeze_date, oos_only=False)
+    # OOS：只算凍結日之後公告/開始的處置窗，用凍結名單
     oos, m_oos = score(cands, episodes, freeze_date, oos_only=True)
-    ref.to_csv(OUT / "frozen_reference_live_rule.csv", index=False)
     oos.to_csv(OUT / "oos_scores.csv", index=False)
 
     pd.set_option("display.width", 240, "display.max_columns", 20)
-    print(f"[SNAPSHOT] replica mtime={snap_mtime}  freeze_date={freeze_date}  data_max={m_ref.get('data_max')}")
-    print(f"[INFO] episodes={m_ref['n_episodes']}  OOS episodes(p_start>freeze)={m_oos.get('oos_episodes',0)}")
-    print("\n=== 凍結參考（in-sample，但已套 LIVE 規則：gap>5%skip + adj_close）===")
-    print(ref.to_string(index=False))
+    print(f"[SNAPSHOT] branch_mtime={snap_mtime} freeze_date={freeze_date} data_max={m_oos.get('data_max')}")
+    print(f"[INFO] episodes={m_oos.get('n_episodes','?')}  OOS episodes(p_start>freeze)={m_oos.get('oos_episodes',0)}  frozen_candidates={len(cands)}")
+    if REF_CSV.exists():
+        print("\n=== 凍結參考（凍結時計算，LIVE 規則 gap>5%skip+adj_close；不隨後續重算）===")
+        print(pd.read_csv(REF_CSV, dtype={"id": str}).to_string(index=False))
     if m_oos.get("oos_episodes", 0) == 0 or oos.empty or oos["n_live"].sum() == 0:
-        print("\n=== OOS ===\n(尚無凍結日之後的處置窗，OOS 樣本=0。第三次處置公告後更新 twse cache 再重跑即開始累積。)")
+        print("\n=== OOS ===\n(尚無可評分的 OOS 事件：或無凍結日後的處置窗，或分點 tape 尚未涵蓋新窗日期。"
+              "分點資料前進到新窗期間後，本項自動開始累積。)")
     else:
-        print("\n=== OOS（僅 p_start > freeze_date 的處置窗）===")
+        print("\n=== OOS（僅凍結日後處置窗 · 用凍結名單）===")
         print(oos.to_string(index=False))
     print(f"\n[DONE] → {OUT}")
     return 0
