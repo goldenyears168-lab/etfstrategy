@@ -28,6 +28,14 @@ COST, HOLD, BETA, DEDUP = 0.003, 7, 1.15, 5
 START = "2024-07-01"
 
 
+# 3 檔 live 池 core 在 run_expert_pool_watch POOLS dict、不在 p5_pool.json，補 fallback
+LIVE_CORE = {
+    "2344": (["5850", "5854", "779Z"], 1e8),
+    "8046": (["9216", "9227", "5850"], 5e7),
+    "8358": (["9875", "9227", "9268"], 1e8),
+}
+
+
 def load_specs() -> list[dict]:
     reg = json.loads((EP / "EVAL_REGISTRY.json").read_text("utf-8"))
     specs = []
@@ -45,6 +53,10 @@ def load_specs() -> list[dict]:
                 core = json.loads(p6.read_text("utf-8")).get("core", {})
         fl = s.get("champion_floor") or "≥0.5億"
         floor = 1e8 if "1億" in fl else 5e7
+        if not core and sid in LIVE_CORE:  # 3 檔 live 池 fallback
+            core = {b: b for b in LIVE_CORE[sid][0]}
+            floor = LIVE_CORE[sid][1]
+            fl = f"≥{int(floor/1e8)}億" if floor >= 1e8 else "≥0.5億"
         specs.append({"sid": sid, "name": s.get("stock_name"), "core": list(core),
                       "floor": floor, "floor_label": fl,
                       "orig_med": s.get("med_radj_pct"), "orig_n": s.get("radj_n")})
