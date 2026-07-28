@@ -46,10 +46,12 @@ COST, HOLD, BETA, DEDUP_DAYS = 0.003, 7, 1.15, 5
 GAP_SKIP_PCT = 5.0  # open_filters.hard_skip gap_t1_gt5
 FROZEN_DECISION_DATE = "2026-07-28"  # 名單定案日；OOS=announce晚於此的處置窗（固定，不隨 data_max 漂移）
 
-# 審計影子（凍結時一併評分，回頭驗證 2026-07-28 的去留決定）
+# 審計影子（凍結時一併評分，回頭驗證 2026-07-28 的 floor 決定）。
+# seats 已 REVERT 回原始 floor（920F@0.1、9227@0.3）；影子改追「曾短暫改成的替代 floor」，
+# 讓 OOS 回頭驗證「revert 是否正確」（若替代 floor 在 OOS 上更好，代表 revert 錯了）。
 AUDIT_SHADOWS = [
-    {"id": "9227", "abs_floor_yi": 0.3, "role": "審計·已於2026-07-28移除"},
-    {"id": "920F", "abs_floor_yi": 0.1, "role": "審計·降權前floor0.1"},
+    {"id": "9227", "abs_floor_yi": 0.5, "role": "審計·曾擬改floor0.5(已revert回0.3)"},
+    {"id": "920F", "abs_floor_yi": 0.3, "role": "審計·曾降權floor0.3(已revert回0.1)"},
 ]
 
 

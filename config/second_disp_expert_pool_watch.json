@@ -52,8 +52,9 @@
     "report": "reports/research/branch-footprint-screen/expanded/EXPERT_POOL_SEATS_DISPOSITION_VALIDATION.md",
     "basis": "處置股子樣本 L1H7（118 episodes / 64 檔 / 全 2026）· baseline 中位 +2.92% p=0.0015",
     "caveat": "⚠️ IN-SAMPLE：seats 原本就從這批處置股資料選出，非獨立 OOS。下次處置窗做前推 OOS 才算驗證：scripts/research/oos_freeze_score_expert_pool_seats.py（凍結 freeze_date=2026-07-22）。",
-    "correction_20260728b": "盲點複核後改用 LIVE 規則（gap>+5% skip + adj_close 除權息）重算：除權息/下市存活者影響均<0.5%，但 gap 過濾實質。9227 由 raw 超額-0.51% 修正為 LIVE 中位+3.07%/勝率75%（全組最弱但為正，非負alpha）→ 由『移除』改『觀察』(floor 0.5)。920F LIVE 中位+5.0%(n=5薄)仍降權。",
-    "verdict": "留:1360(18.6%)/9A9R(13.6%)/9325(12.5%)/9A81(12.1%)/779n(11.7%)/9216(8.7%)；觀察:9217(n=4薄)/9227(3.1%最弱)/9325；降權:920F(n=5薄)。數字為 LIVE 規則中位。"
+    "correction_20260728b": "盲點複核(LIVE規則 gap>+5%skip+adj_close)：除權息/下市存活者<0.5%，gap過濾實質。9227 raw超額-0.51% → LIVE中位+3.07%(非負alpha)。",
+    "correction_20260728c": "審計影子揭露 floor tinkering 有害：920F@0.1(原始) mini n=24 中位+6.9% p=0.0096顯著，降權到0.3反成 n=5；9227@0.3(原始) n=11 中位+3.36%勝82% 優於@0.5。→ 兩 floor 皆 REVERT 回原始(920F@0.1、9227@0.3)。所有 seats 回到 2026-07-28 前原始配置，OOS 凍結評分(含審計影子追 920F@0.3/9227@0.5)裁決去留。",
+    "verdict": "留:1360/9A9R/9325/9A81/779n/9216/920F；觀察:9217(薄)/9227(最弱但正)。全 9 席原始 floor，不再 in-sample tinker，等 OOS。"
   },
   "seats": [
     {"id": "1360", "name": "港商麥格理", "abs_floor_yi": 0.3, "tag": "外資", "source": "原", "verdict": "留·處置主場最佳(中位+16.4%)"},
@@ -63,8 +64,8 @@
     {"id": "9217", "name": "凱基松山", "abs_floor_yi": 0.3, "tag": "本土·薄樣本", "source": "原", "verdict": "觀察·n=7均值負"},
     {"id": "779n", "name": "國票南京", "abs_floor_yi": 0.1, "tag": "本土·近帶", "source": "新增", "verdict": "留·+12.0% win81%"},
     {"id": "9216", "name": "凱基-信義", "abs_floor_yi": 0.15, "tag": "本土", "source": "原", "verdict": "留·LIVE中位+8.7%"},
-    {"id": "9227", "name": "凱基城中", "abs_floor_yi": 0.5, "tag": "本土·觀察", "source": "原", "verdict": "觀察·LIVE中位+3.1%勝率75%(全組最弱但正)·2026-07-28曾擬移除後複核反裝回·floor 0.3→0.5降觸發"},
-    {"id": "920F", "name": "凱基-站前", "abs_floor_yi": 0.3, "tag": "本土·降權", "source": "原", "verdict": "降權·LIVE中位+5.0% n=5薄·floor 0.1→0.3"}
+    {"id": "9227", "name": "凱基城中", "abs_floor_yi": 0.3, "tag": "本土·觀察", "source": "原", "verdict": "觀察·floor 回原始0.3(審計影子 n=11 中位+3.36% 勝82% 優於0.5)·全組最弱但正"},
+    {"id": "920F", "name": "凱基-站前", "abs_floor_yi": 0.1, "tag": "本土", "source": "原", "verdict": "留·floor 回原始0.1(審計影子 mini n=24 中位+6.9% p=0.0096 顯著；降權到0.3反而砍成n=5)"}
   ],
   "removed_seats": [],
   "email": {
