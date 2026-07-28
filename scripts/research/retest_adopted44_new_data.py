@@ -109,6 +109,17 @@ def main() -> int:
         seen.add(d); ixd.append(d); ixo.append(float(o)); ixc.append(float(c))
     ixpos = {d: i for i, d in enumerate(ixd)}
 
+    # 一次撈全部：44 股 × core 分點聯集（避免 44 次全表掃描）
+    core_union = sorted({c for s in specs for c in s["core"]})
+    cuph = ",".join("?" * len(core_union))
+    tape = pd.read_sql_query(
+        f"""SELECT trade_date, stock_id, securities_trader_id, net FROM stock_broker_branch_daily
+            WHERE source='finmind' AND net>0 AND trade_date>=? AND stock_id IN ({ph})
+              AND securities_trader_id IN ({cuph})""",
+        conn, params=[START, *sids, *core_union])
+    tape["stock_id"] = tape.stock_id.astype(str)
+    tape_by_sid = {sid: g for sid, g in tape.groupby("stock_id")}
+
     rows = []
     for s in specs:
         sid, core, floor = s["sid"], s["core"], s["floor"]
@@ -116,11 +127,10 @@ def main() -> int:
         if not b or not core:
             rows.append({**s, "new_med": None, "new_n": 0, "verdict": "無價/無core"}); continue
         k = 1 if len(core) == 1 else 2
-        cph = ",".join("?" * len(core))
-        tp = pd.read_sql_query(
-            f"""SELECT trade_date, securities_trader_id, net FROM stock_broker_branch_daily
-                WHERE source='finmind' AND stock_id=? AND trade_date>=? AND securities_trader_id IN ({cph})""",
-            conn, params=[sid, START, *core])
+        tp = tape_by_sid.get(sid)
+        if tp is None or tp.empty:
+            rows.append({**s, "new_med": None, "new_n": 0, "verdict": "core無交易"}); continue
+        tp = tp[tp["securities_trader_id"].isin(core)].copy()
         if tp.empty:
             rows.append({**s, "new_med": None, "new_n": 0, "verdict": "core無交易"}); continue
         # 每分點每日 net_amt = net × close
