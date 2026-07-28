@@ -1570,7 +1570,7 @@ topics:
       - id: H4-NEW-CANDIDATE-9239
         statement: >
           全分點宇宙 L1H7 篩選能找到新的、統計輪廓優於既有候選 9217 的正向分點
-        status: rejected  # 9239: 統計面(n=22,p=0.070)一度看似優於9217，但補完建倉細節後反證：91%(20/22)事件訊號後25日內轉淨賣超、32%(7/22)隔日賣出金額即達買超50%以上，且該分點在這22檔標的上交易天數中位數307天(~490日窗口內近乎每天在買賣)——不是「廣泛一次性重押」而是高週轉短線帳戶，訊號不可信。同日對倒查核未發現特定協同賣方(排除最粗暴的對敲假設)，但無法挽救自身高週轉這個更根本疑慮。詳見 whale_branch_l1h7_deepdive_9239_followup_position_crossing.md
+        status: contested  # 原判rejected（91%(20/22)事件訊號後25日內轉淨賣超、32%隔日賣出≥買超50%、該分點在這22檔標的交易天數中位數307天/490日近乎天天買賣）。2026-07-28使用者指出推理瑕疵：L1H7本身是7天策略，訊號後第8~25天分點自己做什麼，跟該7天量測窗口內股價報酬是否真實可捕捉無直接關係（除非是隔日沖立即反向平倉）。重新把daily_window拆成D+1~D+7 vs D+8~D+25兩段核對後，91%轉賣超的核心其實多數已發生在D+1~D+7量測窗口本身之內——代表9239在L1H7的7天測量期內就已高頻雙邊操作（不同於9217訊號後續抱不賣），是實體類型上的當沖/高週轉疑慮，而非「7天內報酬可信、只是分點後來反悔賣出」。**結論修正為inconclusive**：實體類型判定（高週轉非知情一次性重押）仍成立、維持不建議採納，但不再以「訊號後被反悔」為由宣稱證偽；真正站得住的保留理由回到原始統計本就邊緣（p=0.070未達顯著）的樣本脆弱性。詳見 whale_branch_l1h7_deepdive_9239_followup_position_crossing.md
       - id: H5-LARGE-N-SMALL-EFFECT
         statement: >
           大樣本但效果量小、p值接近顯著的候選（如n>100但效果量<1%），隨樣本
@@ -2278,6 +2278,198 @@ topics:
         唯一通過決定性驗證的分點；Track B「擴大候選池到已知大戶」的策略
         本身已執行完畢且獲得誠實null result，除非使用者能提供其他具體
         社群公認大戶分點代碼，否則不建議繼續這個方向。
+
+  whale-quiet-accumulator-scan:
+    title: 安靜建倉者全宇宙掃描 · 找長期持續累積型態（vs 單日爆量 Top1 買方）
+    status: archived
+    phase: rejected
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/scan_quiet_accumulators.py
+      - scripts/research/study_whale_9A81_forward_tradeable.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-QUIET-ACCUMULATOR-DISCOVERY
+        statement: >
+          用「(分點,股票) 配對長期持續買超、低波動累積」（consistency≥0.65 +
+          trend_r2≥0.7 + retention≥0.7）取代 whale-buy-concentration/
+          whale-branch-l1h7-discovery 的「單日爆量 Top1 買方」偵測邏輯，
+          能找到既有兩條研究線都遺漏的、真正耐心的長期持有型大戶
+        status: rejected  # 全宇宙222,904個合格配對中1,349個候選，但83.3%集中在僅60檔「污染股」（≥5個分點同時通過門檻，代表股票本身走勢平滑而非分點有選股力）；排除污染股後最佳候選9A81的realized_proxy_pct指標本身被H2證明是事後峰值選擇偏誤
+      - id: H2-9A81-CAUSAL-REBUILD
+        statement: >
+          把 H1 用「事後選定部位峰值日收盤價」算出的 realized_proxy_pct
+          （9A81 七檔候選、中位數 +25.07%）改寫成完全因果（只用截至訊號
+          當日資料觸發、L1H{7,20,60} 協議固定持有期出場）的規則後，
+          正向報酬仍然存在
+        status: rejected  # 因果規則對已知9檔候選召回率78-89%（規則設計無誤，抓到同一批股票），但18組N×規則×horizon配置中16組中位數為負；即使強制用因果規則首次觸發日重測原本「7戰7勝」的9檔候選，多數配置中位數仍為負（N20規則A的H20：中位數-7.46%，t_p=0.008、Wilcoxon p=0.012）；72組檢定中15組p<0.05且全部同向為負，但BH-FDR校正後無一存活。案例2379：事後峰值報酬代理指標+42.47%，因果進場後L1H7/H20/H60實際為-17.81%/-27.48%/-33.18%
+    methodology: >
+      SQL GROUP BY 找 (securities_trader_id, stock_id) 配對中 2024-07-01
+      起有出手交易日≥60天者（222,904對符合），逐日算累積淨部位序列，
+      篩選 consistency（淨買超日占比）≥0.65、trend_r2（累積部位對時間
+      線性迴歸R²）≥0.7、retention（期末/期間最大部位）≥0.7，通過者用
+      「加權平均成本 vs 部位到達最大值那天之後的最新收盤價」算
+      realized_proxy_pct。因果重建（study_whale_9A81_forward_tradeable.py）：
+      對9A81歷史交易過的198檔股票，逐日用截至當日（含）資料計算滾動
+      窗口版consistency/trend_r2/retention（N∈{20,40,60}交易日），
+      rising-edge觸發、10交易日內同股不重複計數，套用L1H{7,20,60}協議
+      （T+1開盤進場、Hth日收盤出場、30bps成本、β=1.15）算forward excess
+      return，並對已知候選子集 vs 新抓到股票子集分開比較、做72組檢定的
+      BH-FDR多重比較校正。
+    notes: >
+      全宇宙初篩：222,904個合格配對中1,349個通過三門檻，但83.3%
+      （1,124個）集中在僅60檔「污染股」——這些股票同時有≥5個不同分點
+      的部位都通過門檻，代表是股票本身走勢平滑（隨便誰買進抱著都賺）
+      造成的假陽性，不是特定分點的選股/擇時能力，必須排除。分點層級
+      彙總（quiet_accumulators_by_branch.csv）：排除污染股後，9A81在
+      7檔股票上全數為正、中位數realized_proxy_pct +25.07%，是所有候選
+      分點裡表現最突出者，進入下一輪深挖。
+
+      9A81因果重建（本輪最重要的方法論教訓，呼應whale-branch-l1h7-
+      discovery H2/H7的「事後諸葛/統計假象」系列教訓）：+25.07%的原始
+      發現用的是「加權平均成本 vs 事後選定的部位峰值日收盤價」——這個
+      峰值日期在建倉當下完全無法預知。改寫成因果規則後，即使規則本身
+      抓到同一批股票（對已知9檔候選召回率78-89%，排除規則設計問題），
+      forward return在18組N×規則×horizon配置中16組中位數為負；強制用
+      因果首次觸發日重測原本「7戰7勝」的那9檔股票，多數配置中位數仍
+      為負（如N20規則A的H20：中位數-7.46%，t_p=0.008、Wilcoxon
+      p=0.012）。個案2379最具代表性：事後峰值報酬代理指標高達+42.47%，
+      但因果訊號觸發於2026-01-12後，L1H7/H20/H60實際報酬分別是
+      -17.81%/-27.48%/-33.18%——該股後來在2026-06才真正噴出，中間有
+      一大段拉回，事後選在最高點出場的比較基準跟「訊號觸發後固定持有」
+      是兩回事。72組檢定中15組p<0.05（遠高於隨機期望的3.6組）且全部
+      同向為負，但BH-FDR 5%校正後無一存活——證據方向一致指向零或負，
+      但強度不足以正式宣稱顯著。
+
+      通用教訓：任何用「事後選定的最佳出場點」（部位峰值、波段最高點等）
+      計算的績效代理指標，在改寫成當下可判斷、固定持有期的因果規則之前，
+      都不能視為可交易訊號的證據——這是繼whale-branch-l1h7-discovery的
+      「訊號自相關偽獨立事件」「報酬標準差隨天期擴大的統計假象」之後，
+      本專案分點研究系列確認的第三種方法論陷阱。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: na  # 因果重建已是「只用當日前資料」的walk-forward式設計，非傳統IS/OOS切分；72組檢定BH-FDR校正取代傳統holdout
+        G3_regime_stratification: na
+        G4_rejection_registry: passed
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: >
+        rejected · do-not-adopt。安靜建倉方法論本身未被證偽（因果規則對
+        已知候選召回率78-89%，偵測邏輯合理），但用它找到的正向報酬幾乎
+        全部是事後峰值選擇偏誤；污染股占83.3%的發現也提醒未來任何「多
+        分點同時通過某個持倉型態篩選」的候選池，都要先排除「股票本身
+        走勢平滑」這個更簡單的替代解釋。
+
+  whale-branch-position-momentum-2m:
+    title: 分點持倉動能 2個月預測 · 9217凱基松山／9661富邦新店現有持倉消長 vs 未來40日報酬
+    status: archived
+    phase: rejected
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/study_whale_9217_position_momentum_forward.py
+      - scripts/research/study_whale_9661_holding_momentum_forward40.py
+      - scripts/research/study_whale_9661_momentum_baseline_check.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-9217-POSITION-MOMENTUM
+        statement: >
+          9217（凱基松山）對個股「短窗持倉變化量」相對該(分點,股票)配對
+          自身歷史分布的因果z分數（加速加碼 vs 開始減碼），能預測未來
+          20/40個交易日的forward excess return
+        status: rejected  # 全樣本accel/reduce兩種訊號在H20/H40普遍中位數為負且Wilcoxon顯著(p<0.05)；限縮至materiality≥50M(n=80)後accel轉為不顯著的微幅正向(t_p=0.05但Wilcoxon p=0.23)，非穩健結果
+      - id: H2-9661-POSITION-MOMENTUM
+        statement: >
+          9661（富邦新店）比照H1同一因果持倉動能框架，加速/減碼訊號能
+          預測未來20/40個交易日的forward excess return
+        status: rejected  # ACCEL vs DECEL forward return互相比較(Mann-Whitney p=0.29-0.94)及各自vs隨機日安慰劑基準比較(p=0.42-0.54)，3組窗口設定×2個horizon全部無法區分，訊號框架對此分點無任何預測資訊
+      - id: H3-EXISTING-RULE-LONGER-HOLD
+        statement: >
+          9217既有live訊號（scan_5d_net95：滾動5交易日buy_5d≥5000萬且
+          net_ratio≥0.95）若把持有期從既有的7天延長到40個交易日
+          （2個月），表現優於目前7天版本
+        status: passed  # n=26，H40：mean+30.68%/median+14.879%/勝率69.2%/t_p=0.0178/Wilcoxon p=0.0094（t與Wilcoxon同步顯著，優於whale-branch-l1h7-discovery第六輪H7版本的t_p=0.0426+Wilcoxon僅邊緣0.0668）；H20：mean+15.76%/median+11.64%/勝率61.5%/t_p=0.0302/Wilcoxon p=0.0435。median 95%CI在H40為[-0.091%,38.473%]，幾乎不含零
+    methodology: >
+      對每個 (securities_trader_id, stock_id) 配對，用短窗（SW=10或20
+      交易日）淨部位變化 相對 長窗（LW=40或60交易日）該配對自身歷史
+      分布算z分數（z_hist_min=40天歷史門檻），z≥門檻(0.75/1.0/1.5)分類
+      為ACCEL（加速加碼）、z≤-門檻分類為REDUCE/DECEL（開始減碼），15
+      交易日內同配對不重複計數（dedup_gap=15）。這個z分數只用截至訊號
+      日（含）的歷史資料計算，是真正因果的。套用L1H{20,40}協議（T+1
+      開盤進場、20或40交易日收盤出場、30bps成本、β=1.15）算forward
+      excess return，並額外對「材料性」（該配對歷史峰值部位金額）分層
+      檢定，同時對9217的既有live規則（5日淨比95%）做相同40天horizon的
+      對照測試。9661另外加做「隨機日安慰劑基準」：對每個(分點,股票)
+      配對隨機抽同等數量的非訊號日當作偽訊號，比較forward return是否
+      與真訊號有區別，用來排除「任何隨機時點買進這些常態活躍股票的
+      forward return本身就有正偏誤」的替代解釋。
+    notes: >
+      背景：whale-branch-l1h7-discovery/whale-individual-9217-9661-
+      identity-validation 兩條線用 L1H7（7天）協議對9217/9661反覆驗證
+      皆屬「方向正向但脆弱」或「無edge」的邊緣結論。使用者提出：既然
+      短窗（7天）持續驗證困難，改用「2個月（40交易日）持倉消長比例」
+      預測中期趨勢是否更容易看到訊號，因兩個分點目前持倉皆為已知資訊。
+
+      9217（宇宙1,435檔曾交易股票，21,405筆原始訊號事件、19,250筆可
+      算報酬）：ACCEL/REDUCE 因果z分數訊號在全樣本上系統性地方向不佳
+      ——多組(sw,lw,z門檻)組合的H40/H20中位數普遍為負且Wilcoxon顯著
+      （如SW10LW40_Z0.75_reduce_H40_firstpersstock: median-6.42%,
+      t_p=0.0001）。限縮到material≥50M新台幣門檻的重倉子集（n=80,88
+      檔股票）後，accel訊號轉為微幅正向但不顯著（H40 median-0.51%但
+      win_rate48.4%~52.5%、t_p=0.05但Wilcoxon p=0.23~0.46不顯著）——
+      不是穩健結果。**意外的重要發現**：把9217既有live規則
+      (scan_5d_net95)原封不動套用在40天horizon（而非既有7天）重測，
+      結果是本輪唯一t-test與Wilcoxon同步顯著的正向配置（n=26, H40
+      median+14.879%, t_p=0.0178, Wilcoxon p=0.0094），優於
+      whale-branch-l1h7-discovery第六輪測的H7版本（n=36, t_p=0.0426
+      但Wilcoxon僅邊緣0.0668）。這提示：與其開發新的「持倉動能」訊號，
+      不如優先驗證「既有規則、延長持有期」這個更簡單的調整，值得在更多
+      樣本外交易累積後認真評估是否調整songshan-copytrade的出場邏輯
+      （目前live為DRY_RUN=1/AUTO_SUBMIT=0，非實際下單，無資金曝險
+      急迫性）。當前持倉快照：243檔、約新台幣303億元，43%持平/32%
+      加速加碼中/18%開始減碼（前2大：2337旺宏90.7億元加速中、6147
+      頎邦57億元持平）——**此分類本身無驗證過的預測力，僅供描述性
+      參考**。
+
+      9661（宇宙2,341檔曾交易股票，其中僅373檔在stock_daily_bars有
+      價格資料——**69%的交易股票完全沒有價格歷史**，是本輪新發現的
+      資料缺口，進一步印證whale-individual-9217-9661-identity-
+      validation的H3結論：9661是綜合客戶流量聚合帳戶，不是單一大戶的
+      乾淨代理）：ACCEL vs DECEL的forward return互相比較（Mann-Whitney
+      p=0.29~0.94）與各自對隨機日安慰劑基準比較（p=0.42~0.54），3組
+      窗口設定×2個horizon全部無法區分——這是乾淨的null result（含
+      安慰劑對照組，方法論上比9217這邊更嚴謹），跟whale-individual
+      topic另外三種獨立方法（月度panel regression/conviction tail/H3
+      流量聚合結構性論證）一致判定9661無edge，是第4個獨立方法得出
+      相同結論。當前持倉快照：189檔、約新台幣899.5億元，73.6%持平/
+      23.6%減碼中/2.9%加碼中（DRAM族群2408南亞科、2344華邦電同步
+      減碼，3042晶睿加碼中）——**同樣僅描述性參考，分類本身無驗證過
+      的預測力**。
+
+      治理層面發現（供使用者評估，未自動修改）：research.yaml裡較舊、
+      門檻式sweep方法論的fubon-xindian-copytrade/dual-branch-copytrade
+      兩個topic對9661標記status: passed/active，但本topic加上
+      whale-individual-9217-9661-identity-validation累計已有4種獨立、
+      更嚴謹的方法論（月度panel regression、conviction tail延伸、
+      持倉動能+安慰劑對照、分點=全客戶流量聚合的結構性論證）一致判定
+      9661無穩健edge。這個內部矛盾建議使用者後續評估是否重新檢視/降級
+      那兩個較舊topic的status，本次研究依指示未逕自變更。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # H3(既有規則延長持有期)n=26雖不到min_oos_n=80，但t/Wilcoxon同步顯著、median CI幾乎不含零，判passed而非insufficient_n；H1/H2樣本量遠超門檻(n=1,000+)
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # H1/H2持倉動能訊號本身明確拒絕並記錄理由
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: >
+        持倉動能訊號本身（H1/H2）do-not-adopt。唯一存活發現H3（9217
+        既有live規則延長持有期到40天優於7天）值得列為下一步優先驗證
+        方向，但尚未達到可直接寫入config/strategy.yaml的地步（仍待更多
+        樣本外交易、且songshan-copytrade目前非live無急迫性）。9661累計
+        4種獨立方法一致無edge，不建議再投入新方法論；若要繼續，建議
+        先處理69%股票無價格資料的缺口，或直接接受9661作為訊號來源的
+        資料結構性限制無法解決。
 
   copytrade-rrg-audit:
     title: 00981A 持股變動 × RRG 互動稽核
