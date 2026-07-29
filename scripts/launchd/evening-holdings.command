@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/launchd_evening-holdings.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_evening-holdings.log"
 
 exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""

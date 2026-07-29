@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/launchd_etfedge-import.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_etfedge-import.log"
 LABEL="com.jackm4.etf.etfedge-import"
 TARGET_DATE="${ETFEDGE_IMPORT_DATE:-2026-06-17}"
 EXIT=1

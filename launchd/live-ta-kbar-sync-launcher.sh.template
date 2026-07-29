@@ -11,9 +11,9 @@ set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 STAMP="$(date '+%Y%m%d')"
-RUN_LOG="${ROOT}/logs/live_ta_kbar_sync_${STAMP}.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/live_ta_kbar_sync_${STAMP}.log"
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 
 echo ""
 echo "=== launchd live-ta-kbar-sync 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

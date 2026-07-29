@@ -6,8 +6,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LOG="${ROOT}/logs/launchd_order-wake.log"
-mkdir -p "${ROOT}/logs"
+LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_order-wake.log"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 
 exec >>"${LOG}" 2>&1
 echo "=== launchd order-wake $(date '+%Y-%m-%d %H:%M:%S') ==="

@@ -8,10 +8,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAMP="$(date '+%Y%m%d')"
-LAUNCHD_LOG="${ROOT}/logs/launchd_ops-console-evening-sync.log"
-RUN_LOG="${ROOT}/logs/ops_console_evening_sync_${STAMP}.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_ops-console-evening-sync.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/ops_console_evening_sync_${STAMP}.log"
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""
 echo "=== launchd ops-console-evening-sync 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

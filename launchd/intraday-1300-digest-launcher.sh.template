@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 EXIT=1
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 
 WD="$(date '+%u')"
 if [[ "${WD}" -gt 5 ]]; then

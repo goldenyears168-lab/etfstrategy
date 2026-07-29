@@ -26,7 +26,7 @@ if [[ -x "${PYTHON}" ]]; then
   "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
     --subject-prefix="週日深度補庫" \
     --exit-code="${EXIT}" \
-    --log-path="${ROOT}/logs/weekly_sync_${STAMP}.log" \
+    --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/weekly_sync_${STAMP}.log" \
     --extra="${EXTRA}" \
     --env-flag="RUN_WEEKLY_DEEP_EMAIL"
   set -e

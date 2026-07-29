@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))

@@ -7,8 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAMP="$(date '+%Y%m%d')"
-LAUNCHD_LOG="${ROOT}/logs/launchd_mutual-fund-disclosure-watch.log"
-RUN_LOG="${ROOT}/logs/mutual_fund_disclosure_watch_${STAMP}.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_mutual-fund-disclosure-watch.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/mutual_fund_disclosure_watch_${STAMP}.log"
 
 exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""

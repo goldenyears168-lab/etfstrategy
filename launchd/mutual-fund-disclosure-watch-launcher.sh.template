@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 STAMP="$(date '+%Y%m%d')"
-RUN_LOG="${ROOT}/logs/mutual_fund_disclosure_watch_${STAMP}.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/mutual_fund_disclosure_watch_${STAMP}.log"
 
 echo ""
 echo "=== launchd mutual-fund-disclosure-watch 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

@@ -7,10 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAMP="$(date '+%Y%m%d')"
-LAUNCHD_LOG="${ROOT}/logs/launchd_winbond-expert-pool-watch.log"
-RUN_LOG="${ROOT}/logs/evening_research_watch_${STAMP}.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_winbond-expert-pool-watch.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/evening_research_watch_${STAMP}.log"
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 exec >>"${LAUNCHD_LOG}" 2>&1
 echo ""
 echo "=== launchd evening-watch digest 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

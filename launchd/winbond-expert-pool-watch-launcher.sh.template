@@ -16,9 +16,9 @@ set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 STAMP="$(date '+%Y%m%d')"
-RUN_LOG="${ROOT}/logs/evening_research_watch_${STAMP}.log"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/evening_research_watch_${STAMP}.log"
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 
 echo ""
 echo "=== launchd evening research watch digest 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="

@@ -8,9 +8,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_ops-live-ta-poll.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_ops-live-ta-poll.log"
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 : >>"${LAUNCHD_LOG}"
 exec >>"${LAUNCHD_LOG}" 2>&1
 
@@ -21,7 +21,7 @@ if [[ "${WD}" -gt 5 ]]; then
 fi
 
 # Portable lock (macOS often has no flock) · avoid double long-running sessions
-LOCK_DIR="${ROOT}/logs/intraday/ops-live-ta-poll.lockdir"
+LOCK_DIR="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/ops-live-ta-poll.lockdir"
 if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
   # Stale lock: if no live python loop, reclaim
   if ! pgrep -f "run_ops_live_ta_poll.py --loop" >/dev/null 2>&1; then

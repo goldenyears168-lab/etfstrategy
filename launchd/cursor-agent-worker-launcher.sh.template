@@ -13,9 +13,9 @@ set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 LOG_DIR="${HOME}/Library/Logs/com.jackm4.etf"
-mkdir -p "${LOG_DIR}" "${ROOT}/logs"
+mkdir -p "${LOG_DIR}" "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 LOG="${LOG_DIR}/cursor-agent-worker.log"
-: >>"${ROOT}/logs/launchd_cursor-agent-worker.log"
+: >>"${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_cursor-agent-worker.log"
 
 exec >>"${LOG}" 2>&1
 echo "=== launchd cursor-agent-worker $(date '+%Y-%m-%d %H:%M:%S') ==="
@@ -55,7 +55,7 @@ cd "${WORKER_DIR}"
 
 echo "starting: agent worker start --name ${NAME} --worker-dir ${WORKER_DIR}"
 echo "=== launchd cursor-agent-worker $(date '+%Y-%m-%d %H:%M:%S') ===" \
-  >>"${ROOT}/logs/launchd_cursor-agent-worker.log"
+  >>"${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_cursor-agent-worker.log"
 
 args=(worker start --name "${NAME}" --worker-dir "${WORKER_DIR}")
 if [[ -n "${CURSOR_API_KEY:-}" ]]; then

@@ -6,14 +6,14 @@ set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
 LOG_DIR="${HOME}/Library/Logs/com.jackm4.etf"
-mkdir -p "${LOG_DIR}" "${ROOT}/logs"
+mkdir -p "${LOG_DIR}" "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 LOG="${LOG_DIR}/order-wake.log"
 # mirror for project greps
-: >>"${ROOT}/logs/launchd_order-wake.log"
+: >>"${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_order-wake.log"
 
 exec >>"${LOG}" 2>&1
 echo "=== launchd order-wake $(date '+%Y-%m-%d %H:%M:%S') ==="
-echo "=== launchd order-wake $(date '+%Y-%m-%d %H:%M:%S') ===" >>"${ROOT}/logs/launchd_order-wake.log"
+echo "=== launchd order-wake $(date '+%Y-%m-%d %H:%M:%S') ===" >>"${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_order-wake.log"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))

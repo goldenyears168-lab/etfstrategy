@@ -5,10 +5,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_sell-signal-radar.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_sell-signal-radar.log"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 : >>"${LAUNCHD_LOG}"
 
 exec >>"${LAUNCHD_LOG}" 2>&1

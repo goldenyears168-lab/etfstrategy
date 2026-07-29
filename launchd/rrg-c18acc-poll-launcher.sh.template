@@ -8,7 +8,7 @@ ROOT="{{PROJECT_ROOT}}"
 APP_SUPPORT="{{APP_SUPPORT}}"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))
@@ -22,8 +22,8 @@ fi
 
 # Skip if a previous tick is still running (avoids stacked hung polls).
 # mkdir-lock：macOS 無 util-linux flock；勿再用 flock（會誤判 skip 整日）.
-mkdir -p "${ROOT}/logs/intraday"
-LOCK_DIR="${ROOT}/logs/intraday/rrg_c18acc_poll.lockdir"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
+LOCK_DIR="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll.lockdir"
 _release_c18acc_lock() {
   rm -rf "${LOCK_DIR}" 2>/dev/null || true
 }
@@ -43,7 +43,7 @@ fi
 echo $$ >"${LOCK_DIR}/pid"
 trap _release_c18acc_lock EXIT
 # 清掉舊版 flock 空檔（若存在）
-rm -f "${ROOT}/logs/intraday/rrg_c18acc_poll.lock" 2>/dev/null || true
+rm -f "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll.lock" 2>/dev/null || true
 
 echo ""
 echo "=== launchd rrg-c18acc-poll tick $(date '+%Y-%m-%d %H:%M:%S') ==="
@@ -111,15 +111,15 @@ echo "${OUT}"
 # - NTB（C18ACC_NO_TRADE_BEFORE）那一輪若無動作 → 寄一封「沒下單」（每日一次）
 STAMP="$(date '+%Y%m%d')"
 NTB="${C18ACC_NO_TRADE_BEFORE:-13:00}"
-NOBUY_FLAG="${ROOT}/logs/intraday/c18acc_nobuy_mail_${STAMP}.flag"
-LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
-TICK_LOG_FILE="${ROOT}/logs/intraday/rrg_c18acc_poll_tick.log"
+NOBUY_FLAG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/c18acc_nobuy_mail_${STAMP}.flag"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.log"
+TICK_LOG_FILE="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll_tick.log"
 POLL_MINUTE="$(echo "${OUT}" | sed -n 's/.*minute=\([0-9][0-9]:[0-9][0-9]\).*/\1/p' | head -1)"
 # 本輪動作簽章（tick log 最新一列的 actions 欄）· 同一組動作當天只寄一次
 ACT_SIG="$(grep "session=$(date '+%Y-%m-%d')" "${TICK_LOG_FILE}" 2>/dev/null | tail -1 | sed -n 's/.*| actions=\([^|]*\) |.*/\1/p' | tr -d '[:space:]')"
 [[ -z "${ACT_SIG}" ]] && ACT_SIG="none"
 SIG_HASH="$(printf '%s' "${ACT_SIG}" | shasum 2>/dev/null | cut -c1-12)"
-SIG_FLAG="${ROOT}/logs/intraday/c18acc_sigmail_${STAMP}_${SIG_HASH}.flag"
+SIG_FLAG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/c18acc_sigmail_${STAMP}_${SIG_HASH}.flag"
 SHOULD_MAIL=0
 IS_SIGNAL=0
 SUBJECT_PREFIX="C18acc 盤中訊號"

@@ -43,7 +43,7 @@ if echo "${OUT}" | grep -q 'MINERVINI_SEPA_SIGNAL=1' && [[ -x "${PYTHON}" ]]; th
   "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
     --subject-prefix="Minervini SEPA basket" \
     --exit-code="${EXIT}" \
-    --log-path="${ROOT}/logs/launchd_minervini-sepa-basket.log" \
+    --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_minervini-sepa-basket.log" \
     --extra="${EXTRA}" \
     --env-flag="RUN_MINERVINI_SEPA_EMAIL"
   set -e

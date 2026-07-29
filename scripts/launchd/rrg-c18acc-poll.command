@@ -7,11 +7,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LAUNCHD_LOG="${ROOT}/logs/intraday/launchd_rrg-c18acc-poll.log"
-TICK_LOG="${ROOT}/logs/intraday/rrg_c18acc_poll_tick.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_rrg-c18acc-poll.log"
+TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll_tick.log"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 : >>"${LAUNCHD_LOG}"
 : >>"${TICK_LOG}"
 
@@ -34,7 +34,7 @@ fi
 
 # Skip if a previous tick is still running (avoids stacked hung polls).
 # mkdir-lock：macOS 無 util-linux flock；勿再用 flock（會誤判 skip 整日）.
-LOCK_DIR="${ROOT}/logs/intraday/rrg_c18acc_poll.lockdir"
+LOCK_DIR="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll.lockdir"
 _release_c18acc_lock() {
   rm -rf "${LOCK_DIR}" 2>/dev/null || true
 }
@@ -52,7 +52,7 @@ if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
 fi
 echo $$ >"${LOCK_DIR}/pid"
 trap _release_c18acc_lock EXIT
-rm -f "${ROOT}/logs/intraday/rrg_c18acc_poll.lock" 2>/dev/null || true
+rm -f "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/rrg_c18acc_poll.lock" 2>/dev/null || true
 
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"

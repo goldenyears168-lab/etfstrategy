@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))
@@ -20,7 +20,7 @@ if [[ "${H}" -lt 9 ]] || [[ "${H}" -gt 13 ]] || { [[ "${H}" -eq 13 ]] && [[ "${M
 fi
 
 STAMP="$(date '+%Y%m%d')"
-TICK_LOG="${ROOT}/logs/intraday/buy_signal_radar_${STAMP}.log"
+TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/buy_signal_radar_${STAMP}.log"
 
 echo ""
 echo "=== launchd buy-signal-radar tick $(date '+%Y-%m-%d %H:%M:%S') ==="
@@ -68,7 +68,7 @@ _notify_buy() {
   "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
     --subject-prefix="Buy signal radar" \
     --exit-code="${EXIT}" \
-    --log-path="${ROOT}/logs/intraday/launchd_buy-signal-radar.log" \
+    --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_buy-signal-radar.log" \
     --extra="${EXTRA}" \
     --env-flag="${env_flag}"
   set -e

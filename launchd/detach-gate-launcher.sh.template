@@ -8,7 +8,7 @@ ROOT="{{PROJECT_ROOT}}"
 APP_SUPPORT="{{APP_SUPPORT}}"
 EXIT=0
 
-mkdir -p "${ROOT}/logs/intraday"
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday"
 
 WD="$(date '+%u')"
 H=$((10#$(date '+%H')))
@@ -28,7 +28,7 @@ if [[ "${H}" -eq 12 && "${M}" -gt 30 ]]; then
 fi
 
 STAMP="$(date '+%Y%m%d')"
-TICK_LOG="${ROOT}/logs/intraday/detach_gate_${STAMP}.log"
+TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/detach_gate_${STAMP}.log"
 
 echo ""
 echo "=== launchd detach-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
