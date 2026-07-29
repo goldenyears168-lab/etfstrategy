@@ -97,8 +97,9 @@ PYTHONPATH=src .venv/bin/python scripts/research/run_evening_research_watch_dige
 Launchd 模板註解已寫在：
 
 - `launchd/winbond-expert-pool-watch-launcher.sh.template`
-- `launchd/specialty-expert-pool-watch-launcher.sh.template`
 - `launchd/com.jackm4.etf.winbond-expert-pool-watch.plist.template`（XML comment）
+
+（`specialty-expert-pool-watch` 已併入上述統一入口，其樣板已於 2026-07-29 隨退役job清理一併移除）
 
 ## H7 → H10 條件延長（研究結論摘要）
 
