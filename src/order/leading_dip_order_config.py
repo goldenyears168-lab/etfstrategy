@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from order.config import load_order_config
+from order.fubon_orders import order_master_enabled
 
 STRATEGY_ID = "leading-dip"
 MID_STRATEGY_ID = "leading-dip-mid"
@@ -88,7 +89,7 @@ def load_leading_dip_order_config(cfg: dict[str, Any] | None = None) -> LeadingD
 
     yaml_enabled = bool(spec.get("enabled", False))
     order_enabled = _env_flag("ORDER_LEADING_DIP_ORDER_ENABLED", "1" if yaml_enabled else "0")
-    auto_submit = _env_flag("ORDER_LEADING_DIP_AUTO_SUBMIT", "0")
+    auto_submit = _env_flag("ORDER_LEADING_DIP_AUTO_SUBMIT", "0") and order_master_enabled()
     dry_run = _env_flag("ORDER_LEADING_DIP_DRY_RUN", "1")
     mid_yaml_on = bool(mid.get("enabled", True))
 

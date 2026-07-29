@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from order.fubon_orders import order_master_enabled
+
 ROOT = Path(__file__).resolve().parents[2]
 ORDER_YAML = ROOT / "config" / "order.yaml"
 
@@ -54,7 +56,7 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
     auto = _env_flag(
         "ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT",
         "1" if raw.get("auto_submit", True) else "0",
-    )
+    ) and order_master_enabled()
     
     # 預算制優先（env > yaml）
     budget_env = os.environ.get("ORDER_SONGSHAN_COPYTRADE_BUDGET_TWD", "").strip()

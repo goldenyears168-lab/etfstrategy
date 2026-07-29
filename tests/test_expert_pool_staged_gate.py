@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+from unittest.mock import patch
+
 from order.expert_pool_staged_gate import (
     classify_e05,
     classify_e25,
     classify_open,
     detect_stage,
     gap_pct,
+    run_staged_gate,
 )
 
 
@@ -48,3 +52,38 @@ def test_detect_stage_windows() -> None:
     assert detect_stage("09:25") == "e25"
     assert detect_stage("09:10") is None
     assert detect_stage("10:00") is None
+
+
+def test_order_master_switch_off_forces_dry_run() -> None:
+    env = {
+        "ORDER_EP_STAGED_GATE_ENABLED": "1",
+        "ORDER_EP_STAGED_GATE_DRY_RUN": "0",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        os.environ.pop("ORDER_MASTER_ENABLED", None)
+        # 09:10 is outside all stage windows -> returns before touching Fubon,
+        # but dry_run/enabled are already resolved by then.
+        out = run_staged_gate(session_date="2026-07-15", now_hm="09:10")
+        assert out["dry_run"] is True
+
+
+def test_order_master_switch_on_respects_individual_flag() -> None:
+    env = {
+        "ORDER_EP_STAGED_GATE_ENABLED": "1",
+        "ORDER_EP_STAGED_GATE_DRY_RUN": "0",
+        "ORDER_MASTER_ENABLED": "1",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        out = run_staged_gate(session_date="2026-07-15", now_hm="09:10")
+        assert out["dry_run"] is False
+
+
+def test_order_master_switch_does_not_override_explicit_dry_run() -> None:
+    env = {
+        "ORDER_EP_STAGED_GATE_ENABLED": "1",
+        "ORDER_EP_STAGED_GATE_DRY_RUN": "1",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        os.environ.pop("ORDER_MASTER_ENABLED", None)
+        out = run_staged_gate(session_date="2026-07-15", now_hm="09:10", dry_run=False)
+        assert out["dry_run"] is False

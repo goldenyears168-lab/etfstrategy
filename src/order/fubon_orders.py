@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, replace
 from typing import Any
 
 from .fubon_session import FubonSession
 from .intent import OrderIntentBatch, ResolvedOrder, resolve_intents
+
+
+def order_master_enabled() -> bool:
+    """Single kill-switch checked by every order-capable sleeve's config loader.
+
+    Fail-safe default: unset or anything other than a truthy value means
+    disabled. This is additive to (not a replacement for) each sleeve's own
+    ORDER_*_ENABLED/AUTO_SUBMIT/DRY_RUN flags — those still apply on top.
+    Added 2026-07-29 after repeated incidents where an individual sleeve's
+    flags were live but the launchd job was thought to be off (or vice
+    versa); flipping this one flag now also gates every sleeve regardless
+    of its own flags.
+    """
+    return os.environ.get("ORDER_MASTER_ENABLED", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
 
 _STATUS_OPEN = 10
 # 富邦 API：文件寫 10=委託中；盤中零股實際常回 0（不可用 `status or 10` 判斷）

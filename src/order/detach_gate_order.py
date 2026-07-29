@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from order.abc_v3_f1_lifecycle import build_client_intent_id
+from order.fubon_orders import order_master_enabled
 from order.intent import ResolvedOrder
 from order.live_submit_guard import assert_live_submit_allowed, live_submit_block_reason
 from stock_db import PROJECT_ROOT
@@ -143,7 +144,7 @@ def run_half_flatten(
         else order_enabled
     )
     do_submit = (
-        _env_flag("ORDER_DETACH_GATE_AUTO_SUBMIT", "1")
+        (_env_flag("ORDER_DETACH_GATE_AUTO_SUBMIT", "1") and order_master_enabled())
         if auto_submit is None
         else auto_submit
     )

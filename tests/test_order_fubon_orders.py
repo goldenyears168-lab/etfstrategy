@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
-from order.fubon_orders import _map_enum
+from order.fubon_orders import _map_enum, order_master_enabled
+
+
+class TestOrderMasterEnabled(unittest.TestCase):
+    def test_unset_defaults_to_disabled(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ORDER_MASTER_ENABLED", None)
+            self.assertFalse(order_master_enabled())
+
+    def test_zero_is_disabled(self) -> None:
+        with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "0"}):
+            self.assertFalse(order_master_enabled())
+
+    def test_garbage_value_is_disabled(self) -> None:
+        with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "please"}):
+            self.assertFalse(order_master_enabled())
+
+    def test_one_is_enabled(self) -> None:
+        with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "1"}):
+            self.assertTrue(order_master_enabled())
+
+    def test_true_is_enabled(self) -> None:
+        with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "true"}):
+            self.assertTrue(order_master_enabled())
 
 
 class TestFubonEnumMapping(unittest.TestCase):

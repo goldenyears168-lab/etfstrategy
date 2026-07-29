@@ -1,0 +1,201 @@
+# mini launchd job registry — single source of truth for "what's installed and can it trade".
+# Update this whenever a job is added/paused/retired/reinstalled. Full narrative history
+# (incidents, decisions, dates) stays in deploy/mac-mini/MIGRATION_PLAN.md — this file is
+# the quick-scan snapshot, not the story.
+#
+# order_capable: true means the job's code CAN submit a real broker order (grep-verified
+# against AUTO_SUBMIT/place_order call sites — see 2026-07-29 audit). It does NOT mean the
+# job currently will; check status + the .env flags for that.
+# status: enabled | disabled (launchctl disable — persists across reboot/reinstall)
+#
+# generated: 2026-07-29 · verified directly against mini (~/Library/LaunchAgents/*.plist +
+# launchctl print-disabled), not from memory or docs.
+
+version: job-registry-v1
+
+jobs:
+  # --- Order layer (all order_capable=true jobs are currently disabled) ---
+  - label: rrg-c18acc-poll
+    category: order
+    order_capable: true
+    status: disabled
+    disabled_since: "2026-07-27"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "C18acc swap main sleeve — auto-submit when enabled"
+
+  - label: leading-dip-poll
+    category: order
+    order_capable: true
+    status: disabled
+    disabled_since: "2026-07-27"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "Leading Dip satellite sleeve"
+
+  - label: songshan-copytrade-poll
+    category: order
+    order_capable: true
+    status: disabled
+    disabled_since: "2026-07-27"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "Copy-trades 凱基松山 (9217) branch signal, ~10万 TWD budget/entry"
+
+  - label: expert-pool-staged-gate
+    category: order
+    order_capable: true
+    status: disabled
+    disabled_since: "2026-07-27"
+    schedule: "weekdays 09:00/01/05/25"
+    description: "Expert-pool staged entry gate (gap→05→25 funnel)"
+
+  - label: detach-gate
+    category: order
+    order_capable: true
+    status: disabled
+    disabled_since: "2026-07-29"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "TW/US detach risk gate — was flag-safe but job wasn't launchctl-disabled until 07-29 audit"
+
+  # --- Notify-only, no order code path (ABC retired) ---
+  - label: buy-signal-radar
+    category: notify
+    order_capable: false
+    status: disabled
+    disabled_since: "2026-07-29"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "Buy-signal radar, notify only (ABC order path retired 2026-07-16); paused as non-分點 clutter"
+
+  - label: sell-signal-radar
+    category: notify
+    order_capable: false
+    status: disabled
+    disabled_since: "2026-07-29"
+    schedule: "weekdays 09:00-13:30, every 5min"
+    description: "Holdings extension advisory, notify only; paused as non-分點 clutter"
+
+  # --- Infra helper (paused because its only clients — the 5 order jobs — are all off) ---
+  - label: order-wake
+    category: infra
+    order_capable: false
+    status: disabled
+    disabled_since: "2026-07-29"
+    schedule: "weekdays 08:50-13:40, every 5min"
+    description: "caffeinate to prevent sleep during order-layer polling; no independent function"
+
+  # --- Retired third-party integration ---
+  - label: cursor-agent-worker
+    category: cloud-agent
+    order_capable: false
+    status: disabled
+    disabled_since: "2026-07-29"
+    schedule: "RunAtLoad + KeepAlive"
+    description: "Cursor 'My Machines' worker — log showed it never actually ran a dispatched task since 2026-07-24; replaced by Claude Code cloud routine expert-pool-branch-health-check"
+
+  # --- Data collection (price/quote infra, not strategy-specific) ---
+  - label: fubon-premarket-quote-collect
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays ~08:28"
+    description: "Pre-market quote snapshot via Fubon Neo"
+
+  - label: fubon-intraday-quote-collect
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays ~08:59 onward"
+    description: "Intraday quote collection via Fubon Neo"
+
+  - label: branch-tape-prewarm
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 18:30"
+    description: "分點 tape backfill for POOLS ∪ holdings, so 20:00+ jobs read pure DB"
+
+  # --- 分點/expert-pool research + digests (the line that stays active) ---
+  - label: winbond-expert-pool-watch
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:00"
+    description: "Expert-pool + 松山/新店 buy-side consensus digest, email only"
+
+  - label: second-disp-expert-pool-watch
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:35"
+    description: "Disposition-stock expert-pool copytrade watch, T0 filter, email only"
+
+  - label: expert-pool-chart-digest
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:05"
+    description: "HTML chart digest for expert-pool hits; skips send if nothing hit"
+
+  - label: holdings-branch-sell-monitor
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:10"
+    description: "Holdings × expert-branch net-sell warning, email only"
+
+  - label: second-disp-oos-accumulate
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekly, Sat 08:00"
+    description: "Disposition-stock OOS sample accumulation for expert-pool validation"
+
+  - label: crash-thermometer-daily
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 09:00"
+    description: "8-branch weighted crash thermometer + consensus, email. NOTE: 2026-07-27 research found 31-35% discriminative power on fresh events (below chance) — kept running for reference, not a validated signal."
+
+  # --- Live TA / website feed ---
+  - label: ops-live-ta-poll
+    category: webfeed
+    order_capable: false
+    status: enabled
+    schedule: "weekdays ~08:50 trigger, loops to 13:35"
+    description: "Live holdings TA → ops.live_ta (Supabase); single Fubon login per poll cycle"
+
+  - label: live-ta-kbar-sync
+    category: webfeed
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 14:00"
+    description: "Daily stock_kbar_1m gap-fill for today's dynamic Live TA universe (added 2026-07-28)"
+
+  - label: ops-console-evening-sync
+    category: webfeed
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:40"
+    description: "ops.snapshots / sleeve / holdings sync to Supabase for the website"
+
+# --- Cloud agents (not mini launchd — Claude Code scheduled routines, separate system) ---
+cloud_routines:
+  - name: daily-foreign-rotation-commentary
+    schedule: "weekdays 21:30 Asia/Taipei"
+    order_capable: false
+    description: "Reads Supabase rotation/risk snapshots + web news, writes AI market commentary back to ops_snapshots (kind=commentary) for the website"
+
+  - name: expert-pool-branch-health-check
+    schedule: "weekdays 21:00 Asia/Taipei"
+    order_capable: false
+    description: "Read-only data-freshness health check on ops.* (holdings/snapshots/digests/live_ta), emails a report. No local/git access — Supabase MCP + Gmail MCP only."
+
+# --- Confirmed retired, files removed from repo 2026-07-29 (not just paused) ---
+# evening-holdings, morning-holdings-brief, intraday-exit-gate, intraday-open/midday/1300-digest,
+# rrg-mono-intraday-watch, vcp-funnel-specs, minervini-sepa-basket, mutual-fund-disclosure-watch,
+# weekly-deep, c18acc-extension-overlay, order-chase-open, etfedge-import,
+# specialty-expert-pool-watch (merged into winbond-expert-pool-watch).
+# See deploy/mac-mini/MIGRATION_PLAN.md for why each was retired.
+
+# --- Deferred to a separate round (not bundled with 2026-07-29 code/state migration) ---
+# GitHub repo rename (etfstrategy -> goldenstocks), mini's com.jackm4.etf.* launchd label
+# prefix (-> com.jackm4.goldenstocks.*), website domain (haoshi-quant-ops.pages.dev).

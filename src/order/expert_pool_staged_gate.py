@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from order.fubon_orders import order_master_enabled
 from order.songshan_copytrade_order import evaluate_25m_nonfail
 
 _TZ = ZoneInfo("Asia/Taipei")
@@ -478,9 +479,15 @@ def run_staged_gate(
     dry = (
         dry_run
         if dry_run is not None
-        else _env_flag(
-            "ORDER_EP_STAGED_GATE_DRY_RUN",
-            "1" if cfg.get("dry_run", True) else "0",
+        else (
+            _env_flag(
+                "ORDER_EP_STAGED_GATE_DRY_RUN",
+                "1" if cfg.get("dry_run", True) else "0",
+            )
+            # Master switch forces the env-derived default to dry-run; an explicit
+            # dry_run= passed by a caller/test is left alone (matches how the other
+            # 4 sleeves only gate their auto_submit-equivalent, not explicit params).
+            or not order_master_enabled()
         )
     )
     enabled = bool(cfg.get("enabled", True))

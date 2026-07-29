@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from order.config import load_order_config
+from order.fubon_orders import order_master_enabled
 
 STRATEGY_ID = "rrg-mono-swap-accel"
 
@@ -70,7 +71,7 @@ def load_c18acc_order_config(cfg: dict[str, Any] | None = None) -> C18accOrderCo
 
     yaml_enabled = bool(spec.get("enabled", True))
     order_enabled = _env_flag("ORDER_C18ACC_ORDER_ENABLED", "1" if yaml_enabled else "0")
-    auto_submit = _env_flag("ORDER_C18ACC_AUTO_SUBMIT", "0")
+    auto_submit = _env_flag("ORDER_C18ACC_AUTO_SUBMIT", "0") and order_master_enabled()
     dry_run = _env_flag("ORDER_C18ACC_DRY_RUN", "1")
     budget = _env_int("C18ACC_BUDGET_TWD_PER_SLOT", int(spec.get("budget_twd_per_slot") or 20_000))
     yaml_avoid = bool(spec.get("avoid_spread_mixed", True))

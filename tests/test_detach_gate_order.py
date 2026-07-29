@@ -225,5 +225,57 @@ class TestDryRunPath(unittest.TestCase):
         self.assertEqual(out["status"], "disabled")
 
 
+class TestOrderMasterSwitch(unittest.TestCase):
+    """ORDER_MASTER_ENABLED gates the env-derived auto_submit default only —
+    explicit dry_run=/auto_submit= params (as used above) bypass it, matching
+    every other order-capable sleeve."""
+
+    def _run_with_env(self, env: dict[str, str]) -> dict:
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "ledger.json"
+            save_ledger({"schema": "detach-gate-order-v1", "sessions": {}}, path=ledger_path)
+            with (
+                patch.dict("os.environ", env, clear=False),
+                patch("order.detach_gate_order.LEDGER_PATH", ledger_path),
+                patch("order.fubon_subprocess.host_needs_fubon_venv", return_value=False),
+                patch("order.fubon_session.connect_fubon", return_value=object()),
+                patch(
+                    "order.fubon_orders.holdings_shares_by_symbol",
+                    return_value={"2330": 100},
+                ),
+                patch("order.chase_runner.chase_bid_price", return_value=500.0),
+                patch(
+                    "order.fubon_orders.place_resolved_order",
+                    side_effect=AssertionError("must not place_order when master switch off"),
+                ),
+            ):
+                if "ORDER_MASTER_ENABLED" not in env:
+                    os.environ.pop("ORDER_MASTER_ENABLED", None)
+                return run_half_flatten(session_date="2026-07-15", force=True)
+
+    def test_master_switch_off_forces_auto_submit_false(self) -> None:
+        out = self._run_with_env(
+            {
+                "ORDER_DETACH_GATE_ORDER_ENABLED": "1",
+                "ORDER_DETACH_GATE_AUTO_SUBMIT": "1",
+                "ORDER_DETACH_GATE_DRY_RUN": "1",
+            }
+        )
+        self.assertFalse(out["auto_submit"])
+
+    def test_master_switch_on_respects_individual_flag(self) -> None:
+        out = self._run_with_env(
+            {
+                "ORDER_DETACH_GATE_ORDER_ENABLED": "1",
+                "ORDER_DETACH_GATE_AUTO_SUBMIT": "1",
+                "ORDER_DETACH_GATE_DRY_RUN": "1",
+                "ORDER_MASTER_ENABLED": "1",
+            }
+        )
+        self.assertTrue(out["auto_submit"])
+
+
 if __name__ == "__main__":
     unittest.main()

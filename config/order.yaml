@@ -5,6 +5,11 @@
 # Live sleeves：C18acc + Leading Dip + Songshan copytrade（觀測進場）+ Detach Gate。
 # ABC v3+F1：已自 Order 移除（2026-07-16）。舊持倉視為手動單，不做 sleeve 互斥。
 # Research／strategy 契約：config/strategy.yaml · src/research/**（與下單層無關）。
+#
+# 2026-07-29：下單層全數暫停（各袖套獨立旗標 + launchctl disable，見
+# deploy/mac-mini/MIGRATION_PLAN.md）。新增總開關 .env 的 ORDER_MASTER_ENABLED
+# （預設0）：任何一個 sleeve 要真的送單，除了自己的旗標，還要這個總開關=1
+# 才行——見 src/order/fubon_orders.py::order_master_enabled()、config/job_registry.yaml。
 
 version: order-v1
 layer: order
