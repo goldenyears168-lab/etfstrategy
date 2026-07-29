@@ -8,9 +8,9 @@
 | 最近驗收 | 2026-07-23 ≈13:40 Asia/Taipei（見 §0 · 拍板後覆寫） |
 | 關聯 | [order-layer-prd.md](../../docs/order-layer-prd.md) · [daily-operations.md](../../docs/daily-operations.md) · `scripts/install-launchd.sh` · `.env.example` |
 
-> **分工**：MacBook = 唯一 IDE／研究；手機 Cursor App = 出門遙控；**Mac mini 常開** = SQLite SSOT + Order launchd + My Machines worker。  
+> **分工**：MacBook = 唯一 IDE／研究；出門遙控 = SSH `mac-mini`（同網／Tailscale）；**Mac mini 常開** = SQLite SSOT + Order launchd。  
 > **程式**：GitHub（`Book push` → `mini pull`）或同網 `rsync`。  
-> **機密／`data/`**：SSH／scp／rsync（**不進 git**、不貼進 LLM 聊天）。遠端 Agent 工作流見 §1.5。
+> **機密／`data/`**：SSH／scp／rsync（**不進 git**、不貼進 LLM 聊天）。遠端存取見 §1.5。
 
 ---
 
@@ -100,7 +100,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 
 - **Order 層全數暫停**：5支具下單能力的 job（`rrg-c18acc-poll`／`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）全部確認 `.env` 旗標安全（`DRY_RUN=1`／`ORDER_ENABLED=0`／`AUTO_SUBMIT=0`）**且** `launchctl disable`（重開機不會復活）。§0 表格與 §1.2 的「live」標註已過時，目前**無一支**實際具下單能力。
 - **簡化為「只留分點研究＋網站基礎設施」**：另暫停 `buy-signal-radar`／`sell-signal-radar`（ABC退役殘留、無下單能力純clutter）、`order-wake`（服務對象已全暫停）。維持運作：`branch-tape-prewarm`／`winbond-expert-pool-watch`／`second-disp-expert-pool-watch`／`expert-pool-chart-digest`／`holdings-branch-sell-monitor`／`second-disp-oos-accumulate`／`crash-thermometer-daily`／`fubon-premarket-quote-collect`／`fubon-intraday-quote-collect`／`ops-live-ta-poll`／`ops-console-evening-sync`，新增 `live-ta-kbar-sync`（週一至五14:00，動態 Live TA universe 的 `stock_kbar_1m` 每日增補，見 `reports/research/intraday_direction_thermometer/LIVE_TA_FIELD_OPTIMIZATION_20260728.md`）。
-- **`cursor-agent-worker` 退役**：查log自2026-07-24啟用以來未見任何實際派工紀錄，判斷閒置未用；已 `CURSOR_AGENT_WORKER_ENABLED=0` + `launchctl disable`。取代方案：Claude Code雲端排程routine `expert-pool-branch-health-check`（週一至五21:00台北，Supabase MCP唯讀健檢分點研究資料新鮮度＋Gmail報告；與既有的 `daily-foreign-rotation-commentary` 職責切開，互不重疊）。§1.5「遠端 Agent 工作流」整節目前已不適用，待正式除役後改寫。
+- **`cursor-agent-worker` 退役**：查log自2026-07-24啟用以來未見任何實際派工紀錄，判斷閒置未用；已 `CURSOR_AGENT_WORKER_ENABLED=0` + `launchctl disable`。取代方案：Claude Code雲端排程routine `expert-pool-branch-health-check`（週一至五21:00台北，Supabase MCP唯讀健檢分點研究資料新鮮度＋Gmail報告；與既有的 `daily-foreign-rotation-commentary` 職責切開，互不重疊）。§1.5 已改寫為「遠端存取」（cursor-worker 相關段落移除）。
 - **地基重整開工（Phase 1 已完成，Phase 3-4 待排）**：發現 `.env`／`data/stocks.db`／`logs/` 混在 git working tree 裡是deploy風險根因（每次 `git pull` 都可能踩到本地未commit修改，2026-07-28曾實際發生一次stash攻防）。Phase 1（Book，程式碼支援 `GOLDENSTOCKS_DATA_DIR` 環境變數覆寫資料/機密路徑，未設＝完全等同現行行為）已完成並測試通過。Phase 2（本節）。**Phase 3（mini：把 `.env`/`data`/`logs`/`CAFubon` 搬到 `~/goldenstocks-data/`）與 Phase 4（mini＋Book：repo checkout 本身遷離 `~/Documents/ETF/股票研究` 中文路徑，改到 `~/goldenstocks`）尚未執行，會在收盤後分階段做並逐步驗證**。完整計畫見 session記錄；執行前本文件§0現況表會再更新一次反映實際新路徑。
 - **命名決策（2026-07-29 下午）**：用戶決定專案不再侷限於「跟單ETF」定位，正式改名為 **goldenstocks**。範圍分兩輪：**今輪（低風險，隨Phase 3-4一起做）**＝本地目錄名稱（`~/goldenstocks`／`~/goldenstocks-data`）＋程式碼內部命名（`GOLDENSTOCKS_DATA_DIR`）＋文件文字；**下一輪（高風險，另外處理，不隨今天進度）**＝GitHub repo改名（`goldenyears168-lab/etfstrategy`→`goldenstocks`）、mini上所有launchd job的識別字首（`com.jackm4.etf.*`→`com.jackm4.goldenstocks.*`，含Application Support／Logs路徑）、網站網域（`haoshi-quant-ops.pages.dev`）。這幾項對外部服務／目前還在跑的job有實際改動風險，刻意不跟今天的基礎重整綁在一起做。
 
@@ -112,14 +112,14 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 
 | 項目 | 決策 |
 |------|------|
-| 生產機 | **Mac mini**（無頭；**不裝 Cursor App**；可裝 Cursor CLI + My Machines worker） |
+| 生產機 | **Mac mini**（無頭；**不裝 Cursor App**） |
 | 研究機 | **MacBook**（唯一 IDE · 平常主入口） |
-| 手機遙控 | **Cursor iOS App**（或 `cursor.com/agents`）→ worker=`mac-mini` |
+| 遠端遙控 | SSH `mac-mini`（同網／Tailscale）；手機用 SSH client 或 Screen Sharing |
 | 路徑 | `/Users/jackm4/Documents/ETF/股票研究`（兩台相同） |
 | 使用者 | `jackm4` |
 | 網路 | mini **乙太網**；Book Wi‑Fi；同網 SSH 別名 `mac-mini`（見 §3） |
-| Tailscale | **建議**（出國 SSH 備用）；日常手機／Book 指揮 mini **不需**同 Wi‑Fi（worker outbound） |
-| 雙機並跑 | **禁止**（Book 卸載全部 `com.jackm4.etf.*` · **含** cursor-agent-worker） |
+| Tailscale | **建議**（出國 SSH 備用）；日常同網 SSH 即可 |
+| 雙機並跑 | **禁止**（Book 卸載全部 `com.jackm4.etf.*`） |
 | Python | **3.13** · `.venv`（策略）+ `.venv-fubon`（富邦 wheel） |
 | DB SSOT | **僅 mini** `data/stocks.db`；Book 只讀 replica |
 | Order SSOT | **僅 mini** `data/order/` · `reports/order/` · `logs/intraday/` |
@@ -203,62 +203,30 @@ ABC v3+F1：**已自 Order 移除**（`.env` 全部 `ABC_V3_F1_*=0` · ledger �
 
 Gmail：`GMAIL_USER` + App Password。
 
-### 1.5 遠端 Agent 工作流（Book 平常 · 手機出門 · mini 常開）
+### 1.5 遠端存取（Book 平常 · 出門/外地 · mini 常開）
 
-```
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────────────────┐
-│ MacBook（研究）  │     │ 手機 Cursor App   │     │ Mac mini（生產 · 常開）      │
-│ Cursor IDE      │     │ Plan/ask/build…   │     │ Order launchd（送單／雷達）  │
-│ 本地 Agent      │     │ → worker=mac-mini │     │ agent worker KeepAlive      │
-│ 不裝 live Order │     │ 不需同 Wi‑Fi      │     │ 工具呼叫落點：本機 data/log │
-└─────────────────┘     └──────────────────┘     └────────────────────────────┘
-         │                        │                         ▲
-         │                        └──── Cursor 雲端（模型）──┘
-         └──── 本地工具（研究碼／replica；不碰 live ledger）
-```
+> **cursor-agent-worker（Cursor "My Machines" KeepAlive worker）已於 2026-07 退役**：自
+> 2026-07-24 啟用以來 log 無任何實際派工紀錄，判斷閒置未用（`CURSOR_AGENT_WORKER_ENABLED=0`
+> + `launchctl disable`，安裝腳本 `install-cursor-agent-worker-launchd.sh` 已移除）。
+> **取代方案**：Claude Code 雲端排程 routine `expert-pool-branch-health-check`（週一至五
+> 21:00 台北 · Supabase MCP 唯讀健檢分點研究資料新鮮度 + Gmail 報告；與
+> `daily-foreign-rotation-commentary` 職責切開，互不重疊）。
+
+**目前的遠端存取方式（不再經 Cursor worker）**
 
 | 場景 | 入口 | 工具跑在哪 |
 |------|------|------------|
-| 平常改碼／研究／回測 | Book Cursor IDE | **Book** |
-| 出門查盤中 log／launchd／ledger 狀態 | 手機 Cursor App · 選 **mac-mini** | **mini** |
-| 人在外地、Book 也要摸生產 | Book 開 Cloud Agent · 選 **mac-mini** | **mini** |
-| 純 GitHub 改碼／開 PR（不需生產資料） | 手機／Book Cloud Agent（預設雲 VM） | Cursor 雲 VM（**無** mini `data/`） |
-| 裝機／worker 掛了 | Screen Sharing／同網 SSH · mini CLI | mini |
+| 平常改碼／研究／回測 | Book Cursor / Claude Code IDE | **Book**（讀 replica，不碰 live ledger） |
+| 出門查盤中 log／launchd／ledger 狀態 | SSH `mac-mini`（同網或 Tailscale） | **mini** |
+| 純 GitHub 改碼／開 PR | 雲端 Agent（無 mini `data/`） | 雲 VM |
+| 自動健檢分點資料新鮮度 | 雲端 routine `expert-pool-branch-health-check` | 雲端（唯讀 Supabase） |
+| 裝機／狀態異常 | Screen Sharing／同網 SSH · mini CLI | mini |
 
-**一次性啟用（僅 mini）**
+**遠端 mini 操作原則**
 
-1. CLI 已裝：`~/.local/bin/agent`（`curl https://cursor.com/install -fsS | bash`）。
-2. **ASCII symlink**（exec-daemon 無法處理路徑中的非 Latin-1 字元）：
-
-```bash
-ln -sfn ~/Documents/ETF/股票研究 ~/etf-stocks
-```
-
-3. 認證二選一：
-   - **推薦**：在 mini 的 Aqua／launchd 環境跑 `agent login`（SSH 會卡 Keychain；用 Screen Sharing 或本安裝腳本觸發的 login）。
-   - 或 [Integrations](https://cursor.com/dashboard/integrations) 個人 API key 寫入 mini `.env` 的 `CURSOR_API_KEY`。
-4. mini `.env`：
-
-```bash
-CURSOR_AGENT_WORKER_ENABLED=1
-CURSOR_AGENT_WORKER_NAME=mac-mini
-CURSOR_AGENT_WORKER_DIR=/Users/jackm4/etf-stocks
-# CURSOR_API_KEY=...   # 若未 agent login 才需要
-```
-
-5. 安裝 KeepAlive：
-
-```bash
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && bash scripts/install-cursor-agent-worker-launchd.sh --status'
-```
-
-6. 手機：Add Workspace → 本 repo → 開 Agent 時環境選 **mac-mini**。
-
-**護欄**
-
-- Book **禁止** `install-cursor-agent-worker-launchd.sh`。
-- Agent 勿 `cat .env`／讀 `CAFubon/`；優先 `scripts/launchd_status_dashboard.sh`、tail `logs/intraday/`。
-- 出國 SSH 備用：Tailscale（§5.4）；worker 日常指揮 **不依賴** Tailscale。
+- 機密／`data/`：SSH／scp／rsync，**不進 git、不貼進 LLM 聊天**。
+- 看狀態優先 `scripts/launchd_status_dashboard.sh`、tail `logs/intraday/`；勿 `cat .env`／讀 `CAFubon/`。
+- 出國 SSH：Tailscale（§5.4）。
 
 ---
 
@@ -272,9 +240,8 @@ pytest / 小回測（讀 replica）                  WRITE SSOT：data/stocks.db
 git push → GitHub  ←──────── git pull ───────── launchd：Order 袖 + radar + 夜間
 SSH → 遙控部署與看 log                         live：C18 + Leading Dip + Songshan
 本地 Agent（研究）                             + EP gate
-無 live Order／無 agent-worker                 Detach：RED 寄信 · 不送單
-                                               cursor-agent-worker（My Machines）
-手機 Cursor App ── worker=mac-mini ──────────► 工具呼叫落在 mini
+無 live Order                                  Detach：RED 寄信 · 不送單
+遠端：SSH mac-mini（同網／Tailscale）─────────► 操作／看 log 落在 mini
 ```
 ---
 
@@ -513,8 +480,7 @@ rsync -az --progress mac-mini:Documents/ETF/股票研究/data/replica_export/sto
 
 | Phase | 內容 |
 |-------|------|
-| Tailscale | 出國穩定 SSH（worker 日常不依賴；仍建議裝） |
-| cursor-agent-worker | mini KeepAlive My Machines（§1.5；待填 `CURSOR_API_KEY` 後安裝） |
+| Tailscale | 出國穩定 SSH（仍建議裝） |
 | DB replica 排程 | 自動 `VACUUM INTO` + rsync |
 | `rrg_poll_features` | 特徵預計算，減輕 poll 內重算 |
 
@@ -530,8 +496,7 @@ rsync -az --progress mac-mini:Documents/ETF/股票研究/data/replica_export/sto
 | 睡眠錯過 tick | 乙太網 + `pmset` + `order-wake` + 接電 |
 | SQLite／ledger 雙開 | Book 只讀 replica；Order SSOT 僅 mini |
 | 密文進 git／chat | scp／rsync 檔案；Agent 不 echo 密文 |
-| 手機 Agent 摸到 live | 選對 worker；禁止讀 `.env`／`CAFubon/`；Book 不裝 worker |
-| worker Keychain 鎖 | mini 用 `CURSOR_API_KEY`（§1.5），勿依賴 SSH 上 `agent login` |
+| 遠端 SSH 誤碰 live | 只讀狀態/log；禁止讀 `.env`／`CAFubon/`；改倉/送單一律在 mini 本機審慎執行 |
 
 ---
 
@@ -539,7 +504,6 @@ rsync -az --progress mac-mini:Documents/ETF/股票研究/data/replica_export/sto
 
 - `scripts/install-launchd.sh` — Order job SSOT  
 - `scripts/install-order-launchd.sh` — `order-wake`  
-- `scripts/install-cursor-agent-worker-launchd.sh` — My Machines worker（**僅 mini**）  
 - `scripts/launchd_status_dashboard.sh` — 盤前／盤中健檢  
 - `.env.example` — 環境變數 SSOT  
 - [docs/order-layer-prd.md](../../docs/order-layer-prd.md) — Order layer（下單層）  
