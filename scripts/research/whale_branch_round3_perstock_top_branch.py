@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 from scipy import stats
 
-ROOT = Path("/Users/jackm4/Documents/ETF/股票研究")
+ROOT = Path(__file__).resolve().parent.parent.parent
 EV = ROOT / "reports/research/branch-footprint-screen/whale_branch_top3_multihorizon_events.csv"
 
 STOCK_NAMES = {

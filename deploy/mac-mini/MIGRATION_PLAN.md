@@ -96,6 +96,13 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 - 處理：SSH 到 mini 執行 `bootout` + 刪除 plist，即時撤除；同時把 `install-order-launchd.sh` 改成 `order-chase-open` 進 `LEGACY_LABELS`，之後每次執行安裝腳本都會自動卸載，不再依賴人工步驟。
 - `timed-limit-orders`（限時限價單，09:05 once-date 排程）確認之後不會再用，整支移除：mini 撤 launchd + 刪 plist/wrapper + 清 `data/order/timed_limit_orders_state.json`；Book 端刪除 `src/order/timed_limit_order.py`、`scripts/order/run_timed_limit_orders.py`、對應 launchd 樣板與 `install-launchd.sh` 註冊、`config/order.yaml` 的 `timed_limit_orders` 清單、`.env`/`.env.example`/`order.env` 的 `*_TIMED_LIMIT_*` 旗標。共用函式 `_order_still_open`（EP staged gate 也在用）先搬到 `order/fubon_orders.py`（改名 `order_still_open`，公開函式）才刪整個模組，避免誤傷還在跑的 EP staged gate。
 
+**運維事件（2026-07-29 · Order 層全關 + 架構簡化 + 地基重整開工）**
+
+- **Order 層全數暫停**：5支具下單能力的 job（`rrg-c18acc-poll`／`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）全部確認 `.env` 旗標安全（`DRY_RUN=1`／`ORDER_ENABLED=0`／`AUTO_SUBMIT=0`）**且** `launchctl disable`（重開機不會復活）。§0 表格與 §1.2 的「live」標註已過時，目前**無一支**實際具下單能力。
+- **簡化為「只留分點研究＋網站基礎設施」**：另暫停 `buy-signal-radar`／`sell-signal-radar`（ABC退役殘留、無下單能力純clutter）、`order-wake`（服務對象已全暫停）。維持運作：`branch-tape-prewarm`／`winbond-expert-pool-watch`／`second-disp-expert-pool-watch`／`expert-pool-chart-digest`／`holdings-branch-sell-monitor`／`second-disp-oos-accumulate`／`crash-thermometer-daily`／`fubon-premarket-quote-collect`／`fubon-intraday-quote-collect`／`ops-live-ta-poll`／`ops-console-evening-sync`，新增 `live-ta-kbar-sync`（週一至五14:00，動態 Live TA universe 的 `stock_kbar_1m` 每日增補，見 `reports/research/intraday_direction_thermometer/LIVE_TA_FIELD_OPTIMIZATION_20260728.md`）。
+- **`cursor-agent-worker` 退役**：查log自2026-07-24啟用以來未見任何實際派工紀錄，判斷閒置未用；已 `CURSOR_AGENT_WORKER_ENABLED=0` + `launchctl disable`。取代方案：Claude Code雲端排程routine `expert-pool-branch-health-check`（週一至五21:00台北，Supabase MCP唯讀健檢分點研究資料新鮮度＋Gmail報告；與既有的 `daily-foreign-rotation-commentary` 職責切開，互不重疊）。§1.5「遠端 Agent 工作流」整節目前已不適用，待正式除役後改寫。
+- **地基重整開工（Phase 1 已完成，Phase 3-4 待排）**：發現 `.env`／`data/stocks.db`／`logs/` 混在 git working tree 裡是deploy風險根因（每次 `git pull` 都可能踩到本地未commit修改，2026-07-28曾實際發生一次stash攻防）。Phase 1（Book，程式碼支援 `ETF_DATA_DIR` 環境變數覆寫資料/機密路徑，未設＝完全等同現行行為）已完成並測試通過。Phase 2（本節）。**Phase 3（mini：把 `.env`/`data`/`logs` 搬到 `~/Library/Application Support/com.jackm4.etf/runtime/`）與 Phase 4（mini＋Book：repo checkout 本身遷離 `~/Documents/ETF/股票研究` 中文路徑，改到 `~/etfstrategy`）尚未執行，會在收盤後分階段做並逐步驗證**。完整計畫見 session記錄；執行前本文件§0現況表會再更新一次反映實際新路徑。
+
 ---
 
 ## 1. 決策摘要（現行）

@@ -35,11 +35,11 @@ fi
 echo "=== launchd fubon-premarket-quote-collect $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 export PYTHONPATH="${ROOT}/src"
-if [[ -f "${ROOT}/.env" ]]; then
+if [[ -f "${ETF_DATA_DIR:-${ROOT}}/.env" ]]; then
   set +e
   set -a
   # shellcheck disable=SC1091
-  source "${ROOT}/.env"
+  source "${ETF_DATA_DIR:-${ROOT}}/.env"
   set +a
   set -e
 fi

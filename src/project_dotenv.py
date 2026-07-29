@@ -11,6 +11,12 @@ from stock_db import PROJECT_ROOT
 _PLACEHOLDER_TOKENS = frozenset({"your_token_here", "changeme", ""})
 
 
+def _default_env_path() -> Path:
+    """``${ETF_DATA_DIR}/.env`` if set (state dir outside the git tree), else PROJECT_ROOT/.env."""
+    data_dir = os.environ.get("ETF_DATA_DIR")
+    return Path(data_dir) / ".env" if data_dir else PROJECT_ROOT / ".env"
+
+
 def _parse_dotenv_line(raw: str) -> tuple[str, str] | None:
     line = raw.strip()
     if not line or line.startswith("#") or "=" not in line:
@@ -38,7 +44,7 @@ def parse_dotenv_file(path: Path) -> list[tuple[str, str]]:
 
 def shell_export_dotenv(path: Path | None = None) -> str:
     """產生可 eval 的 export 區塊（正確處理含空格的值）。"""
-    env_path = path or (PROJECT_ROOT / ".env")
+    env_path = path or _default_env_path()
     return "\n".join(
         f"export {key}={shlex.quote(value)}" for key, value in parse_dotenv_file(env_path)
     )
@@ -50,7 +56,7 @@ def load_project_dotenv(
     override: bool = True,
 ) -> None:
     """載入 .env；預設覆寫 shell 內殘留的 placeholder（如 FINMIND_TOKEN=your_token_here）。"""
-    env_path = path or (PROJECT_ROOT / ".env")
+    env_path = path or _default_env_path()
     for key, value in parse_dotenv_file(env_path):
         if override:
             os.environ[key] = value

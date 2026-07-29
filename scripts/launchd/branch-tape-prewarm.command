@@ -18,11 +18,11 @@ echo "=== launchd branch-tape-prewarm 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research:${ROOT}/scripts/order"
 
-if [[ -r "${ROOT}/.env" ]]; then
+if [[ -r "${ETF_DATA_DIR:-${ROOT}}/.env" ]]; then
   set +e
   set -a
   # shellcheck disable=SC1090
-  source "${ROOT}/.env" 2>/dev/null
+  source "${ETF_DATA_DIR:-${ROOT}}/.env" 2>/dev/null
   set +a
   set -e
 fi

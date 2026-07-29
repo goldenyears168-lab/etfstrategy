@@ -43,11 +43,11 @@ export PYTHONPATH="${ROOT}/src"
 export PYTHONUNBUFFERED=1
 cd "${ROOT}"
 
-if [[ -r "${ROOT}/.env" ]]; then
+if [[ -r "${ETF_DATA_DIR:-${ROOT}}/.env" ]]; then
   set +e
   set -a
   # shellcheck disable=SC1090
-  source "${ROOT}/.env" 2>/dev/null
+  source "${ETF_DATA_DIR:-${ROOT}}/.env" 2>/dev/null
   set +a
   set -e
 fi

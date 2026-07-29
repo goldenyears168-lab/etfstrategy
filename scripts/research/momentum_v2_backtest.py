@@ -27,10 +27,15 @@ Usage:
 """
 import sqlite3
 import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-DB = "/Users/jackm4/Documents/ETF/股票研究/data/stocks.db"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+from stock_db.util import DEFAULT_DB_PATH  # noqa: E402
+
+DB = str(DEFAULT_DB_PATH)
 OUT_DIR = "/private/tmp/claude-501/-Users-jackm4-Documents-ETF-----/e3b860e0-a0b6-46e3-a0b0-96f7ea2cc18a/scratchpad"
 
 S = 21

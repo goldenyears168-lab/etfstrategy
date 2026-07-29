@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-ROOT = Path("/Users/jackm4/Documents/ETF/股票研究")
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import pandas as pd
 from stock_db import connect, DEFAULT_DB_PATH

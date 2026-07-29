@@ -33,7 +33,7 @@ _load_env_file() {
   set -e
 }
 
-_load_env_file "${ROOT}/.env"
+_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env"
 
 PYTHON="${ROOT}/.venv/bin/python"
 NOTIFY_PY="${ROOT}/.venv/bin/python"

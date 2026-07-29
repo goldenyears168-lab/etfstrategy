@@ -72,7 +72,7 @@ _load_env_file() {
 }
 
 _load_env_file "${APP_SUPPORT}/order.env" "order.env"
-_load_env_file "${ROOT}/.env" "project .env"
+_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env" "project .env"
 
 export RUN_RRG_C18ACC_SCREEN="${RUN_RRG_C18ACC_SCREEN:-1}"
 export ORDER_C18ACC_DRY_RUN="${ORDER_C18ACC_DRY_RUN:-0}"

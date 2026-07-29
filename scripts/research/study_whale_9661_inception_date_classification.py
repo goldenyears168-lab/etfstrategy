@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-ROOT = Path("/Users/jackm4/Documents/ETF/股票研究")
+ROOT = Path(__file__).resolve().parent.parent.parent
 OUT = ROOT / "reports/research/branch-footprint-screen"
 
 core9 = ["3189","2344","2408","8358","8046","4958","1303","1815","3006"]

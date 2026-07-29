@@ -33,9 +33,9 @@ echo "=== launchd second-disp-oos-accumulate 開始 $(date '+%Y-%m-%d %H:%M:%S')
 export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
 PYTHON="${ROOT}/.venv/bin/python"
 
-if [[ -r "${ROOT}/.env" ]]; then
+if [[ -r "${ETF_DATA_DIR:-${ROOT}}/.env" ]]; then
   set +e; set -a; # shellcheck disable=SC1091
-  source "${ROOT}/.env" 2>/dev/null; set +a; set -e
+  source "${ETF_DATA_DIR:-${ROOT}}/.env" 2>/dev/null; set +a; set -e
 fi
 
 if [[ ! -x "${PYTHON}" ]]; then

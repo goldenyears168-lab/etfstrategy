@@ -31,7 +31,7 @@ _load_env_file() {
   set -e
 }
 
-_load_env_file "${ROOT}/.env"
+_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env"
 
 EXIT=0
 if [[ ! -x "${PYTHON}" ]]; then

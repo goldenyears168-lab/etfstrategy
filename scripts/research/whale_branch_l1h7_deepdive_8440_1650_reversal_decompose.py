@@ -2,7 +2,7 @@
 """Decompose the 8440/1650 reversal: gap effect, cost effect, beta effect, holding-period effect."""
 import sys
 from pathlib import Path
-ROOT = Path("/Users/jackm4/Documents/ETF/股票研究")
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import numpy as np
 import pandas as pd
