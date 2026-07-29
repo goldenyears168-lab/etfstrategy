@@ -65,7 +65,7 @@ _load_env_file() {
 }
 
 _load_env_file "${APP_SUPPORT}/order.env" "order.env"
-_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env" "project .env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
 
 export RUN_SONGSHAN_COPYTRADE_POLL="${RUN_SONGSHAN_COPYTRADE_POLL:-1}"
 export ORDER_SONGSHAN_COPYTRADE_ENABLED="${ORDER_SONGSHAN_COPYTRADE_ENABLED:-1}"

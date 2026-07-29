@@ -56,7 +56,7 @@ _load_env_file() {
 }
 
 _load_env_file "${APP_SUPPORT}/order.env" "order.env"
-_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env" "project .env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
 
 export RUN_EP_STAGED_GATE="${RUN_EP_STAGED_GATE:-1}"
 export ORDER_EP_STAGED_GATE_ENABLED="${ORDER_EP_STAGED_GATE_ENABLED:-1}"

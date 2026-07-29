@@ -33,7 +33,7 @@ _load_env_file() {
   set -e
 }
 
-_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
 
 # 富邦 inventory 需 .venv-fubon
 PYTHON="${ROOT}/.venv-fubon/bin/python"

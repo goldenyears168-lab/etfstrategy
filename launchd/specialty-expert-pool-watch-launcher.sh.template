@@ -35,7 +35,7 @@ _load_env_file() {
   set -e
 }
 
-_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
 
 if [[ ! -x "${PYTHON}" ]]; then
   echo "✗ missing venv python: ${PYTHON}"

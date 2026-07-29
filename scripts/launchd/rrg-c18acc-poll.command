@@ -58,11 +58,11 @@ export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
 # Load project .env first so ORDER_*/C18ACC_* live flags win over launcher defaults.
 # Never abort the tick if Documents TCC blocks .env (launchd symptom 2026-07-13).
-if [[ -f "${ETF_DATA_DIR:-${ROOT}}/.env" ]]; then
+if [[ -f "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" ]]; then
   set +e
   set -a
   # shellcheck disable=SC1091
-  source "${ETF_DATA_DIR:-${ROOT}}/.env"
+  source "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
   _env_rc=$?
   set +a
   set -e

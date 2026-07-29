@@ -7,11 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-# ETF_DATA_DIR lets the mutable state root (.env, data/, logs/) live outside the
-# git working tree (e.g. ~/Library/Application Support/com.jackm4.etf/runtime on
-# mini) instead of always being ${PROJECT_ROOT}. Unset = unchanged historical
-# behavior (data/ as a sibling of src/ inside the repo).
-_STATE_ROOT = Path(os.environ["ETF_DATA_DIR"]) if os.environ.get("ETF_DATA_DIR") else PROJECT_ROOT
+# GOLDENSTOCKS_DATA_DIR lets the mutable state root (.env, data/, logs/) live
+# outside the git working tree (e.g. ~/goldenstocks-data on mini) instead of
+# always being ${PROJECT_ROOT}. Unset = unchanged historical behavior (data/
+# as a sibling of src/ inside the repo).
+_STATE_ROOT = (
+    Path(os.environ["GOLDENSTOCKS_DATA_DIR"])
+    if os.environ.get("GOLDENSTOCKS_DATA_DIR")
+    else PROJECT_ROOT
+)
 DATA_DIR = _STATE_ROOT / "data"
 DEFAULT_DB_PATH = DATA_DIR / "stocks.db"
 

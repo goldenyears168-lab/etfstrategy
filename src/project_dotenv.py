@@ -12,8 +12,8 @@ _PLACEHOLDER_TOKENS = frozenset({"your_token_here", "changeme", ""})
 
 
 def _default_env_path() -> Path:
-    """``${ETF_DATA_DIR}/.env`` if set (state dir outside the git tree), else PROJECT_ROOT/.env."""
-    data_dir = os.environ.get("ETF_DATA_DIR")
+    """``${GOLDENSTOCKS_DATA_DIR}/.env`` if set (state dir outside the git tree), else PROJECT_ROOT/.env."""
+    data_dir = os.environ.get("GOLDENSTOCKS_DATA_DIR")
     return Path(data_dir) / ".env" if data_dir else PROJECT_ROOT / ".env"
 
 

@@ -69,7 +69,7 @@ _load_env_file() {
 }
 
 _load_env_file "${APP_SUPPORT}/order.env" "order.env"
-_load_env_file "${ETF_DATA_DIR:-${ROOT}}/.env" "project .env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
 
 export RUN_LEADING_DIP_POLL="${RUN_LEADING_DIP_POLL:-1}"
 export RUN_LEADING_DIP_SUBMIT_EMAIL="${RUN_LEADING_DIP_SUBMIT_EMAIL:-1}"
