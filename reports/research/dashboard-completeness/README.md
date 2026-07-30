@@ -18,7 +18,7 @@
 | 技術趨勢/均線/Weinstein 階段（L0 regime gate） | ✅ 已實跑 | 同步→落後 | 本質是價格動能,單獨無 alpha(perm p=0.13);**唯一真貢獻是當 L0 閘門過濾 champion**(close>MA200 把 OOS Sharpe +1.81→+2.61、maxDD −18.5%→−3.9%、DSR→0.995) | [tech_regime.md](./tech_regime.md) |
 | 相對強度 RS（個股 vs 大盤） | ✅ 已實跑 | 同步偏落後 | 四種 RS 中僅 Weinstein Mansfield RSM 非動能偽裝(perm p=0.002、與 champion 正交 −0.11),但 IC 近零、空頭 Sharpe −0.69 → L1 個股強弱確認濾網,非 standalone alpha | [relative_strength.md](./relative_strength.md) |
 | 量價結構（成交值/量能/帶量突破） | ✅ 已實跑 | 同步(confirmation) | 大盤層單獨無 alpha(最佳 pvt_slope DSR 0.474 fail、殘差化後 IC 塌到 0.01);只當「趨勢可信度」儀表註記與量價背離前兆,不加碼 | [price_volume.md](./price_volume.md) |
-| 市場廣度/騰落（ADL/%>MA/McClellan/Zweig） | ✅ 已實跑 | 同步(regime 燈) | 最佳 pct_ma200_z60 OOS +1.24 但殘差 IC≈0.013、DSR 0.448 fail、edge 全來自多頭曝險 → 是 Stage-4 margin 的翻版;僅接 L0 一致性確認燈 | [breadth.md](./breadth.md) |
+| 市場廣度/騰落（ADL/%>MA/McClellan/Zweig） | ✅ 已實跑 | 同步(regime 燈) | 最佳 pct_ma50_z60 OOS +0.68、perm p=0.225 不顯著、DSR 0.161 fail、殘差 IC≈0、edge 全來自多頭曝險、冠軍組合 +1.13 vs +1.11 零加分 → 是 Stage-4 margin 的翻版;僅接 L0 一致性確認燈（**2026-07-31 修正 %>MA 分母 bug**:原 pct_ma200_z60 +1.24/perm p=0.027 是分母灌水的假象,修正後消失、結論反更乾淨） | [breadth.md](./breadth.md) |
 | 期貨進階（大額交易人 OI + 台指期 basis） | ✅ 已實跑(真資料) | 領先但與 champion 同格 | **[P2 真跑 n=1986]** 大額 net = champion 的冗餘鏡像(corr 0.60–0.65)、散戶殘差數學上 = −(前十大 net)、basis 線性/z60 OOS 皆負且 IC≈0 perm p 0.80–0.89;連 champion 自身 DSR 都 0.593 fail → 不採信為 alpha,只當同義佐證顯示欄 | [futures_positioning.md](./futures_positioning.md) |
 | 選擇權籌碼（P/C、Max Pain、外資買賣權、小台散戶多空比） | ✅ 已實跑(真資料·部分) | 領先(共線)+微結構 | **[P2 全史 TXO/MTX 真資料]** 最強 S3 PCR_OI OOS +1.22/perm p=0.004 但被 DSR 0.845+殘差IC≈0 雙殺為動能偽裝;唯一保留微弱正殘差(+0.023)的 S1 外資選擇權淨是 champion 的選擇權回聲;四訊號 DSR 全 <0.95 無一過檢定。**仍缺**:大額交易人買賣權 + 乾淨到期序列版 | [options_micro.md](./options_micro.md) |
 | 融資維持率（整戶擔保維持率/斷頭溫度計） | ✅ 已實跑(真資料) | 落後/同步+尾部前兆 | **[P2 官方整戶擔保維持率 ground-truth n=1985]** 系統化 MR_z60 是動能偽裝(corr 0.79、殘差IC由+0.027翻−0.012、perm p=0.215+DSR 0.258 皆未過);唯深尾帶真「反向」marker(MR_z60≤p05 fwd20 +1.16%、絕對<150% +2.26%,事件級定性警示非可加碼 alpha)。注:原 proxy 尾部 lift 與真資料相反,證明必須用真資料。**仍缺**:個股層近斷頭廣度前兆 | [margin_maintenance.md](./margin_maintenance.md) |
@@ -444,6 +444,7 @@ Phase-4 把 rev_yoy_3m 定調為「存活——真 alpha(有保留)」,但保留
 | **champion**(外資台指期淨未平倉 positioning) | 大盤擇時 | L0 | 單獨 0.891 **fail**;tech-gated 後 0.995 | **可部署(規格意義)**,系統 B/C | 需 tech gate 才過 DSR;全樣本 Sharpe **+1.80**(非 OOS headline +2.68);2022 單獨實虧 −1.47;OOS 窗恰好排除唯一虧損年 |
 | **tech gate**(close>上彎 MA200) | 風控 / regime 閘 | L0 | 把 champion 0.891→0.995 的唯一結構增益 | 可部署,與 champion 綁定 | 本質是價格動能,單獨無 alpha;tracker 生產閘門若用 MA150 在分歧日被逆向選擇(應改 MA200) |
 | **VIX gate**(60 日 z≤2) | 風控邊際強化 | L0 | →0.998,與 champion corr +0.10 非冗餘 | 可部署,邊際 | 只砍 ~10 個 OOS 日,增益小 |
+| **CAP×COV**(融資投降 × 外資期貨回補)〔交互線新增,post Phase-5〕 | **事件級戰術觸底 overlay**(champion 旁唯一新增交互成分) | L0(擇時側) | 事件/episode 級 DSR@133 = **0.97-1.00**;perm p<0.001;champ-OFF 仍成立(正交) | **有保留可部署**——觸底反彈 overlay,非連續 alpha、非機械下單 | n=31 稀疏(~20 獨立 episode/8yr);h10 為主、h20 衰減需及時出場;fwd5 不過;尾部風險;champion 同時 on 時更強 |
 | **rev_yoy_3m**(月營收 YoY 動能) | 橫斷面選股傾斜 | L1 | 90 檔 0.954 過;**全宇宙 0.606 fail** | **選股傾斜工具**(月選股產品),非獨立 alpha 引擎 | 全宇宙 OOS 塌陷、新股近零;半數產業 tilt(中性化後不顯著);edge 集中中小型;可交易性未答(成本測 15bps<稅 30bps);須保留多空全截面形態 |
 | **rev_mom**(營收環比 MoM 動能) | 橫斷面選股(第二支) | L1 | 0.999(研究內);top-150 殘差 Sh +1.28 | **研究級,未產品化** | 含產業季節性需硬化;流動性子集腰斬;OOS 薄窗;n=8 未跨專案折減 |
 | **rev_surprise**(營收對趨勢超預期) | 橫斷面選股(第三支) | L1 | 0.899(研究內);top-150 殘差 Sh +1.71 | **研究級,未產品化** | 同上;正交度最好但 DSR 未達 0.95 |
@@ -515,6 +516,28 @@ Phase-4 把 rev_yoy_3m 定調為「存活——真 alpha(有保留)」,但保留
 | **CAP×COV**(融資投降 × 外資期貨回補) | **事件級戰術觸底 overlay** | L0(擇時側) | 事件 / episode 級 DSR@133 = **0.97-1.00**;perm p<0.001;champ-OFF 仍成立 | **有保留可部署**——觸底反彈 overlay,非連續 alpha,非機械下單 | n=31 稀疏(~20 獨立 episode / 8yr);h10 為主、h20 衰減需及時出場;fwd5 不過;20 樣本尾部風險;champion 同時 on 時更強 |
 
 其餘一句話不變:**唯一過完整 DSR 的連續可部署系統仍是 tech-gated champion(L0);本輪新增的 CAP×COV 是與它正交、只在觸底時共燃的戰術 overlay,不改「連續擇時淨新增 alpha=0」的總結論。** 非投資建議。
+
+### 6. 專家 3 缺口全數測完 — 含缺口 C: Asquith 雙排序(2026-07-31 收官)
+
+`expert_combination_shortlist.md` 的四路專家掃描篩出 **3 個「專家高度推崇 × 我們還沒正式建模 × 有超過坊間背書」的真交互缺口**。本輪把最後一個(C)測完,三個缺口全數有裁決:
+
+| 缺口 | 專家假設 | 背書 | 我方測試 | 裁決 |
+|---|---|---|---|---|
+| **A** 外資現貨 × 期貨 hedge-short 過濾 | 現貨賣+期貨買=避險非看空,可過濾 champion 的 hedge 雜訊 | 中(方向邏輯硬,無 OOS) | 家族②背離交互 H1b(n=326) | ✗ **崩/脆弱**——殘差後 t=2.15 正交但 DSR 0.41、效果集中末段 single-third,是不可部署的 in-sample 傾斜;champion 單腳定案 |
+| **B** P/C × VIX × breadth 恐慌 stack | 多維同時對齊才是 contrarian 底 | 中(國際小樣本;台股自證偽) | 家族③底部雙/三確認(55 trial) | ⚠️ **僅 CAP×COV 存活**——P/C×VIX×breadth 多維同時觸發版死(VIXF 恐慌腿 8 年只亮 2 次=實質死腿);唯一存活的同時共燃配對是 **CAP×COV**(融資投降×外資期貨回補),但屬事件級戰術 overlay 非連續 alpha |
+| **C** short interest × 機構持股供給約束雙排序(Asquith 2005 JFE) | 高短賣只在低機構持股(借券供給緊)時才預測負報酬;交互>單腳 | 強(頂刊,台股從沒人做) | **本輪** 162 檔×183 週=29,491 stock-week 雙排序 | ✗ **null + size 重述**(見下) |
+
+#### 缺口 C: Asquith 雙排序 — 裁決 = **真交互被證偽(null),非樣本不足;副產品反向效應=size-illiquidity 重述,非獨立 alpha**
+
+- **交互本身 = 乾淨 null**:size+動能中性化後,受約束格(高短賣×低持股)殘差 **+0.835%**(Asquith 預測應**最負**),沿 short 軸單調上升 = 方向相反;純交互 double-diff Sharpe **+0.10**(t=0.19);週內洗牌 ownership 的 permutation(500 次)**p=0.788** → 與隨機無異。Asquith 多空(多 unconstr 空 constr)年化 Sharpe **−1.81**(t=−3.36,虧錢)。「交互>單腳」在台股**反轉**:全部訊號由單一 short 腿承載、交互為零。
+- **唯一效應是反向的 short 需求主效應**(高融券→較高遠期報酬),但:(a)方向與缺口要找的做空 alpha **相反**;(b)由**散戶融券**(si_margin Sharpe 1.96)驅動、非機構借券(si_lend 0.68)——**恰與美股機構借券約束故事相反**;(c)**逐年不穩**:2023 Sharpe 2.14 / **2024 = 0.05(消失)** / 2025 4.48 / 2026 3.00,集中 2025-26 高散戶軋空 regime。
+- **★致命對抗式裁決 — 是 size 重述,不是樣本不足**:用**固定宇宙隔離測試**(n=179 週完全不變,只切換有無 Amihud 流動性控制)——size+mom20 下 Sharpe **+2.39**(t 4.44);**加 illiq 即崩到 +0.47(t 0.88,不顯著)**。高融券格恰是最小市值(40 億 vs 153–321 億)、最高波動(vol20 3.24% vs 1.27%)、最不流動的一格。**不是樣本縮減**(已用固定宇宙隔離),是控制項本身:所謂「反向散戶融券 alpha」約 **80% 是 Amihud 流動性溢酬的重貼**。加上台股配額制/平盤下限/借券淺使供給約束軸對映失真、low_own 格中位仍 34%+(含創辦家族/公股非美式 float 稀缺),供給約束構念在台股本就不成立。
+- **定位**:缺口 C = **乾淨負面結果**(非資料瑕疵、非樣本不足),對可部署系統**零新增**。反向散戶融券效應真實但方向相反 + regime 依賴 + size 重述,僅為已知台股軋空/散戶反指標的量化再確認,**收回「待硬化多頭傾斜候選」定位**,不進系統。與 champion(擇時軸)、rev_yoy_3m(正交)不衝突。
+- **檔案**:`asquith_shortinterest_ownership.md`(含對抗式審查節)、`scripts/research/asquith/{build_panel,analyze_cells,analyze_legs_perm,dsr_collinearity,seasonality,adversarial_review}.py`、`data/research/dashboard/asquith/{panel.parquet,cell_grid_neutral_fwd20.csv,weekly_legs.parquet,leg_summary_fwd20.csv}`
+
+#### 交互研究線是否可收束?**可以收束。**
+
+專家四路掃描的 **3 個真缺口(A/B/C)全部測完** = A 崩(背離脆弱、in-sample 單段傾斜)、B 僅 CAP×COV 存活(且是事件級 overlay 非連續 alpha)、C null+size 重述。加上本輪 5 家族 + 既有 6 輪 + Phase 1-5,**「連續大盤擇時的交互淨新增 alpha 恆為 0」已被反覆、跨獨立假設、跨頂刊背書全部確認**——regime-conditioning(tech/VIX gate)是唯一耐用的連續交互,沒有第二個。整條交互研究線的淨產出 = **唯一一支新增成分:CAP×COV 事件級戰術觸底 overlay(有保留),立於 champion 旁而非取代之**。組合(交互)相對 champion 的價值裁決:**除了已知的 regime 疊閘與這支稀疏 overlay,組合沒有超越 champion 的連續 alpha 價值。** 交互線達邊際遞減、收官;殘餘唯一開放項與 Phase-5 同——rev 家族全宇宙×真成本可交易性重跑,屬選股(L1)非交互線。
 
 **產出檔案**:`reports/research/dashboard-completeness/chip_interactions.md`(逐組合生死審查)、`scripts/research/chip_macro/eval_interactions_global_penalty.py`(全域懲罰重算,可重跑)、`scripts/research/chip_macro/eval_bottom_multiconfirm.py`(CAP×COV 主研究)、`data/research/dashboard/bottom_capcov_events.parquet`(31 筆事件表)、以及各家族腳本(`study_champion_conditional_gates.py` / `divergence.py` / `eval_stage8_crosslayer_composite.py` / `state_grid_conditional_returns.py`)與結果 parquet / csv。
 

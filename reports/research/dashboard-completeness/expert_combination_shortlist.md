@@ -7,7 +7,7 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 
 ## 0. 一句話總結
 
-**專家四路掃描與我們自證高度收斂到同一條主線:單維度幾乎沒有 alpha,反覆有效的只有「regime-conditioning(閘門)+ 第二維度確認」。** 我們已測掉的組合(champion×MA200、champion×VIX、L0×L1)恰好覆蓋了學術背書最硬的三塊(positioning×regime、動量×波動、factor-timing 被證偽)。**真正「專家高度推崇但我們還沒正式建模」的缺口只有三個:①外資現貨×期貨的 hedge-short 過濾(champion 目前是單腳)②P/C×VIX×breadth 恐慌 stack 的「多維同時對齊」版(我們只有 VIX 單閘)③short-interest × 機構持供給約束的雙排序(Asquith 2005,台股從沒人做)。** 其餘專家組合(吸貨結構、頂背離、軋空、期現背離判讀)在台股全是坊間經驗法則/事後挑例,多為「動能偽裝」——買上升趨勢包裝成籌碼技巧,我們已在 branch-follow 研究反覆證偽。
+**專家四路掃描與我們自證高度收斂到同一條主線:單維度幾乎沒有 alpha,反覆有效的只有「regime-conditioning(閘門)+ 第二維度確認」。** 我們已測掉的組合(champion×MA200、champion×VIX、L0×L1)恰好覆蓋了學術背書最硬的三塊(positioning×regime、動量×波動、factor-timing 被證偽)。**原本「專家高度推崇但我們還沒正式建模」的三個缺口——①外資現貨×期貨 hedge-short 過濾 ②P/C×VIX×breadth 恐慌 stack 多維同時對齊 ③Asquith 2005 short-interest×機構持股供給約束雙排序——至 2026-07-31 已全部測完(見 §2),無一產生可部署的連續 alpha:A 崩、B 僅 CAP×COV 存活(事件級 overlay)、C null+size 重述。交互研究線收束。** 其餘專家組合(吸貨結構、頂背離、軋空、期現背離判讀)在台股全是坊間經驗法則/事後挑例,多為「動能偽裝」——買上升趨勢包裝成籌碼技巧,我們已在 branch-follow 研究反覆證偽。
 
 ---
 
@@ -21,7 +21,7 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 | 2 | **外資期貨positioning × 趨勢regime(MA200)** | COT 須疊技術趨勢確認「最大參與者是否支持」;Weinstein Stage-2 | **強**(我方 OOS DSR 0.995) | champion × close>MA200上彎 | **是** ✅ | 已部署為系統C核心。剩:tracker caliber 對齊(現用MA150-stage) |
 | 3 | **P/C × VIX × breadth × RSI 恐慌stack** | 四維同時對齊才是contrarian底;單一P/C只是一個資料點 | **中**(國際小樣本;台股自證偽) | options_micro + global_macro(VIX) + breadth + price_volume | **部分** ⚠️ | ★缺口:我們只有VIX單閘 + crash-thermo證偽。**沒測過「多維同時對齊觸發」的contrarian進場** |
 | 4 | **外資現貨 × 外資期貨OI(hedge-short過濾)** | 期現同向確認趨勢;現賣+期多=避險非看空,過濾hedge雜訊 | **中**(方向邏輯硬,無OOS) | champion(期貨) + cashForeign(現貨) | **部分** ⚠️ | ★缺口:champion是**單腳**;cashForeign>0 單獨無效(G4 d=-0.41)。**沒測過現貨當期貨的「避險過濾器」交互** |
-| 5 | **short interest × 機構持股(供給約束)** | 高short只在低機構持股(借券供給緊)時才預測負報酬;約95%股票約束不緊、交互無效 | **強**(Asquith-Pathak-Ritter 2005 JFE) | 融資維持率/券資比 × 大戶持股(holder_conc) | **否** ❌ | ★缺口:台股從沒人複製此雙排序。券資比×千張大戶 double-sort,只在「緊約束」子集看負報酬 |
+| 5 | **short interest × 機構持股(供給約束)** | 高short只在低機構持股(借券供給緊)時才預測負報酬;約95%股票約束不緊、交互無效 | **強**(Asquith-Pathak-Ritter 2005 JFE) | 融資維持率/券資比 × 大戶持股(holder_conc) | **已測** ✅(2026-07-31) | **證偽(null)**:交互 perm p=0.788、Asquith 多空 Sharpe −1.81(方向反);副產品反向散戶融券效應 = **size-illiquidity 重述**(加 Amihud 控制 Sharpe 2.39→0.47 崩)。零可部署增益。→ [asquith_shortinterest_ownership.md](./asquith_shortinterest_ownership.md) |
 | 6 | **維持率斷頭底 × 外資doi回補** | 融資投降(維持率<130-140)+法人回補=浮額洗清底 | **弱**(我方 perm p=0.007 但 n=4 極小) | margin_maintenance × futures(doi) | **是** ✅ | 已接 daily_tracker 雙確認。方向真、樣本弱,無法再硬化 |
 | 7 | **factor估值價差 × 因子擇時(value-spread timing)** | spread寬→加碼因子 | **強(被證偽)**(Asness-Ilmanen 2017 JPM) | rev_yoy_3m 動態擇時 | **是** ✅ | 已避開:Phase-5 把 rev_yoy 弱化為長期tilt非擇時,與學界一致 |
 | 8 | **機構order flow × horizon** | 法人流向>30min後不可預測;季頻機構流入負向、賣出更強(非對稱) | **中**(Campbell 2005;arXiv 2508.06788) | 三大法人買賣超 | **是** ✅ | cashForeign 單獨已證偽(G4/G4b d<0);horizon保留有限 |
@@ -35,23 +35,26 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 
 ---
 
-## 2. ★ 專家高度推崇「但我們還沒測」的缺口(= 下一步最該做)
+## 2. ★ 專家高度推崇的 3 個真缺口 — **全部測完(2026-07-31 收官)**
 
-只有 **3 個** 真缺口通過雙重篩選(專家推崇 **且** 我們沒正式建模 **且** 有超過坊間的背書):
+> **狀態更新**:本節原列 3 個「專家推崇 × 我們還沒測 × 超過坊間背書」的真缺口(A/B/C)。**至 2026-07-31 三個全部測完,無一產生可部署的連續 alpha**:A 崩(背離脆弱)、B 僅 CAP×COV 存活(事件級 overlay 非連續 alpha)、C null+size 重述。交互研究線可收束——詳見 [README.md 進階交互研究 §6](./README.md) 與 [chip_interactions.md](./chip_interactions.md)。逐缺口裁決如下(原文保留、加上結果)。
 
 ### 缺口 A — 外資現貨 × 期貨的 hedge-short 過濾(最高優先)
 - **為何**: champion 目前是**單腳**(只用期貨 OI positioning)。四路專家中三路獨立指出「期現交叉可過濾避險空單雜訊」——現貨賣+期貨淨多=避險而非看空,把它讀成看空是 hedge-short 陷阱。這是把我們最強 factor 加一個**正交確認腳**的最自然升級,且成本為零(現貨資料已在 panel)。
 - **背書等級**: 中(方向邏輯硬,台股實務共識,但無 OOS)。cashForeign 單獨在 G4 是負的(d=-0.41),所以這**必須是交互/過濾**而非相加——正好是「second-dimension confirmation」範式。
+- **★結果(已測,證偽)**: 家族②背離交互 H1b(外資現貨賣×期貨買>1k,n=326)殘差後 t=2.15、與 champion 正交,但 **DSR 0.41、效果集中末段 single-third** = 不可部署的 in-sample 傾斜。裁決 = **背離脆弱/崩**,champion 單腳定案。
 
 ### 缺口 B — P/C × VIX × breadth 的「多維同時對齊」恐慌 stack
 - **為何**: 我們有 VIX 單閘(DSR 0.998),但**從沒測過「P/C高 + VIX飆 + breadth極度oversold 三者同時觸發」的contrarian進場**。crash-thermometer 證偽的是**單一溫度計對 fresh event 的判別**(31-35%),不是「多維同時對齊」的稀有底部訊號——這是不同假設。Daniel-Moskowitz 的 panic-state 邏輯支持它。
 - **背書等級**: 中(國際小樣本 + 我方VIX單腳已過)。誠實保留:台股罕見事件、樣本極少,大概率只能當 regime 觸發器非高頻 alpha。
+- **★結果(已測,部分存活)**: 家族③底部雙/三確認(55 trial)。P/C×VIX×breadth 多維同時觸發版**死**(VIXF 恐慌腿 8 年只亮 2 次=實質死腿、多燈時序先後非同時共燃)。唯一存活的同時共燃配對 = **CAP×COV**(融資投降 z60<−1.5 × 外資期貨 doi 連≥2 日回補,n=31):fwd10 +3.46%/命中 87%/p<0.001、champ-OFF 子集仍成立(+2.89% p=0.02)、事件級 DSR@133=0.97-1.00。裁決 = **僅 CAP×COV 存活,但屬事件級戰術觸底 overlay 非連續 alpha**(見 chip_interactions.md)。
 
 ### 缺口 C — short interest × 機構持股供給約束雙排序(Asquith 2005 台股複製)
 - **為何**: 這是**學術背書最硬**的「交互勝單一」經典(JFE 2005),而**台股從來沒人做**。券資比/融資維持率當放空需求 proxy × 千張大戶持股當借券供給 proxy,只在「低機構持股 + 高券資比」的緊約束子集才預期顯著負報酬。是本專案 holder_concentration + margin 兩個已證偽單維的**交互復活**機會。
 - **背書等級**: 強(頂級期刊),但誠實:原論文顯示約 95% 股票約束不緊、交互只對一小撮有效——台股散戶主導、融資≠美式 short interest,mapping 不完美,預期命中面很窄。
+- **★結果(已測,證偽=null,非樣本不足)**: 162 檔×183 週=29,491 stock-week 雙排序。**交互本身乾淨 null**:受約束格(高短×低持)size+動能中性化殘差 **+0.835%**(Asquith 預測應最負,方向相反)、純交互 double-diff Sharpe +0.10(t 0.19)、ownership 洗牌 permutation **p=0.788**;Asquith 多空 Sharpe **−1.81**(虧錢)。唯一效應是**反向**的 short 需求主效應,由散戶融券(非機構借券)驅動、2024 消失(regime 依賴)。**★致命裁決 — 真交互還是 size 重述/樣本不足?= size-illiquidity 重述**:固定宇宙隔離測試(n=179 不變),只加 Amihud 流動性控制即 Sharpe **2.39→0.47(t 0.88 不顯著)**——高融券格恰是最小市值×最高波動×最不流動一格,約 80% 是流動性溢酬重貼、**不是樣本縮減**。加上配額制/平盤下限/借券淺使供給約束構念對映失真。**收回「待硬化候選」定位,零可部署增益**。→ [asquith_shortinterest_ownership.md](./asquith_shortinterest_ownership.md)
 
-**其餘全部專家組合皆已測過或屬坊間/動能偽裝,不構成新缺口。**
+**其餘全部專家組合皆已測過或屬坊間/動能偽裝,不構成新缺口。3 個真缺口(A/B/C)至此全部測完 → 交互研究線收束。**
 
 ---
 
@@ -62,7 +65,7 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 |---|---|---|
 | positioning × 波動regime | Daniel-Moskowitz 2016 JFE「dynamic momentum Sharpe翻倍」 | ✅ VIX gate DSR 0.998 |
 | 訊號 × 趨勢regime gating | 跨市場 HMM/regime-filter 共識 | ✅ MA200 DSR 0.995 |
-| short interest × 機構持股 | Asquith-Pathak-Ritter 2005 JFE | ❌ 缺口C |
+| short interest × 機構持股 | Asquith-Pathak-Ritter 2005 JFE | ✅ 已測=**null**(perm p=0.79);副產品=size 重述,非 alpha |
 | options order flow × 現貨 | Pan-Poteshman 2006 RFS(短天期≤1週) | options_micro 已測null(台股散戶PCR雜訊高) |
 | 機構flow × horizon/macro-news | Campbell 2005;arXiv 2508.06788 | ✅ cashForeign 已證偽 |
 | factor估值價差擇時 = **弱/被證偽** | Asness-Ilmanen 2017 JPM | ✅ 我們已避開(rev當tilt非擇時) |
@@ -111,11 +114,13 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 4. P/C × VIX × breadth 恐慌 stack(中)— ⚠️ **只有VIX單閘,缺口B**
 5. 外資現貨 × 期貨 hedge-short 過濾(中)— ⚠️ **champion單腳,缺口A**
 
-**我們還沒測的缺口(僅 3 個通過篩選):**
-- A. champion 加現貨 hedge-short 過濾腳(成本零、最可能真升級)
-- B. 恐慌 P/C×VIX×breadth 多維「同時對齊」contrarian(補 VIX 單閘唯一缺口)
-- C. Asquith 2005 券資比×大戶持股雙排序(頂刊背書、台股從沒人做)
+**3 個真缺口 — 全部測完(2026-07-31 收官),無一產生可部署連續 alpha:**
+- A. champion×現貨 hedge-short 過濾 → ✗ **背離脆弱/崩**(H1b 殘差 t=2.15 但 DSR 0.41、單段驅動不可部署);champion 單腳定案
+- B. 恐慌 P/C×VIX×breadth 多維同時對齊 → ⚠️ **僅 CAP×COV 存活**(多維同時版死;CAP×COV 是事件級戰術觸底 overlay 非連續 alpha)
+- C. Asquith 2005 券資比×大戶持股雙排序 → ✗ **null(perm p=0.79)+ size-illiquidity 重述**(加 Amihud 控制 Sharpe 2.39→0.47),非樣本不足、零可部署增益
 - 其餘專家組合全已測過或屬坊間/動能偽裝(分點吸貨=買上升趨勢、頂背離=事後敘事、軋空/投信認養=無驗證)
+
+**交互研究線收束**:專家 3 缺口 + 本輪 5 家族 + 既有 6 輪 + Phase 1-5 一致確認「連續大盤擇時的交互淨新增 alpha 恆為 0」;regime-conditioning(tech/VIX gate)是唯一耐用連續交互。整條線的淨產出 = **CAP×COV 一支事件級觸底 overlay(有保留),立於 champion 旁而非取代**。
 
 **下一輪提案摘要:** 三個交互實驗(非新開維度、皆掛系統C):①champion×現貨hedge-short過濾 ②恐慌stack多維同時對齊觸發 ③Asquith券資比×大戶供給約束雙排序。全部用既有 16-trial DSR penalty + OOS 時間切分嚴驗,失敗即確認 champion 單腳/VIX 單閘已足、成功即升級。與 STATE_OF_DASHBOARD「STOP 廣度搜索」相容——這是深化交互不是加維度。誠實預期:三者多半確認現狀,提案 1 最可能有小幅正增益。
 
