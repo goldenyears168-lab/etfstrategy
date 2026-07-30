@@ -470,5 +470,55 @@ Phase-4 把 rev_yoy_3m 定調為「存活——真 alpha(有保留)」,但保留
 
 ---
 
+## 進階交互研究(2026-07-31)
+
+前面 Phase 1-5 逐一測「單一指標」的淨新增 alpha(結論=0)。本輪換一個問法:**把現有指標兩兩 / 多多交互(條件化、背離、雙確認、跨層合成),有沒有超越單一 champion 的真預測價值?** 5 個研究家族、5 個獨立 agent、經濟邏輯驅動(嚴禁暴力枚舉),各自誠實回報 trial 數,最後做一次跨全域 **133-trial** 過擬合複審。
+
+### 1. 一句話裁決
+
+**大盤「連續」擇時的淨新增 alpha 仍 = 0;沒有任何「新」的交互閘門 / 背離 / composite 能讓 champion 的連續系統更好。regime-conditioning(tech gate / VIX gate)再度被證實是唯一耐用的連續交互——這輪沒找到第二個。** 但複審在正確的統計單位(事件 / episode,非重疊日 overlay)下,確認了**一個真正新的、經濟邏輯清楚、跨全域 133-trial 懲罰仍存活的東西:CAP×COV 底部雙確認**——它不是連續 alpha,而是一支**戰術觸底 overlay**。
+
+### 2. 家族逐一生死(存活門檻:OOS>champ & walk-forward 全折正 & perm_p<0.10 & DSR>0.95 & 非 champion 重述)
+
+| 家族 | 假設 / trial | 最佳變體 | 結果 | 裁決 |
+|---|---|---|---|---|
+| **① 條件閘門**(champion 只在 B 狀態才發) | 5 / 16 | VIX 非 spike gate | maxDD 砍半、5 折全正、perm_p 0.001(選日勝隨機)——但**是已知 regime,非新**;16-trial DSR 僅 0.53 | ✗ 無新閘門;VIX 非 spike 是**已知**且誠實 DSR 未過 |
+| **② 背離交互**(兩指標打架) | 4 / 15 | H1b 外資現貨賣×期貨買>1k(n=326) | mean +0.107%/日、對 champion+regime 殘差後 t=2.15、共線極低(正交)——但 DSR 0.41、效果集中末段 third | ✗ 真實但**不可部署的 in-sample 傾斜**(單段驅動、搜尋膨脹) |
+| **③ 底部雙 / 三確認**(事件級) | 15 / 55 | **CAP×COV**(融資投降 z60<−1.5 × 外資期貨 doi 連≥2 日回補,n=31) | fwd10 +3.46%/命中 87%/p<0.001、walk-forward 3 折符號一致、**champ-OFF 子集仍成立**(h10 +2.89% p=0.02)、CAP 腿帶 champion 以外的正交增量 | ★ **存活**(見下) |
+| **④ 跨層 composite**(1+1>2) | 3 / 17 | IC 加權(shrink0.3) | OOS Sharpe +2.48 < 系統 B +2.61 < 系統 C +2.73——**輸給既有 gated champion**;corr(comp,champ)=0.52、對系統 B 殘差 α t=1.94 不顯著;名目 5 腳實約 2 獨立因子(皆已含於系統 C) | ✗ champion 的**稀釋重述** + 高共線槓桿簇 |
+| **⑤ 狀態分格條件報酬**(16 格) | 6 / 30 | champ+ × 站上 MA200 × 廣度強 | 格內廣度置換 p<0.0001(強→+3.42% vs 弱→+0.82%)、走查全折正——但可交易 DSR 僅 0.874<0.95 | ✗ 既有 **champ×MA200 之上的信心縮放 tilt**,非獨立 alpha;VIX high/low 軸證偽(低 VIX 反優) |
+
+### 3. 唯一存活者:CAP×COV 底部雙確認(★ 新增,但非連續 alpha)
+
+**內容**:同時 ①**融資投降**(市場融資餘額 60 日 z<−1.5)+ ②**外資台指期回補**(doi 連≥2 日翻正)→ 做多 10-20 日。
+
+- **為何是真的、非過擬合**:兩腿**單獨皆弱**(CAP fwd10 +0.72% p=0.47、COV 與 champion 共線),**合取遠強**(fwd10 +3.46%/命中 87%/p<0.001)=真雙確認;跨 3 折擴張窗 walk-forward 符號一致;事件塌縮(消重疊灌水)+ 剔 COVID 後仍過;誠實**事件 / episode 級** DSR@133-trial = **0.97-1.00**。
+- **為何非 champion 重述(決定性正交測試)**:在 champion-**OFF** 子集(n=12)fwd10 仍 +2.89% p=0.019;同一 champ-OFF 內去掉 CAP 腿→ +0.65%(死)、加回 CAP 腿→ +2.89%——**CAP 融資投降腿帶來 champion 以外的真增量**,corr_champ 僅 0.12。
+- **硬使用邊界(不可略)**:是**戰術觸底 overlay 非連續 alpha**;~20 獨立 episode / 8 年,稀疏;持有 10-20 日且**需及時出場**(fwd5 不過 DSR 0.34,弱勢反彈非趨勢);h20 champ-OFF 優勢衰減(p=0.168);20 樣本尾部風險真實。VIXF 恐慌腿 8 年只亮 2 次=實質死腿;維持率腿是**價的落後確認**(bottoms AFTER 外資已回補),tracker 的多燈「同時成立」框架多為理想化——各燈時序上先後,唯一有意義同時共燃的配對就是 CAP×COV。
+
+### 4. 已知 vs 這輪新測:有沒有新增可用的條件化 edge?
+
+| | 交互 | 狀態 |
+|---|---|---|
+| **已知有效(本輪重確認)** | tech gate(close>上彎 MA200)、VIX gate(60 日 z≤2) | 仍是 champion **連續系統**唯一耐用的 regime-conditioning;本輪 5 家族沒找到第二個能超越它的連續交互 |
+| **這輪唯一新增** | **CAP×COV 底部雙確認** | ★ 真新增,但屬**事件級戰術觸底 overlay**,非連續 alpha,非可持續下單信號;與 gated champion **正交互補**(champion 管趨勢在位,CAP×COV 管觸底反彈,champion 同時 on 時力道更足) |
+| **全部證偽** | 條件閘門(新)/ 背離 / composite / 廣度強格 | 過擬合、champion 重述、或 in-sample 單段傾斜 |
+
+### 5. 誠實:再度收斂到「regime-conditioning 是唯一耐用交互」,還是找到新東西?
+
+**兩者都對,分屬不同時間尺度。** 對**連續大盤擇時**——是的,又一次收斂:regime/VIX 疊閘仍是唯一有 permutation 技能的耐用交互,五個新家族(含 4 個經濟邏輯清楚的條件化 / 背離 / composite)全數證偽,呼應既有 6 輪 + Phase 1-5 的 null,連續擇時淨新增 alpha 恆為 0。對**事件級戰術觸底**——找到一個新東西:CAP×COV 是專案至今唯一跨全域 133-trial 懲罰、正交測試證實非 champion 重述、經濟邏輯站得住的存活交互,但它是稀疏 overlay 不是連續引擎。
+
+**真增益總帳更新(在 Phase-5 定稿表之上補一行)**:
+
+| 成分 | 角色 | 層 | DSR / 顯著性 | 可部署狀態 | 硬保留 |
+|---|---|---|---|---|---|
+| **CAP×COV**(融資投降 × 外資期貨回補) | **事件級戰術觸底 overlay** | L0(擇時側) | 事件 / episode 級 DSR@133 = **0.97-1.00**;perm p<0.001;champ-OFF 仍成立 | **有保留可部署**——觸底反彈 overlay,非連續 alpha,非機械下單 | n=31 稀疏(~20 獨立 episode / 8yr);h10 為主、h20 衰減需及時出場;fwd5 不過;20 樣本尾部風險;champion 同時 on 時更強 |
+
+其餘一句話不變:**唯一過完整 DSR 的連續可部署系統仍是 tech-gated champion(L0);本輪新增的 CAP×COV 是與它正交、只在觸底時共燃的戰術 overlay,不改「連續擇時淨新增 alpha=0」的總結論。** 非投資建議。
+
+**產出檔案**:`reports/research/dashboard-completeness/chip_interactions.md`(逐組合生死審查)、`scripts/research/chip_macro/eval_interactions_global_penalty.py`(全域懲罰重算,可重跑)、`scripts/research/chip_macro/eval_bottom_multiconfirm.py`(CAP×COV 主研究)、`data/research/dashboard/bottom_capcov_events.parquet`(31 筆事件表)、以及各家族腳本(`study_champion_conditional_gates.py` / `divergence.py` / `eval_stage8_crosslayer_composite.py` / `state_grid_conditional_returns.py`)與結果 parquet / csv。
+
+---
+
 > **⚠️ 非投資建議聲明**
 > 本報告為量化研究與方法論記錄,所有結論均為歷史資料的統計觀察,**不構成任何個股、指數或衍生品的買賣建議**。回測績效不代表未來報酬;所有「訊號」在真實交易中的表現受滑價、成本、regime 轉換與存活者偏誤影響。作者非持牌投資顧問,讀者應自行判斷並承擔一切投資風險。
