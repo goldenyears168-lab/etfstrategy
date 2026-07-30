@@ -77,29 +77,47 @@ def fetch_night_bias():
         return {"error": str(e)[:120]}
 
 
+_WANTGOO_HDR = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*", "Accept-Language": "zh-TW,zh;q=0.9",
+    "Referer": "https://www.wantgoo.com/stock/margin-trading/exclude-etf/taiex",
+    "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+}
+
+
 def load_maintenance() -> pd.DataFrame | None:
-    """真實市場融資維持率 (FinMind TaiwanTotalExchangeMarginMaintenance)。"""
+    """扣除ETF 融資維持率 (wantgoo -ETFA)。含ETF(FinMind)被槓桿ETF灌高、失真,故用扣除ETF。
+
+    扣除ETF才是散戶個股融資盤的真斷頭溫度計 (C3 重驗:<140 首破 perm p=0.007)。
+    抓失敗則 fallback 讀本地 CSV;再不行回 None(當日不亮此燈)。
+    """
     try:
         import requests
-        from project_dotenv import finmind_token_from_env
-        tok = finmind_token_from_env()
-        r = requests.get("https://api.finmindtrade.com/api/v4/data",
-                         params={"dataset": "TaiwanTotalExchangeMarginMaintenance",
-                                 "start_date": "2024-01-01", "token": tok}, timeout=40).json()
-        d = pd.DataFrame(r.get("data", []))
-        if d.empty:
-            return None
-        d["date"] = pd.to_datetime(d["date"]).astype(str).str[:10]
-        return d.rename(columns={"TotalExchangeMarginMaintenance": "maint"})[["date", "maint"]]
+        r = requests.get("https://www.wantgoo.com/stock/-ETFA/margin-trading/historical-lending-balance",
+                         headers=_WANTGOO_HDR, timeout=30)
+        r.raise_for_status()
+        d = pd.DataFrame(r.json())
+        d["date"] = pd.to_datetime(d["date"], unit="ms").astype(str).str[:10]
+        d["maint"] = d["marginRatio"].astype(float) * 100.0
+        out = d[["date", "maint"]].sort_values("date")
+        out.to_csv(PANEL_DIR / "margin_maintenance_exetf.csv", index=False)  # 快取
+        return out
     except Exception:
-        return None
+        try:
+            c = pd.read_csv(PANEL_DIR / "margin_maintenance_exetf.csv")
+            c = c.rename(columns={"maint_ex": "maint"}) if "maint_ex" in c.columns else c
+            c["date"] = pd.to_datetime(c["date"]).astype(str).str[:10]
+            return c[["date", "maint"]]
+        except Exception:
+            return None
 
 
 def compute_margin_light(p: pd.DataFrame) -> dict | None:
-    """融資斷頭底監控燈 (C3 重驗結論): 維持率<145 深斷頭 × 外資期貨 doi 回補 雙確認。
+    """融資斷頭底監控燈 (C3 重驗, 扣除ETF維持率): 追繳區<130 × 外資期貨 doi 回補 雙確認。
 
-    純監控、非交易訊號。維持率<145 是 IS 驗證(2018/20/22 崩盤 h20 hit 84%)的低頻底訊號;
-    融資餘額投降本身無效(已證死);維持率5日急降不穩健(僅近期顯著)故不納入判準。
+    純監控、非交易訊號。用扣除ETF維持率(含ETF被槓桿ETF灌高失真)。門檻校準:
+    <140 首破 perm p=0.007(顯著止跌傾向)、<130 追繳區(高信度底)、<120 極端斷頭(如2025/04 117.5)。
+    融資餘額投降無效(已證死);維持率5日急降在扣除ETF版顯著(p=0.002-0.003)但仍樣本短。
     """
     if "maint" not in p.columns or p["maint"].notna().sum() < 20:
         return None
@@ -118,17 +136,16 @@ def compute_margin_light(p: pd.DataFrame) -> dict | None:
     # 融資 froth 情境 (panel 直接算)
     mb = p["margin_bal"].astype(float)
     mb_z60 = ((mb - mb.rolling(60).mean()) / mb.rolling(60).std()).iloc[-1]
-    mb_d1 = mb.diff().iloc[-1]
     szr = (p["short_bal"].astype(float) / mb * 100).iloc[-1]
-    deep = bool(maint_last < 145)       # IS 驗證的深斷頭底
-    near = bool(maint_last < 150)       # 觀察區
+    extreme = bool(maint_last < 120)    # 極端斷頭 (2025/04 曾117.5)
+    deep = bool(maint_last < 130)       # 追繳區, 高信度止跌
+    watch = bool(maint_last < 140)      # 斷頭壓力區 (<140 首破 perm p=0.007)
     cover = bool(streak >= 2)           # champion 前緣確認
     dual = deep and cover
-    return {"maint": float(maint_last), "deep": deep, "near": near,
+    return {"maint": float(maint_last), "extreme": extreme, "deep": deep, "watch": watch,
             "cover_streak": int(streak), "cover": cover, "dual": dual,
-            "gap_to_145": float(maint_last - 145),
+            "gap_to_130": float(maint_last - 130),
             "mb_z60": float(mb_z60) if pd.notna(mb_z60) else None,
-            "mb_d1": float(mb_d1) if pd.notna(mb_d1) else None,
             "szr": float(szr) if pd.notna(szr) else None}
 
 
@@ -169,13 +186,46 @@ def _vix_verdict(v: dict) -> tuple[str, str]:
     return "🟢", f"VIX 平穩（{v['vix']:.1f}, z60 {v['vix_z60']:+.2f}）"
 
 
+REV_LONG_CSV = ROOT / "data" / "research" / "dashboard" / "rev_yoy_current_long.csv"
+
+
+def load_rev_tilt() -> dict | None:
+    """L1 大型股月營收動能多頭傾斜 (rev_yoy_monthly_screen 產出的穩定清單)。
+
+    純選股傾斜 overlay,非 alpha:rev_yoy_3m 過 permutation 但**扣真成本後過不了
+    Deflated-Sharpe(0.11)**,且中小型 edge 扣成本+容量後反轉為大型股。故僅作
+    「系統 C 綠燈(做多)時的大型股多頭偏重」,非中小型多空書、非獨立訊號。
+    讀月選股 CSV(每月 10-15 日跑一次),tracker 不即時抓。
+    """
+    try:
+        if not REV_LONG_CSV.exists():
+            return None
+        d = pd.read_csv(REV_LONG_CSV)
+        if d.empty:
+            return None
+        return {"n": len(d),
+                "names": [f"{r.stock_id} {r.stock_name}" for r in d.itertuples()],
+                "asof": str(d["asof"].iloc[0]), "max_annd": str(d["max_annd"].iloc[0])}
+    except Exception:
+        return None
+
+
 def compute(p: pd.DataFrame) -> dict:
+    # L0 閘門 = 驗證版 tech gate (close>MA200 且 MA200 上彎)。dashboard-completeness
+    # integrated_multigate 證實這是唯一把 champion 推過 DSR>0.95 的口徑
+    # (系統B/C: OOS Sharpe +2.61~2.73, maxDD -3.9%, DSR 0.995~0.998);
+    # 舊 MA150+stage+tsmom 口徑量級較弱(OOS +2.17)且無 DSR 憑證。
+    ma200 = p["ix_close"].rolling(200, min_periods=200).mean()
+    ma200_slope = ma200 - ma200.shift(25)
+    ma200_up = ma200_slope > 0
+    above200 = p["ix_close"] > ma200
+    armed = above200 & ma200_up
+    # Weinstein 階段 (30週≈150d) 保留為情境標籤 (非閘門)
     ma150 = p["ix_close"].rolling(150, min_periods=150).mean()
     slope = ma150 - ma150.shift(25)
     slope_up = slope > 0
     tsmom = (p["ix_close"] / p["ix_close"].shift(126) - 1.0)
     above = p["ix_close"] > ma150
-    armed = (above & slope_up & (tsmom > 0))
     stage = np.where(above & slope_up, "S2 上升",
              np.where(above & ~slope_up, "S3 頭部",
              np.where(~above & ~slope_up, "S4 下降", "S1 基底")))
@@ -185,8 +235,9 @@ def compute(p: pd.DataFrame) -> dict:
     pos = armed.astype(float) * size
     volm = p["ix_money"]
     vol_ratio = volm / volm.rolling(50, min_periods=50).mean()
-    p = p.assign(ma150=ma150, slope25=slope, tsmom126=tsmom, armed=armed,
-                 stage=stage, z60=z60, size=size, position=pos, vol_ratio=vol_ratio)
+    p = p.assign(ma200=ma200, ma200_slope=ma200_slope, ma150=ma150, slope25=slope,
+                 tsmom126=tsmom, armed=armed, stage=stage, z60=z60, size=size,
+                 position=pos, vol_ratio=vol_ratio)
     return {"panel": p}
 
 
@@ -194,17 +245,21 @@ SIZE_TXT = {0.0: "空手", 0.5: "半倉", 1.0: "全倉"}
 
 
 def _margin_verdict(m: dict) -> tuple[str, str, str]:
-    """(light emoji, dot-bool-for-html, state text)."""
+    """(light emoji, html-color-key, state text). 扣除ETF維持率。"""
     if m["dual"]:
-        return "🟢", "green", "雙確認底訊號亮起（維持率斷頭 × 外資回補）"
+        return "🟢", "green", "雙確認底訊號亮起（維持率追繳區 × 外資回補）"
+    if m["extreme"]:
+        return "🟠", "amber", "極端斷頭區（<120%，如2025/04），待外資期貨回補確認"
     if m["deep"]:
-        return "🟡", "amber", "維持率進 145% 斷頭區，待外資期貨回補確認"
+        return "🟠", "amber", "維持率進 130% 追繳區，待外資期貨回補確認"
+    if m["watch"]:
+        return "🟡", "amber", "維持率 <140% 斷頭壓力區（顯著止跌傾向），觀察"
     if m["cover"]:
-        return "⚪", "gray", f"外資回補 {m['cover_streak']} 日，但維持率未到斷頭區"
+        return "⚪", "gray", f"外資回補 {m['cover_streak']} 日，維持率未到壓力區"
     return "⚪", "gray", "未觸發（監控中）"
 
 
-def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None) -> tuple[str, str, dict]:
+def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None, rev=None) -> tuple[str, str, dict]:
     last = p.iloc[-1]
     prev = p.iloc[-2]
     d = str(last["date"])
@@ -240,9 +295,9 @@ def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None) -> tuple[str,
     md.append(f"> 大盤 {ix:,.0f}（{ixchg:+.2f}%）｜ 系統部位 = {pos:.1f}（L0 階段 × L2 籌碼）\n")
     md.append("| 燈 | 狀態 | 細節 |")
     md.append("|---|---|---|")
-    md.append(f"| {light(l0_ok)} 階段 (L0) | {stage}{'，已武裝' if armed else '，未武裝'} | "
-              f"MA150={last['ma150']:,.0f}（{'站上' if ix>last['ma150'] else '跌破'}）｜"
-              f"斜率{'↑' if last['slope25']>0 else '↓'}｜6月動能{'+' if last['tsmom126']>0 else '−'} |")
+    md.append(f"| {light(l0_ok)} 閘門 (L0) | {'站上且上彎 MA200，已武裝' if armed else '未武裝'}（{stage}） | "
+              f"MA200={last['ma200']:,.0f}（{'站上' if ix>last['ma200'] else '跌破'}）｜"
+              f"MA200{'上彎↑' if last['ma200_slope']>0 else '下彎↓'}｜驗證閘門 DSR 0.995 |")
     md.append(f"| {light(l2_ok)} 籌碼 (L2) | 外資期貨 z60={z60:+.2f} → {SIZE_TXT[sz]} | "
               f"淨未平倉 {last['fut_foreign_oi']:,.0f} 口（日{last['fut_foreign_doi']:+,.0f}）｜"
               f"現貨外資 {last['foreign']:+.0f} 億 |")
@@ -254,12 +309,20 @@ def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None) -> tuple[str,
         froth = (f"融資 froth z60={margin['mb_z60']:+.2f}｜券資比 {margin['szr']:.2f}%"
                  if margin.get("mb_z60") is not None else "")
         md.append(f"| {ml} 融資斷頭底 (監控) | {mstate} | "
-                  f"維持率 {margin['maint']:.1f}%（距145斷頭區 {margin['gap_to_145']:+.1f}pp）｜"
+                  f"扣除ETF維持率 {margin['maint']:.1f}%（距130追繳區 {margin['gap_to_130']:+.1f}pp）｜"
                   f"外資期貨回補 {margin['cover_streak']} 日｜{froth} |")
     if vix:
         vl, vstate = _vix_verdict(vix)
         md.append(f"| {vl} 恐慌 gate (L0, 監控) | {vstate} | "
                   f"VIX {vix['vix']:.1f}｜60日 z-score {vix['vix_z60']:+.2f}（>2 觸發, perm p=0.035） |")
+    if rev:
+        _active = pos > 0
+        _rl = "🟢" if _active else "⚪"
+        _rs = ("啟用（系統做多 → 大型股營收動能多頭偏重）" if _active
+               else "監控（系統空手,傾斜不啟用）")
+        _top = "、".join(x.split(" ", 1)[-1] for x in rev["names"][:5])
+        md.append(f"| {_rl} 選股傾斜 (L1, {'overlay' if _active else '監控'}) | {_rs} | "
+                  f"大型股高營收動能 {rev['n']} 檔（{_top}…）｜as-of {rev['asof']}, 選股傾斜非alpha |")
     if night and "error" not in night:
         nb = night["bias_pct"]
         md.append(f"| {'🟢' if nb>0 else '🔴'} 夜盤 (L3, 參考) | 夜盤{nb:+.2f}% vs 日盤 | "
@@ -274,9 +337,10 @@ def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None) -> tuple[str,
         ptxt = SIZE_TXT.get(r["position"], f"{r['position']:.1f}")
         md.append(f"| {r['date']} | {r['ix_close']:,.0f} | | {r['stage']} | {r['z60']:+.2f} | {ptxt} |")
     md.append("")
-    md.append("_定位：**風控工具、非打敗大盤**。近8年系統總報酬 x1.78 < 買進持有 x3.66（賺約一半），"
-              "但 Sharpe +1.31>0.94、回撤 −10% vs −32%——用放棄上漲換平穩。84% 時間空手，"
-              "只在趨勢×外資期貨同時確認才做多。DSR 未過關量級勿過度信；2022 空頭為弱點；訊號會衰減。_")
+    md.append("_定位：**風控工具、非打敗大盤**。L0 閘門 = 驗證版站上且上彎 MA200（integrated_multigate "
+              "DSR 0.995、OOS Sharpe +2.68、maxDD −3.8%；全樣本 Sharpe +1.80）。只在「站上上彎 MA200 × "
+              "外資期貨 z60>0」同時確認才做多，VIX spike 時 risk-off。**最大保留：全部 OOS 只跨單一偏多頭"
+              "週期，2022 空頭失效，未過真空頭前非定論；訊號會衰減。** 非投資建議。_")
     md_txt = "\n".join(md)
 
     # html (self-contained, theme-aware traffic-light)
@@ -293,13 +357,20 @@ def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None) -> tuple[str,
         froth = (f"融資 froth z60 {margin['mb_z60']:+.2f}・券資比 {margin['szr']:.2f}%"
                  if margin.get("mb_z60") is not None else "")
         margin_row = (f'<tr><td>{_dotmap[_c]} 融資斷頭底 <small>(監控)</small></td><td>{mstate}</td>'
-                      f'<td>維持率 {margin["maint"]:.1f}%（距145斷頭區 {margin["gap_to_145"]:+.1f}pp）・'
+                      f'<td>扣除ETF維持率 {margin["maint"]:.1f}%（距130追繳區 {margin["gap_to_130"]:+.1f}pp）・'
                       f'外資期貨回補 {margin["cover_streak"]}日・{froth}</td></tr>')
     vix_row = ""
     if vix:
         _ve, _vstate = _vix_verdict(vix)
         vix_row = (f'<tr><td>{_ve} 恐慌 gate <small>(L0監控)</small></td><td>{_vstate}</td>'
                    f'<td>VIX {vix["vix"]:.1f}・60日 z {vix["vix_z60"]:+.2f}（&gt;2 觸發, perm p=0.035）</td></tr>')
+    rev_row = ""
+    if rev:
+        _ra = pos > 0
+        _rtop = "、".join(x.split(" ", 1)[-1] for x in rev["names"][:5])
+        rev_row = (f'<tr><td>{"🟢" if _ra else "⚪"} 選股傾斜 <small>(L1{"overlay" if _ra else "監控"})</small></td>'
+                   f'<td>{"啟用・大型股營收動能多頭偏重" if _ra else "監控（系統空手不啟用）"}</td>'
+                   f'<td>大型股高營收動能 {rev["n"]} 檔（{_rtop}…）・as-of {rev["asof"]}・選股傾斜非alpha</td></tr>')
     poscolor = "#16a34a" if pos > 0 else "#6b7280"
     html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>籌碼→大盤 風控燈號 {d}</title>
@@ -320,27 +391,31 @@ th{{background:#8881}} small{{color:#999}}
 <div class="ix">大盤 {ix:,.0f} <span style="color:{'#16a34a' if ixchg>=0 else '#dc2626'}">({ixchg:+.2f}%)</span> ｜ 系統部位 {pos:.1f}</div>
 <table>
 <tr><th>燈</th><th>狀態</th><th>細節</th></tr>
-<tr><td>{dot(l0_ok)} 階段 <small>(L0)</small></td><td>{stage}{'・已武裝' if armed else '・未武裝'}</td><td>MA150 {last['ma150']:,.0f}・斜率{'↑' if last['slope25']>0 else '↓'}・6月動能{'+' if last['tsmom126']>0 else '−'}</td></tr>
+<tr><td>{dot(l0_ok)} 閘門 <small>(L0)</small></td><td>{'站上且上彎 MA200・已武裝' if armed else '未武裝'}（{stage}）</td><td>MA200 {last['ma200']:,.0f}（{'站上' if ix>last['ma200'] else '跌破'}）・MA200{'上彎↑' if last['ma200_slope']>0 else '下彎↓'}・驗證閘門 DSR 0.995</td></tr>
 <tr><td>{dot(l2_ok)} 籌碼 <small>(L2)</small></td><td>外資期貨 z60 {z60:+.2f} → {SIZE_TXT[sz]}</td><td>淨未平倉 {last['fut_foreign_oi']:,.0f} 口 (日{last['fut_foreign_doi']:+,.0f})・現貨外資 {last['foreign']:+.0f}億</td></tr>
 <tr><td>{'🟡' if vol_hot else '⚪'} 價量</td><td>{vtxt} ({last['vol_ratio']:.2f}×)</td><td>投信 {last['trust']:+.0f}・自營 {last['dealer']:+.0f}億</td></tr>
 {margin_row}
 {vix_row}
+{rev_row}
 {night_row}
 </table>
-<div class="note"><b>定位：風控工具、非打敗大盤。</b>近8年系統總報酬 x1.78 &lt; 買進持有 x3.66（約賺一半），但 Sharpe +1.31&gt;0.94、最大回撤 −10% vs −32%——用放棄上漲換平穩。84% 時間空手，只在趨勢 × 外資期貨同時確認才做多。Deflated Sharpe 未過關 → 量級勿過度相信；2022 空頭為已知弱點；訊號會衰減需持續監控。</div>
+<div class="note"><b>定位：風控工具、非打敗大盤。</b>L0 閘門 = 驗證版站上且上彎 MA200（integrated_multigate DSR 0.995・OOS Sharpe +2.68・maxDD −3.8%；全樣本 Sharpe +1.80）。只在「站上上彎 MA200 × 外資期貨 z60&gt;0」同時確認才做多，VIX spike 時 risk-off。<b>最大保留：全部 OOS 只跨單一偏多頭週期，2022 空頭失效，未過真空頭前非定論；訊號會衰減需持續監控。</b></div>
 </body></html>"""
 
     state = {"date": d, "ix_close": ix, "ix_chg_pct": round(ixchg, 2),
              "stage": stage, "armed": armed, "z60": round(float(z60), 3),
              "size": sz, "position": pos, "headline": headline}
     if margin:
-        state.update({"maint": round(margin["maint"], 1),
-                      "maint_deep145": margin["deep"],
+        state.update({"maint_exetf": round(margin["maint"], 1),
+                      "maint_deep130": margin["deep"],
                       "fut_cover_streak": margin["cover_streak"],
                       "margin_dual_bottom": margin["dual"]})
     if vix:
         state.update({"vix": round(vix["vix"], 1), "vix_z60": round(vix["vix_z60"], 2),
                       "vix_spike": vix["spike"]})
+    if rev:
+        state.update({"rev_tilt_n": rev["n"], "rev_tilt_active": pos > 0,
+                      "rev_tilt_asof": rev["asof"]})
     return md_txt, html, state
 
 
@@ -377,6 +452,7 @@ def main():
     ap.add_argument("--no-night", action="store_true", help="skip TX night-session fetch")
     ap.add_argument("--no-maint", action="store_true", help="skip 融資維持率 fetch (斷頭底監控燈)")
     ap.add_argument("--no-vix", action="store_true", help="skip VIX 恐慌 gate fetch (L0 風控燈)")
+    ap.add_argument("--no-rev", action="store_true", help="skip L1 大型股營收動能多頭傾斜燈")
     ap.add_argument("--no-ops", action="store_true", help="skip Supabase ops-console push")
     args = ap.parse_args()
 
@@ -385,12 +461,18 @@ def main():
         print("Refreshing panel from FinMind ...")
         refresh_panel()
     p = load_panel().sort_values("date").reset_index(drop=True)
+    maint = None if args.no_maint else load_maintenance()
+    if maint is not None:
+        p["_dk"] = pd.to_datetime(p["date"]).astype(str).str[:10]
+        p = p.merge(maint.rename(columns={"date": "_dk"}), on="_dk", how="left").drop(columns=["_dk"])
     res = compute(p)
     # night fetch is cheap + independent of the daily panel -> always attempt (unless --no-night)
     # so the 06:00 morning run can update the night light on the prior close's dashboard.
     night = None if args.no_night else fetch_night_bias()
     vix = None if args.no_vix else load_vix()
-    md, html, state = build_dashboard(res["panel"], night, vix=vix)
+    rev = None if args.no_rev else load_rev_tilt()
+    margin = compute_margin_light(res["panel"]) if maint is not None else None
+    md, html, state = build_dashboard(res["panel"], night, margin=margin, vix=vix, rev=rev)
 
     (OUT / "daily_dashboard.md").write_text(md, encoding="utf-8")
     (OUT / "daily_dashboard.html").write_text(html, encoding="utf-8")
