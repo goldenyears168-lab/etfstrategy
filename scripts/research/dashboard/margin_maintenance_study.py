@@ -283,8 +283,11 @@ def near_call_breadth(db_path: Path, call_line: float = 140.0) -> pd.DataFrame:
     backfill. Evaluate against forward flush events, NOT next-day return.
     """
     raise NotImplementedError(
-        "SCAFFOLD: needs full-universe per-stock maintenance (data/replica or "
-        "FinMind TaiwanStockMarginPurchaseShortSale backfill)."
+        "IMPLEMENTED 2026-07-30 in margin_nearcall_breadth_study.py (replica-based, "
+        "~145 large/mid caps). Verdict: bearish-cascade-precursor hypothesis FALSIFIED; "
+        "direction is contrarian (extreme near-call breadth = capitulation-bottom marker, "
+        "fwd20 +3.5% lift @p95). Event-level, ~7 clustered crises, DSR/perm fail as "
+        "systematic. Universe still large-cap-only; small-cap retail backfill outstanding."
     )
 
 

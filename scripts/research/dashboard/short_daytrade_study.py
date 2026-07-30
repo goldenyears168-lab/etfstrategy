@@ -295,6 +295,105 @@ def run_real():
     return res
 
 
+# ------------------------- REAL market-level headline (aggregated ~50 large-cap) ---------
+MKT = ROOT / "data" / "research" / "dashboard" / "short_daytrade_mkt.parquet"
+
+
+def run_mkt():
+    """三個 headline 訊號的市場層(top-~50 大型股聚合 proxy)一次性誠實 IS/OOS 研究。
+
+    資料 = fetch_short_daytrade_mkt.py 抓的 FinMind 逐股聚合:
+        daytrade_ratio  當沖比重 = Σ當沖賣額 / Σ成交值
+        sbl_util/sbl_bal 借券賣出使用率/餘額(機構做空擁擠)
+        margin_util     融資使用率 = Σ融資餘額 / Σ融資限額
+    對照 champion = 外資台指期 positioning。方向由 IS IC 固定。訊號 shift(1) T+1(盤後公布)。
+    """
+    if not (MKT.exists() and PANEL.exists()):
+        print(f"[mkt] missing data: {MKT.exists()=} {PANEL.exists()=}")
+        return None
+    p = pd.read_parquet(PANEL).sort_values("date").reset_index(drop=True)
+    d = pd.read_parquet(MKT)
+    p["date"] = pd.to_datetime(p["date"])
+    d["date"] = pd.to_datetime(d["date"])
+    m = p.merge(d, on="date", how="left", suffixes=("", "_mkt")).sort_values("date").reset_index(drop=True)
+
+    day_ret = (m["ix_close"] / m["ix_open"] - 1.0).shift(-1)   # 隔日 開->收, T+1
+
+    champ_bull = rz(m["fut_foreign_oi"], 60) > 0
+    champ_ret = long_flat(champ_bull, day_ret)
+    ma200 = m["ix_close"].rolling(200, min_periods=200).mean()
+    bull_regime = (m["ix_close"] > ma200)
+
+    signals = {
+        # 當沖比重 z60 (散戶過熱代理) — T+1
+        "daytrade_ratio_z60": rz(m["daytrade_ratio"].shift(1), 60),
+        # 借券賣出使用率 z60 (機構做空擁擠) — T+1
+        "sbl_util_z60": rz(m["sbl_util"].shift(1), 60),
+        # 借券賣出餘額 z60 (空單水位) — T+1
+        "sbl_bal_z60": rz(m["sbl_bal"].shift(1), 60),
+        # 融資使用率 z60 (散戶槓桿擁擠) — T+1
+        "margin_util_z60": rz(m["margin_util"].shift(1), 60),
+    }
+    n_trials = len(signals)
+
+    have = m["daytrade_ratio"].notna() | m["sbl_util"].notna() | m["margin_util"].notna()
+    eval_idx = m.index[have]
+    if len(eval_idx) == 0:
+        print("[mkt] no non-null signal rows — fetch produced empty aggregate"); return None
+    lo, hi = eval_idx.min(), eval_idx.max()
+    # need >=60 warmup for z60; start eval after warmup
+    lo_z = lo + 60
+    sub = (m.index >= lo_z) & (m.index <= hi)
+    n_eval = int(sub.sum())
+    is_cut = lo_z + int(n_eval * 0.7)
+    ismask = pd.Series((m.index >= lo_z) & (m.index < is_cut), index=m.index)
+    oos = pd.Series((m.index >= is_cut) & (m.index <= hi), index=m.index)
+
+    print("=" * 80)
+    print("REAL market-level study — 當沖比重/借券賣出使用率/融資使用率 (FinMind top-~50 聚合)")
+    print(f"  signal-coverage n={int(have.sum())} ({m['date'].iloc[lo].date()}~{m['date'].iloc[hi].date()})")
+    print(f"  eval(z60 warmup後) n={n_eval}  IS={int(is_cut-lo_z)} "
+          f"({m['date'].iloc[lo_z].date()}~{m['date'].iloc[is_cut-1].date()})"
+          f"  OOS={int(hi-is_cut+1)} ({m['date'].iloc[is_cut].date()}~{m['date'].iloc[hi].date()})")
+    print(f"  B&H OOS Sharpe={sharpe(day_ret[oos]):+.2f} ; "
+          f"champion(fut_foreign_oi z60>0) OOS={sharpe(champ_ret[oos]):+.2f}")
+    print("-" * 80)
+
+    rows = []
+    for name, v in signals.items():
+        v = pd.Series(v, index=m.index)
+        bull, direction, ic_is = directed_signal(v, day_ret, ismask)
+        r = long_flat(bull, day_ret)
+        dd = pd.DataFrame({"v": v, "f": day_ret}).dropna()
+        om = oos.reindex(dd.index).fillna(False)
+        ic_oos = dd[om]["v"].corr(dd[om]["f"]) if om.sum() > 20 else np.nan
+        oos_shp = sharpe(r[oos])
+        _, pv = perm_p(bull, day_ret, oos)
+        dsr = deflated_sharpe(r[oos], n_trials)
+        corr_champ = pd.DataFrame({"a": r, "b": champ_ret}).dropna().corr().iloc[0, 1]
+        oos_bull = oos & bull_regime.fillna(False)
+        oos_bear = oos & (~bull_regime.fillna(True))
+        rows.append({
+            "signal": name, "dir": int(direction),
+            "IC_IS": ic_is, "IC_OOS": ic_oos,
+            "OOS_Sharpe": oos_shp, "OOS_perm_p": pv, "OOS_DSR": dsr,
+            "corr_champ": corr_champ,
+            "OOS_bull": sharpe(r[oos_bull]), "OOS_bear": sharpe(r[oos_bear]),
+            "expo": float(bull.reindex(day_ret.index).fillna(False).mean()),
+        })
+    res = pd.DataFrame(rows)
+    pd.set_option("display.float_format",
+                  lambda x: f"{x:+.3f}" if isinstance(x, float) else str(x))
+    print(res.to_string(index=False))
+    print("-" * 80)
+    print("讀法: OOS_perm_p>0.1=贏不過同曝險隨機; OOS_DSR<0.95=多重檢定後不顯著;")
+    print("      corr_champ 高=只是 champion/動能重述; bull>>bear=僅多頭有效(regime濾網)。")
+    out_csv = OUT / "short_daytrade_mkt.csv"
+    res.to_csv(out_csv, index=False)
+    print(f"\n-> {out_csv}")
+    return res
+
+
 # ------------------------- SCAFFOLD: 外接資料抓取 -------------------------
 # SCAFFOLD: 需先同步 FinMind 三個 dataset,以下函式呼叫才會發網路請求;import 安全。
 FINMIND_BASE = "https://api.finmindtrade.com/api/v4/data"
@@ -397,6 +496,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scaffold", action="store_true", help="只印外接資料清單")
     ap.add_argument("--anchor", action="store_true", help="只跑市場券資比 proxy anchor")
+    ap.add_argument("--mkt", action="store_true", help="只跑市場層 headline 聚合(FinMind top-~50)")
     args = ap.parse_args()
     if args.scaffold:
         scaffold_report()
@@ -404,7 +504,10 @@ def main():
     if args.anchor:
         run_anchor()
         return
-    run_real()          # default: REAL headline signals (FinMind)
+    if args.mkt:
+        run_mkt()
+        return
+    run_mkt()           # default: REAL market-level headline (FinMind top-~50 aggregate)
     print()
     run_anchor()        # local proxy anchor for cross-check
 

@@ -154,9 +154,39 @@ anchor 明確支持全維度假設：**信用擁擠家族在市場層是弱的�
 
 → 本地可算的「信用擁擠」proxy = **弱濾網,非獨立 alpha**,與既有融資研究一致。
 
-**headline 三訊號(借券 SBL / 當沖 / 融資使用率)未完成**:Phase-2 fetch agent 僅抓到 **1 列**有效資料(`short_daytrade_data.parquet` 的 `sbl_short_bal`/`daytrade_val` 非空僅 1 筆)。原因:`TaiwanDailyShortSaleBalances`、`TaiwanStockDayTrading` 是**逐股 dataset**,單次市場層呼叫抓不到日序列,需**全宇宙逐股抓取後 per-date 聚合**(吃配額),或改用 **TWSE 市場層 endpoint**(當沖統計 `TWTBAU`、借券賣出彙總)。→ 已列入 **Phase-3 backlog(最高優先 #9)**,以 TWSE 市場層正式回填後重跑本框架。
+**headline 三訊號(借券 SBL / 當沖 / 融資使用率)Phase-2 未完成**:fetch agent 僅抓到 **1 列**有效資料。原因:`TaiwanDailyShortSaleBalances`、`TaiwanStockDayTrading` 是**逐股 dataset**,單次市場層呼叫抓不到日序列。TWSE OpenAPI 只回**當日快照無歷史**;TWSE legacy `TWTASU` 為**逐股逐日**(1 call/日,全序列 ~2000 calls 過重)。→ Phase-3 改以 **FinMind 逐股聚合**回填(見下)。
 
-**維度總結 verdict**:`券資比 proxy = 弱濾網(perm 0.48)`;headline SBL(唯一有學術背書的知情空方)待正式回填才能定論,但家族先驗偏「動能鏡像/regime 濾網」而非獨立 alpha。落 L2~L3,與 champion 搭配為過熱/擁擠確認,非 alpha 疊加。
+---
+
+## 8b. Phase-3 補完:市場層 headline 正式回填 + 重跑(2026-07-31)
+
+**資料回填(真資料,誠實覆蓋)**:`fetch_short_daytrade_mkt.py` 逐股抓 **固定 top-~50 大型股宇宙**(0050 式,含 2330/2317/2454…共 50 檔,當沖與借券活動集中於此),FinMind 4 dataset(`TaiwanStockDayTrading`/`TaiwanDailyShortSaleBalances`/`TaiwanStockMarginPurchaseShortSale`/`TaiwanStockPrice`)per-date 聚合。輸出 `data/research/dashboard/short_daytrade_mkt.parquet`(**1356 日, 2021-01-04→2026-07-29, ~67k 列/表, 覆蓋率 1350/1356**)。
+
+> **覆蓋誠實**:此為 **top-~50 大型股聚合 proxy,非全市場**;窗口 2021+(FinMind 逐股回溯成本考量)。全市場當沖比重的官方單一序列(TWSE 集中市場當日沖銷統計)無歷史 OpenAPI,故採大型股聚合代理——這正是當沖/借券活動最集中處,代表性可接受但非普查。
+
+三個 headline 市場層聚合訊號(`daytrade_ratio` 當沖比重 / `sbl_util`·`sbl_bal` 借券賣出使用率·餘額 / `margin_util` 融資使用率),全部 z60 正規化、`shift(1)` T+1(盤後公布),一次性誠實 IS/OOS 70/30。基準 **B&H OOS Sharpe +0.26;champion OOS +1.08**(`short_daytrade_mkt.csv`,eval n=1290,IS 2021-04→2024-12,OOS 2024-12→2026-07):
+
+| 訊號 | dir | IC_IS | IC_OOS | OOS Sharpe | OOS perm p | OOS DSR | corr_champ | OOS 多頭 | OOS 空頭 | 曝險 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 當沖比重 z60 | −1 | −0.003 | +0.034 | +0.227 | **0.311** | 0.604 | 0.355 | +0.77 | −1.82 | 32% |
+| 借券賣出使用率 z60 | −1 | −0.030 | −0.029 | +0.354 | **0.372** | 0.662 | 0.273 | +0.29 | +1.30 | 35% |
+| 借券賣出餘額 z60 | +1 | +0.027 | +0.024 | −0.017 | **0.666** | 0.485 | 0.436 | +0.50 | −1.51 | 38% |
+| 融資使用率 z60 | +1 | +0.003 | −0.003 | +0.264 | **0.438** | 0.621 | 0.158 | +0.29 | — | 27% |
+
+**判讀(全部證偽,乾淨 null)**:
+- **IC ≈ 0**(|IC_IS| ≤ 0.03、|IC_OOS| ≤ 0.034):四訊號市場層對隔日大盤報酬**無方向資訊**,連「動能偽裝」都稱不上(動能代理的 IC 會顯著且 walk-forward 衰減;這裡是純噪音)。
+- **permutation p 全 > 0.3**(0.31~0.67):**沒有一個贏得過同曝險隨機洗牌**——OOS Sharpe(+0.23~+0.35)純屬曝險期間市場本身上漲的被動 beta,非訊號擇時。
+- **DSR 全 < 0.66 << 0.95**:多重檢定 + 尾部校正後全不顯著。
+- **corr_champ 低(0.16~0.44)**:與 champion 弱相關本是好事(潛在正交增量),但既然訊號本身無 alpha,低相關只是「另一團噪音」。
+- **regime 不穩**:當沖比重/借券餘額多頭 +0.77/+0.50、空頭 −1.82/−1.51(空頭反傷);借券使用率反而空頭 +1.30——**符號不一致、不可靠**,是小樣本 regime 雜訊非真 gate。
+
+這與學術一致:借券賣出、當沖的 edge 是**橫斷面**(個股 decile,Chang&Chen 2009 / Barber et al.),**市場總量層本就同步~無預測力**(Rev. Asset Pricing Studies 2023:總短單低頻/總量僅弱負向)。市場聚合把橫斷面資訊平均掉了。
+
+**維度總結 verdict = `乾淨 null(市場層)`**:
+- 三個 headline(當沖比重 / 借券賣出 / 融資使用率)在**市場層聚合皆為乾淨 null**——IC≈0、permutation 全敗、DSR 全不顯著、regime 符號不穩。**非獨立 alpha、非動能偽裝、非前兆**,就是市場層噪音。
+- 與 Phase-2 anchor(市場券資比 proxy perm 0.48)完全一致:**整個「信用擁擠/微結構」家族在市場總量層都贏不過同曝險隨機**。
+- **唯一可能殘存的價值在橫斷面個股層**(SBL decile 選股、當沖過熱個股濾網),市場層 headline **不落入觀盤 alpha 疊加**;若要進系統只能當 L3 資訊性面板(擁擠度顯示),不作方向訊號、不與 champion 疊加擇時。
+- champion(外資台指期 positioning, OOS +1.08)仍是唯一領先者;本家族市場層無增量。
 
 ---
 

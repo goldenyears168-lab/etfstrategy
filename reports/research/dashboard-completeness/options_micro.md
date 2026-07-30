@@ -1,11 +1,11 @@
 # 選擇權籌碼維度（Options Microstructure）研究
 
 維度：**臺指選擇權 P/C ratio、Max Pain、選擇權大額/法人買賣權淨部位、小台散戶多空比**
-狀態：**已實跑（全維度真資料）**——S1/S2/S3/S4 四訊號皆跑完真實 IS/OOS + permutation + Deflated-Sharpe + 殘差-IC 共線控制。TXO 全史（2018-01→2026-07，2085 日）PCR_OI/PCR_vol/Max Pain 已抓並回測。
+狀態：**已實跑（全維度真資料）**——S1/S2/S3/S4 四訊號 + **S5 大額交易人買賣權淨（gap-fill 2026-07-30 補完）** 皆跑完真實 IS/OOS + permutation + Deflated-Sharpe + 殘差-IC 共線控制。TXO 全史（2018-01→2026-07）PCR_OI/PCR_vol/Max Pain + 大額交易人前五/前十大 OI（2018-06→2026-07，1985 日，99.9% 覆蓋）已抓並回測。
 日期：2026-07-30　·　對照 champion：外資台指期 positioning `fut_foreign_oi_z60>0`
-腳本：`scripts/research/dashboard/options_micro_study.py`
-資料：`data/research/dashboard/options_micro_data.parquet`（合併四訊號 + fwd return，供重用）、`pcr_maxpain.parquet`（PCR/MaxPain 全史）
-**verdict：動能偽裝（momentum disguise）為主 · S1 為 champion 的選擇權回聲（弱確認/加權），無獨立 alpha**
+腳本：`scripts/research/dashboard/options_micro_study.py`（S1–S4）、`scripts/research/dashboard/options_large_traders_study.py`（**S5 gap-fill**）
+資料：`data/research/dashboard/options_micro_data.parquet`（合併四訊號 + fwd return，供重用）、`pcr_maxpain.parquet`（PCR/MaxPain 全史）、`opt_large_traders.parquet`（**S5 大額 top5/top10 淨偏多度**）、`options_large_traders_results.csv`
+**verdict：動能偽裝（momentum disguise）為主 · S1 為 champion 的選擇權回聲（弱確認/加權），無獨立 alpha · S5 大額交易人買賣權淨＝乾淨 null（§8 step 3 的「唯一可能翻案」已證偽，未翻案）**
 
 ---
 
@@ -107,6 +107,28 @@ DSR 試驗數 N=8（4 訊號 × ~2 正規化）；DSR>0.95 才算通過搜尋膨
 
 **一句話 verdict：整個選擇權籌碼維度 = 動能/positioning 偽裝為主，無獨立 alpha 通過 DSR。** 最強的 S3 被 DSR + 殘差-IC 雙殺；唯一保有微弱殘差的 S1 是 champion 的回聲。價值在**確認外資期貨 champion**（同向加信心），不在新增因子。
 
+### 5c. S5 大額交易人買賣權淨偏多度（gap-fill 2026-07-30，§8 step 3 的「唯一可能翻案」）
+
+**問題**：`TaiwanOptionOpenInterestLargeTraders`（TXO 前五/前十大交易人 call/put 買賣 OI）是否比 S1（外資選擇權淨）更**乾淨的領先**訊號？先驗 = 領先（Pan-Poteshman 槓桿論：大戶用最高槓桿合約表達方向）。
+
+**訊號定義**（contract_type='all'，前十大）：`lt_bull_top10 = [(買 call OI−賣 call OI) − (買 put OI−賣 put OI)] / 市場總 OI`；即大戶「淨多 call 淨空 put＝偏多」，對總 OI 正規化後 z60。方向由 IS IC 符號固定。變體：top5/top10 × z60/z20 共 4 個（DSR N_TRIALS=4）。資料 1985 日、panel 覆蓋 99.9%。
+
+| 訊號 | dir(IS) | IC_IS | OOS Sharpe | 多頭only | perm p | corr champ | combo OOS | **DSR** | rIC(扣mom+champ) | rIC(再扣S1) |
+|------|---------|-------|-----------|---------|--------|-----------|-----------|---------|------------------|-------------|
+| S5 top10 z60 | −1 | **−0.0076** | 0.44 | 0.77 | 0.233 | 0.45 | 0.83 | 0.570 | **−0.031** | −0.029 |
+| S5b top5 z60 | −1 | −0.0074 | 0.59 | 0.86 | 0.120 | 0.47 | 0.96 | 0.657 | −0.033 | −0.030 |
+| S5c top10 z20 | −1 | −0.0262 | 0.89 | 1.21 | 0.038 | 0.50 | 1.13 | 0.807 | −0.031 | −0.029 |
+| **S5d top5 z20** | −1 | −0.0158 | **1.13** | 1.38 | **0.013** | 0.46 | 1.31 | **0.892** | −0.026 | −0.024 |
+
+**共線矩陣（Pearson）**：S5(top10) vs champion = **0.16**、vs **S1 = 0.007（近乎正交！）**、top5 vs top10 = 0.92（互為穩健性）。
+
+**解讀（三個獨立證據，全部指向 null，證偽優先）：**
+1. **IS IC ≈ 0 且為負**（−0.007 ~ −0.029）。方向被固定成 **−1（反指標）**，與「大戶＝聰明錢領先偏多」的先驗**符號相反**——即大戶淨偏多**不是**後市走強的領先訊號。且量級是雜訊等級（|IC|<0.03），樣本內幾乎無預測力。這與微結構常識一致：**TXO 前十大 OI 由造市商/避險腳主導**，其 call/put 淨部位主要是 delta-hedge 副產物，不是方向 view。
+2. **殘差 IC 扣掉動能+champion 後＝負（−0.026 ~ −0.033）**，且**再扣 S1 仍為負**。頭條 z20 的漂亮 OOS Sharpe（S5d 1.13、perm p=0.013 顯著）與 S3 PCR_OI **同一個病**：permutation 只檢定「勝過同曝險隨機」不控動能共線，所以動能偽裝照樣過 perm；一旦迴歸掉動能，殘差方向**反轉為負**——毫無獨立正向資訊。
+3. **DSR 全數未過**（0.57~0.89，最高 S5d 0.892<0.95）。4 變體搜尋去化後，最好的 Sharpe 統計上與零無異。
+
+**翻案結論：未翻案。** S5 大額交易人買賣權淨部位雖然**與 S1 近乎正交（corr 0.007）**——證實它是一條「新序列」而非 S1 的回聲——但它**自身 IS IC≈0、方向與先驗相反、殘差 IC 為負、DSR 全 fail**。正交但無訊號＝乾淨 null，不是更乾淨的領先 alpha。§8 step 3 標記的「目前唯一可能翻案的方向」到此**證偽關閉**。
+
 ---
 
 ## 6. lead_lag 定位、L0–L3 分層、與 champion 怎麼搭
@@ -117,7 +139,7 @@ DSR 試驗數 N=8（4 訊號 × ~2 正規化）；DSR>0.95 才算通過搜尋膨
 | S3 PCR_OI | **同步偏落後**（情緒鏡像） | L2 | **動能偽裝**（殘差 −0.008、DSR 0.845） | **不採為方向訊號**；頭條 OOS +1.22 是動能+positioning 組合，非新資訊 |
 | S2 小台散戶多空比 | **落後 + 反指標** | L2→L3 | 落後（殘差 −0.028、未過檢定） | **前兆/過濾**：z 創高＝擁擠反轉前兆，對 champion 多單做**減碼閘門** |
 | S4 Max Pain 偏離 | 微結構（非方向光譜） | **L3** | 雜訊（殘差 ≈0） | **到期週彩蛋**：僅結算週啟用，(close−MaxPain) 均值回歸弱先驗 |
-| 大額交易人買賣權（延伸，未接） | **領先**（最純大戶） | L2 | 待補 | 同 S1，接資料驗證是否比 S1 更乾淨 |
+| **S5 大額交易人買賣權淨**（gap-fill 已補） | 先驗領先，實測**無方向資訊** | **L3→棄用** | **乾淨 null**（IC≈0、方向反先驗、殘差IC負、DSR fail） | **不採**：與 S1 正交(0.007)但自身無訊號；前十大 OI 多造市商避險腳，非方向 view。頂多當儀表板讀數，不進決策 |
 
 分層邏輯：L0 regime（MA200/多頭）→ L1 價量 → **L2 籌碼核心（champion 期貨 positioning 為主腳；S1 選擇權 positioning 僅作同向確認/加權）** → L3 微結構（S4 到期週、S2 散戶擁擠前兆）。**S3 PCR_OI 雖數字最漂亮但被 DSR+殘差-IC 雙殺，不進入方向決策層，只保留作情緒儀表板讀數。** 上層有效才啟用下層。
 
@@ -139,7 +161,7 @@ DSR 試驗數 N=8（4 訊號 × ~2 正規化）；DSR>0.95 才算通過搜尋膨
 
 1. **（已完成）** S3 PCR_OI 全史 IS/OOS + DSR + 殘差-IC；S4 Max Pain 全史回測 → 結論：動能偽裝 / 雜訊。
 2. **（已完成）** S1/S3 殘差-IC 共線控制（扣 champion + 20 日動能）→ 只有 S1 保留 +0.023 微弱殘差。
-3. 接 `TaiwanOptionOpenInterestLargeTraders`（大額交易人前五/前十大特定法人買賣權淨），驗證是否比 S1 更乾淨的領先訊號——目前唯一可能翻案的方向（待補）。
+3. **（已完成 2026-07-30 gap-fill）** 接 `TaiwanOptionOpenInterestLargeTraders`（前五/前十大買賣權淨偏多度 z60/z20），驗證是否比 S1 更乾淨的領先訊號 → **證偽關閉，未翻案**：與 S1 正交(corr 0.007) 但自身 IS IC≈0、方向反先驗、殘差 IC 為負、DSR 全 fail = 乾淨 null（前十大 OI 由造市商避險腳主導，非方向 view）。詳見 §5c。**選擇權維度已無翻案候選，最終定論＝S1 弱確認 champion 為唯一有效用途。**
 4. S4 僅在「明確到期週 + 指定到期序列」回測 (close−MaxPain) 均值回歸，避免週選使「到期週」天天成立的界定模糊；平日方向因子已確認無效。
 5. S3 可保留為**情緒儀表板讀數**（非方向訊號）：極端 PCR_OI 分位＋多頭 regime 作為 champion 多單的擁擠度旁證，但不進方向決策。
 

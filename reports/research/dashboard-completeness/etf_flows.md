@@ -1,7 +1,7 @@
 # ETF 申贖 / 受益人數 / 折溢價 維度（ETF Flows & Sentiment）研究
 
 維度：**ETF 申贖(創建/贖回=受益權單位數變動)、受益人數(集保持有人數)、折溢價(市價 vs NAV)**
-狀態：**真資料已跑（S1 flow + S3 holders）** — FinMind `TaiwanStockHoldingSharesPer` 週頻回填 2018→2026、8 檔主要 ETF；**S2 折溢價 待補**（FinMind 無 NAV dataset）
+狀態：**真資料已跑（S1 flow + S3 holders）** — FinMind `TaiwanStockHoldingSharesPer` 週頻回填 2018→2026、8 檔主要 ETF；**S2 折溢價＝待補（已窮盡免費歷史 NAV 源、確認無可得，見 §7 gap-fill 2026-07-30）**
 **Verdict：非真 alpha（無穩健預測力）+ S2 待補。** 6 個設計變體(受益人數/SHOUT申贖/人均持有 × CORE4/全宇宙)在大盤層 IS IC 皆 ≈0（|IC|≤0.012）；唯一 OOS 正值(hg_all +0.83) permutation p=0.077 未過、且與 champion **正相關+0.37**（非預期的反向鏡像）。
 日期：2026-07-30　·　對照 champion：外資台指期 positioning `fut_foreign_oi_z60>0`（OOS Sharpe **+1.116**）
 腳本：`scripts/research/dashboard/etf_flows_study.py`（研究）· `etf_flows_fetch.py`（抓資料）· 資料 `data/research/dashboard/etf_flows_data.parquet`
@@ -168,6 +168,37 @@ pcap_all       +1  0.000  +0.079  0.37  0.575 -0.007    0.419   0.64  0.48   人
 6. **申贖與公司行動混淆**：除息、成分股調整、實物/現金申贖會造成 SHOUT 非情緒性跳動。→ 剔除公司行動日。
 7. **高股息 ETF 結構性申購潮（2023–26）**：長期單邊申購是產品週期非可交易情緒。→ z-score 去趨勢窗口不可太短，否則把結構誤判為訊號。
 8. **DSR 門檻**：OOS Sharpe 漂亮不算數，要過 Deflated-Sharpe 且 permutation vs 同曝險隨機。
+
+---
+
+## 7. Gap-fill：S2 折溢價（premium/discount）NAV 源窮盡調查（2026-07-30）
+
+**任務**：補 S2 折溢價（市價 vs 官方每日淨值），測其超短 mean-revert 與「笨錢擁擠」反向燈。
+**結果 verdict：`待補`（實跑 = 資料不可得的証偽）** — 折溢價需**歷史每日官方 NAV**當分母；經以下全面探測，**免費/已授權管道皆無台股 ETF 歷史 NAV**，故 S2 無法在本專案紀律下乾淨計算。此非「未做」，而是「已窮盡、確認無源」。
+
+### 已探測來源（全部真呼叫、逐一記錄）
+
+| 來源 | 探測內容 | 結果 |
+|------|----------|------|
+| **FinMind** | 全 dataset enum（實抓 103 個 dataset 名）grep `nav/net/asset/etf/fund/premium` | **無任何 NAV dataset**。僅有 `TaiwanStockActiveETFHolding/Info`（主動式 ETF 持股，非 NAV）。四個猜名 `TaiwanStockETFNetAssetValue / TaiwanETFNAV / TaiwanStockETFReport / ETFNetValue` 全回 HTTP 422 enum 拒絕。**確認無 NAV。** |
+| **FinMind 指數** | `TaiwanStockTotalReturnIndex`（想用「台灣50報酬指數」建 0050 price/index 折溢價 proxy） | 僅含 `data_id=TAIEX`（大盤報酬指數 46583.96）。`TW50/0050/IX0001/…` 皆 0 列 → **無台灣50指數**，無法建市值型 ETF 的 NAV proxy。 |
+| **TEJ（E-SHOP 斜槓）** | `EWPRCD`（0050 有日 K，含 `close_adj`）；`EWIPRCD`（指數表，實抓單日=**僅 16 檔**指數 `IR0001..IX0118`） | ETF 市價分子有，但 **16 檔指數無台灣50**（只有大盤/電子/金融等寬基）；TEJ 方案表（EWPRCD/EWIPRCD/EWIFINQ/EWSALE）**無 NAV 表**。→ 分母仍缺。 |
+| **TWSE OpenAPI**（免 token） | swagger 全表 grep ETF/NAV/fund；實抓 `ETFReport/ETFRank` | 僅 `ETFRank`（ETF **交易戶數**排名，欄=NumberofTradingAccounts）+ `MI_QFIIS`（外資持股）。**無 NAV / 折溢價**，且 OpenAPI 一律**當日快照無歷史**。 |
+| **TWSE rwd/pcversion**（`ETF/etfInout`） | 三個路徑 × 帶/不帶 date | 皆回 **HTML 頁面**（非 JSON data endpoint），無法程式化取歷史折溢價。 |
+| **TPEX OpenAPI** | `tpex.org.tw/openapi/v1/` | 本環境 **SSL CERTIFICATE_VERIFY_FAILED**（Missing Subject Key Identifier），無法取。 |
+| **本地 `stocks.db`** | `etf_holdings_meta.nav`（第三方估算淨值）× `stock_daily_bars`（ETF 市價） | `nav` 僅涵蓋**主動式 ETF**（00980A/00981A/…，各 ~22 列非空），**與本維度宇宙（0050/0056/00878）零交集**；市價僅 0050/0056（2025-05→，~14 月）。**價與淨值無重疊、且淨值非官方**→ 無法建面板。 |
+
+### 為何不硬補（誠實取捨）
+
+- **最乾淨的市值型 proxy（0050 price ÷ 台灣50報酬指數，detrend 去費用漂移＝折溢價）本可跑，但兩大 index 源（FinMind/TEJ）皆無台灣50指數**，改用 TAIEX 當分母則成分（全上市 vs 前50大）差異會被大/小型股離散度污染，非乾淨折溢價 → 呈報即失實，不做。
+- **真正的「笨錢擁擠」froth 在高股息 ETF（00878/00929/00940 於 2023–24 溢價數 %）**，其追蹤的是**客製指數**、無公開歷史指數可對 → 即使有市值型 proxy 也打不到最有故事的標的。
+- 剩餘唯一路徑＝**爬玩股網/MoneyDJ 折溢價頁**（HTML、逐檔逐日、易碎），配額/穩健度成本高，且母維度 S1+S3 已定調**非真 alpha**、S2 最有價值標的又拿不到 NAV → 邊際期望值低，判定不值得起爬蟲。
+
+### 落層與 champion 搭配（維持事前設計，未變）
+
+S2 事前設計＝**L1 觸發閘門**（Xu 2022：溢價日的申購 / 折價日的贖回才算數）+ 超短線 mean-revert 前兆；當 champion（`fut_foreign_oi_z60`）的**反向情緒 overlay**。**因 NAV 不可得，S2 未進任何 L0–L3 生產層，掛 `待補`**。若日後接得官方每日 NAV（TPEX ETF 專區修好 SSL、或投信官網申報頁），可直接套 `etf_flows_study.py` 既有 `eval_signal` 全套證偽管線（IS/OOS 70/30 + permutation + DSR + 去 champion 共線 + regime）跑 S2。
+
+**S2 覆蓋誠實**：官方每日 NAV = 0 檔 × 0 日（不可得）；市價分子 = 局部可得（0050/0056 本地 ~14 月、TEJ EWPRCD 全檔）；proxy 指數分母 = 無台灣50。→ **S2 折溢價 real_result 無數字，verdict=待補。**
 
 ---
 

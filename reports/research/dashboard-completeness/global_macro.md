@@ -1,7 +1,7 @@
 # 國際總經錨 (SOX / DXY / US10Y / VIX / Fed / 新台幣匯率) —— L0 regime + 開盤 gap 前兆維度研究
 
-_研究員: 量化研究組 · 日期: 2026-07-30 · 對齊 chip-macro 方法論_
-_腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可實跑) · 結果 CSV: `global_macro_metrics.csv`(A) · `global_macro_strandB_metrics.csv` + `global_macro_vix_gate.csv`(B) · 外部真資料: `data/research/dashboard/global_macro_data.parquet`_
+_研究員: 量化研究組 · 日期: 2026-07-30(STRAND C Fed/VIXTWN 補於 2026-07-31)· 對齊 chip-macro 方法論_
+_腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B)· `scripts/research/dashboard/global_macro_fed_vixtwn_study.py`(STRAND C:Fed + VIXTWN)· 結果 CSV: `global_macro_metrics.csv`(A)· `global_macro_strandB_metrics.csv` + `global_macro_vix_gate.csv`(B)· `global_macro_fed_metrics.csv` + `global_macro_fed_gate.csv` + `global_macro_vixtwn_compare.csv`(C)· 外部真資料: `global_macro_data.parquet`(VIX/DXY/US10Y/USDTWD)· `global_macro_fed_data.parquet`(EFFR+FOMC 目標區間)· `global_macro_vixtwn_data.parquet`(TAIFEX VIXTWN,僅免費近3月)_
 
 ---
 
@@ -10,7 +10,8 @@ _腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可�
 國際錨都是 **外生的風險/資金背景,不是台股內生籌碼**;它們最高價值是 **L0 regime gate + 開盤前 gap 預期**,不是獨立 alpha。本輪把兩條都用 **真資料實跑完**:
 
 - **STRAND A (SOX / 台積 ADR 隔夜, 本地)**: 開盤 gap 高相關是機械式、已 priced 不可交易;開盤後 intraday 續勢的表面 edge (OOS Sharpe 2.0) 對「TAIEX 自身動能 + 外資現貨流」正交化後完全崩解 (OOS Sharpe −0.77、perm p=0.87、DSR 0.005) —— 動能偽裝。
-- **STRAND B (VIX / DXY / US10Y / USDTWD, Yahoo 真資料 2018→2026, 1986 對齊日)**: 當 **連續因子** 全都 **無訊號** —— |IC_OOS| ≤ 0.08、同曝險 permutation p 全部 **不顯著 (0.08–0.46)**,表面 OOS Sharpe 1.2–3.2 純粹是 long/flat 吃大盤漂移的假象。**唯一真實效果是 VIX 當事件式恐慌 gate**: VIX 60日 z-spike > 2 → 次日 TAIEX 均報酬 −0.099% vs 平時 +0.088%,**同曝險 permutation p=0.035 (勉強顯著的 risk-off 前兆)**;VIX 極值 (>40) 的 5 日均值回歸 (+0.89%) 方向對但 **不顯著 (p=0.88, n=38, 樣本太少)**。正交化顯示這些錨與 champion (fut_foreign_oi) **幾乎不共線 (corr ±0.03)** —— 不是冗餘,只是本身弱。**Fed / 在地 VIXTWN 未抓 → 待補。**
+- **STRAND B (VIX / DXY / US10Y / USDTWD, Yahoo 真資料 2018→2026, 1986 對齊日)**: 當 **連續因子** 全都 **無訊號** —— |IC_OOS| ≤ 0.08、同曝險 permutation p 全部 **不顯著 (0.08–0.46)**,表面 OOS Sharpe 1.2–3.2 純粹是 long/flat 吃大盤漂移的假象。**唯一真實效果是 VIX 當事件式恐慌 gate**: VIX 60日 z-spike > 2 → 次日 TAIEX 均報酬 −0.099% vs 平時 +0.088%,**同曝險 permutation p=0.035 (勉強顯著的 risk-off 前兆)**;VIX 極值 (>40) 的 5 日均值回歸 (+0.89%) 方向對但 **不顯著 (p=0.88, n=38, 樣本太少)**。正交化顯示這些錨與 champion (fut_foreign_oi) **幾乎不共線 (corr ±0.03)** —— 不是冗餘,只是本身弱。
+- **STRAND C (Fed 政策路徑 + 在地 VIXTWN,本輪補齊真資料)**: **Fed** 用 **NY Fed EFFR + FOMC 目標區間** 真資料 (2018-01→2026-07,2153 日) 跑完 —— 連續因子 (利率變動/水位 z) **IC 符號 IS↔OOS 全翻、perm p 全不顯著 (0.35–1.0)、bear regime 崩壞 → 乾淨 null**;但 **降息循環 regime gate 是真效果**: 目標上緣低於 6 個月前 (進行中降息) → TAIEX 未來 20 日均報酬 **+2.53% vs 平時 +1.15%**(同曝險 perm p=0.000),且 **與 MA200 多頭僅弱共線 (corr 0.12)**、在 **空頭中反而救援** (bear+cutting fwd20 **+3.48%** vs bear+not −0.12%) —— 典型「Fed put」。**但降息episode獨立樣本極少 (2019/2020/2024-25 ≈ 2-3 段,自相關灌 n) → IS-可信但無法 OOS-穩健,只能當 L0 背景燈,非獨立 alpha**。**在地 VIXTWN** TAIFEX 每月檔 **僅免費近 3 月** (更早付費 edatashop NT$3000/半年) → 全歷史 falsification **待補 (paywall)**;免費 3 月 (2026-05→07,61 日重疊,含 7 月台股 −8% 急殺) descriptive: 與 ^VIX level corr 0.69 / 變動 corr 0.55(**共動但非同一序列**)、VIXTWN 均值 37.8 vs ^VIX 17.4(在地波動約 2 倍),次日 TAIEX 預測 IC 在此危機小樣本 **未勝過 lag+1 ^VIX**(VIXTWN −0.10 vs ^VIX −0.25,但 n=61 單一 regime 不足下結論)→ **「去時差 VIXTWN 更優」假設 = 樣本不足未證,待付費全史補**。
 
 ---
 
@@ -70,8 +71,8 @@ _腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可�
 | **US10Y** | ✅ **已抓真資料** 2018-01→2026-07 (2154 列;`^TNX` 已是 yield% 本身,如 4.62) | Yahoo v8 chart `^TNX` |
 | **VIX** | ✅ **已抓真資料** 2018-01→2026-07 (2156 列) | Yahoo v8 chart `^VIX` |
 | **USDTWD** | ✅ **已抓真資料** 2018-01→2026-07 (2233 列) | Yahoo v8 chart `USDTWD=X`(國際報價,非台銀牌告) |
-| Fed | ⏳ **待補** (未抓) | FRED `FEDFUNDS` / `DFEDTARU` + FOMC 行事曆 (需 FRED key) |
-| 在地 VIXTWN | ⏳ **待補** (未抓) | TAIFEX 台指選擇權隱波 (去美盤時差,優於 ^VIX;非 FinMind) |
+| **Fed** | ✅ **已抓真資料** 2018-01→2026-07 (2153 日,目標上緣 1.50%→3.75%) | **NY Fed markets API EFFR**(FRED CSV/API 本環境 timeout,改用權威原始源;含 FOMC 目標區間 targetRateFrom/To,可精準抽政策事件)→ `global_macro_fed_data.parquet` |
+| 在地 VIXTWN | ⚠️ **部分** 僅免費近 3 月 (2026-05→07,62 日) | TAIFEX 每月檔 `.../Dailydownload/vix/log2data/YYYYMMnew.txt`(big5;僅最近 ~3 月免費,全史付費 edatashop NT$3000/半年)→ `global_macro_vixtwn_data.parquet`;**全史 falsification 待補** |
 
 四錨真資料存於 `data/research/dashboard/global_macro_data.parquet`(`fetch_external_to_parquet()` 直打 Yahoo v8 chart API 產出,yfinance 常被 rate-limit 故改直打)。`run_strand_b()` 讀此 parquet → merge_asof(+1 TW 日防前視) → 同一 `evaluate_anchor` 框架。**Fed / VIXTWN 需 FRED key / TAIFEX 頁面,本輪未接,誠實標待補。**
 
@@ -162,11 +163,64 @@ _腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可�
 | **DXY** | **待補/無訊號** | L0 背景 | 連續因子 IC≈0、perm 不顯著;不共線 champion。當背景燈,無獨立 alpha。 |
 | **US10Y** | **待補/無訊號** | L0 背景 | 同 DXY;bear regime 甚至翻負(符號不穩),只能條件化背景。 |
 | **USDTWD** | **待補/無訊號** | L0/同步 | 連續因子無訊號;意外地與 foreign **不冗餘**(corr −0.18),但本身無 edge。 |
-| Fed / VIXTWN | **待補 (未抓)** | L0 | 需 FRED key / TAIFEX 頁面,本輪未接。 |
+| **Fed** | **背景/降息put(真但episode少)** | **L0 背景** | 連續因子 null;**降息 gate** 顯著抬升 fwd20 且救援空頭,但獨立 episode 極少→非 OOS-穩健,當背景放行燈。 |
+| 在地 VIXTWN | **待補 (paywall)** | L0 | 免費近 3 月不足;與 ^VIX corr 0.69 共動,未證更優。 |
 
 **整維度定位**: **不是獨立 alpha**。VIX 是唯一站得住的真效果 —— 一個 **弱但顯著的 L0 恐慌前兆/gate**(用來 veto champion 的多頭武裝,非並列第二支腳);DXY/US10Y/USDTWD 當連續因子 **無訊號**,只能當最上層 risk 背景燈。與 champion 的搭配是 **條件化/否決**,不是正交 alpha 疊加 —— 且因與 champion 幾乎不共線,VIX veto 是 **非冗餘** 的補充。
 
 > 重跑: `python scripts/research/dashboard/global_macro_study.py --with-external`(讀本地 parquet;`--refetch` 重抓 Yahoo)
+
+---
+
+## 4C. 實跑結果 (STRAND C — Fed 政策路徑 + 在地 VIXTWN,gap-fill 補齊,2026-07-31)
+
+補既有兩個「待補」錨。腳本 `scripts/research/dashboard/global_macro_fed_vixtwn_study.py`(重用 STRAND A/B 同一 `evaluate_anchor`)。
+
+### (a) Fed 政策路徑 → TAIEX (連續因子;NY Fed EFFR + FOMC 目標區間,2153 日;US 序列 lag+1 TW 日)
+
+| 訊號[target] | IC_IS | IC_OOS | OOS Sharpe | perm p | OOS DSR | bull | bear |
+|---|---|---|---|---|---|---|---|
+| Fed_easing3m[fwd5] | +0.102 | **−0.074** | +0.76 | 1.00 | 0.31 | +2.08 | −4.59 |
+| Fed_easing3m[fwd20] | +0.180 | **−0.157** | +1.87 | 1.00 | 0.87 | +4.13 | −8.26 |
+| Fed_easing6m[fwd20] | +0.082 | **−0.140** | +5.65 | 0.75 | 1.00 | +6.49 | +2.60 |
+| Fed_level_z[fwd5] | −0.103 | **+0.037** | +3.68 | — | 1.00 | +4.64 | +0.67 |
+| Fed_level_z[fwd20] | −0.236 | **+0.089** | +7.93 | 0.52 | 1.00 | +9.57 | +2.60 |
+| Fed_easing6m ⟂(foreign+champ)[fwd20] | +0.086 | −0.125 | +7.43 | 0.35 | 1.00 | +8.58 | +2.60 | corr_champ −0.03 / corr_foreign −0.06 |
+
+**解讀 — 連續因子=乾淨 null**: 每一列 **IC 符號 IS↔OOS 全翻**(easing IS 正→OOS 負;level IS 負→OOS 正),這是無訊號的教科書指紋;唯一誠實判準 **同曝險 perm p 全部 0.35–1.0(無一顯著)**,漂亮的 OOS Sharpe 5–8 純是 OOS 多頭窗 long/flat 吃漂移(fwd20 重疊視窗灌 Sharpe,同 STRAND B),bear regime 一律崩壞。正交化後仍 null,與 champion 幾乎不共線(−0.03)→ **不冗餘但本身無 edge**。
+
+### (b) Fed 降息 regime GATE(事件式,同曝險 permutation 5000)—— 這才是真效果
+
+| gate | target | n | gate 內均報酬 | gate 外均報酬 | perm p |
+|---|---|---|---|---|---|
+| **降息循環 (目標上緣<6M前)** | fwd20 | 643 | **+2.53%** | +1.15% | **0.000 (高於隨機)** |
+| 升息循環 (目標上緣>6M前) | fwd20 | 600 | +0.71% | +1.99% | 0.000 (低於隨機) |
+| 降息循環 (目標上緣<6M前) | fwd5 | 643 | +0.66% | +0.24% | 0.001 (高於隨機) |
+| FOMC 降息事件當日→ | fwd5 | 11 | — | — | n<20 (樣本太少) |
+
+**bull/bear 交叉(揭穿是否只是多頭 regime 重述)**:
+
+| | cutting (降息中) | not-cutting |
+|---|---|---|
+| **bull (>MA200)** | +2.29% (n=516) | +1.74% (n=901) |
+| **bear (<MA200)** | **+3.48% (n=127)** | **−0.12% (n=422)** |
+
+**解讀 — 真但 episode 少**: 降息循環顯著抬升 TAIEX fwd20(+2.53% vs +1.15%,perm p=0.000),**且與 MA200 多頭僅弱共線(corr 0.12,P(bull|cutting)=0.80 vs 0.69)** → 不是把既有多頭 gate 換句話說。最有力的是 **空頭中的降息反而把 fwd20 從 −0.12% 翻成 +3.48%** —— 典型「**Fed put**」(寬鬆救市)。**但致命限制: 2018–2026 只有 ≈2–3 段獨立降息 episode(2019 mid-cycle / 2020 COVID / 2024–25),643 個「降息日」高度自相關,有效獨立 n 極低**(與 margin C3 深斷頭 n=4 同一陷阱)→ **IS-可信,無法 OOS-穩健,不敢當交易訊號,只能當 L0 背景放行燈**。與 a-priori(寬鬆=risk-on 背景)一致。
+
+### (c) 在地 VIXTWN(同日,去美盤時差) vs ^VIX(lag+1)—— 免費 3 月 descriptive
+
+TAIFEX VIXTWN **全歷史付費(edatashop NT$3000/半年)**,免費只有最近 3 個月。本輪抓到 **2026-05-04→07-30(62 日;與 panel 重疊 61 日)**,恰含 7 月下旬台股 −8% 急殺(TAIEX 07-27→07-29 43634→40039)。
+
+| 指標 | 值 | 說明 |
+|---|---|---|
+| corr(VIXTWN, ^VIX) level | **0.69** | 共動但非同一序列 |
+| corr(ΔVIXTWN, Δ^VIX) | 0.55 | 日變動中度連動 |
+| VIXTWN 均值 / ^VIX 均值 | **37.8 / 17.4** | 在地波動約 2 倍(TAIEX 更集中、電子權重高 + 本窗危機) |
+| 次日 TAIEX 預測 IC(高波→低報酬,dir −1) | VIXTWN **−0.10** vs ^VIX(lag+1) **−0.25** | 危機窗兩者皆呈「高波→次日反彈」(均值回歸);此小樣本 VIXTWN **未勝過** lag+1 ^VIX |
+
+**解讀 — 假設樣本不足未證**: 任務核心問「去時差的 VIXTWN 是否優於 lag+1 ^VIX」。在唯一可得的免費 61 日(且是單一危機 regime)中,VIXTWN 與 ^VIX 高度共動(0.69),但 **次日預測力並未勝過** lag+1 ^VIX。n=61 單 regime 遠不足以做 IS/OOS+permutation → **判定 verdict='待補'(需付費全史)**;先驗上「在地無時差應更即時」仍合理,但 **本輪無法證實**。
+
+> 重跑: `.venv/bin/python scripts/research/dashboard/global_macro_fed_vixtwn_study.py`(`--refetch` 重抓 NY Fed + TAIFEX)
 
 ---
 
@@ -181,9 +235,10 @@ _腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可�
 | **DXY** | 待補/無訊號 (IC≈0) | **L0 背景** | **過濾 (弱)**: 連續因子無區辨力,只能當美元強弱背景燈。 |
 | **US10Y** | 待補/無訊號 (符號不穩) | **L0 背景** | **過濾 (條件化)**: bear regime 翻負,不可與 champion 線性疊加。 |
 | **USDTWD** | 待補/無訊號 | **L0/同步** | **意外非冗餘 (corr foreign −0.18)** 但本身無 edge → 不採用。 |
-| Fed / VIXTWN | 待補 (未抓) | **L0 最上層** | 需 FRED key / TAIFEX;寬鬆循環當背景放行。 |
+| **Fed 政策路徑** | **背景/Fed put(真但 episode 少)** | **L0 最上層** | **放行/救援**: 連續因子 null;**降息循環** 顯著抬 fwd20(+2.53%)且救空頭(bear+cut +3.48%),但 ≈2–3 段獨立 episode 無法 OOS-穩健 → 背景燈,非交易腳。與 champion 不共線(−0.03)。 |
+| 在地 VIXTWN | **待補 (paywall)** | **L0 gate** | 免費近 3 月不足;與 ^VIX corr 0.69,未證更即時。付費全史補後可望取代 ^VIX 當 **去時差恐慌 gate**。 |
 
-**總定位**: 真資料證實 —— **沒有一個錨是獨立 alpha,也沒有一個比 champion 更領先**。唯一站得住的增量價值 = **VIX 大 spike 當 L0 恐慌 veto**(弱但顯著,且非冗餘);DXY/US10Y/USDTWD 連續因子 **無訊號**,只能當最上層風險背景燈。角色是 **否決/過濾 champion**,不是與之並列的第二支獨立腳。
+**總定位**: 真資料證實 —— **沒有一個錨是獨立 alpha,也沒有一個比 champion 更領先**。站得住的增量價值 = **VIX 大 spike 當 L0 恐慌 veto**(弱但顯著,非冗餘)+ **Fed 降息循環當 L0 背景/Fed put 放行燈**(真效果但獨立 episode 少,不敢當訊號);DXY/US10Y/USDTWD/Fed 連續因子 **全無訊號**,只能當最上層風險背景燈。角色是 **否決/過濾/放行 champion**,不是與之並列的第二支獨立腳。
 
 ---
 
@@ -204,9 +259,10 @@ _腳本: `scripts/research/dashboard/global_macro_study.py`(STRAND A + B 皆可�
 
 1. **立即可用 (零工程)**: SOX/ADR gap 前兆已在 `tech_risk_daily_snapshot` 生產化 —— 當「開盤前 gap 預期 + 弱開盤別追多」的 **確認燈**,不當獨立訊號。
 2. **唯一實測站得住的**: **VIX 大 spike (60日 z>2) 當 L0 恐慌 veto** —— 次日 risk-off 顯著 (p=0.035) 且與 champion 幾乎不共線 (非冗餘)。可接進 L0 gate,恐慌噴出當天壓低 champion 的多頭曝險;**量級小,定位 veto 燈非 alpha**。下一步優先 **抓在地 VIXTWN**(去美盤時差,同日可用,應優於 ^VIX)驗證同一效果。
-3. **無訊號,只當背景**: **DXY / US10Y / USDTWD** 連續因子 IC≈0、permutation 不顯著,**不新增任何交易腳**;僅在 dashboard 當風險背景燈。
-4. **待補資料**: **Fed** (FRED `FEDFUNDS`+FOMC 行事曆) 與 **在地 VIXTWN** (TAIFEX) 本輪未抓,誠實標待補;Fed 學術上 pre-FOMC drift 已衰減,低優先。
-5. **USDTWD 冗餘疑慮已釐清**: 與 foreign 現貨流 corr 僅 −0.18,**非高度共線**(先前假設過重);但因本身無 edge,結論仍是不採用。
+3. **無訊號,只當背景**: **DXY / US10Y / USDTWD / Fed 連續因子** IC≈0(Fed 更是 IS↔OOS 符號全翻)、permutation 不顯著,**不新增任何交易腳**;僅在 dashboard 當風險背景燈。
+4. **Fed 降息循環當 L0 背景/Fed put 放行燈**(gap-fill 已補真資料): 降息中 fwd20 顯著抬升且救空頭,與 champion 不共線 —— 可在 dashboard 當「寬鬆背景放行、緊縮背景收斂 champion 多頭曝險」的最上層燈;**但獨立 episode 僅 2–3 段,務必標『非 OOS-穩健、非交易訊號』**。Fed 資料源: **NY Fed EFFR API**(FRED 本環境 timeout)。
+5. **在地 VIXTWN 待補 (paywall)**: TAIFEX 全史付費(NT$3000/半年),免費僅近 3 月不足做 falsification;免費窗顯示與 ^VIX corr 0.69 共動、未證更優。**建議**: 若要正式驗「去時差 VIXTWN > lag+1 ^VIX」,需採購 edatashop 全史(2007+)或改用 MacroMicro/investing.com 長序列。目前 L0 恐慌 gate 仍用 ^VIX(STRAND B,p=0.035)。
+6. **USDTWD 冗餘疑慮已釐清**: 與 foreign 現貨流 corr 僅 −0.18,**非高度共線**(先前假設過重);但因本身無 edge,結論仍是不採用。
 
 ---
 

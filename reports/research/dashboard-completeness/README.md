@@ -27,7 +27,7 @@
 | ETF 申贖/受益人數/折溢價 | ✅ 已實跑(真資料·部分) | 領先但 CONTRARIAN | **[P2 真集保 8 檔 ETF n=2548]** 大盤層散戶擁擠 6 變體(受益人數增率/SHOUT申贖/人均持有)全無穩健 edge:IS IC≈0、方向先驗符號不一致、唯一 OOS 正的 hg_all perm p=0.077 未過;動能偽裝已排除=乾淨雜訊。combo 混用拖累 champion。**仍缺**:S2 折溢價(FinMind 無官方 NAV,422 拒絕)+ 個股/類股橫斷面 | [etf_flows.md](./etf_flows.md) |
 | 國際總經錨（VIX/DXY/US10Y/USDTWD/Fed） | ✅ 已實跑(真資料·部分) | L0 regime + 事件 gate | **[P2 Yahoo 四錨真序列 n=1986]** 連續因子全無訊號(|IC_OOS|≤0.08、perm p 0.08–0.46),表面高 Sharpe/DSR 是 long-flat 吃漂移+重疊視窗自相關假象;唯一真效果=VIX 事件式恐慌 gate(60日z>+2.0 → 次日 TAIEX −0.099% vs 平時+0.088%,perm p=0.035,與 champion 非冗餘 corr±0.03)。DXY/US10Y/USDTWD 無訊號僅當風險背景燈。**仍缺**:Fed(FRED)+ 在地 VIXTWN | [global_macro.md](./global_macro.md) |
 
-**status 統計（Phase-2 真資料補實後,2026-07-30）：10 已實跑(真資料) / 1 待接資料。** 其中 6 個維度本輪由 proxy/待接 升級為真資料實跑(期貨進階·選擇權·融資維持率·大戶集中度·ETF·國際總經),4 個標「部分」= 主市場層已真跑但仍缺子維度(見各列「仍缺」)。唯一仍全待接 = 信用微結構(借券/當沖/使用率,需 FinMind resync)。**真資料補實後淨新增獨立 alpha = 0**:六維度全數落入「動能偽裝 / champion 冗餘鏡像 / 乾淨 null」,champion 仍是唯一領先 alpha。
+**status 統計（Phase-3 清帳後,2026-07-31）：11 已實跑(真資料) / 0 全待接。** Phase-2 把 6 維度由 proxy/待接 升級為真資料;Phase-3 把最後仍全待接的**信用微結構(借券/當沖/融資使用率)以 FinMind 逐股聚合固定 top-~50 大型股市場層真跑**(short_daytrade_mkt.parquet,1350/1356 日)= 乾淨 null,並補完 4 個「部分」維度的子訊號(選擇權大額買賣權、個股近斷頭廣度、Fed gate、大戶集中度中小型延伸)。仍留「部分」的子缺口:個股層 SBL 橫斷面、VIXTWN 全史(付費)、ETF 折溢價 NAV(免費源全無)、董監質押(FinMind 無)。**市場層/總量層淨新增獨立 alpha 仍 = 0**——所有市場聚合訊號續入「動能偽裝 / champion 冗餘 / 乾淨 null」。**唯一新增真增益出現在 deeper 研究的橫斷面個股層:TEJ 月營收 YoY 動能(rev_yoy_3m,DSR 0.967 過關)= 專案首個過 DSR 的橫斷面 alpha,落全新 L1 基本面選股層**(見末節 Phase-3)。個股近斷頭廣度另揭一個**方向翻轉**:高廣度=恐慌觸底反向 marker,非看空前兆。
 
 ### 1b. 已深耕的 5 大命名維度（既有研究,分散在 chip-macro / branch 目錄）
 
@@ -38,6 +38,9 @@
 | 三大法人（現貨淨買超） | 🟡 partial | 同步 | 外資現貨=同步指標,單獨資訊量弱(IC 弱於期貨 OI);缺專門的獨立維度證偽報告(多當配角) |
 | 期貨未平倉 OI（champion） | ✅ have | **領先** | 全專案唯一 champion;fut_foreign_oi_z60>0 OOS +1.12;誠實下修:DSR borderline 0.869、空頭年失效 = 弱 risk-on regime filter 非 standalone alpha |
 | 融資餘額 margin | ✅ have | **落後** | 對大盤同步偏落後(峰值落後 11 天),去趨勢後相關僅 0.006 = 無獨立解釋力;真正訊號在券資比(軋空) |
+| **月營收 YoY 動能（L1 基本面·Phase-3 新增）** | 🆕 have | 橫斷面選股(非擇時) | **專案首個過 DSR(rev_yoy_3m OOS 0.967)的橫斷面真 alpha**;IC IS+OOS 同正、空頭抗反轉、與 champion 正交疊加(不需其閘門)。開全新 L1 基本面選股層。保留:PEAD 族已知因子、TEJ 2021+ OOS 偏多頭。詳見末節 Phase-3 B3 |
+
+> **1b 新增(2026-07-31）:Phase-3 深化線挖出第 6 支命名維度=月營收 YoY 動能,是 champion 以外首個獨立過 DSR 的訊號,但屬「橫斷面選股腳」(L1)而非第二支大盤擇時腳;champion 仍是唯一大盤領先擇時 alpha。**
 
 > 相關既有報告路徑（絕對）：
 > - `/Users/jackm4/Documents/ETF/股票研究/reports/research/chip-macro/RESEARCH_LOG.md`（Stage 1-8）
@@ -152,27 +155,31 @@
 排序原則：**訊號價值 ÷ 接資料成本**。乾淨免費 API + 能解鎖 L0 風控或補 champion 缺的維度 = 優先;需自建爬蟲/組裝且訊號已證偽 = 暫緩。
 
 > **Phase-2(2026-07-30)更新:backlog #1、#3–#8 已用真資料實跑解決(全數證偽,無新增 alpha);#11/#14 部分解(受益人數/散戶多空比已跑,折溢價 NAV/大額買賣權仍缺)。狀態欄 ✅=已解、🟡=部分、⛔=仍缺。**
+>
+> **Phase-3(2026-07-31)更新:再清 6 個缺口 + 3 個深化研究。已解:#10 當沖(市場層乾淨 null)、#14 選擇權大額買賣權(乾淨 null)、#16 個股近斷頭廣度(反向觸底 marker)、#6 Fed(降息 regime gate 為真 Fed put,落 L0 背景)。部分:#9 SBL(市場層聚合=乾淨 null,個股橫斷面仍缺)、#1 VIXTWN(付費牆,免費僅近 3 月 n=61 不足)、#11 ETF NAV(窮盡探測確認免費源全無)。仍缺:#13 董監質押(FinMind 無,待爬 MOPS)。深化:integrated_multigate 四閘系統實測、TEJ 還原價盲點量化、TEJ 基本面因子 → **首個新增真 alpha:月營收 YoY 動能(rev_yoy_3m,DSR 0.967 過關,L1 基本面新層)**。**
 
 | # | 狀態 | 待補資料源 | 解鎖維度 | 成本 | 價值 | 備註 |
 |---|---|---|---|---|---|---|
-| 1 | ✅已解 | **Yahoo `^VIX`**(或在地 VIXTWN) → daily_bars | L0 恐慌 gate | 極低 | 高 | **P2 已抓真序列**;VIX 60日z>+2.0 事件 gate perm p=0.035 真效果(與 champion 非冗餘)。仍缺在地 VIXTWN(去美盤時差) |
+| 1 | 🟡部分 | **Yahoo `^VIX`(已解)**;在地 VIXTWN(TAIFEX,付費牆) | L0 恐慌 gate | 極低 | 高 | **P2 VIX 真序列**(z>+2.0 gate perm p=0.035 真效果)。**P3 試補 VIXTWN**:TAIFEX 免費僅近 3 月 n=61(單一危機 regime,不足做 falsification),全史付費 NT$3000/半年;「去時差 VIXTWN>lag+1 ^VIX」假設樣本不足未證 |
 | 2 | ⛔仍缺 | **FinMind `TaiwanFuturesInstitutionalInvestors` resync** | champion 本地 stale 至 2026-07-08 | 極低 | 高 | champion 資料必須是新的才有用,優先 resync(P2 用既有 panel 未 resync) |
 | 3 | ✅已解 | **PCR_OI/PCR_vol**(P2 用 FinMind `TaiwanOptionDaily` 逐年 range) | 選擇權 PCR(L3 情緒) | 低 | 中 | **P2 全史真跑**;PCR_OI OOS +1.22 但 DSR 0.845+殘差IC≈0 雙殺=動能偽裝 |
 | 4 | ✅已解 | **FinMind `TaiwanStockHoldingSharesPer`**(保留 people) | 大戶集中度 + ETF 受益人數 | 低 | 中 | **P2 一次解鎖兩維度真跑**;大戶集中度 164 檔 null、ETF 受益人數乾淨雜訊 |
 | 5 | 🟡部分 | **USD/TWD**(P2 用 Yahoo `USDTWD=X`,非台銀牌告) | 國際錨 TWD | 低 | 中 | **P2 已抓**;與 foreign corr 僅 −0.18 非冗餘但本身無 edge。仍缺台銀牌告官方源 |
-| 6 | ✅已解 | **Yahoo `^TNX`(US10Y) + `DX-Y.NYB`(DXY)** → macro_daily | US10Y / DXY(L0 低頻) | 低 | 中 | **P2 已抓真序列**;連續因子 IC≈0 perm 不顯著,僅風險背景燈。仍缺 Fed(FRED FEDFUNDS+FOMC 行事曆) |
+| 6 | ✅已解 | **Yahoo `^TNX`+`DX-Y.NYB`(已解)**;**Fed EFFR/FOMC(P3 已補)** | US10Y / DXY / Fed(L0 低頻) | 低 | 中 | **P2** DXY/US10Y 真序列(連續因子 IC≈0,背景燈)。**P3 補 Fed**(NY Fed EFFR+FOMC 目標區間 2018+,FRED 本環境 timeout):連續利率因子=乾淨 null(IC 符號 IS↔OOS 全翻),但**降息 regime gate=真 Fed put**(目標上緣<6M 前 → TAIEX fwd20 +2.53% vs +1.15% perm p=0.000,空頭中 +3.48% 救援),落 **L0 背景放行燈**,與 champion 不共線(corr 0.12)。前兆非交易訊號(2-3 段 episode 自相關灌 n) |
 | 7 | ✅已解 | **FinMind `TaiwanFuturesDaily`(TXF 近月)** | 台指期 basis | 中 | 低 | **P2 已抓真跑**;basis 線性/z60 OOS 皆負 IC≈0 perm p 0.80–0.89,僅儀表數字。用 position 段 close 非結算價 |
 | 8 | ✅已解 | **FinMind `TaiwanFuturesOpenInterestLargeTraders`** | 大額交易人 OI | 低 | 低 | **P2 已抓真跑**;已證 = champion 冗餘鏡像(corr 0.60–0.65),僅顯示欄 |
-| 9 | ⛔仍缺 | **FinMind `TaiwanStockSecuritiesLending` + TWSE TWT93U** | 借券賣出 SBL(L2 個股空方) | 中 | 中 | 唯一有學術背書的個股知情做空維度,**Phase-3 最高優先** |
-| 10 | ⛔仍缺 | **FinMind `TaiwanStockDayTrading`** | 當沖比重(L3) | 低 | 低 | 本地 stock_daytrade_daily volume 全 NULL,需重抓 |
-| 11 | 🟡部分 | **ETF NAV/折溢價**(受益人數已解,FinMind 無官方 NAV,422 拒絕) | ETF 申贖/折溢價 | 中-高 | 中 | 受益人數/申贖(SHOUT)P2 已跑(乾淨雜訊);S2 折溢價仍缺官方 NAV 源(TPEX/SITCA) |
+| 9 | 🟡部分 | **FinMind `TaiwanDailyShortSaleBalances`(市場層已解)**;個股橫斷面仍缺 | 借券賣出 SBL(L2 個股空方) | 中 | 中 | **P3 市場層聚合(top-~50)實跑**:借券賣出使用率 z60 OOS +0.354/perm p=0.372、餘額 z60 −0.017/perm 0.666 = 乾淨 null。學術上 SBL edge 在**橫斷面個股層**(市場聚合把資訊平均掉);個股逐股 SBL 仍是唯一學術背書空方候選,待補 |
+| 10 | ✅已解 | **FinMind `TaiwanStockDayTrading`+`TaiwanStockPrice` 逐股聚合** | 當沖比重(L3) | 低 | 低 | **P3 市場層真跑**(top-~50 大型股聚合,2021+ 1350 日):當沖比重 z60 OOS +0.227/perm p=0.311/DSR 0.604/IC −0.003 = 乾淨 null。整個信用擁擠家族市場總量層贏不過隨機;只作 L3 擁擠度面板,不作方向訊號 |
+| 11 | 🟡部分 | **ETF NAV/折溢價**(P3 窮盡探測確認免費源全無) | ETF 申贖/折溢價 | 高 | 中 | 受益人數/申贖 P2 已跑(乾淨雜訊)。**P3 窮盡真呼叫探測 S2 NAV**:FinMind 103 dataset 無 NAV、TotalReturnIndex 僅 TAIEX 無台灣50、TEJ E-SHOP 無 NAV 表、TWSE OpenAPI 僅當日快照無歷史、TPEX SSL fail、本地 nav 僅主動式 ETF 零交集 → 官方歷史 NAV 免費源=0。唯一殘存=爬玩股網/MoneyDJ HTML(易碎,未做) |
 | 12 | ⛔仍缺 | **1010-branch universe backfill**(data/replica) | 分點完整宇宙(2024-07 前) | 高 | 中 | 完整 universe 僅 2024-07+,更早需回補 |
-| 13 | ⛔仍缺 | **MOPS 董監質押爬蟲**(t13sa01,月頻) | 董監質押(risk-off veto) | 高(反爬+POST) | 中 | 下檔尾部前兆,月頻;大戶集中度維度標為待補子訊號 |
-| 14 | 🟡部分 | **TAIFEX 大額交易人買賣權 / MTX 散戶殘差** | 選擇權大額 + 小台散戶 | 中 | 低 | **P2 已跑 MTX 散戶多空比(perm p=0.237 不顯著)**;大額買賣權(前5/10大,最純大戶領先候選)仍缺 |
-| 15 | ⛔暫緩 | **融資限額表(股本×融資成數)** | 融資使用率 | 極高 | 極低 | **建議暫緩**,資料源最弱、訊號已證弱 |
-| 16 | ⛔仍缺 | **個股層近斷頭部位廣度**(FinMind `TaiwanStockMarginPurchaseShortSale` 全量) | 融資維持率個股前兆 | 中 | 中 | 市場單線答不出廣度分佈;本地融資 universe 僅 ~176/1000 檔且多停 07-07,scaffold 待回填 |
+| 13 | ⛔仍缺 | **MOPS 董監質押爬蟲**(t93sb/t13sa01,月頻) | 董監質押(risk-off veto) | 高(反爬+POST) | 中 | **P3 試 FinMind**:`TaiwanStockManagerShareholding` 回 0 列、`TaiwanStockShareholding` 無質押欄位 → FinMind/TEJ 皆無此集,確認須自爬 MOPS t93sb |
+| 14 | ✅已解 | **FinMind `TaiwanOptionOpenInterestLargeTraders`(TXO 前5/10大)** | 選擇權大額 + 小台散戶 | 中 | 低 | **P2** MTX 散戶多空比(perm 0.237 不顯著)。**P3 補大額買賣權**(全史真拉 2018-06+ n=1985):S5 大額買賣權淨偏多度 lt_bull IC_IS −0.008 反指標;頭條 z20 OOS 0.89~1.13/perm p=0.013~0.038 顯著但**三重證偽**(DSR 全 fail<0.892、殘差 IC 扣動能+champ 後翻負、與 S1 正交但自身 IC≈0)=動能偽裝。前十大 OI 由造市商 delta-hedge 主導非方向 view,棄用 |
+| 15 | ✅已解 | **FinMind `TaiwanStockMarginPurchaseShortSale` 逐股聚合(P3 市場層)** | 融資使用率 | 極高 | 極低 | **P3 市場層真跑**:融資使用率 z60 OOS +0.264/perm p=0.438/DSR 0.621 = 乾淨 null,證實訊號弱。個股限額表仍暫緩(性價比最低) |
+| 16 | ✅已解 | **本地 `data/replica`(融資流重建維持率,零配額)** | 融資維持率個股前兆 | 中 | 中 | **P3 實跑個股近斷頭廣度**(維持率<140% 融資佔比,加權平均成本重建,~145 檔大/中型,2020-01→2026-07-07):**方向翻為反向**——br_140≥p95(79d)fwd20 +3.50%、絕對≥25%(54d)+4.49%、OOS +7.95% vs base +3.34% = 恐慌 flush 觸底 marker(非看空前兆)。系統化 perm p=0.444/DSR 0.146 fail、corr(價格動能)−0.615。79 事件=僅~7 危機。落 L2 尾部反向格,與 champion 近正交。**部分**:僅大/中型,小型散戶密集股待全量回補 |
 
 > **Phase-2 後的真缺口(Phase-3 batch）:** ⛔ 借券賣出 SBL(#9,唯一學術背書個股空方,最高優先)、champion resync(#2,保鮮)、個股近斷頭廣度(#16)、當沖(#10)、分點完整宇宙回補(#12)、董監質押(#13)、選擇權大額買賣權(#14 剩半)、ETF 折溢價 NAV(#11 剩半)、Fed/VIXTWN(#1/#6 剩半)。已解的 #1/#3–#8 全數證偽,證明「補資料 ≠ 找到 alpha」——真資料的價值是**乾淨證偽**,擋掉了 6 個原本可能被誤採的動能偽裝維度。
+>
+> **Phase-3(2026-07-31)清帳後:** 又清 6 缺口。**已解**:#10 當沖、#14 選擇權大額買賣權、#16 個股近斷頭廣度、#6 Fed 全數實跑。**部分**:#9 SBL(市場層 null,個股橫斷面仍缺)、#1 VIXTWN(付費牆)、#11 ETF NAV(免費源窮盡確認全無)。**仍缺**:#2 champion resync、#13 董監質押(FinMind 無)、#12 分點宇宙回補。**真正剩餘高優先** = #9 個股層 SBL 橫斷面(市場層已證 null,alpha 若有只在個股橫斷面)+ #2 champion 保鮮。P3 六個市場層/選擇權缺口再度全數證偽,唯二例外在 deeper 研究:**個股近斷頭廣度=反向觸底 marker(方向翻)**、**TEJ 月營收 YoY 動能=首個過 DSR 的橫斷面真 alpha(見下方 Phase-3 節)**。
 
 ---
 
@@ -254,6 +261,72 @@ Phase-1 有 4 個維度是用 proxy 或本地不完整資料跑的、3 個是純
 1. **真資料 > proxy 是硬需求** — 融資維持率 proxy 給了方向相反的尾部結論;不用 ground-truth 會誤採一個反向訊號。
 2. **perm 顯著 ≠ alpha** — 選擇權 PCR_OI perm p=0.004 看似鐵證,但 permutation 不控動能共線;DSR+殘差IC 才是照妖鏡(把它殺成動能組合)。
 3. **補資料的產出常是「乾淨證偽」而非新 alpha** — 六維度真跑後 champion 依然是唯一領先 alpha;真資料的價值是用高信賴度擋掉偽訊號,不是變出第二支腳。
+
+---
+
+## Phase-3 缺口補實 + 深化研究（2026-07-31）
+
+Phase-3 分兩線:**(A) 補實線**——把 Phase-2 後仍待補的市場層/子維度缺口逐一真跑證偽;**(B) 深化線**——三個 deeper 研究(整合系統實測、TEJ 還原價盲點量化、TEJ 基本面因子)。核心結果:**市場層/總量層再度全數乾淨 null,但深化線首次挖出一支過 DSR 的真 alpha(月營收 YoY 動能),並量化了兩個一直沒證實的專案級假設(還原價盲點、疊閘是否改善 DSR)。** 驗證框架同前:IS/OOS 切分 + 同曝險 permutation + Deflated-Sharpe(需>0.95)+ regime-conditioning + 對 champion 共線/殘差IC。
+
+### A. 補實線(6 項,市場層/子維度)
+
+| 維度 | kind | 資料源(真) | rows / 覆蓋 | 最強頭條 | 決定性證偽 | verdict / 落層 |
+|---|---|---|---|---|---|---|
+| **信用微結構市場層** short_daytrade_mkt | gap-fill | FinMind 逐股聚合 top-~50 大型股(DayTrading/ShortSaleBalances/MarginPurchaseShortSale/Price) | 1350/1356 日,2021-01→2026-07 | 借券賣出使用率 z60 OOS +0.354 | 四訊號 IC 全 |≤0.034|、perm 全>0.3 敗給同曝險隨機、DSR 全<0.66、corr_champ 0.16–0.44、regime 符號不穩 | **乾淨 null(市場層)**:當沖比重/借券賣出/融資使用率市場聚合皆噪音。SBL/當沖 edge 學術上在橫斷面個股層,市場聚合把資訊平均掉。只作 **L3 擁擠度面板**,不作方向、不疊 champion |
+| **選擇權大額交易人** options_large_traders | gap-fill | FinMind `TaiwanOptionOpenInterestLargeTraders`(TXO 前5/10大買賣 call/put OI) | 1985 日,2018-06+ 全史 99.9% | S5 買賣權淨偏多 z20 OOS 0.89~1.13/perm p=0.013~0.038 | 三重證偽:DSR 全 fail(≤0.892)、殘差 IC 扣動能+champ 後翻負(−0.026~−0.033)、與 S1 正交但自身 IC_IS −0.008 反指標 | **乾淨 null**:頭條 perm 過但為動能偽裝(與 S3 PCR_OI 同病)。前十大 OI 由造市商 delta-hedge 主導非方向 view。落 L3,棄用不進決策層 |
+| **個股近斷頭廣度** margin_nearcall_breadth | gap-fill | 本地 `data/replica`(融資流重建維持率,零 API 配額) | 1580 日,2020-01→2026-07-07,~145 大/中型 | br_140≥p95(79d)fwd20 **+3.50%**、絕對≥25% +4.49%、OOS +7.95% vs base +3.34% | 系統化 z-score perm p=0.444/DSR 0.146 fail、corr(價格動能)−0.615;79 事件=僅~7 獨立危機 | **方向翻為反向(contrarian 觸底 marker)**:「上升廣度=強制賣壓級聯=看空前兆」被證偽,極端近斷頭廣度標記 flush 後投降/觸底,fwd20 均值回歸反彈。非可加碼 alpha(事件叢集、共線反向動能)。落 **L2 尾部反向格 + L0 regime 閘控**,與 champion 近正交,僅恐慌觸底定性 confirm |
+| **Fed(國際錨)** macro_fed | gap-fill | NY Fed markets API EFFR + FOMC 目標區間(FRED 本環境 timeout) | 2153 日,2018-01→2026-07 | Fed 降息 gate:目標上緣<6M 前 → TAIEX fwd20 **+2.53% vs +1.15%**(perm p=0.000)、空頭中 +3.48% 救援 | 連續利率因子=乾淨 null(利率變動/水位 IC 符號 IS↔OOS 全翻,perm p 0.35–1.0,漂亮 OOS Sharpe 純多頭窗吃漂移,bear 崩壞,⟂後仍 null) | **Fed=乾淨 null(連續)+ 真 Fed put 前兆(降息 gate)**:2-3 段獨立 episode 自相關灌 n→IS 可信、非 OOS 穩健、非交易訊號。落 **L0 背景放行燈**,與 champion 不共線(corr 0.12)非冗餘 |
+| **VIXTWN(國際錨)** | gap-fill | TAIFEX 月檔隱波(免費僅近 3 月) | 61 日重疊(含 7 月台股-8%急殺) | vs ^VIX level corr 0.69、均值 37.8 vs ^VIX 17.4(~2倍) | 次日 TAIEX 預測 IC:VIXTWN −0.10 vs lag+1 ^VIX −0.25 → 危機小樣本 VIXTWN **未勝過** lag+1 ^VIX | **待補**:全史付費牆(NT$3000/半年),免費 3 月單一危機 regime n=61 不足做 falsification,「去時差 VIXTWN>^VIX」假設樣本不足未證 |
+| **ETF 折溢價(S2)** etf_premium_nav | gap-fill | 窮盡真呼叫探測(FinMind/TEJ/TWSE/TPEX/本地) | rows=0 | 無數字可跑 | 折溢價需歷史每日官方 NAV 當分母;FinMind 103 dataset 無 NAV、TotalReturnIndex 僅 TAIEX 無台灣50、TEJ E-SHOP 無 NAV 表、TWSE 僅當日快照、TPEX SSL fail、本地 nav 僅主動式 ETF 零交集 | **待補**:官方歷史 NAV 免費/已授權管道全無;市值型 proxy 因兩大指數源皆無台灣50 亦無法乾淨建立。唯一殘存=爬 HTML(易碎,未做) |
+| **大戶集中度中小型延伸 + 董監質押** holder_extension | gap-fill | FinMind `TaiwanStockHoldingSharesPer`(80 中小型股,246,415 列) | 13,523 stock-week,183 週,2023-01→2026-07 | z_big(千張大戶比 z)perm p=0.039、4/4 年 sign-stable、去動能 partial IC −0.019、加外資控制強化到 −0.067、LS Sharpe OOS 1.45 | DSR=0.87 未達 0.95;散戶「集中=看漲」thesis 證偽(方向為 CHS breadth 反向);2×2 合成、champion 綠燈疊層(37.9bps vs 綠燈 105bps,超額 −67bps)三者證偽 | **反向前兆/弱 alpha 待確認**:z_big 急升在中小型股是報酬偏弱的反向訊號,perm 顯著且去動能後強化,唯 DSR 未過。落 **L2 個股橫斷面 market-neutral LS 反向 fade**,與 champion 正交(−0.14),不進大盤 timing、不疊 champion。**董監質押=待補**(FinMind `TaiwanStockManagerShareholding` 回 0 列,`TaiwanStockShareholding` 無質押欄,須爬 MOPS t93sb) |
+
+### B. 深化線(3 項,deeper)
+
+#### B1. ★ integrated_multigate —— 四閘系統實測「疊 gate 到底改不改善 DSR / maxDD?」
+
+這是 Phase-3 最關鍵的整合驗證:把 champion 逐一疊上 tech gate / VIX gate / 融資維持率 veto,用同一套 long/flat 系統(OOS n=596,成本 4bps/邊,permutation 3000 次,DSR)實測每一閘的**邊際增量**,回答「1+1 是否>2」。
+
+| 系統 | 組成 | OOS Sharpe | maxDD | DSR(nt8) | perm p | 逐閘 ΔSharpe / ΔmaxDD / ΔDSR |
+|---|---|---|---|---|---|---|
+| **A** | champion 單獨 | +1.81 | −18.5% | 0.891 **FAIL** | 0.039 | 基準 |
+| **B** | +tech gate(close>上彎 MA200) | +2.61 | −3.9% | **0.995 SURVIVE** | 0.000 | **+0.79 / +14.6pp / +0.105(主力)** — 完整重現 tech_regime.md |
+| **C** | +VIX gate(60日z≤2 放行) | **+2.73** | −3.5% | **0.998** | — | +0.12 / +0.4pp / +0.003(**邊際真增益**:只砍 10 個 tech&champ 都多但 VIX 噴出的 OOS 日,與 champion corr 僅 +0.10 非冗餘) |
+| **D** | +融資維持率<150 veto | +2.73 | −3.5% | 0.998 | — | **+0.00 / +0.00 / +0.000(乾淨 null)** |
+
+**關鍵發現(逐日 parquet 證實):**
+- **tech gate 是唯一結構性大增益** —— 把 champion 從 DSR 0.891(fail)一舉推過 0.995(survive),maxDD 從 −18.5% 壓到 −3.9%,價值=砍掉 70 天空頭尾部。這是全 study 唯一 DSR>0.95 的可部署核心。
+- **VIX gate 是邊際真增益(非冗餘弱 veto)** —— 再加 +0.12 Sharpe、DSR→0.998,只砍 10 個「趨勢+籌碼都多但 VIX 恐慌噴出」的日子,與 champion corr 僅 +0.10。值得產品化的小強化。
+- **融資維持率<150 veto = 乾淨 null(結構性冗餘)** —— 與 C 每位數字完全一致。逐日證實:**全樣本「維持率<150 而系統 C 仍做多」的日子 = 0 天**;當 tech&champ 同時做多時維持率最低只到 153.0%,全歷史從未<150%。原因:MR<150 是空頭 flush 底部 marker,與「close>上彎 MA200」作用域**不相交**——正確用法是逆勢抄底 confirm,不是順勢 veto。
+- **可部署產品 = B(tech-gated champion)**,C 為邊際強化版,D 不採用。**最大保留:OOS 窗僅 70 天空頭,DSR 係單一多頭週期取得,須再過完整空頭循環方為定論。**
+
+#### B2. TEJ 還原價盲點量化 —— 「怕的盲點有多大?RS 結論會不會翻?」
+
+用 TEJ 乾淨還原價(90 檔流動股,2021+,121,590 列)對照 Phase-1 的 finmind adj_close,量化兩個一直沒證實的專案級疑慮:
+
+- **Q1 盲點量級=真且大** —— 2021→2026 累積股利/分割還原中位 **+27.4%**(金融股 +34.2%,最大 3293 +434.8%)。用**未還原**價會因每年 6-7 月假除息跳空嚴重扭曲 RS(尤其高息金融股)。
+- **BUT 這個盲點沒有實現** —— Phase-1 的 finmind adj_close **本來就有正確還原**:corr(finmind_adj, TEJ_adj)日報酬中位 **0.9906**、MAD 僅 2.52bps(對 TEJ_raw 只 0.9832)。殘差瑕疵僅少數金融股(5871/2834/2801/6488)二階。額外發現:finmind 的 **raw close 欄維護零散**(last-valid 日期 07-17→07-29 散落),RS 根本算不出來——raw 不可用的另一理由。
+- **Q2 RS 用乾淨價重跑=結論不變且微強化** —— mansfield_rsm50 仍是唯一動能去相關(corr_own_mom +0.386 vs IBD +0.917)、champion 正交(−0.077)、強 regime 依賴(bull +1.79/bear −0.29)、IC 近零。乾淨價**微強化**:OOS Sharpe +2.085(perm p=0.000)vs finmind_adj 同窗 +1.814。
+- **verdict**:還原盲點量級大且重要,但 Phase-1 已用正確還原價 → **RS 結論成立**;乾淨 TEJ 價確認並微強化 mansfield_rsm50 為 **bull-regime L1 動能去相關濾網,非 standalone alpha**。**存活者偏誤子題=待補**(宇宙仍為存活者,需另拉含下市名單)。
+
+#### B3. ★ TEJ 基本面因子 —— 專案首個過 DSR 的橫斷面真 alpha
+
+TEJ 財報/營收 PIT 資料(90 檔流動股,EWSALE 月營收 YoY + EWIFINQ ROE/BVPS + EWPRCD PB,2021+,129,419 列),橫斷面多空週再平衡實跑:
+
+| 因子 | IC_IS / IC_OOS | Sharpe OOS | perm p | DSR(N=6) | verdict |
+|---|---|---|---|---|---|
+| **月營收 YoY 動能 rev_yoy** | +0.029 / +0.081(兩期同正) | +2.55 | 0.004 | — | 真 alpha 核心 |
+| **rev_yoy_3m(3月平滑)** | 同正 | **+2.34** | 0.002 | **OOS 0.967 / 全期 0.989 過關** | ★ **真 alpha**:近常態(skew +0.22/kurt 3.5)、Bonferroni perm p=0.012 仍顯著、空頭仍 +0.72(比 RS/價格動能抗反轉) |
+| rev_accel 營收加速 | — | — | 0.038 | — | 弱確認 |
+| ROE | — | +0.33 | 0.246 | — | 乾淨 null |
+| PB 價值 pb_inv | IC 轉負 | −0.96 | — | — | 反向(價值陷阱) |
+| composite 合成 | — | +0.88 | — | — | 稀釋(勿合成,單用 rev_yoy_3m) |
+
+- **這是專案至今少數過 DSR(0.967,N=6 誠實計入)的橫斷面訊號**,IC IS+OOS 同正、近常態、空頭仍正。champ×多頭 gate 反而降 Sharpe(+2.34→+1.53)= 此因子**不需 champion 閘門**,與 champion L0 擇時**正交疊加**(corr +0.27,非全正交)。
+- **落全新 L1 基本面選股層**(儀表板新增一層)。**保留**:已知因子(PEAD 族非新發現)、TEJ 2021+ 故 OOS 僅 1 循環偏多頭、corr_champion +0.27 非全正交。**待補**:中小型宇宙、營收 surprise vs 分析師預期、RS×營收雙確認增量。
+
+### Phase-3 一句話總結
+
+> **補實線再度全數乾淨證偽(市場層/總量層 alpha=0),但深化線首次交出兩個真結果:** ① **integrated_multigate 用逐日 parquet 證實** tech gate 是唯一把 champion 推過 DSR>0.95 的結構增益、VIX gate 是邊際真增益(DSR→0.998)、融資維持率 veto 是全樣本 0 天生效的乾淨冗餘(作用域與 tech gate 不相交,誤用順勢 veto);可部署核心 = **tech-gated champion(C 為強化版)**。② **月營收 YoY 動能(rev_yoy_3m)是專案首個過 DSR(0.967)的橫斷面真 alpha**,開出全新 **L1 基本面選股層**,與 champion 正交疊加、空頭抗反轉。③ 附帶:**個股近斷頭廣度方向翻為反向觸底 marker**、**TEJ 量化證實還原盲點量級大(+27.4%)但 Phase-1 已用正確還原價、RS 結論成立**。champion 仍是唯一大盤領先擇時 alpha;新增的是「它旁邊的第一支橫斷面選股腳」,不是第二支擇時腳。
 
 ---
 

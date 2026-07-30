@@ -3,11 +3,11 @@
 **維度分類:落後 / 同步為主,尾部帶前兆(明確非領先)。方向為反指標(contrarian)、強 regime 依賴。**
 **層級:L2 籌碼核心之「散戶槓桿壓力」子項,受 L0 regime 閘控。**
 
-研究腳本:`scripts/research/dashboard/margin_maintenance_study.py`
-真資料快取:`data/research/dashboard/margin_maintenance_data.parquet`(FinMind 官方線,2018-01-02→2026-07-29,2082 列無缺口)
-指標輸出:`reports/research/dashboard-completeness/margin_maintenance_metrics.csv`
-狀態:**已用官方 ground-truth 序列實跑(FinMind `TaiwanTotalExchangeMarginMaintenance`,見下方實測)。原 proxy 已淘汰。唯一剩 scaffold = 個股層「近斷頭廣度」(需全量融資 universe)。**
-verdict:**動能偽裝為主(系統化 z-score 層級),深尾帶真反向 marker(事件級、樣本獨立性低,DSR/permutation 未過)。**
+研究腳本:`scripts/research/dashboard/margin_maintenance_study.py`(市場層)+ `scripts/research/dashboard/margin_nearcall_breadth_study.py`(個股層近斷頭廣度,**2026-07-30 gap-fill 已實跑**)
+真資料快取:`data/research/dashboard/margin_maintenance_data.parquet`(FinMind 官方線,2018-01-02→2026-07-29,2082 列無缺口)+ `data/research/dashboard/margin_nearcall_breadth_data.parquet`(個股近斷頭廣度,1580 日,2020-01→2026-07-07,中位宇宙 145 檔)
+指標輸出:`margin_maintenance_metrics.csv` + `margin_nearcall_breadth_metrics.csv`
+狀態:**市場層已用官方 ground-truth 實跑;個股層「近斷頭廣度」前兆形態 2026-07-30 已用 replica 本地 152 檔大型股實跑(原 scaffold 已補完,見第 4b 節)。原 proxy 已淘汰。**
+verdict:**動能偽裝為主(系統化 z-score 層級),深尾帶真反向 marker(事件級、樣本獨立性低,DSR/permutation 未過)。個股近斷頭廣度 gap-fill 結論:「上升廣度→強制賣壓級聯→看空」的前兆假設被證偽,方向實為反向(contrarian)——極端近斷頭廣度標記恐慌觸底,fwd20 反彈 lift +3.5%(p95)/+8.4%(p99),與市場層深尾反向 marker 同向且在個股廣度層再確認;但僅 ~7 個獨立危機事件、與反向價格動能共線(−0.615)、系統化版 permutation p=0.44、DSR=0.146 未過,屬定性觸底 confirm 非可加碼 alpha。**
 
 ---
 
@@ -92,12 +92,42 @@ verdict:**動能偽裝為主(系統化 z-score 層級),深尾帶真反向 marker
 
 ---
 
+## 4b. 個股「近斷頭廣度」gap-fill 實測(2026-07-30,replica 本地 145 檔,2020-01→2026-07-07,n=1580)
+
+**這是報告一直標為 scaffold 的唯一前兆形態,現已實跑。** 市場層單一加權線答不出「廣度分佈」,故用個股重建。
+
+**方法(用真籌碼流、非純價格)**:對每檔逐日融資餘額(張)變動 × 當日收盤做**加權平均成本會計**(ΔBal>0 加碼:qty+=Δ, cost+=Δ×close;ΔBal<0 償還:cost 按比例減),得每股融資成本 cost_basis;個股維持率% = close /(0.6 × cost_basis)×100(60% 融資成數,上市初始 166.7%,<130% 追繳)。**近斷頭廣度 br_140 = 維持率<140% 的融資個股佔比**(另算 br_130/br_150)。此用**融資買方實際進場價**,故與純價格廣度(跌破 MA60 佔比)可區辨——即共線控制。
+
+**誠實覆蓋**:資料源 = `data/replica/stocks.db`(與 FinMind 同源之 TWSE 融資,本地、零配額)。宇宙**僅 ~145 檔帶融資的大/中型股(0050+0051 級)**,融資止於 2026-07-07。**嚴重低估小型股散戶槓桿壓力(全市場 ~1000+ 融資標的)**——近斷頭壓力本質集中在散戶密集的中小型股,本樣本偏大型,是最大保留。2019 暖身、2020-01 起評估。
+
+| 指標 | 值 | 解讀 |
+|---|---|---|
+| br_140 均值 / 全距 | 0.053 / [0, 0.82] | 常態僅 5% 個股近斷頭,危機時飆至 80%+ |
+| corr(br_140_z60, 價格動能_z60) | **−0.615** | 中度反向共線(近斷頭升↔價格弱),部分是「大跌後」的鏡像 |
+| corr(br_140_z60, champion=fut_oi_z60) | +0.072 | 與 champion 近乎正交 |
+| IC_IS / IC_OOS(br_140_z60→次日) | −0.0125 / +0.0005 | **系統化 z-score 無穩定 IC(近乎零、翻號)** |
+| long/flat OOS Sharpe | **+0.38**(B&H +0.49,champion +0.99) | **輸給 B&H 與 champion** |
+| OOS permutation p | **0.444(未過)** | 系統化訊號無顯著性 |
+| Deflated-Sharpe(~10 形態) | **DSR=0.146 FAIL**(obs +0.38 < null-max +1.15) | 搜尋膨脹吃光顯著性 |
+| **事件:br_140≥p95(79d)fwd20 lift** | **+3.50%**(p90 +1.26%,p99 +8.40%) | **極端近斷頭廣度=恐慌觸底,反彈** |
+| 絕對:br_140≥25%(54d)fwd20 lift | +4.49% | 坊間「近斷頭比例爆表抄底」成立 |
+| br_130≥p95(79d)fwd20 lift | +3.35% | 更嚴門檻同向 |
+| **事件獨立性** | **79 天→僅 ~7 個獨立危機事件**(2020Q1 疫情、2022 H2 空頭、2025Q2 關稅 flush 為主) | 時間高度叢集 |
+| OOS-only(2024+)p95 事件 | 26d,fwd20 **+7.95%** vs base +3.34% | 反向 marker OOS 亦成立(但叢集於 2025 關稅 flush) |
+
+**結論(證偽優先)**:
+1. **naive 前兆假設被證偽**:「近斷頭廣度上升 = 強制賣壓級聯前置 = 看空」**方向錯了**。實測方向為**反向(contrarian)**——極端近斷頭廣度出現在恐慌 flush **之後**,標記散戶投降/觸底,對應 fwd20 均值回歸反彈(p95 lift +3.5%、p99 +8.4%)。
+2. **在個股廣度層再確認市場線的深尾反向 marker**:與第 4 節市場線「MR≤p05 fwd20 +1.16% / 絕對<150% +2.26%」**同向**,且廣度版 lift 更大(因廣度捕捉分佈尾部而非被大部位稀釋的平均)。
+3. **但不是可加碼 alpha**:系統化日級版 permutation p=0.44、DSR=0.146 未過、OOS Sharpe 輸 B&H;事件版僅 ~7 個獨立危機、與反向價格動能共線 −0.615(本質接近「深跌後反彈」的已知均值回歸)。屬**事件級定性觸底 confirm**,非獨立訊號。
+
+---
+
 ## 5. lead_lag 定位 + 層級 + 與 champion 的搭配
 
 **定位:落後/同步為主、尾部帶前兆,明確非領先,方向 contrarian、強 regime 依賴。**
 
 - **為何非領先**:維持率 ≡ 分子(現值,隨股價)/ 分母(慢變融資金額),分母日變動極小,故它幾乎就是「融資籃子價格水位」——與本專案既有分類「**融資餘額=落後(弱動能代理)**」同格,是融資餘額的價格加權孿生兄弟,資訊層級一致,**不會比外資期貨 positioning(champion,領先)更早**。官方 ground-truth 實測 corr 0.79、殘差化掉價格動能後 IC 由 +0.027 翻成 −0.012 直接證明。
-- **唯一前兆形態**:個股層「近斷頭部位廣度」(維持率 <140% 融資市值佔比),是強制賣壓級聯的前置條件——放**前兆格**,與「融資新增廣度 / 分點賣超」同理。需全量個股維持率(見 scaffold `near_call_breadth`),且應對「forward flush 事件」而非次日報酬評估。市場層 ground-truth 無法回答此形態(單一加權線,無廣度分佈)。
+- **個股層「近斷頭部位廣度」(已實測,見第 4b 節)**:原假設為「強制賣壓級聯前置=看空前兆」,實測**證偽並翻向**——它不是領先的看空前兆,而是**反向的恐慌觸底 marker**(極端廣度出現在 flush 後,fwd20 均值回歸 +3.5%),與市場線深尾同向。定位=**同步/落後之尾部反向 marker**(非領先),放**反向格**而非看空前兆格。事件級(叢集 ~7 危機)、非日級評估;市場層 ground-truth 單一加權線無法回答廣度分佈,故此形態必須個股重建。
 
 **落點層級**:**L2**(籌碼核心之散戶槓桿壓力子項),受 **L0 regime** 閘控。系統化 z-score 形態實為 **L1 動能** 的冗餘代理(與價格動能共線),不獨立進 L2;唯有深尾/廣度形態才具 L2 獨立價值。
 
@@ -124,7 +154,7 @@ verdict:**動能偽裝為主(系統化 z-score 層級),深尾帶真反向 marker
 ## 7. 下一步(若要升級為正式因子)
 
 1. ~~接 FinMind ground-truth 取代 proxy~~ —— **已完成**(官方線已抓、已快取、已複跑同一評估器)。
-2. 建個股層「近斷頭部位廣度」(`near_call_breadth`,<140% 佔比),對 forward flush 事件做**事件級**(非日級)研究——這是唯一具前兆價值、且 ground-truth 市場線答不出的形態。需先用 data/replica 或 FinMind `TaiwanStockMarginPurchaseShortSale` 全量回填融資 universe(本地僅 ~176 檔)。
+2. ~~建個股層「近斷頭部位廣度」(`near_call_breadth`,<140% 佔比)~~ —— **已完成(2026-07-30,見第 4b 節)**。用 replica 本地 145 檔大型股重建個股維持率(加權平均成本會計 × 融資流),結論:naive 看空前兆假設被證偽,方向實為反向恐慌觸底 marker(fwd20 p95 lift +3.5%),個股廣度層再確認市場線深尾;但事件叢集(~7 危機)、共線反向價格動能、系統化 DSR/perm 未過。**殘留待補:宇宙僅大/中型 ~145 檔,需 data/replica 全量融資或 FinMind `TaiwanStockMarginPurchaseShortSale` 逐股(小型散戶密集股才是近斷頭壓力主場);且融資止於 2026-07-07,需回填至當日。**
 3. 深尾反向 marker 做**事件級**顯著性(以獨立 flush 事件為單位、非交易日),量化 MR≤p05 / 絕對<150% 觸發後的 fwd20 分佈與勝率,作為 champion overlay 的擇時 confirm(過濾/降槓桿,非 alpha 疊加)。
 
 ---

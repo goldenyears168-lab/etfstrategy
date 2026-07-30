@@ -232,8 +232,17 @@ def fetch_official_nav_scaffold(etf_code: str) -> pd.DataFrame:
       - 盤中 IOPV: TWSE 每 15 秒發布(即時預估淨值，≠收盤官方 NAV)。
     折溢價 prem = (Price/NAV - 1)；Price 用 stock_daily_bars（需補全 ETF universe）。
     """
+    # gap-fill 2026-07-30 窮盡調查(見 reports/.../etf_flows.md §7): 免費/已授權管道皆無台股歷史 NAV。
+    #   FinMind: 103 dataset enum 無任何 NAV(僅 ActiveETFHolding 非 NAV);
+    #   FinMind TaiwanStockTotalReturnIndex 僅 TAIEX、無台灣50指數(無法建 0050 proxy);
+    #   TEJ E-SHOP: 無 NAV 表, EWIPRCD 僅 16 檔寬基指數無台灣50;
+    #   TWSE OpenAPI: 僅 ETFRank(交易戶數)+當日快照無歷史; rwd/etfInout 回 HTML;
+    #   TPEX OpenAPI: 本環境 SSL CERTIFICATE_VERIFY_FAILED;
+    #   本地 etf_holdings_meta.nav 僅主動式 ETF(00980A…)與本宇宙零交集。
+    # => S2 折溢價 verdict=待補。唯一殘存路徑=爬玩股網/MoneyDJ HTML(易碎、未做)。
     raise NotImplementedError(
-        "官方每日 NAV 需接 TPEX info.tpex.org.tw/ETF/ 或投信官網；FinMind 無 NAV dataset。"
+        "官方每日 NAV 不可得(FinMind/TEJ/TWSE-OpenAPI/TPEX/本地 DB 皆無, 已窮盡 2026-07-30)。"
+        " 見 reports/research/dashboard-completeness/etf_flows.md §7。S2=待補。"
     )
 
 
