@@ -155,6 +155,13 @@ jobs:
     schedule: "weekdays 09:00"
     description: "8-branch weighted crash thermometer + consensus, email. NOTE: 2026-07-27 research found 31-35% discriminative power on fresh events (below chance) — kept running for reference, not a validated signal."
 
+  - label: chip-macro-tracker
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:00"
+    description: "融資/籌碼 daily tracker (scripts/research/chip_macro/daily_tracker.py). NOT installed by this session — discovered 2026-07-31 already running on mini, belongs to a concurrent research/dashboard-completeness branch of work. Its own data path (PANEL_DIR) still hardcodes ROOT/data, same class of bug as the 4 scripts fixed 2026-07-31 — NOT fixed here since it's someone else's active in-progress code; flag before touching."
+
   # --- Live TA / website feed ---
   - label: ops-live-ta-poll
     category: webfeed
