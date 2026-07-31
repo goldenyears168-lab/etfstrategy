@@ -1,11 +1,10 @@
 # RRG Pre-release Funnel Lanes · 3 日持有 中文解說
 
 > **SSOT 設定檔**：[`config/rrg_pre_release_funnel_lanes_3d.yaml`](../config/rrg_pre_release_funnel_lanes_3d.yaml)  
-> **Layer**：research（研究層 · 未採納至 `config/strategy.yaml`）  
-> **回測模組**：`src/research/backtest/rrg_pre_release_funnel_lanes_3d.py`  
-> **Runner**：`scripts/run_rrg_pre_release_funnel_3d_backtest.py`  
+> **Layer**：research（研究層 · 未採納至 `config/strategy.yaml`；程式已 archive，僅留紀錄）  
+> **回測模組**：`src/research/backtest/archive/rrg_pre_release_funnel_lanes_3d.py`  
+> **Runner**：`scripts/research/archive/run_rrg_pre_release_funnel_3d_backtest.py`  
 > **產物**：`reports/research/rrg/pre_release_funnel_lanes_3d_YYYYMMDD.{md,json}`  
-> **隔日版（勿混用）**：[`docs/rrg-pre-release-funnel-lanes.md`](./rrg-pre-release-funnel-lanes.md)  
 > **前置研究**：[`docs/rrg-improving-lifecycle-research.md`](./rrg-improving-lifecycle-research.md)
 
 ---
