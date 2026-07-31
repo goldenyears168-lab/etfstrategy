@@ -1,5 +1,5 @@
 #!/bin/bash
-# Template · install-launchd → ~/Library/Application Support/com.jackm4.etf/ops-console-evening-sync.sh
+# Template · install-launchd → ~/Library/Application Support/com.jackm4.goldenstocks/ops-console-evening-sync.sh
 set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 exec /bin/bash "${ROOT}/scripts/launchd/ops-console-evening-sync.command"

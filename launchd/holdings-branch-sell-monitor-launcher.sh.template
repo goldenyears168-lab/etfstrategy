@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # 週一至五 20:10 · 持倉專家／大戶分點淨賣預警 · 不下單
 
 set -euo pipefail

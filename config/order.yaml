@@ -89,7 +89,7 @@ strategies:
       exclude_abc_ledger: false  # ABC Order 已移除 · 舊倉當手動單
       own_ledger: data/order/leading_dip_ledger.json
       poll_script: scripts/order/run_leading_dip_poll.py
-      launchd: com.jackm4.etf.leading-dip-poll
+      launchd: com.jackm4.goldenstocks.leading-dip-poll
     notes: >
       Strategy 採納 2026-07-16 · main=coverage yday excess · mid=≥10:00 open-anchor.
       Budget 20k/entry · live via ORDER_LEADING_DIP_DRY_RUN=0 AUTO_SUBMIT=1.
@@ -120,7 +120,7 @@ strategies:
     ledger: data/order/songshan_copytrade_ledger.json
     mega_path: reports/research/branch-footprint-screen/ab58_xMega_copytrade/mega_blacklist_v1.json
     poll_script: scripts/order/run_songshan_copytrade_poll.py
-    launchd: com.jackm4.etf.songshan-copytrade-poll
+    launchd: com.jackm4.goldenstocks.songshan-copytrade-poll
     notes: >
       Research 冠軍路徑進 Order（2026-07-22）。預算制 10 萬零股（2026-07-24 改）。
       夜信尺同名；進場須 25m 非 fail。僅進場（hold_days 參數無自動出場；暫接受）。
@@ -255,7 +255,7 @@ c18acc_pyramid_add:
 
 # Detach Gate（台美脫鉤閘門）· Strategy layer detach-gate · RED → half-flatten @ bid1
 # 範圍＝券商全帳戶持倉（非僅策略袖）· confirmed 2026-07-16
-# launchd：com.jackm4.etf.detach-gate · Mon–Fri 09:40–12:30 / 5m Asia/Taipei
+# launchd：com.jackm4.goldenstocks.detach-gate · Mon–Fri 09:40–12:30 / 5m Asia/Taipei
 # Frozen RED：s5_w-0.6_c1_down-0.5_arm0940-1230（research 採納 · sell-only）
 detach_gate:
   schema: order-detach-gate-v1
@@ -325,7 +325,7 @@ expert_pool_staged_gate:
       notes: "南電 · 收1305 · <1331開買 · 1331–1357等05 · ≥1357或>1345等25"
   notes: >
     poll_script=scripts/order/run_expert_pool_staged_gate.py
-    launchd=com.jackm4.etf.expert-pool-staged-gate
+    launchd=com.jackm4.goldenstocks.expert-pool-staged-gate
     state=data/order/expert_pool_staged_gate_state.json
 
 # Phase 1 · mini-OMS lifecycle（C18acc / Leading Dip · 可 env 覆寫）
@@ -345,7 +345,7 @@ account_risk:
 # 重新啟用：.env ORDER_LAUNCHD_ENABLED=1 + scripts/install-order-launchd.sh
 schedule:
   enabled: false
-  label: com.jackm4.etf.order-chase-open
+  label: com.jackm4.goldenstocks.order-chase-open
   window: "09:00-09:04"
   interval_minutes: 1
   max_rounds: 5

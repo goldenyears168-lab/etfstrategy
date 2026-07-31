@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.expert-pool-staged-gate</string>
+	<string>com.jackm4.goldenstocks.expert-pool-staged-gate</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -129,9 +129,9 @@
 	<key>ExitTimeOut</key>
 	<integer>900</integer>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-staged-gate.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/expert-pool-staged-gate.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-staged-gate.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/expert-pool-staged-gate.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

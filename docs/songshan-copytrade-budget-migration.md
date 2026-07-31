@@ -92,13 +92,13 @@ else:
 
 ```bash
 # 方式 A：直接編輯
-nano ~/Documents/ETF/股票研究/.env
+nano ~/goldenstocks/.env
 # 加入或修改：
 ORDER_SONGSHAN_COPYTRADE_BUDGET_TWD=100000
 
 # 方式 B：從 MacBook 同步
 ssh mac-mini
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 git pull  # 拉取最新代碼
 # 手動同步 .env（勿 git 提交）
 ```
@@ -107,8 +107,8 @@ git pull  # 拉取最新代碼
 
 ```bash
 # Mac mini 上
-cd ~/Documents/ETF/股票研究
-# 更新 ~/Library/Application\ Support/com.jackm4.etf/order.env
+cd ~/goldenstocks
+# 更新 ~/Library/Application\ Support/com.jackm4.goldenstocks/order.env
 # 可用 scripts/install-launchd.sh 重新安裝（會自動從 .env upsert）
 bash scripts/install-launchd.sh
 ```
@@ -117,7 +117,7 @@ bash scripts/install-launchd.sh
 
 ```bash
 # Mac mini 上
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 PYTHONPATH=src .venv-fubon/bin/python scripts/order/run_songshan_copytrade_poll.py \
   --date 2026-07-24 --time 09:25 --force-dry-run
 ```
@@ -217,7 +217,7 @@ songshan-copytrade:
 ### 4️⃣ **Mac mini 同步步驟**
 
 修改 `.env` 後：
-1. 同步到 `~/Library/Application Support/com.jackm4.etf/order.env`
+1. 同步到 `~/Library/Application Support/com.jackm4.goldenstocks/order.env`
 2. 重新載入 launchd：`bash scripts/install-launchd.sh`
 3. 或手動：`launchctl unload` → `launchctl load`
 
@@ -244,7 +244,7 @@ songshan-copytrade:
 ```bash
 # Mac mini
 grep SONGSHAN .env
-grep SONGSHAN ~/Library/Application\ Support/com.jackm4.etf/order.env
+grep SONGSHAN ~/Library/Application\ Support/com.jackm4.goldenstocks/order.env
 # 確認有 BUDGET_TWD=100000
 bash scripts/install-launchd.sh  # 重新同步
 ```
@@ -256,7 +256,7 @@ bash scripts/install-launchd.sh  # 重新同步
 **解決**：
 ```bash
 # Mac mini
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 git pull
 ```
 

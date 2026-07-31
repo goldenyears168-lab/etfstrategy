@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.ops-console-evening-sync</string>
+	<string>com.jackm4.goldenstocks.ops-console-evening-sync</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -51,9 +51,9 @@
 	<!-- launchd Std 路徑必須放 ~/Library/Logs（非 TCC 保護區）；放在 {{PROJECT_ROOT}}
 	     （~/Documents 下）會讓 launchd 開檔被 TCC 拒絕 → spawn 前 EX_CONFIG(78)、零輸出。 -->
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-console-evening-sync.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/ops-console-evening-sync.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/ops-console-evening-sync.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/ops-console-evening-sync.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

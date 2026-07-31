@@ -6,7 +6,7 @@ DSR recomputed at N in {local, 133, 243}. fwd = t+1 open->close (no lookahead).
 import numpy as np, pandas as pd
 from scipy.stats import norm
 
-ROOT = "/Users/jackm4/Documents/ETF/股票研究"
+ROOT = "/Users/jackm4/goldenstocks"
 PANEL = f"{ROOT}/data/research/chip_macro/panel.parquet"
 MACRO = f"{ROOT}/data/research/dashboard/global_macro_data.parquet"
 BREADTH = f"{ROOT}/data/research/dashboard/pct_ma200_breadth.parquet"

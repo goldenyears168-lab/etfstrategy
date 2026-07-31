@@ -32,7 +32,7 @@ Warmup accounting from 2019; breadth series evaluated 2020-01 -> 2026-07-07.
 
 Market fwd returns / regime / champion from chip_macro/panel.parquet.
 
-  cd /Users/jackm4/Documents/ETF/股票研究
+  cd /Users/jackm4/goldenstocks
   .venv/bin/python scripts/research/dashboard/margin_nearcall_breadth_study.py
 
 lead_lag: PRECURSOR candidate (event-level). layer: L2 chip-core, L0-gated.

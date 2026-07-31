@@ -46,7 +46,7 @@ METHODOLOGY (依專案方法論,證偽優先)
      真 edge 只可能在「開盤後 intraday 續勢」的殘差 (且要對 TAIEX 自身動能 & foreign 正交化)。
 
 HOW TO RUN
-  cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+  cd /Users/jackm4/goldenstocks && source .venv/bin/activate
   python scripts/research/dashboard/global_macro_study.py                 # STRAND A: SOX/ADR 實跑
   python scripts/research/dashboard/global_macro_study.py --with-external  # STRAND B: 需先同步外部資料 (否則印出待辦)
 

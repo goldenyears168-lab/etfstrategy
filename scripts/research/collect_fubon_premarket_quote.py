@@ -28,7 +28,7 @@ mini 其他排程搶 sqlite 寫鎖讓收集器整個中斷掛掉，已修成「�
         --once --symbols 2330,0050
 
 正式盤前收集（Mac mini，週一至五 08:28 由 launchd 自動觸發，見
-launchd/com.jackm4.etf.fubon-premarket-quote-collect.plist.template）：
+launchd/com.jackm4.goldenstocks.fubon-premarket-quote-collect.plist.template）：
     PYTHONPATH=src .venv-fubon/bin/python scripts/research/collect_fubon_premarket_quote.py
 （預設 --start-time 08:29:00 --end-time 09:01:00 --interval-sec 5，
  若啟動時已在窗口內立即開始，若早於窗口會先等到 08:29:00，若晚於窗口直接結束。

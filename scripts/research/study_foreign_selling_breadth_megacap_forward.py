@@ -25,7 +25,7 @@
      standard errors，不用 naive OLS t-stat。
 
 用法：
-  cd "/Users/jackm4/Documents/ETF/股票研究" && PYTHONPATH=src .venv/bin/python \
+  cd "/Users/jackm4/goldenstocks" && PYTHONPATH=src .venv/bin/python \
     scripts/research/study_foreign_selling_breadth_megacap_forward.py
 """
 

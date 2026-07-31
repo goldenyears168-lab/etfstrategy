@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # 週一至五 09:00 · 大跌溫度計（加權8家瑞銀/野村/高盛亞/麥格理/館前/民生/統一/仁愛
 # + 共識家數）· email 每日一封（含正常讀數）· 不下單
 #

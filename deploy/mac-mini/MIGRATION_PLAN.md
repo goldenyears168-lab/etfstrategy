@@ -16,13 +16,13 @@
 
 ## 0. 現況驗收（2026-07-23）
 
-覆寫首遷表（2026-07-16 歷史見 git）。**開關以 mini `.env` + `~/Library/Application Support/com.jackm4.etf/order.env` 為準**（launcher source 後覆寫 plist 安全預設）。
+覆寫首遷表（2026-07-16 歷史見 git）。**開關以 mini `.env` + `~/Library/Application Support/com.jackm4.goldenstocks/order.env` 為準**（launcher source 後覆寫 plist 安全預設）。
 
 | 檢查項 | Book（MacBook Air） | Mac mini |
 |--------|---------------------|----------|
 | 主機名 | `JackM4deMacBook-Air` | `minim4deMac-mini` |
-| 路徑／使用者 | `/Users/jackm4/Documents/ETF/股票研究` · `jackm4` | 同左 |
-| `com.jackm4.etf.*` launchd | **0 支**（禁止 live） | **≈16 支已載入**（含 `order-wake`） |
+| 路徑／使用者 | `/Users/jackm4/goldenstocks` · `jackm4` | 同左 |
+| `com.jackm4.goldenstocks.*` launchd | **0 支**（禁止 live） | **≈16 支已載入**（含 `order-wake`） |
 | Order live（送單） | 不送單 | **C18acc** + **Leading Dip** + **Songshan copytrade** + **expert-pool-staged-gate** |
 | 觀測／不下單 | — | **Detach = RED 寄信、不半砍**；buy/sell radar 不下單 |
 | SSH（Book→mini） | `Host mac-mini` | 可 `BatchMode` 登入 |
@@ -31,22 +31,22 @@
 
 ```
 # 盤中 Order
-com.jackm4.etf.rrg-c18acc-poll
-com.jackm4.etf.leading-dip-poll
-com.jackm4.etf.songshan-copytrade-poll   # live（POLL/ENABLED=1 · DRY_RUN=0 · AUTO_SUBMIT=1）
-com.jackm4.etf.expert-pool-staged-gate   # live
-com.jackm4.etf.detach-gate               # 排程在；ORDER_ENABLED=0 · RED 只寄信
-com.jackm4.etf.buy-signal-radar
-com.jackm4.etf.sell-signal-radar
-com.jackm4.etf.order-wake
+com.jackm4.goldenstocks.rrg-c18acc-poll
+com.jackm4.goldenstocks.leading-dip-poll
+com.jackm4.goldenstocks.songshan-copytrade-poll   # live（POLL/ENABLED=1 · DRY_RUN=0 · AUTO_SUBMIT=1）
+com.jackm4.goldenstocks.expert-pool-staged-gate   # live
+com.jackm4.goldenstocks.detach-gate               # 排程在；ORDER_ENABLED=0 · RED 只寄信
+com.jackm4.goldenstocks.buy-signal-radar
+com.jackm4.goldenstocks.sell-signal-radar
+com.jackm4.goldenstocks.order-wake
 # 夜間／輔助（不下單或預熱）
-com.jackm4.etf.winbond-expert-pool-watch
-com.jackm4.etf.second-disp-expert-pool-watch
-com.jackm4.etf.holdings-branch-sell-monitor
-com.jackm4.etf.branch-tape-prewarm
-com.jackm4.etf.expert-pool-chart-digest
-com.jackm4.etf.crash-thermometer-daily
-com.jackm4.etf.fubon-premarket-quote-collect
+com.jackm4.goldenstocks.winbond-expert-pool-watch
+com.jackm4.goldenstocks.second-disp-expert-pool-watch
+com.jackm4.goldenstocks.holdings-branch-sell-monitor
+com.jackm4.goldenstocks.branch-tape-prewarm
+com.jackm4.goldenstocks.expert-pool-chart-digest
+com.jackm4.goldenstocks.crash-thermometer-daily
+com.jackm4.goldenstocks.fubon-premarket-quote-collect
 ```
 
 （`fubon-premarket-quote-collect` 為研究層資料收集，**手動一次性安裝**、不在 `install-launchd.sh` `LABELS`；安裝／卸載步驟見 `scripts/launchd/fubon-premarket-quote-collect.command` 檔頭。）
@@ -92,7 +92,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 
 **運維事件（2026-07-26）**
 
-- 稽核發現 `com.jackm4.etf.order-chase-open` 仍掛在 mini launchd 上（`ORDER_LAUNCHD_ENABLED=1`，閘門開），與本文「不裝」的決策不符；根因是舊版 `install-order-launchd.sh` 靠 §4.6 手動 bootout 步驟撤除，某次重跑安裝腳本（例如加裝 Songshan／EP staged gate 等較新 order 功能時）沒有重做這一步就又裝回去。
+- 稽核發現 `com.jackm4.goldenstocks.order-chase-open` 仍掛在 mini launchd 上（`ORDER_LAUNCHD_ENABLED=1`，閘門開），與本文「不裝」的決策不符；根因是舊版 `install-order-launchd.sh` 靠 §4.6 手動 bootout 步驟撤除，某次重跑安裝腳本（例如加裝 Songshan／EP staged gate 等較新 order 功能時）沒有重做這一步就又裝回去。
 - 處理：SSH 到 mini 執行 `bootout` + 刪除 plist，即時撤除；同時把 `install-order-launchd.sh` 改成 `order-chase-open` 進 `LEGACY_LABELS`，之後每次執行安裝腳本都會自動卸載，不再依賴人工步驟。
 - `timed-limit-orders`（限時限價單，09:05 once-date 排程）確認之後不會再用，整支移除：mini 撤 launchd + 刪 plist/wrapper + 清 `data/order/timed_limit_orders_state.json`；Book 端刪除 `src/order/timed_limit_order.py`、`scripts/order/run_timed_limit_orders.py`、對應 launchd 樣板與 `install-launchd.sh` 註冊、`config/order.yaml` 的 `timed_limit_orders` 清單、`.env`/`.env.example`/`order.env` 的 `*_TIMED_LIMIT_*` 旗標。共用函式 `_order_still_open`（EP staged gate 也在用）先搬到 `order/fubon_orders.py`（改名 `order_still_open`，公開函式）才刪整個模組，避免誤傷還在跑的 EP staged gate。
 
@@ -102,8 +102,8 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 - **簡化為「只留分點研究＋網站基礎設施」**：另暫停 `buy-signal-radar`／`sell-signal-radar`（ABC退役殘留、無下單能力純clutter）、`order-wake`（服務對象已全暫停）。維持運作：`branch-tape-prewarm`／`winbond-expert-pool-watch`／`second-disp-expert-pool-watch`／`expert-pool-chart-digest`／`holdings-branch-sell-monitor`／`second-disp-oos-accumulate`／`crash-thermometer-daily`／`fubon-premarket-quote-collect`／`fubon-intraday-quote-collect`／`ops-live-ta-poll`／`ops-console-evening-sync`，新增 `live-ta-kbar-sync`（週一至五14:00，動態 Live TA universe 的 `stock_kbar_1m` 每日增補，見 `reports/research/intraday_direction_thermometer/LIVE_TA_FIELD_OPTIMIZATION_20260728.md`）。
 - **`cursor-agent-worker` 退役**：查log自2026-07-24啟用以來未見任何實際派工紀錄，判斷閒置未用；已 `CURSOR_AGENT_WORKER_ENABLED=0` + `launchctl disable`。取代方案：Claude Code雲端排程routine `expert-pool-branch-health-check`（週一至五21:00台北，Supabase MCP唯讀健檢分點研究資料新鮮度＋Gmail報告；與既有的 `daily-foreign-rotation-commentary` 職責切開，互不重疊）。§1.5 已改寫為「遠端存取」（cursor-worker 相關段落移除）。
 - **地基重整 Phase 3 收盤驗證（2026-07-30 13:40）**：兩個交易日的排程job（07-29晚間全批 branch-tape-prewarm/crash-thermometer/evening_research_watch/expert-pool-chart-digest/holdings-branch-sell/live-ta-kbar-sync/ops-console-evening-sync/second-disp-expert-pool-watch + 07-30當天collector）逐一核對log時間戳，**全部正確寫進新路徑 `~/goldenstocks-data`**，舊路徑對應的log目錄完全凍結（自07-29 cutover後無新檔案）。**但發現舊 `data/stocks.db` 本身在07-30當天仍有成長**（+3.4MB、mtime 12:37，非launchd job造成——所有collector自己的log都乾淨指向新路徑）。查證：`GOLDENSTOCKS_DATA_DIR` 只透過 `launchctl setenv` 對Aqua/launchd網域生效，**互動式SSH登入shell不會繼承這個值**，任何用手動SSH直接跑的腳本（非launchd job）會悄悄退回舊路徑預設值。已修復：`~/.zshrc` 加上 `export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`，讓互動session也一致。抽查 `stock_daily_bars`（07-29起的新資料）確認新db是嚴格superset（0筆只存在舊db），研判不是資料流失，但**在此修復生效、再確認一天前，暫緩刪除舊殘留備份**（原訂07-30執行，順延）。
-- **地基重整開工（Phase 1 已完成，Phase 3-4 待排）**：發現 `.env`／`data/stocks.db`／`logs/` 混在 git working tree 裡是deploy風險根因（每次 `git pull` 都可能踩到本地未commit修改，2026-07-28曾實際發生一次stash攻防）。Phase 1（Book，程式碼支援 `GOLDENSTOCKS_DATA_DIR` 環境變數覆寫資料/機密路徑，未設＝完全等同現行行為）已完成並測試通過。Phase 2（本節）。**Phase 3（mini：把 `.env`/`data`/`logs`/`CAFubon` 搬到 `~/goldenstocks-data/`）與 Phase 4（mini＋Book：repo checkout 本身遷離 `~/Documents/ETF/股票研究` 中文路徑，改到 `~/goldenstocks`）尚未執行，會在收盤後分階段做並逐步驗證**。完整計畫見 session記錄；執行前本文件§0現況表會再更新一次反映實際新路徑。
-- **命名決策（2026-07-29 下午）**：用戶決定專案不再侷限於「跟單ETF」定位，正式改名為 **goldenstocks**。範圍分兩輪：**今輪（低風險，隨Phase 3-4一起做）**＝本地目錄名稱（`~/goldenstocks`／`~/goldenstocks-data`）＋程式碼內部命名（`GOLDENSTOCKS_DATA_DIR`）＋文件文字；**下一輪（高風險，另外處理，不隨今天進度）**＝GitHub repo改名（`goldenyears168-lab/etfstrategy`→`goldenstocks`）、mini上所有launchd job的識別字首（`com.jackm4.etf.*`→`com.jackm4.goldenstocks.*`，含Application Support／Logs路徑）、網站網域（`haoshi-quant-ops.pages.dev`）。這幾項對外部服務／目前還在跑的job有實際改動風險，刻意不跟今天的基礎重整綁在一起做。
+- **地基重整開工（Phase 1 已完成，Phase 3-4 待排）**：發現 `.env`／`data/stocks.db`／`logs/` 混在 git working tree 裡是deploy風險根因（每次 `git pull` 都可能踩到本地未commit修改，2026-07-28曾實際發生一次stash攻防）。Phase 1（Book，程式碼支援 `GOLDENSTOCKS_DATA_DIR` 環境變數覆寫資料/機密路徑，未設＝完全等同現行行為）已完成並測試通過。Phase 2（本節）。**Phase 3（mini：把 `.env`/`data`/`logs`/`CAFubon` 搬到 `~/goldenstocks-data/`）與 Phase 4（mini＋Book：repo checkout 本身遷離 `~/goldenstocks` 中文路徑，改到 `~/goldenstocks`）尚未執行，會在收盤後分階段做並逐步驗證**。完整計畫見 session記錄；執行前本文件§0現況表會再更新一次反映實際新路徑。
+- **命名決策（2026-07-29 下午）**：用戶決定專案不再侷限於「跟單ETF」定位，正式改名為 **goldenstocks**。範圍分兩輪：**今輪（低風險，隨Phase 3-4一起做）**＝本地目錄名稱（`~/goldenstocks`／`~/goldenstocks-data`）＋程式碼內部命名（`GOLDENSTOCKS_DATA_DIR`）＋文件文字；**下一輪（高風險，另外處理，不隨今天進度）**＝GitHub repo改名（`goldenyears168-lab/etfstrategy`→`goldenstocks`）、mini上所有launchd job的識別字首（`com.jackm4.goldenstocks.*`→`com.jackm4.goldenstocks.*`，含Application Support／Logs路徑）、網站網域（`haoshi-quant-ops.pages.dev`）。這幾項對外部服務／目前還在跑的job有實際改動風險，刻意不跟今天的基礎重整綁在一起做。
 - **Phase 3 二次收盤驗證（2026-07-31 13:40）再延後一輪**：確認舊 `data/stocks.db` 自07-30 12:37起完全凍結（byte-exact），07-30互動式shell修復生效。但追查另外發現**4支active job腳本各自獨立寫死`ROOT/data`路徑，完全繞過`GOLDENSTOCKS_DATA_DIR`機制**（不是env沒設的問題，是code本身沒接這個機制）：`run_market_crash_thermometer_dashboard.py`（crash-thermometer-daily，09:00，`DB_PATH`直接寫死、不經`DEFAULT_DB_PATH`——這支一直在讀舊的、逐漸過期的價格資料）、`run_evening_research_watch_digest.py`／`run_expert_pool_watch.py`／`run_songshan_follow_watch.py`（winbond-expert-pool-watch，20:00，`--state-dir`預設寫死，只是dedup用的state檔、非財務資料）。已改成從`stock_db`匯入`DATA_DIR`/`DEFAULT_DB_PATH`，commit `8f9fee2`，mini已pull。**這4支今天都已經跑過舊版**（crash-thermometer 09:00, winbond 20:00尚未到），所以今晚才是第一次用新版跑；順延到**下週一(08-03)收盤後**再檢查一次舊db是否真的完全停止成長，才刪除殘留備份。
 - **另發現 `chip-macro-tracker` job（非本次遷移安裝）**：mini上已裝、weekdays 20:00執行，屬於另一條並行進行中的研究工作（`research/dashboard-completeness` branch），其`daily_tracker.py`的`PANEL_DIR`同樣寫死`ROOT/data`、尚未套用`GOLDENSTOCKS_DATA_DIR`——**這是別人的進行中程式碼，這次刻意不動它**，只記錄在`config/job_registry.yaml`供之後协調。這也代表：只要這支job還沒改，舊`data/`目錄底下至少`data/research/chip_macro/`這個子目錄本身會持續有新檔案，**刪除舊殘留備份前要跟該工作的owner確認**，不能只看`stocks.db`本身凍結就視為全部安全。
 
@@ -113,7 +113,7 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 - **Stage 1：git結構收斂 + 意外發現的孤兒branch**：清掉`.claude/worktrees/hungry-yonath-aed334`worktree與對應branch。原訂直接刪除的孤兒branch `fix/launchd-documents-tcc-logpath`（07-28）經檢查發現：裡面的launchd log path修復本身早就在main的祖先鏈裡（非唯一），但另外藏了2筆從未進main的研究commit（`whale-quiet-accumulator-scan`／`whale-branch-position-momentum-2m` 兩個research.yaml主題 + 3支study腳本；4支外資賣壓/台積電相關study腳本）。跟用戶確認後cherry-pick進main（`483a515`、`071934e`），9239那部分結論因main後續有更完整的研究（rejected，理由更詳細）而捨棄不merge，其餘研究內容+腳本文件保留。跑過完整測試（1556 passed）後push、刪除孤兒branch（本地+remote）。
 - **Stage 2（Book側）：code/state分離**：Book的`.env`(8K)/`data`(67GB，含15GB即時寫入的`stocks.db`)/`logs`(26M)/`CAFubon`(5.3M)用`cp -pR`（APFS clonefile）複製到`~/goldenstocks-data`，複製前確認無process正在寫入。驗證：檔案大小完全相符、`stocks.db`本身size+mtime byte-exact、`stock_daily_bars`列數相符(3,554,889)。`~/.zshrc`加上`export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`（Book本身無launchd job，純互動式session，跟mini的Aqua網域gap不同類）。
 - **第三個env-var傳遞gap（08-01發現+修復）**：驗證時發現非互動式`ssh host 'command'`（一行式SSH指令，本session大量診斷指令＋任何未來自動化都用這個型態）**不會載入`~/.zshrc`**（zsh只對interactive shell載入`.zshrc`，非互動、非登入shell都不載入）——跟07-30發現的「launchctl setenv只對Aqua網域生效」是不同的第三種env gap。修復：Book＋mini都新增`~/.zshenv`（zsh對**所有**呼叫型態，含非互動/非登入，一律載入這個檔案）內容同樣是`export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`。驗證：`ssh mac-mini 'echo $GOLDENSTOCKS_DATA_DIR'`／`ssh mac-mini 'python3 -c "from stock_db.util import DEFAULT_DB_PATH; print(DEFAULT_DB_PATH)"'`都正確指向新路徑。
-- **Phase 3 完成（08-01，Book＋mini兩邊都執行）**：用戶明確指示「都做完」，最終安全檢查（複製後mtime/size完全未變、`CAFubon`確認0檔案git-tracked、`.env`/`data`/`logs`已被`.gitignore`排除、`.zshenv` gap已修復確認新路徑在各種呼叫型態下都正確解析）通過後，**刪除Book＋mini兩邊git tree內的舊`.env`／`data`(67GB)／`logs`／`CAFubon`殘留副本**（`rm -rf`，經使用者對這個不可逆動作的AskUserQuestion明確二次確認，因為Claude Code的auto-mode安全分類器攔截了第一次嘗試）。刪除後在兩台機器上都重新smoke test：`load_project_dotenv()`正確讀到新`.env`、`DEFAULT_DB_PATH`指向新`stocks.db`且可查詢（Book 3,554,889列、mini 493,292列——兩邊資料庫本來就各自獨立，這是已知現況非新問題）。額外確認mini的launchd job plist（`~/Library/LaunchAgents/*.plist`）的`StandardOutPath`全部早就指向`~/Library/Logs/com.jackm4.etf/`（07-28 TCC修復的一部分），完全沒有引用剛刪除的舊`logs/`路徑，刪除不影響任何排程job。**Phase 3至此在Book與mini兩邊都完整結案**——`.env`/`data`/`logs`/`CAFubon`只剩`~/goldenstocks-data`一份，git tree裡完全乾淨、不再有任何機密或大型資料檔案殘留。
+- **Phase 3 完成（08-01，Book＋mini兩邊都執行）**：用戶明確指示「都做完」，最終安全檢查（複製後mtime/size完全未變、`CAFubon`確認0檔案git-tracked、`.env`/`data`/`logs`已被`.gitignore`排除、`.zshenv` gap已修復確認新路徑在各種呼叫型態下都正確解析）通過後，**刪除Book＋mini兩邊git tree內的舊`.env`／`data`(67GB)／`logs`／`CAFubon`殘留副本**（`rm -rf`，經使用者對這個不可逆動作的AskUserQuestion明確二次確認，因為Claude Code的auto-mode安全分類器攔截了第一次嘗試）。刪除後在兩台機器上都重新smoke test：`load_project_dotenv()`正確讀到新`.env`、`DEFAULT_DB_PATH`指向新`stocks.db`且可查詢（Book 3,554,889列、mini 493,292列——兩邊資料庫本來就各自獨立，這是已知現況非新問題）。額外確認mini的launchd job plist（`~/Library/LaunchAgents/*.plist`）的`StandardOutPath`全部早就指向`~/Library/Logs/com.jackm4.goldenstocks/`（07-28 TCC修復的一部分），完全沒有引用剛刪除的舊`logs/`路徑，刪除不影響任何排程job。**Phase 3至此在Book與mini兩邊都完整結案**——`.env`/`data`/`logs`/`CAFubon`只剩`~/goldenstocks-data`一份，git tree裡完全乾淨、不再有任何機密或大型資料檔案殘留。
 - **順便清掉的其他殘留**：mini repo根目錄的5個舊`.env.bak*`備份檔＋1個`.py.bak-lazyimport`除錯殘留（都是untracked雜物，跟正式migration無關，一併清掉）；mini的死symlink `~/etf-stocks`（Cursor worker退役後的殘留連結，指向舊repo路徑，已刪除）；mini的git checkout本身落後main 4筆commit（因為07-31 scp部署的chip_macro/wantgoo_loop檔案跟Book今天Stage 0/1合併進main的內容逐一比對byte-identical後，用`git stash push -u`＋`git pull --ff-only`＋確認stash無獨有內容後`git stash drop`的方式安全同步，無衝突）。
 - **Stage 3（網站資料夾搬遷）與 Stage 4（GitHub改名、mini launchd識別字首改名）尚未開始**，計畫裡寫明這兩步驟需要個別跟用戶確認才執行，目前都還沒問。
 
@@ -128,11 +128,11 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 | 生產機 | **Mac mini**（無頭；**不裝 Cursor App**） |
 | 研究機 | **MacBook**（唯一 IDE · 平常主入口） |
 | 遠端遙控 | SSH `mac-mini`（同網／Tailscale）；手機用 SSH client 或 Screen Sharing |
-| 路徑 | `/Users/jackm4/Documents/ETF/股票研究`（兩台相同） |
+| 路徑 | `/Users/jackm4/goldenstocks`（兩台相同） |
 | 使用者 | `jackm4` |
 | 網路 | mini **乙太網**；Book Wi‑Fi；同網 SSH 別名 `mac-mini`（見 §3） |
 | Tailscale | **建議**（出國 SSH 備用）；日常同網 SSH 即可 |
-| 雙機並跑 | **禁止**（Book 卸載全部 `com.jackm4.etf.*`） |
+| 雙機並跑 | **禁止**（Book 卸載全部 `com.jackm4.goldenstocks.*`） |
 | Python | **3.13** · `.venv`（策略）+ `.venv-fubon`（富邦 wheel） |
 | DB SSOT | **僅 mini** `data/stocks.db`；Book 只讀 replica |
 | Order SSOT | **僅 mini** `data/order/` · `reports/order/` · `logs/intraday/` |
@@ -185,17 +185,17 @@ Log：`logs/intraday/launchd_*.log` · Songshan 另見 `logs/intraday/songshan_c
 
 ### 1.3 已退役（不再掛 launchd）
 ```
-com.jackm4.etf.morning-holdings-brief   # 手動：scripts/order/morning_holdings_brief.py
-com.jackm4.etf.evening-holdings
-com.jackm4.etf.intraday-exit-gate       # 結構停損閘門 · 退回 Research
-com.jackm4.etf.intraday-*-digest
-com.jackm4.etf.rrg-mono-intraday-watch
-com.jackm4.etf.vcp-funnel-specs
-com.jackm4.etf.minervini-sepa-basket
-com.jackm4.etf.mutual-fund-disclosure-watch
-com.jackm4.etf.weekly-deep
-com.jackm4.etf.order-chase-open
-com.jackm4.etf.c18acc-extension-overlay
+com.jackm4.goldenstocks.morning-holdings-brief   # 手動：scripts/order/morning_holdings_brief.py
+com.jackm4.goldenstocks.evening-holdings
+com.jackm4.goldenstocks.intraday-exit-gate       # 結構停損閘門 · 退回 Research
+com.jackm4.goldenstocks.intraday-*-digest
+com.jackm4.goldenstocks.rrg-mono-intraday-watch
+com.jackm4.goldenstocks.vcp-funnel-specs
+com.jackm4.goldenstocks.minervini-sepa-basket
+com.jackm4.goldenstocks.mutual-fund-disclosure-watch
+com.jackm4.goldenstocks.weekly-deep
+com.jackm4.goldenstocks.order-chase-open
+com.jackm4.goldenstocks.c18acc-extension-overlay
 ```
 
 ABC v3+F1：**已自 Order 移除**（`.env` 全部 `ABC_V3_F1_*=0` · ledger 僅供 Leading Dip cross-exclude）。Buy radar 不再跑 ABC 觀察軌。
@@ -297,8 +297,8 @@ ssh mac-mini 'hostname; launchctl list | grep jackm4.etf'
 rsync -az --progress -e "ssh -o BatchMode=yes" \
   --exclude '.venv/' --exclude '.venv-fubon/' \
   --exclude '__pycache__/' --exclude '.pytest_cache/' \
-  "/Users/jackm4/Documents/ETF/股票研究/" \
-  "mac-mini:Documents/ETF/股票研究/"
+  "/Users/jackm4/goldenstocks/" \
+  "mac-mini:goldenstocks/"
 ```
 
 必含：`.env`、`CAFubon/`、`data/`（含 `stocks.db`、C18 slots、Leading Dip／Detach ledger）。  
@@ -309,7 +309,7 @@ rsync -az --progress -e "ssh -o BatchMode=yes" \
 ```bash
 ssh mac-mini 'bash -lc "
 eval \"\$(/opt/homebrew/bin/brew shellenv)\"
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 python3.13 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -r requirements.txt
 python3.13 -m venv .venv-fubon && .venv-fubon/bin/pip install -U pip
 .venv-fubon/bin/pip install CAFubon/fubon_neo-*-macosx_*_arm64.whl PyYAML
@@ -380,7 +380,7 @@ ORDER_LAUNCHD_ENABLED=1
 
 ```bash
 ssh mac-mini 'bash -lc "
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 export ROOT=\"\$(pwd)\" PYTHONPATH=src
 .venv-fubon/bin/python scripts/order/fubon_login_test.py --snapshot
 # C18 實際入口（計劃舊名 run_rrg_c18acc_screen.py 已廢）
@@ -396,7 +396,7 @@ RUN_BUY_SIGNAL_RADAR=1 .venv/bin/python scripts/run_buy_signal_radar.py
 
 ```bash
 ssh mac-mini 'bash -lc "
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 bash scripts/install-launchd.sh
 bash scripts/install-order-launchd.sh
 bash scripts/install-launchd.sh --status
@@ -411,7 +411,7 @@ launchctl list | grep jackm4.etf
 ### 4.7 MacBook 停用 live
 
 ```bash
-cd ~/Documents/ETF/股票研究
+cd ~/goldenstocks
 bash scripts/install-launchd.sh --uninstall
 bash scripts/install-order-launchd.sh --uninstall
 launchctl list | grep jackm4.etf || echo "OK: none"
@@ -452,7 +452,7 @@ Book `.env` 已於 2026-07-16 套用上表（Leading Dip／Detach `DRY_RUN=1`）
 git push
 
 # mini（交易日開盤前，或從 Book 代拉）
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull'
+ssh mac-mini 'cd ~/goldenstocks && git pull'
 # 或未 push 的工作樹：同網 rsync（§4.2）
 # 本文件若未進 git：另 rsync deploy/mac-mini/MIGRATION_PLAN.md
 ```
@@ -462,7 +462,7 @@ Ledger／slots／`stocks.db`／`logs/intraday/` **以 mini 為準**，無需回�
 ### 5.2 盤中監看
 
 ```bash
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && scripts/launchd_status_dashboard.sh'
+ssh mac-mini 'cd ~/goldenstocks && scripts/launchd_status_dashboard.sh'
 ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_rrg-c18acc-poll.log'
 ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_leading-dip-poll.log'
 ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_buy-signal-radar.log'

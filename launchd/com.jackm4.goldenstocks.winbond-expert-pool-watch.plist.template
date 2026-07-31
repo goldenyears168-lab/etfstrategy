@@ -3,14 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.holdings-branch-sell-monitor</string>
+	<string>com.jackm4.goldenstocks.winbond-expert-pool-watch</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>{{HOLDINGS_BRANCH_SELL_LAUNCHER}}</string>
+		<string>{{WINBOND_EXPERT_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
+	<!-- Env (incl. optional EXPERT_POOL_YELLOW_EMAIL_ANNOTATION) comes from
+	     launcher sourcing PROJECT_ROOT/.env — do NOT hardcode secrets/flags here.
+	     Yellow annotation default OFF; see expert_pool/MINI_OPS_REFERENCE.md -->
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
@@ -23,33 +26,33 @@
 		<dict>
 			<key>Weekday</key><integer>1</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Minute</key><integer>0</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>2</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Minute</key><integer>0</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>3</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Minute</key><integer>0</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>4</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Minute</key><integer>0</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>5</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Minute</key><integer>0</integer>
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/holdings-branch-sell-monitor.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/winbond-expert-pool-watch.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/holdings-branch-sell-monitor.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/winbond-expert-pool-watch.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.pre-market-auction-collect</string>
+	<string>com.jackm4.goldenstocks.pre-market-auction-collect</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -22,9 +22,9 @@
 	<key>StartInterval</key>
 	<integer>60</integer>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/pre-market-auction-collect.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/pre-market-auction-collect.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/pre-market-auction-collect.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/pre-market-auction-collect.launchd.err.log</string>
 	<key>ExitTimeOut</key>
 	<integer>60</integer>
 	<key>RunAtLoad</key>

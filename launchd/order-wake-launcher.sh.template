@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 由 install-order-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-order-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # 盤中防休眠：鐘面每 5 分 · Mon–Fri 08:50–13:40 caffeinate
 
 set -euo pipefail
 
 ROOT="{{PROJECT_ROOT}}"
-LOG_DIR="${HOME}/Library/Logs/com.jackm4.etf"
+LOG_DIR="${HOME}/Library/Logs/com.jackm4.goldenstocks"
 mkdir -p "${LOG_DIR}" "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 LOG="${LOG_DIR}/order-wake.log"
 # mirror for project greps

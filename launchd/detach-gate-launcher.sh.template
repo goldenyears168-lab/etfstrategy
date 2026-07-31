@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # Detach Gate（台美脫鉤閘門）· 內嵌 Python（不 exec Documents 內 .command）
 
 set -euo pipefail

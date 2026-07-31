@@ -49,11 +49,11 @@
     # 未指定 --symbols 且未加 --all-market 時，改讀 order_holdings_snapshot 最新持股清單。
 
 正式排程（Mac mini · 每個交易日 08:29-09:01 每分鐘一次）：
-    見 launchd/com.jackm4.etf.pre-market-auction-collect.plist.template +
+    見 launchd/com.jackm4.goldenstocks.pre-market-auction-collect.plist.template +
     scripts/launchd/pre-market-auction-collect.command。此收集器是研究層
     （scripts/research/），不屬於下單層，因此刻意不併入
     scripts/install-launchd.sh 的下單層陣列，改用獨立
-    `launchctl load ~/Library/LaunchAgents/com.jackm4.etf.pre-market-auction-collect.plist`
+    `launchctl load ~/Library/LaunchAgents/com.jackm4.goldenstocks.pre-market-auction-collect.plist`
     手動安裝於 mini（一次性，見上述 command 檔內註解）。
 
 不新增依賴：只用 requests（既有）+ 專案既有 stock_db / finmind_client / project_dotenv。

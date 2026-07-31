@@ -8,15 +8,15 @@
 #   open -gj scripts/launchd/fubon-intraday-quote-collect.command
 #
 # 安裝（Mac mini，一次性，不透過 scripts/install-launchd.sh 的下單層陣列）：
-#   PLIST=~/Library/LaunchAgents/com.jackm4.etf.fubon-intraday-quote-collect.plist
+#   PLIST=~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-intraday-quote-collect.plist
 #   sed -e "s#{{FUBON_INTRADAY_QUOTE_COLLECT_LAUNCHER}}#$(pwd)/scripts/launchd/fubon-intraday-quote-collect.command#g" \
 #       -e "s#{{HOME}}#${HOME}#g" \
-#       launchd/com.jackm4.etf.fubon-intraday-quote-collect.plist.template > "${PLIST}"
+#       launchd/com.jackm4.goldenstocks.fubon-intraday-quote-collect.plist.template > "${PLIST}"
 #   launchctl bootstrap "gui/$(id -u)" "${PLIST}"
 #
 # 卸載：
-#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.etf.fubon-intraday-quote-collect.plist
-#   rm ~/Library/LaunchAgents/com.jackm4.etf.fubon-intraday-quote-collect.plist
+#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-intraday-quote-collect.plist
+#   rm ~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-intraday-quote-collect.plist
 
 set -euo pipefail
 

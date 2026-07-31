@@ -14,8 +14,8 @@ LAUNCHD_SRC="${PROJECT_ROOT}/launchd"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
-LABEL="com.jackm4.etf.etfedge-import"
-TEMPLATE="com.jackm4.etf.etfedge-import.plist.template"
+LABEL="com.jackm4.goldenstocks.etfedge-import"
+TEMPLATE="com.jackm4.goldenstocks.etfedge-import.plist.template"
 
 usage() {
   cat <<EOF

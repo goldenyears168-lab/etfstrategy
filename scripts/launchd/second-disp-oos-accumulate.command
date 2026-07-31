@@ -5,17 +5,17 @@
 # 知識庫：reports/research/branch-footprint-screen/expanded/BLINDSPOT_RECHECK_AND_OOS_FREEZE.md
 #
 # 安裝（Mac mini，一次性，不透過 scripts/install-launchd.sh 的下單層陣列）：
-#   PLIST=~/Library/LaunchAgents/com.jackm4.etf.second-disp-oos-accumulate.plist
+#   PLIST=~/Library/LaunchAgents/com.jackm4.goldenstocks.second-disp-oos-accumulate.plist
 #   sed -e "s#{{SECOND_DISP_OOS_LAUNCHER}}#$(pwd)/scripts/launchd/second-disp-oos-accumulate.command#g" \
 #       -e "s#{{PROJECT_ROOT}}#$(pwd)#g" \
 #       -e "s#{{HOME}}#${HOME}#g" \
-#       launchd/com.jackm4.etf.second-disp-oos-accumulate.plist.template > "${PLIST}"
+#       launchd/com.jackm4.goldenstocks.second-disp-oos-accumulate.plist.template > "${PLIST}"
 #   launchctl bootstrap "gui/$(id -u)" "${PLIST}"
 # 註：launchd StdOut/StdErr 走 ~/Library/Logs（路徑在 ~/Documents 下會因 TCC 靜默 exit 78）。
 #
 # 卸載：
-#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.etf.second-disp-oos-accumulate.plist
-#   rm ~/Library/LaunchAgents/com.jackm4.etf.second-disp-oos-accumulate.plist
+#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.goldenstocks.second-disp-oos-accumulate.plist
+#   rm ~/Library/LaunchAgents/com.jackm4.goldenstocks.second-disp-oos-accumulate.plist
 
 set -euo pipefail
 

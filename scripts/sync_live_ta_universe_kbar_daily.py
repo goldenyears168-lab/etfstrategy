@@ -11,7 +11,7 @@ scripts/backfill_live_ta_universe_kbar.py, and
 reports/research/intraday_direction_thermometer/LIVE_TA_FIELD_OPTIMIZATION_20260728.md).
 
 Intended to run once daily after the cash session closes (13:30 TPE), via
-launchd (see launchd/com.jackm4.etf.live-ta-kbar-sync.plist.template). Not an
+launchd (see launchd/com.jackm4.goldenstocks.live-ta-kbar-sync.plist.template). Not an
 Order job — read/write is local stock_kbar_1m only.
 
   PYTHONPATH=src python scripts/sync_live_ta_universe_kbar_daily.py --report-only

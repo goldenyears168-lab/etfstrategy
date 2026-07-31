@@ -20,14 +20,14 @@ NOW_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 # 現行 = Order layer（C18acc / Leading Dip / sell / detach）；digest / evening / VCP / exit-gate 等已退役
 # ABC Order 已退役 2026-07-15
 JOBS=(
-  "com.jackm4.etf.order-wake|下單防睡眠|週一至五 08:55|logs/launchd_order-wake.log|1-5"
-  "com.jackm4.etf.order-chase-open|開盤追價|週一至五 09:00–09:04 每分鐘|logs/launchd_order-chase-open.log|1-5"
-  "com.jackm4.etf.rrg-c18acc-poll|C18acc swap poll|週一至五 09:00–13:30 每 5 分|logs/intraday/launchd_rrg-c18acc-poll.log|1-5"
-  "com.jackm4.etf.buy-signal-radar|Buy signal radar|週一至五 09:00–13:20 每 5 分|logs/intraday/launchd_buy-signal-radar.log|1-5"
-  "com.jackm4.etf.sell-signal-radar|Sell signal radar|週一至五 09:06–13:20 每 5 分|logs/intraday/launchd_sell-signal-radar.log|1-5"
-  "com.jackm4.etf.detach-gate|Detach Gate 台美脫鉤|週一至五 09:40–12:30 每 5 分|logs/intraday/launchd_detach-gate.log|1-5"
-  "com.jackm4.etf.leading-dip-poll|Leading Dip Order|週一至五 09:05–13:25 每 5 分|logs/intraday/launchd_leading-dip-poll.log|1-5"
-  "com.jackm4.etf.songshan-copytrade-poll|跟單松山 Order|週一至五 09:25–09:40 每 5 分|logs/intraday/launchd_songshan-copytrade-poll.log|1-5"
+  "com.jackm4.goldenstocks.order-wake|下單防睡眠|週一至五 08:55|logs/launchd_order-wake.log|1-5"
+  "com.jackm4.goldenstocks.order-chase-open|開盤追價|週一至五 09:00–09:04 每分鐘|logs/launchd_order-chase-open.log|1-5"
+  "com.jackm4.goldenstocks.rrg-c18acc-poll|C18acc swap poll|週一至五 09:00–13:30 每 5 分|logs/intraday/launchd_rrg-c18acc-poll.log|1-5"
+  "com.jackm4.goldenstocks.buy-signal-radar|Buy signal radar|週一至五 09:00–13:20 每 5 分|logs/intraday/launchd_buy-signal-radar.log|1-5"
+  "com.jackm4.goldenstocks.sell-signal-radar|Sell signal radar|週一至五 09:06–13:20 每 5 分|logs/intraday/launchd_sell-signal-radar.log|1-5"
+  "com.jackm4.goldenstocks.detach-gate|Detach Gate 台美脫鉤|週一至五 09:40–12:30 每 5 分|logs/intraday/launchd_detach-gate.log|1-5"
+  "com.jackm4.goldenstocks.leading-dip-poll|Leading Dip Order|週一至五 09:05–13:25 每 5 分|logs/intraday/launchd_leading-dip-poll.log|1-5"
+  "com.jackm4.goldenstocks.songshan-copytrade-poll|跟單松山 Order|週一至五 09:25–09:40 每 5 分|logs/intraday/launchd_songshan-copytrade-poll.log|1-5"
 )
 
 USE_COLOR=1
@@ -353,7 +353,7 @@ print_log_hints() {
   printf '  安裝/重載：scripts/install-launchd.sh\n'
   printf '  狀態：    scripts/install-launchd.sh --status\n'
   printf '  下單層：  scripts/install-order-launchd.sh（目前 %s）\n' \
-    "$(launchctl list 2>/dev/null | grep -q 'com.jackm4.etf.order-wake' && echo '已載入' || echo '未安裝')"
+    "$(launchctl list 2>/dev/null | grep -q 'com.jackm4.goldenstocks.order-wake' && echo '已載入' || echo '未安裝')"
   hr
 }
 

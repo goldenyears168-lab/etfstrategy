@@ -4,15 +4,15 @@
 # 手動除錯：open -gj scripts/launchd/fubon-premarket-quote-collect.command
 #
 # 安裝（Mac mini，一次性，不透過 scripts/install-launchd.sh 的下單層陣列）：
-#   PLIST=~/Library/LaunchAgents/com.jackm4.etf.fubon-premarket-quote-collect.plist
+#   PLIST=~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-premarket-quote-collect.plist
 #   sed -e "s#{{FUBON_PREMARKET_QUOTE_COLLECT_LAUNCHER}}#$(pwd)/scripts/launchd/fubon-premarket-quote-collect.command#g" \
 #       -e "s#{{HOME}}#${HOME}#g" \
-#       launchd/com.jackm4.etf.fubon-premarket-quote-collect.plist.template > "${PLIST}"
+#       launchd/com.jackm4.goldenstocks.fubon-premarket-quote-collect.plist.template > "${PLIST}"
 #   launchctl bootstrap "gui/$(id -u)" "${PLIST}"   # 或 launchctl load "${PLIST}"
 #
 # 卸載：
-#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.etf.fubon-premarket-quote-collect.plist
-#   rm ~/Library/LaunchAgents/com.jackm4.etf.fubon-premarket-quote-collect.plist
+#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-premarket-quote-collect.plist
+#   rm ~/Library/LaunchAgents/com.jackm4.goldenstocks.fubon-premarket-quote-collect.plist
 
 set -euo pipefail
 

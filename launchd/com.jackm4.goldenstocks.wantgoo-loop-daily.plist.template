@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.wantgoo-loop-daily</string>
+	<string>com.jackm4.goldenstocks.wantgoo-loop-daily</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -27,9 +27,9 @@
 		<dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>20</integer><key>Minute</key><integer>15</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/wantgoo-loop-daily.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/wantgoo-loop-daily.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/wantgoo-loop-daily.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/wantgoo-loop-daily.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

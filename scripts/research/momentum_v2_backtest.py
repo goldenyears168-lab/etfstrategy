@@ -22,7 +22,7 @@ Additionally runs:
     those are the ones flagged as still carrying residual adj_close_v2 error pre-reduction.
 
 Usage:
-  cd "/Users/jackm4/Documents/ETF/股票研究" && PYTHONPATH=src .venv/bin/python \
+  cd "/Users/jackm4/goldenstocks" && PYTHONPATH=src .venv/bin/python \
       scripts/research/momentum_v2_backtest.py
 """
 import sqlite3

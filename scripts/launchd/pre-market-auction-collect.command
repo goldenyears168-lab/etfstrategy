@@ -4,15 +4,15 @@
 # 手動除錯：open -gj scripts/launchd/pre-market-auction-collect.command
 #
 # 安裝（Mac mini，一次性，不透過 scripts/install-launchd.sh 的下單層陣列）：
-#   PLIST=~/Library/LaunchAgents/com.jackm4.etf.pre-market-auction-collect.plist
+#   PLIST=~/Library/LaunchAgents/com.jackm4.goldenstocks.pre-market-auction-collect.plist
 #   sed -e "s#{{PRE_MARKET_AUCTION_COLLECT_LAUNCHER}}#$(pwd)/scripts/launchd/pre-market-auction-collect.command#g" \
 #       -e "s#{{HOME}}#${HOME}#g" \
-#       launchd/com.jackm4.etf.pre-market-auction-collect.plist.template > "${PLIST}"
+#       launchd/com.jackm4.goldenstocks.pre-market-auction-collect.plist.template > "${PLIST}"
 #   launchctl bootstrap "gui/$(id -u)" "${PLIST}"   # 或 launchctl load "${PLIST}"
 #
 # 卸載：
-#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.etf.pre-market-auction-collect.plist
-#   rm ~/Library/LaunchAgents/com.jackm4.etf.pre-market-auction-collect.plist
+#   launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.jackm4.goldenstocks.pre-market-auction-collect.plist
+#   rm ~/Library/LaunchAgents/com.jackm4.goldenstocks.pre-market-auction-collect.plist
 
 set -euo pipefail
 

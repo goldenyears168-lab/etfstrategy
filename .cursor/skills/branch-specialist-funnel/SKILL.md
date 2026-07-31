@@ -119,7 +119,7 @@ PYTHONPATH=src python3 scripts/research/screen_expert_pool_prefilter.py --lane b
 ### P7 排程（唯一 live 入口）
 
 - 腳本：`scripts/research/run_expert_pool_watch.py --stock all`  
-- launchd：`com.jackm4.etf.winbond-expert-pool-watch`（**僅 mini** · 週一至五 **20:00**）  
+- launchd：`com.jackm4.goldenstocks.winbond-expert-pool-watch`（**僅 mini** · 週一至五 **20:00**）  
 - 新 S：併入同一 POOLS（`watch_spec.json` 自動合併）；不要另開 launchd。  
 - **大批次**：先全部檢驗完 → 一次 rsync／bootstrap，勿每檔都重裝。  
 - 觸發信／日報正文含 **進場註記**（訊號收、建議限價＝收×1.01、追價≤3% 開盤上限、SMA5 與軟例外開盤上限）。  
@@ -186,7 +186,7 @@ PYTHONPATH=src python3 scripts/research/screen_expert_pool_prefilter.py --lane b
 | 規模 redesign | `expert_pool/SCALE80_SCREEN_REDESIGN.md` |
 | P7 觀測 | `scripts/research/run_expert_pool_watch.py` |
 | 進場過濾研究 | `scripts/research/run_expert_sleeve_entry_filters.py` · `expert_pool/entry_filter_study_8sleeves.md` |
-| launchd | `com.jackm4.etf.winbond-expert-pool-watch`（mini · 20:00） |
+| launchd | `com.jackm4.goldenstocks.winbond-expert-pool-watch`（mini · 20:00） |
 | 報告根 | `reports/research/branch-footprint-screen/expert_pool/{S}/` |
 
 ## 禁止

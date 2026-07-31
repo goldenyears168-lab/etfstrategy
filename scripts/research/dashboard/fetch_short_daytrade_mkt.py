@@ -15,7 +15,7 @@ import os, time, sys, io
 import requests
 import pandas as pd
 
-ROOT = "/Users/jackm4/Documents/ETF/股票研究"
+ROOT = "/Users/jackm4/goldenstocks"
 OUT = f"{ROOT}/data/research/dashboard/short_daytrade_mkt.parquet"
 BASE = "https://api.finmindtrade.com/api/v4/data"
 START = "2021-01-01"

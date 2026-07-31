@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.sell-signal-radar</string>
+	<string>com.jackm4.goldenstocks.sell-signal-radar</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -29,9 +29,9 @@
 	<!-- Mon–Fri 09:06–13:20 每 5 分鐘 -->
 {{SELL_RADAR_CALENDAR_INTERVALS}}
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/sell-signal-radar.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/sell-signal-radar.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/sell-signal-radar.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/sell-signal-radar.launchd.err.log</string>
 	<key>ExitTimeOut</key>
 	<integer>900</integer>
 	<key>RunAtLoad</key>

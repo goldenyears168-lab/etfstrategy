@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.leading-dip-poll</string>
+	<string>com.jackm4.goldenstocks.leading-dip-poll</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -35,9 +35,9 @@
 	<key>ExitTimeOut</key>
 	<integer>900</integer>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/leading-dip-poll.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/leading-dip-poll.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/leading-dip-poll.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/leading-dip-poll.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

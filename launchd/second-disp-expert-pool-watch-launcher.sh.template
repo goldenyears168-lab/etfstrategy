@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # 週一至五 20:35 · 處置股專家池跟單觀測 · email · 不下單
 # 知識庫：reports/research/branch-footprint-screen/second_disp_top30_l1h7/處置股專家池跟單策略.md
 

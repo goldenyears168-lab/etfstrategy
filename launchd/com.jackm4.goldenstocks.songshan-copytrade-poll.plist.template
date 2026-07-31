@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.songshan-copytrade-poll</string>
+	<string>com.jackm4.goldenstocks.songshan-copytrade-poll</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -32,9 +32,9 @@
 	<key>ExitTimeOut</key>
 	<integer>300</integer>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/songshan-copytrade-poll.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/songshan-copytrade-poll.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/songshan-copytrade-poll.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/songshan-copytrade-poll.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

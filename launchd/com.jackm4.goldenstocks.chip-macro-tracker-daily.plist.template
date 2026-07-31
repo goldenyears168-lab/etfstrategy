@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.chip-macro-tracker-daily</string>
+	<string>com.jackm4.goldenstocks.chip-macro-tracker-daily</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -27,9 +27,9 @@
 		<dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/chip-macro-tracker-daily.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/chip-macro-tracker-daily.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/chip-macro-tracker-daily.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/chip-macro-tracker-daily.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

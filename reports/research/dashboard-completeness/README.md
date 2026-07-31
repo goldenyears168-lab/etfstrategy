@@ -43,11 +43,11 @@
 > **1b 新增(2026-07-31）:Phase-3 深化線挖出第 6 支命名維度=月營收 YoY 動能,是 champion 以外首個獨立過 DSR 的訊號,但屬「橫斷面選股腳」(L1)而非第二支大盤擇時腳;champion 仍是唯一大盤領先擇時 alpha。**
 
 > 相關既有報告路徑（絕對）：
-> - `/Users/jackm4/Documents/ETF/股票研究/reports/research/chip-macro/RESEARCH_LOG.md`（Stage 1-8）
-> - `/Users/jackm4/Documents/ETF/股票研究/reports/research/chip-macro/LAYERED_DESIGN.md`（L0-L3 設計）
-> - `/Users/jackm4/Documents/ETF/股票研究/reports/research/chip-macro/融資餘額_2026H1_研究.md`
-> - `/Users/jackm4/Documents/ETF/股票研究/reports/research/branch-footprint-screen/`（分點全套）
-> - `/Users/jackm4/Documents/ETF/股票研究/config/branch_fade_veto.json`（fade-veto 名單）
+> - `/Users/jackm4/goldenstocks/reports/research/chip-macro/RESEARCH_LOG.md`（Stage 1-8）
+> - `/Users/jackm4/goldenstocks/reports/research/chip-macro/LAYERED_DESIGN.md`（L0-L3 設計）
+> - `/Users/jackm4/goldenstocks/reports/research/chip-macro/融資餘額_2026H1_研究.md`
+> - `/Users/jackm4/goldenstocks/reports/research/branch-footprint-screen/`（分點全套）
+> - `/Users/jackm4/goldenstocks/config/branch_fade_veto.json`（fade-veto 名單）
 
 ---
 

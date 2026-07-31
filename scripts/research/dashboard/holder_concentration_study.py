@@ -26,7 +26,7 @@ positioning 的替身)。子訊號:
 
 如何跑
 ======
-  cd /Users/jackm4/Documents/ETF/股票研究
+  cd /Users/jackm4/goldenstocks
   .venv/bin/python scripts/research/dashboard/holder_concentration_study.py
 
 非投資建議。

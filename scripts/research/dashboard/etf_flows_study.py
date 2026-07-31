@@ -49,7 +49,7 @@ DATA SOURCE（誠實區分 本地 vs 需接）
 etf_sentiment_panel，套本檔 eval_signal 驗證。
 
 HOW TO RUN
-  cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+  cd /Users/jackm4/goldenstocks && source .venv/bin/activate
   export FINMIND_TOKEN=...            # S3 週頻受益人數抓取需要（S1/S2 需先寫爬蟲）
   python scripts/research/dashboard/etf_flows_study.py            # 機器自檢 + scaffold 狀態
   python scripts/research/dashboard/etf_flows_study.py --probe    # 額外試抓 S3 受益人數(需 token)

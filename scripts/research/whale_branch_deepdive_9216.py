@@ -13,7 +13,7 @@ Replicates the 9227_v2 / 9217_v2 deepdive spec:
       (H14-H7, H20-H14 legs) or just accumulated noise from a heavier tail?
 
 Run on mini via SSH (stock_broker_branch_daily is NOT reliable in Book's local copy):
-  ssh -o BatchMode=yes mac-mini-lan "cd '/Users/jackm4/Documents/ETF/股票研究' && \
+  ssh -o BatchMode=yes mac-mini-lan "cd '/Users/jackm4/goldenstocks' && \
     source .venv/bin/activate 2>/dev/null && PYTHONPATH=src python3 \
     scripts/research/whale_branch_deepdive_9216.py"
 """

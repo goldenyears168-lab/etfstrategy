@@ -211,5 +211,5 @@ cloud_routines:
 # See deploy/mac-mini/MIGRATION_PLAN.md for why each was retired.
 
 # --- Deferred to a separate round (not bundled with 2026-07-29 code/state migration) ---
-# GitHub repo rename (etfstrategy -> goldenstocks), mini's com.jackm4.etf.* launchd label
+# GitHub repo rename (etfstrategy -> goldenstocks), mini's com.jackm4.goldenstocks.* launchd label
 # prefix (-> com.jackm4.goldenstocks.*), website domain (haoshi-quant-ops.pages.dev).

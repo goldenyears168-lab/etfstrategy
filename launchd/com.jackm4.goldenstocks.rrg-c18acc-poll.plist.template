@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.rrg-c18acc-poll</string>
+	<string>com.jackm4.goldenstocks.rrg-c18acc-poll</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -36,9 +36,9 @@
 	<!-- Mon–Fri 09:00–13:30 每 5 分鐘；由 install-launchd.sh 渲染 -->
 {{C18ACC_CALENDAR_INTERVALS}}
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/rrg-c18acc-poll.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/rrg-c18acc-poll.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/rrg-c18acc-poll.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/rrg-c18acc-poll.launchd.err.log</string>
 	<key>ExitTimeOut</key>
 	<integer>900</integer>
 	<key>RunAtLoad</key>

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-DB = "/Users/jackm4/Documents/ETF/股票研究/data/stocks.db"
+DB = "/Users/jackm4/goldenstocks/data/stocks.db"
 ROLL_WINDOW = 250
 MIN_PERIODS = 60
 PCTL_THRESH = 0.10          # bottom 10% = 極端賣超

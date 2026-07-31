@@ -29,7 +29,7 @@ DATA SOURCE
   (FinMind TaiwanStockInfo / TaiwanStockPrice Trading_Volume; TWSE FMTQIK/STOCK_DAY).
 
 HOW TO RUN
-    cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+    cd /Users/jackm4/goldenstocks && source .venv/bin/activate
     python scripts/research/dashboard/price_volume_study.py            # market-level (fast)
     python scripts/research/dashboard/price_volume_study.py --stocks   # + individual-stock breakout scan (slower)
 

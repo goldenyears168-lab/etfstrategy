@@ -26,7 +26,7 @@ DATA SOURCE (all LOCAL — implementable now, zero external calls)
   survivorship bias (only currently-listed names) — treat as EXPLORATORY.
 
 HOW TO RUN
-  cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+  cd /Users/jackm4/goldenstocks && source .venv/bin/activate
   python scripts/research/dashboard/tech_regime_study.py            # index L0 study
   python scripts/research/dashboard/tech_regime_study.py --with-rs  # + stock RS demo
 

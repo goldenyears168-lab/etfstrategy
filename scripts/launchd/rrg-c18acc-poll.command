@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # launchd 專用：週一至五 09:00–13:30 · C18acc 5 分鐘 poll（E@13:00 開窗）
-# 背景排程由 install-launchd 安裝 ~/Library/Application Support/com.jackm4.etf/rrg-c18acc-poll.sh（不開 Terminal）
+# 背景排程由 install-launchd 安裝 ~/Library/Application Support/com.jackm4.goldenstocks/rrg-c18acc-poll.sh（不開 Terminal）
 # 手動除錯仍可用：open -gj scripts/launchd/rrg-c18acc-poll.command
 
 set -euo pipefail

@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.live-ta-kbar-sync</string>
+	<string>com.jackm4.goldenstocks.second-disp-expert-pool-watch</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>{{LIVE_TA_KBAR_SYNC_LAUNCHER}}</string>
+		<string>{{SECOND_DISP_EXPERT_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -22,34 +22,34 @@
 	<array>
 		<dict>
 			<key>Weekday</key><integer>1</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>35</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>2</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>35</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>3</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>35</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>4</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>35</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>5</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>0</integer>
+			<key>Hour</key><integer>20</integer>
+			<key>Minute</key><integer>35</integer>
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/live-ta-kbar-sync.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/second-disp-expert-pool-watch.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/live-ta-kbar-sync.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/second-disp-expert-pool-watch.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

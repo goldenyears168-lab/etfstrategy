@@ -23,7 +23,7 @@ CI，交叉驗證原 P4-P6 網格搜尋
 重疊日」這個假說。
 
 Run（需 mini：stock_broker_branch_daily 只有 mini 有完整資料）：
-  ssh -o BatchMode=yes mac-mini-lan "cd '/Users/jackm4/Documents/ETF/股票研究' && \
+  ssh -o BatchMode=yes mac-mini-lan "cd '/Users/jackm4/goldenstocks' && \
     source .venv/bin/activate 2>/dev/null; PYTHONPATH=src .venv/bin/python \
     scripts/research/study_expert_pool_consensus_reverify.py"
 

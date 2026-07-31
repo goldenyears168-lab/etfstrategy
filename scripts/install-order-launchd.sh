@@ -11,25 +11,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LAUNCHD_SRC="${PROJECT_ROOT}/launchd"
-APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.etf"
+APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 ORDER_WAKE_LAUNCHER="${APP_SUPPORT}/order-wake.sh"
 
 LABELS=(
-  com.jackm4.etf.order-wake
+  com.jackm4.goldenstocks.order-wake
 )
 TEMPLATES=(
-  com.jackm4.etf.order-wake.plist.template
+  com.jackm4.goldenstocks.order-wake.plist.template
 )
 COMMANDS=(
   order-wake
 )
 # 已退役／不裝：升級時自動卸載（見 deploy/mac-mini/MIGRATION_PLAN.md §4.6「不裝開盤追價」）
 LEGACY_LABELS=(
-  com.jackm4.etf.order-5347-open
-  com.jackm4.etf.order-chase-open
+  com.jackm4.goldenstocks.order-5347-open
+  com.jackm4.goldenstocks.order-chase-open
 )
 
 usage() {
@@ -41,7 +41,7 @@ usage() {
   開盤窗追價（order-chase-open）已退役、不裝：每次執行本腳本會自動
   bootout + 移除其 plist（見 LEGACY_LABELS）。程式碼仍在
   scripts/order/chase_scheduled.py／src/order/chase.py，需要時可手動
-  bootstrap launchd/com.jackm4.etf.order-chase-open.plist.template。
+  bootstrap launchd/com.jackm4.goldenstocks.order-chase-open.plist.template。
 EOF
 }
 
@@ -104,7 +104,7 @@ install_agents() {
       exit 1
     fi
     bootout_label "${label}"
-    mkdir -p "${HOME}/Library/Logs/com.jackm4.etf"
+    mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{ORDER_WAKE_LAUNCHER}}|${ORDER_WAKE_LAUNCHER}|g" \
         -e "s|{{HOME}}|${HOME}|g" \

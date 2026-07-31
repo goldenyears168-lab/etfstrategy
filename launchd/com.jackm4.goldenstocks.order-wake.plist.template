@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.order-wake</string>
+	<string>com.jackm4.goldenstocks.order-wake</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -23,9 +23,9 @@
 	<integer>60</integer>
 	<!-- stdout 勿指向 Documents（launchd open 會 EX_CONFIG / TCC） -->
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-wake.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/order-wake.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/order-wake.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/order-wake.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<true/>
 </dict>

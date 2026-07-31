@@ -69,11 +69,11 @@ Book 改完後 mini：`git pull` 或 rsync → 下次 20:00 digest 生效。
 Book push／rsync 後，在 mini：
 
 ```bash
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull'
+ssh mac-mini 'cd ~/goldenstocks && git pull'
 # 若用 launchd 模板重裝：scripts/install-launchd.sh（僅 mini；勿在 Book 裝 live）
 ```
 
-20:00 job：`com.jackm4.etf.winbond-expert-pool-watch` → `run_evening_research_watch_digest.py`。
+20:00 job：`com.jackm4.goldenstocks.winbond-expert-pool-watch` → `run_evening_research_watch_digest.py`。
 
 ### B. 黃燈郵件註記（預設保持 OFF）
 
@@ -97,7 +97,7 @@ PYTHONPATH=src .venv/bin/python scripts/research/run_evening_research_watch_dige
 Launchd 模板註解已寫在：
 
 - `launchd/winbond-expert-pool-watch-launcher.sh.template`
-- `launchd/com.jackm4.etf.winbond-expert-pool-watch.plist.template`（XML comment）
+- `launchd/com.jackm4.goldenstocks.winbond-expert-pool-watch.plist.template`（XML comment）
 
 （`specialty-expert-pool-watch` 已併入上述統一入口，其樣板已於 2026-07-29 隨退役job清理一併移除）
 
@@ -118,6 +118,6 @@ Launchd 模板註解已寫在：
 ## 明確不做
 
 - Order intents／`config/strategy.yaml` 採納
-- Book 裝 live `com.jackm4.etf.*`
+- Book 裝 live `com.jackm4.goldenstocks.*`
 - 預設打開黃燈註記
 - 把 H10 或 H7 條件延長寫成自動賣出／續抱規則

@@ -19,7 +19,7 @@ METHODOLOGY  (完全對齊既有 evaluate_anchor / chip-macro 方法論)
   Fed 為極低頻 regime 變數 → 日頻連續因子近乎 by-construction 無訊號;真正的檢定是 **降息 regime gate**。
 
 RUN
-  cd /Users/jackm4/Documents/ETF/股票研究 && .venv/bin/python scripts/research/dashboard/global_macro_fed_vixtwn_study.py
+  cd /Users/jackm4/goldenstocks && .venv/bin/python scripts/research/dashboard/global_macro_fed_vixtwn_study.py
   （--refetch 重抓;預設讀已存 parquet）
 
 Not investment advice. Research falsification only. 非投資建議,僅供研究證偽。

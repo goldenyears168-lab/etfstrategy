@@ -44,7 +44,7 @@ METHODOLOGY (project standard — see reports/research/chip-macro/LAYERED_DESIGN
         corr( RS long-short daily return , champion market-timing daily return )
 
 HOW TO RUN
-    cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+    cd /Users/jackm4/goldenstocks && source .venv/bin/activate
     python scripts/research/dashboard/relative_strength_study.py
     (writes summary CSV to reports/research/dashboard-completeness/)
 

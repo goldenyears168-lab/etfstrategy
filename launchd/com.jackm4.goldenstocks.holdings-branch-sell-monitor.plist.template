@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.expert-pool-chart-digest</string>
+	<string>com.jackm4.goldenstocks.holdings-branch-sell-monitor</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>{{EXPERT_POOL_CHART_LAUNCHER}}</string>
+		<string>{{HOLDINGS_BRANCH_SELL_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -23,33 +23,33 @@
 		<dict>
 			<key>Weekday</key><integer>1</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>5</integer>
+			<key>Minute</key><integer>10</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>2</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>5</integer>
+			<key>Minute</key><integer>10</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>3</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>5</integer>
+			<key>Minute</key><integer>10</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>4</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>5</integer>
+			<key>Minute</key><integer>10</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>5</integer>
 			<key>Hour</key><integer>20</integer>
-			<key>Minute</key><integer>5</integer>
+			<key>Minute</key><integer>10</integer>
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-chart-digest.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/holdings-branch-sell-monitor.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/expert-pool-chart-digest.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/holdings-branch-sell-monitor.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

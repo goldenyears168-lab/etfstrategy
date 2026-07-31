@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.etf/
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
 # 週一至五 18:30 · 分點 tape 補檔（POOLS ∪ 富邦持倉）· 不下單
 #
 # 目的：讓 20:00 起的專家池／持倉賣方監控排程改用 --no-refresh 純讀 DB，

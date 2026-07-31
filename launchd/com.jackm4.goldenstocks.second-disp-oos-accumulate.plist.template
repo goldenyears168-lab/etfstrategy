@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.second-disp-oos-accumulate</string>
+	<string>com.jackm4.goldenstocks.second-disp-oos-accumulate</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -30,8 +30,8 @@
 	<false/>
 	<!-- launchd StdOut/StdErr 必須在 ~/Library/Logs：路徑在 ~/Documents 下會因 TCC 靜默 exit 78 -->
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/second-disp-oos-accumulate.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/second-disp-oos-accumulate.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/second-disp-oos-accumulate.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/second-disp-oos-accumulate.launchd.err.log</string>
 </dict>
 </plist>

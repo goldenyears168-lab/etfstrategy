@@ -124,4 +124,4 @@ _對照基準: `STATE_OF_DASHBOARD.md`(Phase 1–6 收官)· `champion_condition
 
 **下一輪提案摘要:** 三個交互實驗(非新開維度、皆掛系統C):①champion×現貨hedge-short過濾 ②恐慌stack多維同時對齊觸發 ③Asquith券資比×大戶供給約束雙排序。全部用既有 16-trial DSR penalty + OOS 時間切分嚴驗,失敗即確認 champion 單腳/VIX 單閘已足、成功即升級。與 STATE_OF_DASHBOARD「STOP 廣度搜索」相容——這是深化交互不是加維度。誠實預期:三者多半確認現狀,提案 1 最可能有小幅正增益。
 
-_檔案: `/Users/jackm4/Documents/ETF/股票研究/reports/research/dashboard-completeness/expert_combination_shortlist.md`_
+_檔案: `/Users/jackm4/goldenstocks/reports/research/dashboard-completeness/expert_combination_shortlist.md`_

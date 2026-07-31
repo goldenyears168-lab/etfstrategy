@@ -199,7 +199,7 @@ strategies:
     title: VCP Pivot Gate
     kind: competition
     schedule: launchd
-    launchd_label: com.jackm4.etf.vcp-funnel-specs
+    launchd_label: com.jackm4.goldenstocks.vcp-funnel-specs
     schedule_time: "13:00 Asia/Taipei Mon-Fri"
     env_flag: RUN_VCP_FUNNEL_SPECS
     enabled: true
@@ -248,7 +248,7 @@ strategies:
     title: VCP Coil Close
     kind: competition
     schedule: launchd
-    launchd_label: com.jackm4.etf.vcp-funnel-specs
+    launchd_label: com.jackm4.goldenstocks.vcp-funnel-specs
     schedule_time: "13:00 Asia/Taipei Mon-Fri"
     env_flag: RUN_VCP_FUNNEL_SPECS
     enabled: true
@@ -281,7 +281,7 @@ strategies:
     title: Minervini SEPA basket
     kind: competition
     schedule: launchd
-    launchd_label: com.jackm4.etf.minervini-sepa-basket
+    launchd_label: com.jackm4.goldenstocks.minervini-sepa-basket
     schedule_time: "16:35 Asia/Taipei Mon-Fri"
     env_flag: RUN_MINERVINI_SEPA_SCREEN
     enabled: true
@@ -312,7 +312,7 @@ strategies:
     title: C18acc Extension overlay · combo_spike
     kind: competition
     schedule: launchd
-    launchd_label: com.jackm4.etf.sell-signal-radar
+    launchd_label: com.jackm4.goldenstocks.sell-signal-radar
     schedule_time: "09:06–13:20 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_SELL_SIGNAL_RADAR
     enabled: true
@@ -523,7 +523,7 @@ strategies:
     title: Buy signal radar · C0 advisory
     kind: operational
     schedule: launchd
-    launchd_label: com.jackm4.etf.buy-signal-radar
+    launchd_label: com.jackm4.goldenstocks.buy-signal-radar
     schedule_time: "09:00–13:20 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_BUY_SIGNAL_RADAR
     enabled: true
@@ -545,7 +545,7 @@ strategies:
     title: Sell signal radar · universe extension
     kind: operational
     schedule: launchd
-    launchd_label: com.jackm4.etf.sell-signal-radar
+    launchd_label: com.jackm4.goldenstocks.sell-signal-radar
     schedule_time: "09:06–13:20 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_SELL_SIGNAL_RADAR
     enabled: true
@@ -565,7 +565,7 @@ strategies:
     title: Detach Gate · 台美脫鉤閘門
     kind: operational
     schedule: launchd
-    launchd_label: com.jackm4.etf.detach-gate
+    launchd_label: com.jackm4.goldenstocks.detach-gate
     schedule_time: "09:40–12:30 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_DETACH_GATE
     enabled: true
@@ -593,7 +593,7 @@ strategies:
     title: Leading Dip · coverage · gap∩excess(昨收)
     kind: research_adopted
     schedule: launchd
-    launchd_label: com.jackm4.etf.leading-dip-poll
+    launchd_label: com.jackm4.goldenstocks.leading-dip-poll
     schedule_time: "09:05–13:25 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_LEADING_DIP_POLL
     enabled: true
@@ -651,7 +651,7 @@ strategies:
     title: Leading Dip mid · ≥10:00 · gap∩excess(今開)
     kind: research_adopted
     schedule: launchd
-    launchd_label: com.jackm4.etf.leading-dip-poll
+    launchd_label: com.jackm4.goldenstocks.leading-dip-poll
     schedule_time: "10:00–13:25 Asia/Taipei Mon-Fri · 5m (via same poll)"
     env_flag: RUN_LEADING_DIP_POLL
     enabled: true

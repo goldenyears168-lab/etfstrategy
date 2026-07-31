@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.fubon-premarket-quote-collect</string>
+	<string>com.jackm4.goldenstocks.fubon-premarket-quote-collect</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
@@ -63,9 +63,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/fubon-premarket-quote-collect.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/fubon-premarket-quote-collect.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/fubon-premarket-quote-collect.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/fubon-premarket-quote-collect.launchd.err.log</string>
 	<key>ExitTimeOut</key>
 	<integer>60</integer>
 	<key>RunAtLoad</key>

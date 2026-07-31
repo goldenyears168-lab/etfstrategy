@@ -61,7 +61,7 @@ METHODOLOGY (project standard — reports/research/chip-macro/LAYERED_DESIGN.md)
     - Zweig Breadth Thrust evaluated as an event study (fwd 20/60d after each arm).
 
 HOW TO RUN
-    cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+    cd /Users/jackm4/goldenstocks && source .venv/bin/activate
     python scripts/research/dashboard/breadth_study.py
     (prints tables; writes reports/research/dashboard-completeness/breadth_metrics.csv)
 

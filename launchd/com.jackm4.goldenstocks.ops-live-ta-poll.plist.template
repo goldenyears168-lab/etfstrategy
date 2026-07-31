@@ -3,22 +3,25 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.etf.fubon-intraday-quote-collect</string>
+	<string>com.jackm4.goldenstocks.ops-live-ta-poll</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>{{FUBON_INTRADAY_QUOTE_COLLECT_LAUNCHER}}</string>
+		<string>{{OPS_LIVE_TA_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
 	<key>EnvironmentVariables</key>
 	<dict>
-		<key>SYNC_PROFILE</key>
-		<string>fubon-intraday-quote-collect</string>
+		<!-- extras only · universe = holdings ∪ these；處置撮合見 OPS_LIVE_TA_DISPOSITION -->
+		<key>OPS_LIVE_TA_STOCKS</key>
+		<string>2492:華新科</string>
+		<key>OPS_LIVE_TA_DISPOSITION</key>
+		<string>2492</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 研究層：週一至五 08:59 觸發一次，腳本內部迴圈跑到 13:31 後自行結束 -->
+	<!-- 週一至五 08:50 觸發一次；腳本 --loop 跑到 13:35（一登入＋進程內 TTL） -->
 	<key>StartCalendarInterval</key>
 	<array>
 		<dict>
@@ -27,7 +30,7 @@
 			<key>Hour</key>
 			<integer>8</integer>
 			<key>Minute</key>
-			<integer>59</integer>
+			<integer>50</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key>
@@ -35,7 +38,7 @@
 			<key>Hour</key>
 			<integer>8</integer>
 			<key>Minute</key>
-			<integer>59</integer>
+			<integer>50</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key>
@@ -43,7 +46,7 @@
 			<key>Hour</key>
 			<integer>8</integer>
 			<key>Minute</key>
-			<integer>59</integer>
+			<integer>50</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key>
@@ -51,7 +54,7 @@
 			<key>Hour</key>
 			<integer>8</integer>
 			<key>Minute</key>
-			<integer>59</integer>
+			<integer>50</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key>
@@ -59,15 +62,16 @@
 			<key>Hour</key>
 			<integer>8</integer>
 			<key>Minute</key>
-			<integer>59</integer>
+			<integer>50</integer>
 		</dict>
 	</array>
-	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/fubon-intraday-quote-collect.launchd.log</string>
-	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.etf/fubon-intraday-quote-collect.launchd.err.log</string>
+	<!-- bootout 時等待長駐行程結束 -->
 	<key>ExitTimeOut</key>
-	<integer>60</integer>
+	<integer>120</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/ops-live-ta-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/ops-live-ta-poll.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

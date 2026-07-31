@@ -12,46 +12,46 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LAUNCHD_SRC="${PROJECT_ROOT}/launchd"
-APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.etf"
+APP_SUPPORT="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 
 # 研究層 collect job（fubon-premarket/fubon-intraday-quote-collect · pre-market-auction-collect）刻意不在此陣列：plist 佔位符無 launcher template，安裝方式見各 scripts/launchd/*collect*.command 檔頭（一次性手動 sed + bootstrap）。
 LABELS=(
-  com.jackm4.etf.rrg-c18acc-poll
-  com.jackm4.etf.buy-signal-radar
-  com.jackm4.etf.sell-signal-radar
-  com.jackm4.etf.detach-gate
-  com.jackm4.etf.leading-dip-poll
-  com.jackm4.etf.songshan-copytrade-poll
-  com.jackm4.etf.expert-pool-staged-gate
-  com.jackm4.etf.winbond-expert-pool-watch
-  com.jackm4.etf.second-disp-expert-pool-watch
-  com.jackm4.etf.expert-pool-chart-digest
-  com.jackm4.etf.holdings-branch-sell-monitor
-  com.jackm4.etf.branch-tape-prewarm
-  com.jackm4.etf.crash-thermometer-daily
-  com.jackm4.etf.ops-live-ta-poll
-  com.jackm4.etf.ops-console-evening-sync
+  com.jackm4.goldenstocks.rrg-c18acc-poll
+  com.jackm4.goldenstocks.buy-signal-radar
+  com.jackm4.goldenstocks.sell-signal-radar
+  com.jackm4.goldenstocks.detach-gate
+  com.jackm4.goldenstocks.leading-dip-poll
+  com.jackm4.goldenstocks.songshan-copytrade-poll
+  com.jackm4.goldenstocks.expert-pool-staged-gate
+  com.jackm4.goldenstocks.winbond-expert-pool-watch
+  com.jackm4.goldenstocks.second-disp-expert-pool-watch
+  com.jackm4.goldenstocks.expert-pool-chart-digest
+  com.jackm4.goldenstocks.holdings-branch-sell-monitor
+  com.jackm4.goldenstocks.branch-tape-prewarm
+  com.jackm4.goldenstocks.crash-thermometer-daily
+  com.jackm4.goldenstocks.ops-live-ta-poll
+  com.jackm4.goldenstocks.ops-console-evening-sync
 )
 
 TEMPLATES=(
-  com.jackm4.etf.rrg-c18acc-poll.plist.template
-  com.jackm4.etf.buy-signal-radar.plist.template
-  com.jackm4.etf.sell-signal-radar.plist.template
-  com.jackm4.etf.detach-gate.plist.template
-  com.jackm4.etf.leading-dip-poll.plist.template
-  com.jackm4.etf.songshan-copytrade-poll.plist.template
-  com.jackm4.etf.expert-pool-staged-gate.plist.template
-  com.jackm4.etf.winbond-expert-pool-watch.plist.template
-  com.jackm4.etf.second-disp-expert-pool-watch.plist.template
-  com.jackm4.etf.expert-pool-chart-digest.plist.template
-  com.jackm4.etf.holdings-branch-sell-monitor.plist.template
-  com.jackm4.etf.branch-tape-prewarm.plist.template
-  com.jackm4.etf.crash-thermometer-daily.plist.template
-  com.jackm4.etf.ops-live-ta-poll.plist.template
-  com.jackm4.etf.ops-console-evening-sync.plist.template
+  com.jackm4.goldenstocks.rrg-c18acc-poll.plist.template
+  com.jackm4.goldenstocks.buy-signal-radar.plist.template
+  com.jackm4.goldenstocks.sell-signal-radar.plist.template
+  com.jackm4.goldenstocks.detach-gate.plist.template
+  com.jackm4.goldenstocks.leading-dip-poll.plist.template
+  com.jackm4.goldenstocks.songshan-copytrade-poll.plist.template
+  com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
+  com.jackm4.goldenstocks.winbond-expert-pool-watch.plist.template
+  com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
+  com.jackm4.goldenstocks.expert-pool-chart-digest.plist.template
+  com.jackm4.goldenstocks.holdings-branch-sell-monitor.plist.template
+  com.jackm4.goldenstocks.branch-tape-prewarm.plist.template
+  com.jackm4.goldenstocks.crash-thermometer-daily.plist.template
+  com.jackm4.goldenstocks.ops-live-ta-poll.plist.template
+  com.jackm4.goldenstocks.ops-console-evening-sync.plist.template
 )
 
 usage() {
@@ -91,7 +91,7 @@ usage() {
 
   注意：Mac 須已登入。盤中 poll 用 StartInterval=300（非 Aqua CalendarInterval），
         開盤窗由 launcher 過濾；order-wake 每 5 分 caffeinate。launchd stdout 寫
-        ~/Library/Logs/com.jackm4.etf/（避開 Documents TCC → EX_CONFIG）。
+        ~/Library/Logs/com.jackm4.goldenstocks/（避開 Documents TCC → EX_CONFIG）。
         rrg-c18acc-poll · leading-dip-poll · buy/sell radar · detach-gate
         以 Application Support launcher + /bin/bash 背景執行。
 EOF
@@ -129,10 +129,10 @@ ensure_launchd_commands() {
 
 verify_documents_launch() {
   local probe="${PROJECT_ROOT}/scripts/launchd/.tcc-probe.command"
-  local probe_log="/tmp/com.jackm4.etf.tcc-probe.log"
+  local probe_log="/tmp/com.jackm4.goldenstocks.tcc-probe.log"
   cat >"${probe}" <<'PROBE'
 #!/bin/bash
-echo OK > /tmp/com.jackm4.etf.tcc-probe.log
+echo OK > /tmp/com.jackm4.goldenstocks.tcc-probe.log
 PROBE
   chmod +x "${probe}"
   rm -f "${probe_log}"
@@ -177,23 +177,23 @@ bootstrap_label() {
 }
 
 RETIRED_LABELS=(
-  com.jackm4.etf.morning-holdings-brief
-  com.jackm4.etf.rrg-mono-scan
-  com.jackm4.etf.vcp-intraday-watch
-  com.jackm4.etf.morning-regime
-  com.jackm4.etf.test-doc-bash
-  com.jackm4.etf.c18acc-extension-overlay
-  com.jackm4.etf.weekly-deep
-  com.jackm4.etf.rrg-mono-intraday-watch
-  com.jackm4.etf.evening-holdings
-  com.jackm4.etf.mutual-fund-disclosure-watch
-  com.jackm4.etf.intraday-open-digest
-  com.jackm4.etf.intraday-midday-digest
-  com.jackm4.etf.intraday-1300-digest
-  com.jackm4.etf.vcp-funnel-specs
-  com.jackm4.etf.minervini-sepa-basket
-  com.jackm4.etf.intraday-exit-gate
-  com.jackm4.etf.specialty-expert-pool-watch
+  com.jackm4.goldenstocks.morning-holdings-brief
+  com.jackm4.goldenstocks.rrg-mono-scan
+  com.jackm4.goldenstocks.vcp-intraday-watch
+  com.jackm4.goldenstocks.morning-regime
+  com.jackm4.goldenstocks.test-doc-bash
+  com.jackm4.goldenstocks.c18acc-extension-overlay
+  com.jackm4.goldenstocks.weekly-deep
+  com.jackm4.goldenstocks.rrg-mono-intraday-watch
+  com.jackm4.goldenstocks.evening-holdings
+  com.jackm4.goldenstocks.mutual-fund-disclosure-watch
+  com.jackm4.goldenstocks.intraday-open-digest
+  com.jackm4.goldenstocks.intraday-midday-digest
+  com.jackm4.goldenstocks.intraday-1300-digest
+  com.jackm4.goldenstocks.vcp-funnel-specs
+  com.jackm4.goldenstocks.minervini-sepa-basket
+  com.jackm4.goldenstocks.intraday-exit-gate
+  com.jackm4.goldenstocks.specialty-expert-pool-watch
 )
 
 uninstall_retired_agents() {
@@ -220,43 +220,43 @@ generate_five_minute_clock_calendar() {
 }
 
 generate_c18acc_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.c18acc-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.c18acc-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   C18ACC_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_buy_radar_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.buy-radar-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.buy-radar-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   BUY_RADAR_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_sell_radar_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.sell-radar-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.sell-radar-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   SELL_RADAR_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_detach_gate_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.detach-gate-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.detach-gate-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   DETACH_GATE_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_leading_dip_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.leading-dip-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.leading-dip-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   LEADING_DIP_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_songshan_copytrade_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.songshan-copytrade-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.songshan-copytrade-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   SONGSHAN_COPYTRADE_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_extension_calendar_intervals() {
-  local out="/tmp/com.jackm4.etf.extension-calendar.xml"
+  local out="/tmp/com.jackm4.goldenstocks.extension-calendar.xml"
   generate_five_minute_clock_calendar "${out}"
   EXTENSION_CALENDAR_INTERVALS_FILE="${out}"
 }
@@ -317,7 +317,7 @@ render_template() {
   if grep -q '{{DETACH_GATE_CALENDAR_INTERVALS}}' "${template}"; then
     generate_detach_gate_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
@@ -343,7 +343,7 @@ render_template() {
   if grep -q '{{LEADING_DIP_CALENDAR_INTERVALS}}' "${template}"; then
     generate_leading_dip_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
@@ -372,7 +372,7 @@ render_template() {
   if grep -q '{{SONGSHAN_COPYTRADE_CALENDAR_INTERVALS}}' "${template}"; then
     generate_songshan_copytrade_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+        -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
         -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
         -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
@@ -433,7 +433,7 @@ render_template() {
     return
   fi
   sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-      -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.etf}|g" \
+      -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
       -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
       -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
       -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
@@ -466,7 +466,7 @@ render_template() {
 
 sync_order_env_mirror() {
   # Mirror non-secret ORDER_/C18ACC_ keys for launchd (Documents .env may be TCC-blocked).
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   local src_env="${PROJECT_ROOT}/.env"
   local dest="${app_support}/order.env"
   mkdir -p "${app_support}"
@@ -486,7 +486,7 @@ sync_order_env_mirror() {
 
 install_c18acc_launcher() {
   local src="${LAUNCHD_SRC}/rrg-c18acc-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   C18ACC_LAUNCHER="${app_support}/rrg-c18acc-poll.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -501,7 +501,7 @@ install_c18acc_launcher() {
 
 install_extension_launcher() {
   local src="${LAUNCHD_SRC}/c18acc-extension-overlay-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   EXTENSION_LAUNCHER="${app_support}/c18acc-extension-overlay.sh"
   if [[ ! -f "${src}" ]]; then
     EXTENSION_LAUNCHER=""
@@ -514,7 +514,7 @@ install_extension_launcher() {
 
 install_buy_radar_launcher() {
   local src="${LAUNCHD_SRC}/buy-signal-radar-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   BUY_RADAR_LAUNCHER="${app_support}/buy-signal-radar.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -527,7 +527,7 @@ install_buy_radar_launcher() {
 
 install_sell_radar_launcher() {
   local src="${LAUNCHD_SRC}/sell-signal-radar-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   SELL_RADAR_LAUNCHER="${app_support}/sell-signal-radar.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -540,7 +540,7 @@ install_sell_radar_launcher() {
 
 install_detach_gate_launcher() {
   local src="${LAUNCHD_SRC}/detach-gate-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   DETACH_GATE_LAUNCHER="${app_support}/detach-gate.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -553,7 +553,7 @@ install_detach_gate_launcher() {
 
 install_leading_dip_launcher() {
   local src="${LAUNCHD_SRC}/leading-dip-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   LEADING_DIP_LAUNCHER="${app_support}/leading-dip-poll.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -566,7 +566,7 @@ install_leading_dip_launcher() {
 
 install_songshan_copytrade_launcher() {
   local src="${LAUNCHD_SRC}/songshan-copytrade-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   SONGSHAN_COPYTRADE_LAUNCHER="${app_support}/songshan-copytrade-poll.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -580,7 +580,7 @@ install_songshan_copytrade_launcher() {
 
 install_ep_staged_gate_launcher() {
   local src="${LAUNCHD_SRC}/expert-pool-staged-gate-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   EP_STAGED_GATE_LAUNCHER="${app_support}/expert-pool-staged-gate.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -594,7 +594,7 @@ install_ep_staged_gate_launcher() {
 
 install_winbond_expert_launcher() {
   local src="${LAUNCHD_SRC}/winbond-expert-pool-watch-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   WINBOND_EXPERT_LAUNCHER="${app_support}/winbond-expert-pool-watch.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -607,7 +607,7 @@ install_winbond_expert_launcher() {
 
 install_second_disp_expert_launcher() {
   local src="${LAUNCHD_SRC}/second-disp-expert-pool-watch-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   SECOND_DISP_EXPERT_LAUNCHER="${app_support}/second-disp-expert-pool-watch.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -620,7 +620,7 @@ install_second_disp_expert_launcher() {
 
 install_expert_pool_chart_launcher() {
   local src="${LAUNCHD_SRC}/expert-pool-chart-digest-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   EXPERT_POOL_CHART_LAUNCHER="${app_support}/expert-pool-chart-digest.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -633,7 +633,7 @@ install_expert_pool_chart_launcher() {
 
 install_holdings_branch_sell_launcher() {
   local src="${LAUNCHD_SRC}/holdings-branch-sell-monitor-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   HOLDINGS_BRANCH_SELL_LAUNCHER="${app_support}/holdings-branch-sell-monitor.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -646,7 +646,7 @@ install_holdings_branch_sell_launcher() {
 
 install_branch_tape_prewarm_launcher() {
   local src="${LAUNCHD_SRC}/branch-tape-prewarm-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   BRANCH_TAPE_PREWARM_LAUNCHER="${app_support}/branch-tape-prewarm.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -659,7 +659,7 @@ install_branch_tape_prewarm_launcher() {
 
 install_crash_thermometer_launcher() {
   local src="${LAUNCHD_SRC}/crash-thermometer-daily-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   CRASH_THERMOMETER_LAUNCHER="${app_support}/crash-thermometer-daily.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -672,7 +672,7 @@ install_crash_thermometer_launcher() {
 
 install_ops_live_ta_launcher() {
   local src="${LAUNCHD_SRC}/ops-live-ta-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   OPS_LIVE_TA_LAUNCHER="${app_support}/ops-live-ta-poll.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -685,7 +685,7 @@ install_ops_live_ta_launcher() {
 
 install_ops_console_evening_launcher() {
   local src="${LAUNCHD_SRC}/ops-console-evening-sync-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   OPS_CONSOLE_EVENING_LAUNCHER="${app_support}/ops-console-evening-sync.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -698,7 +698,7 @@ install_ops_console_evening_launcher() {
 
 install_evening_holdings_launcher() {
   local src="${LAUNCHD_SRC}/evening-holdings-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   EVENING_HOLDINGS_LAUNCHER="${app_support}/evening-holdings.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -711,7 +711,7 @@ install_evening_holdings_launcher() {
 
 install_morning_brief_launcher() {
   local src="${LAUNCHD_SRC}/morning-holdings-brief-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   MORNING_BRIEF_LAUNCHER="${app_support}/morning-holdings-brief.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -724,7 +724,7 @@ install_morning_brief_launcher() {
 
 install_intraday_gate_launcher() {
   local src="${LAUNCHD_SRC}/intraday-exit-gate-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   INTRADAY_GATE_LAUNCHER="${app_support}/intraday-exit-gate.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -737,7 +737,7 @@ install_intraday_gate_launcher() {
 
 install_vcp_funnel_launcher() {
   local src="${LAUNCHD_SRC}/vcp-funnel-specs-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   VCP_FUNNEL_LAUNCHER="${app_support}/vcp-funnel-specs.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -750,7 +750,7 @@ install_vcp_funnel_launcher() {
 
 install_rrg_mono_intraday_launcher() {
   local src="${LAUNCHD_SRC}/rrg-mono-intraday-watch-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   RRG_MONO_INTRADAY_LAUNCHER="${app_support}/rrg-mono-intraday-watch.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -763,7 +763,7 @@ install_rrg_mono_intraday_launcher() {
 
 install_intraday_1300_digest_launcher() {
   local src="${LAUNCHD_SRC}/intraday-1300-digest-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   INTRADAY_1300_DIGEST_LAUNCHER="${app_support}/intraday-1300-digest.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -776,7 +776,7 @@ install_intraday_1300_digest_launcher() {
 
 install_intraday_open_digest_launcher() {
   local src="${LAUNCHD_SRC}/intraday-open-digest-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   INTRADAY_OPEN_DIGEST_LAUNCHER="${app_support}/intraday-open-digest.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -789,7 +789,7 @@ install_intraday_open_digest_launcher() {
 
 install_intraday_midday_digest_launcher() {
   local src="${LAUNCHD_SRC}/intraday-midday-digest-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   INTRADAY_MIDDAY_DIGEST_LAUNCHER="${app_support}/intraday-midday-digest.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -802,7 +802,7 @@ install_intraday_midday_digest_launcher() {
 
 install_mutual_fund_launcher() {
   local src="${LAUNCHD_SRC}/mutual-fund-disclosure-watch-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   MUTUAL_FUND_LAUNCHER="${app_support}/mutual-fund-disclosure-watch.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -815,7 +815,7 @@ install_mutual_fund_launcher() {
 
 install_minervini_launcher() {
   local src="${LAUNCHD_SRC}/minervini-sepa-basket-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   MINERVINI_LAUNCHER="${app_support}/minervini-sepa-basket.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -828,7 +828,7 @@ install_minervini_launcher() {
 
 install_weekly_deep_launcher() {
   local src="${LAUNCHD_SRC}/weekly-deep-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.etf"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   WEEKLY_DEEP_LAUNCHER="${app_support}/weekly-deep.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
@@ -965,7 +965,7 @@ install_agents() {
       local _v
       _v="$(/usr/bin/plutil -extract "${_sp}" raw -o - "${dest}" 2>/dev/null || true)"
       if [[ "${_v}" == "${HOME}/Documents/"* || "${_v}" == *"/Documents/"*"/logs/"* ]]; then
-        echo "✗ ${label}: ${_sp}=${_v} 落在 ~/Documents（TCC→EX_CONFIG 78）；請改用 ~/Library/Logs/com.jackm4.etf/" >&2
+        echo "✗ ${label}: ${_sp}=${_v} 落在 ~/Documents（TCC→EX_CONFIG 78）；請改用 ~/Library/Logs/com.jackm4.goldenstocks/" >&2
         exit 1
       fi
     done
@@ -973,14 +973,14 @@ install_agents() {
     echo "✓ ${label}"
   done
 
-  mkdir -p "${HOME}/Library/Logs/com.jackm4.etf"
+  mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
 
   echo ""
   verify_documents_launch
   echo ""
   echo "完成。檢查："
   echo "  launchctl list | grep jackm4.etf"
-  echo "  # launchd stdout（避開 Documents TCC）：~/Library/Logs/com.jackm4.etf/"
+  echo "  # launchd stdout（避開 Documents TCC）：~/Library/Logs/com.jackm4.goldenstocks/"
   echo "  # 業務 tick log 仍在：${PROJECT_ROOT}/logs/intraday/"
   echo "  tail -f ${PROJECT_ROOT}/logs/intraday/leading_dip_\$(date +%Y%m%d).log"
 }
@@ -1001,7 +1001,7 @@ uninstall_agents() {
 
 show_status() {
   echo "LaunchAgents："
-  launchctl list 2>/dev/null | grep -E 'jackm4\.etf' || echo "  （無已載入的 com.jackm4.etf.*）"
+  launchctl list 2>/dev/null | grep -E 'jackm4\.etf' || echo "  （無已載入的 com.jackm4.goldenstocks.*）"
   echo ""
   echo "plist 檔案："
   local label

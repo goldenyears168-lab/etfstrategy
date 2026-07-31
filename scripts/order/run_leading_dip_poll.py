@@ -4,7 +4,7 @@
   PYTHONPATH=src .venv/bin/python scripts/order/run_leading_dip_poll.py
   PYTHONPATH=src .venv/bin/python scripts/order/run_leading_dip_poll.py --date 2026-07-15 --time 10:35
 
-Launchd: com.jackm4.etf.leading-dip-poll · Mon–Fri 09:05–13:25 / 5m
+Launchd: com.jackm4.goldenstocks.leading-dip-poll · Mon–Fri 09:05–13:25 / 5m
 
 Default: DRY_RUN=1 · AUTO_SUBMIT=0. Live:
   ORDER_LEADING_DIP_DRY_RUN=0 ORDER_LEADING_DIP_AUTO_SUBMIT=1

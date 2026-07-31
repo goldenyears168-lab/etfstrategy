@@ -26,7 +26,7 @@
           官方備援: TWSE MI_MARGN(信用交易統計含限額)、TWSE/TAIFEX rwd endpoints
 
 如何跑
-    cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+    cd /Users/jackm4/goldenstocks && source .venv/bin/activate
     python scripts/research/dashboard/short_daytrade_study.py            # 跑 anchor(券資比)實測
     python scripts/research/dashboard/short_daytrade_study.py --scaffold # 只印外接資料檢查清單
 

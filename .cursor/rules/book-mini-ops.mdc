@@ -33,9 +33,9 @@ Mac mini            →  Order launchd + agent worker     ← 執行端常開
 
 ## Hard constraints
 
-- **Do not** install live `com.jackm4.etf.*` on MacBook.
+- **Do not** install live `com.jackm4.goldenstocks.*` on MacBook.
 - **Do not** dual-run Order launchd on both machines.
-- **Do not** install `com.jackm4.etf.cursor-agent-worker` on MacBook（僅 mini）.
+- **Do not** install `com.jackm4.goldenstocks.cursor-agent-worker` on MacBook（僅 mini）.
 - Production SQLite SSOT: mini `data/stocks.db`. Book may use a **replica** only.
 - Secrets (`.env`, `CAFubon/`, `CURSOR_API_KEY`): scp／rsync over SSH — never commit; never paste into chat.
 - Remote Agent on mini：**禁止**要求讀／貼出 `.env`／`CAFubon/` 明文；優先跑既有 dashboard／log 腳本.
@@ -47,7 +47,7 @@ Sync only when user asks (or clearly wants production effect):
 
 ```bash
 # preferred
-ssh mac-mini 'cd ~/Documents/ETF/股票研究 && git pull'
+ssh mac-mini 'cd ~/goldenstocks && git pull'
 # or same-LAN rsync of the working tree (exclude .venv*)
 ```
 

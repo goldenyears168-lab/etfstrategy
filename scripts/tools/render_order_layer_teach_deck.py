@@ -535,7 +535,7 @@ def page_env(ax, page, total):
             "路徑",
             "  正式總圖：reports/order/order_layer_flowchart.pdf",
             "  本教學：reports/order/YYYYMMDD_order_layer_teach_deck.pdf",
-            "  launchd 腳本：~/Library/Application Support/com.jackm4.etf/",
+            "  launchd 腳本：~/Library/Application Support/com.jackm4.goldenstocks/",
             "  鏡像設定：…/order.env（改 .env 後請 install-launchd.sh）",
             "  log：logs/intraday/launchd_*.log",
         ],

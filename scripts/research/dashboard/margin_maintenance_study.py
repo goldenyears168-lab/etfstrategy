@@ -19,7 +19,7 @@ only for the collinearity controls, regime gate, and champion benchmark.
 
 HOW TO RUN
 ----------
-  cd /Users/jackm4/Documents/ETF/股票研究
+  cd /Users/jackm4/goldenstocks
   .venv/bin/python scripts/research/dashboard/margin_maintenance_study.py
   # add --refresh to re-pull FinMind (otherwise uses the cached parquet)
 

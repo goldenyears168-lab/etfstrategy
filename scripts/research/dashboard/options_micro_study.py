@@ -25,7 +25,7 @@ Champion / regime / forward-return substrate:
   - data/research/chip_macro/panel.parquet  (ix_open/close, fut_foreign_oi, ...)
 
 HOW TO RUN
-  cd /Users/jackm4/Documents/ETF/股票研究 && source .venv/bin/activate
+  cd /Users/jackm4/goldenstocks && source .venv/bin/activate
   python scripts/research/dashboard/options_micro_study.py            # S1+S2 real study (fetches+caches)
   python scripts/research/dashboard/options_micro_study.py --pcr-demo # + prove S3/S4 fetch on a few days
 Caches raw fetches to data/research/dashboard/*.parquet so re-runs are offline.

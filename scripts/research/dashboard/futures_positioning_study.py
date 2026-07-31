@@ -29,7 +29,7 @@ DATA SOURCE
               basis = TX 近月 close − panel.ix_close;展期剩 ≤3 日轉次月(ROLL_DAYS 佔位)。
 
 HOW TO RUN
-    cd /Users/jackm4/Documents/ETF/股票研究 && .venv/bin/python \
+    cd /Users/jackm4/goldenstocks && .venv/bin/python \
         scripts/research/dashboard/futures_positioning_study.py               # live 基準(可跑)
     ... --with-external   # + 大額/basis 完整框架 + DSR + champion 搭配(讀快取,省配額)
     ... --with-external --refresh   # 強制重拉 FinMind(否則優先讀 cache/*.parquet)

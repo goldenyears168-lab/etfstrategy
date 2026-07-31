@@ -1,5 +1,5 @@
 #!/bin/bash
-# Template · install-launchd → ~/Library/Application Support/com.jackm4.etf/ops-live-ta-poll.sh
+# Template · install-launchd → ~/Library/Application Support/com.jackm4.goldenstocks/ops-live-ta-poll.sh
 set -euo pipefail
 ROOT="{{PROJECT_ROOT}}"
 exec /bin/bash "${ROOT}/scripts/launchd/ops-live-ta-poll.command"
