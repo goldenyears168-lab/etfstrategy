@@ -284,7 +284,7 @@ strategies:
     launchd_label: com.jackm4.goldenstocks.minervini-sepa-basket
     schedule_time: "16:35 Asia/Taipei Mon-Fri"
     env_flag: RUN_MINERVINI_SEPA_SCREEN
-    enabled: true
+    enabled: false
     rebalance: monthly
     module: minervini_sepa_daily
     backtest_module: broad_momentum_tv_backtest
@@ -292,8 +292,9 @@ strategies:
     config_ref: config/broad_momentum_tv.yaml
     methodology: docs/evaluation-contract.md
     description: >
-      月末等權持有 Trend Template 7/7（bulk 不含 RS）Stage 2 個股 basket；
-      獨立 launchd 16:35 · dry-run intent · 人工確認後送單。
+      月末等權持有 Trend Template 7/7（bulk 不含 RS）Stage 2 個股 basket；dry-run
+      intent · 人工確認後送單。已於 2026-07-29 確認退役（launchd job 已卸載），
+      run_script 仍在但不再排程；2026-08-01 修正 enabled 狀態以符合現實。
     backtest:
       spec_type: basket_backtest
       source_module: broad_momentum_tv_backtest
@@ -334,190 +335,6 @@ strategies:
       parent_strategy: rrg-mono-swap-accel
       source_summary: reports/research/rrg/20260627_c18acc_phase3b_report.md
       notes: "Round3 I36 · wfa CI tracking continues in research.yaml"
-
-  abc-v3-f1-pullback:
-    title: ABC v3+f1 intraday pullback · event-level
-    kind: research_adopted
-    schedule: none
-    enabled: false
-    parent_strategy: rrg-mono-swap-accel
-    module: triple_wma_pullback_sweep
-    backtest_module: abc_v3_slot_sweep
-    description: >
-      Triple-WMA ABC v3+f1 event-level spec · skip09 poll · hold 3d → 13:30 ·
-      matcher w3_rv_hl_abc_v3_f1 (A∩B∩C∩D∩E∩F) · F gate avoid W5 MV>W3 MV ·
-      5-slot portfolio val NOT passed · slot sizing pending ·
-      Order sleeve retired 2026-07-16（enabled:false · 無自動送單；舊倉當手動單）。
-    matcher:
-      id: w3_rv_hl_abc_v3_f1
-      parent: w3_rv_hl_abc_v3
-      gates:
-        A: "W20−W3 RV ≤ 6.0"
-        B: "W20 Leading · W5 Weakening"
-        C: "W5 RV ≤ 101.0"
-        D: "W20 RV ≤ 104.0"
-        E: "trade_signal = lead_pullback_buy"
-        F: "W5−W3 MV < 0.01 (avoid W5 MV > W3 MV)"
-    execution:
-      min_poll_idx: 1
-      skip_poll: "09:00"
-      entry_timing: intraday_poll
-    exit:
-      rule: hold_3d
-      exit_minute: "13:30"
-    portfolio:
-      validated: false
-      notes: >
-        Event-level OOS passed (90d val 1.826% vs v3 1.291%) ·
-        5-slot top-K val daily 0.506% vs 0.561% failed · do not size slots until re-validated.
-    backtest:
-      spec_type: event_level_intraday
-      source_module: abc_v3_slot_sweep
-      matcher: w3_rv_hl_abc_v3_f1
-      metrics:
-        - n
-        - mean_ret_3d_net_pct
-        - win_rate_pct
-        - median_ret_3d_net_pct
-      intraday_tail_days: 90
-      hold_days: 3
-      execution_gate: "min_poll_idx>=1"
-      source_summary: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
-      notes: >
-        Event-level 採納 2026-07-08 · f1 n=170 ret=2.845% vs v3 n=220 ret=2.229% ·
-        val event passed · 5-slot val failed · portfolio/slot sizing NOT validated.
-
-  abc-v3-f1-champion-tp:
-    title: ABC v3+f1 · raw entry · champion TP-only exit · hold 5d
-    kind: research_adopted
-    schedule: none
-    enabled: false
-    parent_strategy: abc-v3-f1-pullback
-    module: triple_wma_pullback_sweep
-    backtest_module: abc_v3_f1_entry_gate_tp_sweep
-    description: >
-      Frozen research stack after RP-1..RP-5: raw ABC v3+F1 first-trigger (no Tier-2 entry
-      overlay) · champion TP-only intraday exit · hold 5d cap · NEVER_SL · optional
-      underwater_rebound pyramid add (H-ENTRY-PYRAMID-1 · research-only).
-      Distinct from abc-v3-f1-pullback (hold 3d · 13:30). Strategy contract only ·
-      Order sleeve retired 2026-07-16（無 live monitor／送單）。
-    matcher:
-      id: w3_rv_hl_abc_v3_f1
-      parent: w3_rv_hl_abc_v3
-      gates:
-        A: "W20−W3 RV ≤ 6.0"
-        B: "W20 Leading · W5 Weakening"
-        C: "W5 RV ≤ 101.0"
-        D: "W20 RV ≤ 104.0"
-        E: "trade_signal = lead_pullback_buy"
-        F: "W5−W3 MV < 0.01 (avoid W5 MV > W3 MV)"
-    entry:
-      overlay: none
-      notes: >
-        No gap-band / W3-improving / poll≥2 overlay — RP-5 showed Tier-2 filters do not
-        stably beat raw F1 on full-window portfolio mean.
-    execution:
-      min_poll_idx: 1
-      skip_poll: "09:00"
-      entry_timing: intraday_poll
-    exit:
-      rule: champion_tp_only
-      variant_id: TP_or_g54_g31_rvw3poll_drop_d25_r5_c1
-      tp_mode: gap_rv
-      gap_logic: or
-      gw5_min: 4.0
-      gw3_min: 1.0
-      rv_leg: w3
-      rv_mode: poll_drop
-      drv_min: 0.25
-      min_ret_pct: 5.0
-      stop_loss: NEVER_SL
-      hold_days_cap: 5
-      exit_timing: intraday_poll
-    pyramid_add:
-      enabled: false
-      hypothesis: H-ENTRY-PYRAMID-1
-      condition: underwater_rebound
-      rebound_min: 0.3
-      sizing: equal_weight_second_unit
-      exit_convention: sync_exit
-      notes: >
-        RP-2 passed IS/OOS (blended +0.98pp OOS vs leg1-only). Research-only ·
-        Order ABC pyramid_add retired_from_order（2026-07-16）；非 live.
-    portfolio:
-      validated: false
-      notes: >
-        Event-level unconstrained (no slot cap). Full window 2024-01..2026-07 TP-only mean
-        ~2.1% (723 legs). 8% portfolio target not met; stack adopted as best-evidence spec.
-    backtest:
-      spec_type: event_level_intraday
-      source_module: abc_v3_f1_entry_gate_tp_sweep
-      matcher: w3_rv_hl_abc_v3_f1
-      metrics:
-        - n
-        - tp_only_mean_ret_pct
-        - hold_only_mean_ret_pct
-        - win_rate_pct
-      date_start: "2024-01-02"
-      date_end: "2026-07-01"
-      hold_days: 5
-      execution_gate: "min_poll_idx>=1"
-      source_summary: reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
-      notes: >
-        Adopted 2026-07-11 after RP-1..RP-5 · raw F1 + champion TP beats Tier-2 overlays on
-        cross-segment stability · pyramid add optional.
-
-  abc-v3-skip09-pullback:
-    title: ABC v3 skip09 intraday pullback · slot-capable base
-    kind: research_adopted
-    schedule: none
-    enabled: false
-    parent_strategy: rrg-mono-swap-accel
-    module: triple_wma_pullback_sweep
-    backtest_module: abc_v3_slot_sweep
-    description: >
-      Triple-WMA ABC v3 event-level spec · skip09 poll · hold 3d → 13:30 ·
-      matcher w3_rv_hl_abc_v3 (A∩B∩C∩D∩E · 無 F gate) · parent of abc-v3-f1-pullback ·
-      5-slot portfolio val PASSED (daily 0.561%) · slot sizing not yet enabled ·
-      Order sleeve retired 2026-07-16 · buy-observation 池 enabled:false。
-    matcher:
-      id: w3_rv_hl_abc_v3
-      parent: w3_rv_hl_abc_v2
-      gates:
-        A: "W20−W3 RV ≤ 6.0"
-        B: "W20 Leading · W5 Weakening"
-        C: "W5 RV ≤ 101.0"
-        D: "W20 RV ≤ 104.0"
-        E: "trade_signal = lead_pullback_buy"
-    execution:
-      min_poll_idx: 1
-      skip_poll: "09:00"
-      entry_timing: intraday_poll
-    exit:
-      rule: hold_3d
-      exit_minute: "13:30"
-    portfolio:
-      validated: true
-      notes: >
-        5-slot top-K val daily 0.561% (> f1 0.506%) · slot-layer winner within ABC family ·
-        enabled:false until slot competition vs C18acc is decided.
-    backtest:
-      spec_type: event_level_intraday
-      source_module: abc_v3_slot_sweep
-      matcher: w3_rv_hl_abc_v3
-      metrics:
-        - n
-        - mean_ret_3d_net_pct
-        - win_rate_pct
-        - median_ret_3d_net_pct
-      intraday_tail_days: 90
-      hold_days: 3
-      execution_gate: "min_poll_idx>=1"
-      source_summary: reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
-      notes: >
-        Frozen 2026-07-08 · v3 n=220 ret=2.229% win=51.36% · skip09 (H-W3W-11) ·
-        5-slot val daily 0.561% passed · event single-trade lower than f1 (2.845%) ·
-        adoption report 20260708_abc_v3_skip09_adoption.md.
 
   buy-signal-radar:
     title: Buy signal radar · C0 advisory

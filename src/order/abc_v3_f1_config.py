@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from order.config import load_order_config
+from order.fubon_orders import order_master_enabled
 
 ABC_V3_F1_POOL_ID = "abc-v3-f1-pullback"
 ABC_V3_F1_STRATEGY_ID = "abc-v3-f1-pullback"
@@ -73,7 +74,7 @@ def load_abc_v3_f1_order_config(cfg: dict[str, Any] | None = None) -> AbcV3F1Ord
     # sleeve; retired_from_order in order.yaml keeps defaults off.
     yaml_enabled = bool(spec.get("enabled", False)) if spec else False
     order_enabled = _env_flag("ABC_V3_F1_ORDER_ENABLED", "1" if yaml_enabled else "0")
-    auto_submit = _env_flag("ABC_V3_F1_AUTO_SUBMIT", "1" if yaml_enabled else "0")
+    auto_submit = _env_flag("ABC_V3_F1_AUTO_SUBMIT", "1" if yaml_enabled else "0") and order_master_enabled()
     if bool(spec.get("retired_from_order")) and not _env_flag("ABC_V3_F1_ORDER_FORCE_LEGACY", "0"):
         # Env alone cannot revive live Order; tests may set FORCE_LEGACY=1.
         order_enabled = False

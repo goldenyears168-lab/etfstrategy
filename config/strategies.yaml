@@ -90,46 +90,6 @@ strategies:
       - "{date}_rrg_c18acc_screen.md"
       - "rrg_c18acc_screen.md"
 
-  abc-v3-f1-pullback:
-    title: ABC v3+f1 intraday pullback
-    layer: strategy
-    kind: research_adopted
-    enabled: false
-    parent_strategy: rrg-mono-swap-accel
-    description: >
-      Event-level ABC v3+f1 · skip09 · hold 3d · F gate avoid W5 MV>W3 MV ·
-      90d OOS val passed · 5-slot portfolio val failed · slot sizing pending ·
-      Order sleeve retired 2026-07-16（無自動送單 · 舊倉當手動單）。
-    sources:
-      - reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
-
-  abc-v3-f1-champion-tp:
-    title: ABC v3+f1 · champion TP-only · hold 5d
-    layer: strategy
-    kind: research_adopted
-    enabled: false
-    parent_strategy: abc-v3-f1-pullback
-    description: >
-      Raw ABC v3+F1 entry (no Tier-2 overlay) · champion TP-only exit · hold 5d · NEVER_SL ·
-      optional underwater_rebound pyramid（research-only）。Strategy contract only ·
-      Order sleeve retired 2026-07-16（無 live monitor／送單）。
-    sources:
-      - reports/research/rrg/20260711_abc_v3_f1_champion_tp_adoption.md
-      - reports/research/rrg/20260711_abc_v3_f1_shape_library.json
-
-  abc-v3-skip09-pullback:
-    title: ABC v3 skip09 intraday pullback
-    layer: strategy
-    kind: research_adopted
-    enabled: false
-    parent_strategy: rrg-mono-swap-accel
-    description: >
-      Event-level ABC v3 (no F gate) · skip09 · hold 3d · parent of abc-v3-f1-pullback ·
-      5-slot portfolio val PASSED (daily 0.561% > f1 0.506%) · slot sizing not yet enabled ·
-      buy-observation 池定義保留但 enabled:false（Order 已退役 · 不跑／不寄）。
-    sources:
-      - reports/research/rrg/20260708_abc_v3_f1_pipeline_90d.json
-
   vcp-pivot-gate:
     title: VCP Pivot Gate
     layer: strategy
@@ -158,10 +118,13 @@ strategies:
     title: Minervini SEPA basket
     layer: strategy
     kind: competition
-    enabled: true
+    enabled: false
     env_flag: RUN_MINERVINI_SEPA_SCREEN
     description: >
-      月末 Trend Template 7/7 等權 basket · 獨立 launchd 16:35 · dry-run intent · 寄信。
+      月末 Trend Template 7/7 等權 basket · dry-run intent · 寄信。
+      已於 2026-07-29 確認退役（config/job_registry.yaml），launchd job 已卸載、
+      scripts/launchd/minervini-sepa-basket.command 已不存在。2026-08-01 修正
+      enabled 狀態以符合現實（先前誤留 true，與 job_registry.yaml 矛盾）。
     sources:
       - "{date}_minervini_sepa_basket_daily.md"
       - "minervini_sepa_basket_daily.md"
