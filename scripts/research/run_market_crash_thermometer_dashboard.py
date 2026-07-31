@@ -87,7 +87,9 @@ from scipy import stats
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-DB_PATH = ROOT / "data" / "stocks.db"
+from stock_db import DEFAULT_DB_PATH  # noqa: E402
+
+DB_PATH = DEFAULT_DB_PATH
 OUT = ROOT / "reports" / "daily"
 SOURCE = "finmind"
 

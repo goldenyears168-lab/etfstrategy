@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from notify_email import send_alert  # noqa: E402
 from project_dotenv import load_project_dotenv  # noqa: E402
-from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, connect  # noqa: E402
 
 SOURCE = "finmind"
 # Research champion mother set (Songshan)
@@ -803,7 +803,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     ap.add_argument("--asof", default="", help="YYYY-MM-DD")
     ap.add_argument("--no-refresh", action="store_true")
-    ap.add_argument("--state-dir", type=Path, default=ROOT / "data" / "scratch")
+    ap.add_argument("--state-dir", type=Path, default=DATA_DIR / "scratch")
     ap.add_argument("--force-email", action="store_true")
     ap.add_argument("--bootstrap-only", action="store_true")
     return ap.parse_args()

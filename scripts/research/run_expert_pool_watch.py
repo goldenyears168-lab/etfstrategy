@@ -66,7 +66,7 @@ from research.expert_pool_yellow_annotation import (  # noqa: E402
     flag_enabled as yellow_flag_enabled,
     format_annotation_lines as yellow_annotation_lines,
 )
-from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, connect  # noqa: E402
 
 SOURCE = "finmind"
 # Master flag; legacy aliases still accepted (first present wins).
@@ -274,7 +274,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--state-dir",
         type=Path,
-        default=ROOT / "data" / "scratch",
+        default=DATA_DIR / "scratch",
         help="state JSON 目錄",
     )
     ap.add_argument("--force-email", action="store_true")

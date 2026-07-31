@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "research"))
 
 from notify_email import send_alert  # noqa: E402
 from project_dotenv import load_project_dotenv  # noqa: E402
-from stock_db import DEFAULT_DB_PATH, connect  # noqa: E402
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, connect  # noqa: E402
 
 import run_expert_pool_watch as pool  # noqa: E402
 import run_songshan_follow_watch as song  # noqa: E402
@@ -174,7 +174,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--asof", default="")
     ap.add_argument("--refresh-days", type=int, default=5)
     ap.add_argument("--no-refresh", action="store_true")
-    ap.add_argument("--state-dir", type=Path, default=ROOT / "data" / "scratch")
+    ap.add_argument("--state-dir", type=Path, default=DATA_DIR / "scratch")
     ap.add_argument("--force-email", action="store_true")
     ap.add_argument("--bootstrap-only", action="store_true")
     ap.add_argument(
