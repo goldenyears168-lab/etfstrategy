@@ -10,11 +10,11 @@
 | 架構 | [architecture.md](./architecture.md) · [src-map.md](./src-map.md) §下單層 |
 | 盤中減碼 | [intraday-exit-playbook.md](./intraday-exit-playbook.md) |
 | Agent 導航 | [agent-brief.md](./agent-brief.md) |
-| 遷移／live | [deploy/mac-mini/MIGRATION_PLAN.md](../deploy/mac-mini/MIGRATION_PLAN.md) |
+| 現況／live | [config/job_registry.yaml](../config/job_registry.yaml) |
 
 > **免責**：本文件描述本機 infra 與個人研究執行框架；**不**構成投資建議。Order layer **不**進公開網站、**不**暴露券商憑證。
 >
-> **2026-07-26 現況**（SSOT：[MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md)）：Live sleeves = **C18acc** + **Leading Dip** + **Songshan copytrade** + **expert-pool staged gate**；**Detach Gate = RED 只寄信 · 不半砍**（`ORDER_DETACH_GATE_ORDER_ENABLED=0`）。`timed-limit-orders` 已於 2026-07-26 整支移除（launchd + 程式碼 + config），之後不再使用。  
+> **2026-07-29 現況**（SSOT：[config/job_registry.yaml](../config/job_registry.yaml)）：**全部 order-capable job（C18acc／Leading Dip／Songshan copytrade／expert-pool staged gate／detach-gate）已暫停**（`.env` flag safe + `launchctl disable` + `ORDER_MASTER_ENABLED=0` 三重保險），目前**無一支**實際具下單能力；`timed-limit-orders` 已於 2026-07-26 整支移除（launchd + 程式碼 + config），之後不再使用。  
 > **ABC Order 已退役**（送單入口硬擋；`ABC_V3_F1_ORDER_ENABLED=0`）。下文含歷史 Phase／ABC 段落時以本框為準。
 
 ---
@@ -182,7 +182,7 @@ facts → regime → research → strategy (+ order layer 本機)
 |--------|------|----------|------------|
 | **C18acc / rrg-mono-swap-accel** | `rrg-c18acc-poll` | ✅（`ORDER_C18ACC_*`） | 3 槽 · 2 萬／槽 · confirm_bars=**1** · pyramid 採納 |
 | **Leading Dip**（+ mid） | `leading-dip-poll` | ✅（`ORDER_LEADING_DIP_*`） | coverage + mid · 與 C18 互斥 |
-| **Detach Gate** | `detach-gate` | ❌ RED 只寄信（`ORDER_ENABLED=0`） | 半砍規格保留（floor(qty/2) @ bid1）· 現況不送單 · 見 MIGRATION_PLAN §0 |
+| **Detach Gate** | `detach-gate` | ❌ 已暫停（`launchctl disable` + `ORDER_ENABLED=0`） | 半砍規格保留（floor(qty/2) @ bid1）· 現況不送單 · 見 config/job_registry.yaml |
 | **buy / sell signal radar** | launchd | ❌ 寄信 only | ABC 池關閉 |
 | **chase_open** | `schedule.enabled: false` | — | 已停用 |
 

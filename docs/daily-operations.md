@@ -2,7 +2,7 @@
 
 > **非 Facts product layer** — 本文件是 launchd / 手動腳本排程；事實產物見 `reports/daily/etf-daily/`（**Facts layer** · `layer: facts`）。  
 > 架構：[architecture.md](./architecture.md) · 術語：[terminology.md](./terminology.md)  
-> **Mac mini Order layer（含跟單松山／C18／Leading Dip／EP gate）SSOT**：[deploy/mac-mini/MIGRATION_PLAN.md](../deploy/mac-mini/MIGRATION_PLAN.md) §0–§1.2（送單開關以該文為準，勿只信本表舊列）。
+> **Mac mini Order layer（含跟單松山／C18／Leading Dip／EP gate）SSOT**：[config/job_registry.yaml](../config/job_registry.yaml)（送單開關以該檔為準，勿只信本表舊列）。
 
 ## daily_sync profile · Gate 規則
 
@@ -52,7 +52,7 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 
 ## 排程
 
-> **Live launchd 排程 SSOT**：[MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md)（mini 現掛清單）。下表含已退役／手動入口，僅供速查。
+> **Live launchd 排程 SSOT**：[config/job_registry.yaml](../config/job_registry.yaml)（mini 現掛清單）。下表含已退役／手動入口，僅供速查。
 
 | # | 名稱 | 時間 | 入口 |
 |---|------|------|------|
@@ -63,7 +63,7 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | `sell-signal-radar` | Fubon 持倉 extension 賣出 advisory | 09:06–13:20 每 5 分 | `scripts/launchd/sell-signal-radar.command` |
 | `rrg-c18acc-poll` | C18acc 開倉／換倉（`no_trade_before=13:00`） | 09:00–13:30 每 5 分 · 進場窗 ≥13:00 | `scripts/launchd/rrg-c18acc-poll.command` |
 | `leading-dip-poll` | Leading Dip 衛星袖 | 09:05–13:25 每 5 分 | `scripts/launchd/leading-dip-poll.command` |
-| `songshan-copytrade-poll` | 跟單松山（5d淨比95∩!mega + 25m nonfail · 1 張） | 09:25–09:40 每 5 分 | `scripts/launchd/songshan-copytrade-poll.command` · 現況見 [MIGRATION_PLAN §0](../deploy/mac-mini/MIGRATION_PLAN.md) |
+| `songshan-copytrade-poll` | 跟單松山（5d淨比95∩!mega + 25m nonfail · 1 張） | 09:25–09:40 每 5 分 | `scripts/launchd/songshan-copytrade-poll.command` · 現況見 [config/job_registry.yaml](../config/job_registry.yaml) |
 | `expert-pool-staged-gate` | 專家池 gap→05→25（≠ 松山尺） | 09:00／01／05／25 | `scripts/launchd/expert-pool-staged-gate.command` |
 | `rrg-mono-swap-accel-extension` | extension overlay（legacy · 手動） | — | `scripts/run_c18acc_extension_screen.py` |
 | ②a | RRG mono 收盤前預警 + universe snapshot | —（**已退役排程** · 僅手動） | `scripts/launchd/rrg-mono-intraday-watch.command` |

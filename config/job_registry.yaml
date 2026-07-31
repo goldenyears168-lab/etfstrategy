@@ -1,7 +1,7 @@
 # mini launchd job registry — single source of truth for "what's installed and can it trade".
-# Update this whenever a job is added/paused/retired/reinstalled. Full narrative history
-# (incidents, decisions, dates) stays in deploy/mac-mini/MIGRATION_PLAN.md — this file is
-# the quick-scan snapshot, not the story.
+# Update this whenever a job is added/paused/retired/reinstalled. For narrative history
+# (incidents, decisions, dates), check git log on this file and deploy/mac-mini/ — this
+# file itself is the quick-scan snapshot, not the story.
 #
 # order_capable: true means the job's code CAN submit a real broker order (grep-verified
 # against AUTO_SUBMIT/place_order call sites — see 2026-07-29 audit). It does NOT mean the
@@ -160,14 +160,14 @@ jobs:
     order_capable: false
     status: enabled
     schedule: "weekdays 20:15"
-    description: "玩股網每日情報迴圈: fetch 白名單6位作者新文→落庫(blog_posts)→記分板 score 隔日驗證作者call→擷取(有ANTHROPIC_API_KEY則API萃取, 無則匯出 bundle 供 Claude session)。不下單。DEPLOYED+LOADED on mini 2026-07-31 via scp (NOT install-launchd.sh; new files untracked on mini main — re-scp if mini git resets). 記分板 = data/wantgoo_loop.db author_predictions。設計見 docs/wantgoo-intelligence-audit.md §10。"
+    description: "玩股網每日情報迴圈: fetch 白名單6位作者新文→落庫(blog_posts)→記分板 score 隔日驗證作者call→擷取(有ANTHROPIC_API_KEY則API萃取, 無則匯出 bundle 供 Claude session)。不下單。git-tracked + 正式安裝於 scripts/install-wantgoo-loop-launchd.sh（2026-08-01起，取代先前的scp暫時部署）。記分板 = data/wantgoo_loop.db author_predictions。設計見 docs/wantgoo-intelligence-audit.md §10。"
 
   - label: chip-macro-tracker-daily
     category: research
     order_capable: false
     status: enabled
     schedule: "weekdays 18:00"
-    description: "籌碼→大盤 風控燈號 daily_tracker: refresh panel + 6燈(MA200閘門/外資期貨z60/融資斷頭底/VIX gate/rev傾斜/夜盤) + 資料新鮮度gate + 隔日驗證 backfill_outcomes + ops-console 推送. 不下單. DEPLOYED+LOADED on mini 2026-07-31 via scp. ⚠️ 這是把 Book branch research/dashboard-completeness 的 modern tracker overhaul(MA200/margin-C3/VIX/rev)首次上生產(取代 mini main 的舊版); 會更新公開 ops-console 的 chip_macro payload. 首個排程實跑=部署當日18:00. 新檔在 mini main 未 git-track → mini git reset 要重 scp. ⚠️ KNOWN BUG (2026-07-31, unfixed): daily_tracker.py's PANEL_DIR hardcodes ROOT/data instead of routing through GOLDENSTOCKS_DATA_DIR — same hardcoded-path class as the 4 scripts fixed 2026-07-31 (see MIGRATION_PLAN.md); now that this branch is merged into main it's fair game to fix in a future round."
+    description: "籌碼→大盤 風控燈號 daily_tracker: refresh panel + 6燈(MA200閘門/外資期貨z60/融資斷頭底/VIX gate/rev傾斜/夜盤) + 資料新鮮度gate + 隔日驗證 backfill_outcomes + ops-console 推送. 不下單. 把 Book branch research/dashboard-completeness 的 modern tracker overhaul(MA200/margin-C3/VIX/rev)首次上生產(取代 mini main 的舊版); 會更新公開 ops-console 的 chip_macro payload。2026-08-01起 git-tracked + 正式安裝於 scripts/install-wantgoo-loop-launchd.sh（取代先前的scp暫時部署）。⚠️ KNOWN BUG (2026-07-31, unfixed): daily_tracker.py's PANEL_DIR hardcodes ROOT/data instead of routing through GOLDENSTOCKS_DATA_DIR — same hardcoded-path class as the 4 scripts fixed 2026-07-31; now that this branch is merged into main it's fair game to fix in a future round."
 
   # --- Live TA / website feed ---
   - label: ops-live-ta-poll
@@ -208,8 +208,8 @@ cloud_routines:
 # rrg-mono-intraday-watch, vcp-funnel-specs, minervini-sepa-basket, mutual-fund-disclosure-watch,
 # weekly-deep, c18acc-extension-overlay, order-chase-open, etfedge-import,
 # specialty-expert-pool-watch (merged into winbond-expert-pool-watch).
-# See deploy/mac-mini/MIGRATION_PLAN.md for why each was retired.
+# See git log (2026-07-29 commits) for why each was retired.
 
-# --- Deferred to a separate round (not bundled with 2026-07-29 code/state migration) ---
-# GitHub repo rename (etfstrategy -> goldenstocks), mini's com.jackm4.goldenstocks.* launchd label
-# prefix (-> com.jackm4.goldenstocks.*), website domain (haoshi-quant-ops.pages.dev).
+# --- Completed 2026-08-01: GitHub repo renamed etfstrategy -> goldenstocks, mini's launchd
+# label prefix renamed com.jackm4.etf.* -> com.jackm4.goldenstocks.* (all ~23 jobs), repo
+# checkout moved to ~/goldenstocks on both Book and mini, website moved to ~/goldenstocks-web.

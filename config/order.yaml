@@ -7,7 +7,7 @@
 # Research／strategy 契約：config/strategy.yaml · src/research/**（與下單層無關）。
 #
 # 2026-07-29：下單層全數暫停（各袖套獨立旗標 + launchctl disable，見
-# deploy/mac-mini/MIGRATION_PLAN.md）。新增總開關 .env 的 ORDER_MASTER_ENABLED
+# config/job_registry.yaml）。新增總開關 .env 的 ORDER_MASTER_ENABLED
 # （預設0）：任何一個 sleeve 要真的送單，除了自己的旗標，還要這個總開關=1
 # 才行——見 src/order/fubon_orders.py::order_master_enabled()、config/job_registry.yaml。
 
@@ -125,7 +125,7 @@ strategies:
       Research 冠軍路徑進 Order（2026-07-22）。預算制 10 萬零股（2026-07-24 改）。
       夜信尺同名；進場須 25m 非 fail。僅進場（hold_days 參數無自動出場；暫接受）。
       本袖已 submitted/filled/working 的標的不重複買（allow_pyramid=false）。
-      運維 SSOT：deploy/mac-mini/MIGRATION_PLAN.md §0。
+      運維 SSOT：config/job_registry.yaml。
       Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
 
   rrg-mono-swap-accel:

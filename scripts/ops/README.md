@@ -18,7 +18,7 @@
 
 ### 現行 launchd job（`install-launchd.sh` LABELS · 僅 mini live）
 
-> **Live 排程 SSOT**：[deploy/mac-mini/MIGRATION_PLAN.md §0](../../deploy/mac-mini/MIGRATION_PLAN.md)（時間／開關以該文為準）。  
+> **Live 排程 SSOT**：[config/job_registry.yaml](../../config/job_registry.yaml)（時間／開關以該文為準）。  
 > **心智模型（2026-07-23 公告）**：三時段 — **18:30 夜盤準備** · **08:50 開盤前** · **盤中**；另加 **20:00–20:40 夜間觀測波**（當日結論／上牆）。詳見站上 Inbox／知識庫「排程重整公告」。
 
 #### 18:30 · 夜盤準備

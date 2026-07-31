@@ -294,4 +294,4 @@ PYTHONPATH=src .venv/bin/python scripts/research/run_songshan_budget_vs_qty_back
 
 **版本**：v1.0 · 2026-07-24  
 **Git commit**：`2b8cea1`  
-**相關文件**：`docs/order-layer-prd.md` §1.2 · `deploy/mac-mini/MIGRATION_PLAN.md` §0
+**相關文件**：`docs/order-layer-prd.md` §1.2 · `config/job_registry.yaml`

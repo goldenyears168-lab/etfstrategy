@@ -26,7 +26,7 @@ TEMPLATES=(
 COMMANDS=(
   order-wake
 )
-# 已退役／不裝：升級時自動卸載（見 deploy/mac-mini/MIGRATION_PLAN.md §4.6「不裝開盤追價」）
+# 已退役／不裝：升級時自動卸載（見 config/job_registry.yaml（order-chase-open 已退役，不裝））
 LEGACY_LABELS=(
   com.jackm4.goldenstocks.order-5347-open
   com.jackm4.goldenstocks.order-chase-open
