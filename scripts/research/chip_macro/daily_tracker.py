@@ -274,7 +274,7 @@ def _margin_verdict(m: dict) -> tuple[str, str, str]:
     return "⚪", "gray", "未觸發（監控中）"
 
 
-def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None, rev=None) -> tuple[str, str, dict]:
+def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None, rev=None, stale=None) -> tuple[str, str, dict]:
     last = p.iloc[-1]
     prev = p.iloc[-2]
     d = str(last["date"])
@@ -306,6 +306,10 @@ def build_dashboard(p: pd.DataFrame, night, margin=None, vix=None, rev=None) -> 
     md = []
     md.append(f"# 籌碼→大盤 風控燈號 ｜ {d}")
     md.append(f"_更新時間 {datetime.now(TPE):%Y-%m-%d %H:%M} (TPE) ｜ 風控 overlay，非投資建議_\n")
+    if stale and stale["level"] != "ok":
+        _b = ("🔴 **資料落後警示**" if stale["level"] == "red" else "🟡 **資料落後（邊際）**")
+        md.append(f"> {_b}：panel as-of **{stale['panel_asof']}**，最近應有交易日 {stale['expected']} "
+                  f"（落後 **{stale['stale_bdays']}** 交易日）。下列燈號可能過期，請先補 ingest。\n")
     md.append(f"## 綜合部位：**{headline}**\n")
     md.append(f"> 大盤 {ix:,.0f}（{ixchg:+.2f}%）｜ 系統部位 = {pos:.1f}（L0 階段 × L2 籌碼）\n")
     md.append("| 燈 | 狀態 | 細節 |")
@@ -402,6 +406,7 @@ th{{background:#8881}} small{{color:#999}}
 </style></head><body>
 <h1>籌碼 → 大盤 風控燈號</h1>
 <div class="sub">{d} ｜ 更新 {datetime.now(TPE):%H:%M} TPE ｜ 風控 overlay，非投資建議</div>
+{(f'<div style="background:{"#dc262622" if stale["level"]=="red" else "#f59e0b22"};border:1px solid {"#dc2626" if stale["level"]=="red" else "#f59e0b"};border-radius:6px;padding:8px 12px;margin:.6em 0;font-size:.9em">{"🔴 資料落後警示" if stale["level"]=="red" else "🟡 資料落後（邊際）"}：panel as-of <b>{stale["panel_asof"]}</b>，最近應有交易日 {stale["expected"]}（落後 <b>{stale["stale_bdays"]}</b> 交易日）。下列燈號可能過期，請先補 ingest。</div>') if (stale and stale["level"]!="ok") else ""}
 <div class="verdict">{headline}</div>
 <div class="ix">大盤 {ix:,.0f} <span style="color:{'#16a34a' if ixchg>=0 else '#dc2626'}">({ixchg:+.2f}%)</span> ｜ 系統部位 {pos:.1f}</div>
 <table>
@@ -431,6 +436,9 @@ th{{background:#8881}} small{{color:#999}}
     if rev:
         state.update({"rev_tilt_n": rev["n"], "rev_tilt_active": pos > 0,
                       "rev_tilt_asof": rev["asof"]})
+    if stale:
+        state.update({"panel_asof": stale["panel_asof"], "stale_bdays": stale["stale_bdays"],
+                      "stale": stale["stale"]})
     return md_txt, html, state
 
 
@@ -461,6 +469,75 @@ def append_history(state: dict):
     row.to_csv(HIST, index=False)
 
 
+FWD_HORIZONS = (1, 5)
+
+
+def backfill_outcomes(panel: pd.DataFrame) -> int:
+    """事後 join 大盤前瞻報酬到 signal_history (append-only, 無前視)。
+
+    每列的 fwd_Nd 只有在 panel 裡 close[T+N] 真的存在時才填 → 最近的列會留空
+    (等未來真的發生)。這正是「隔日驗證誠實」的關鍵:結果在寫入當下永遠是未知的。
+    已填的值永不覆寫 (append-only)。
+
+    call_correct (5日 horizon): 做多(position>0) 對 = fwd_5d>0；空手/risk-off(position==0)
+    對 = fwd_5d<=0 (避開下跌/持平即正確)。原始 fwd_1d_pct/fwd_5d_pct 一併存, 可重算。
+    回傳本次新填的列數。
+    """
+    if not HIST.exists():
+        return 0
+    h = pd.read_csv(HIST)
+    if h.empty or "date" not in h.columns:
+        return 0
+    closes = (panel.assign(_d=pd.to_datetime(panel["date"]).astype(str).str[:10])
+              .dropna(subset=["ix_close"]).drop_duplicates("_d", keep="last")
+              .set_index("_d")["ix_close"].astype(float).sort_index())
+    idx = {d: i for i, d in enumerate(closes.index)}
+    vals = closes.values
+    for H in FWD_HORIZONS:
+        col = f"fwd_{H}d_pct"
+        if col not in h.columns:
+            h[col] = np.nan
+    if "call_correct" not in h.columns:
+        h["call_correct"] = pd.NA
+    filled = 0
+    for i, r in h.iterrows():
+        j = idx.get(str(r["date"])[:10])
+        if j is None:
+            continue
+        for H in FWD_HORIZONS:
+            col = f"fwd_{H}d_pct"
+            if pd.isna(h.at[i, col]) and j + H < len(vals):
+                h.at[i, col] = round((vals[j + H] / vals[j] - 1.0) * 100, 3)
+                filled += 1
+        f5 = h.at[i, "fwd_5d_pct"]
+        if pd.notna(f5) and pd.isna(h.at[i, "call_correct"]):
+            pos = float(r.get("position", 0) or 0)
+            h.at[i, "call_correct"] = bool(f5 > 0) if pos > 0 else bool(f5 <= 0)
+    h.to_csv(HIST, index=False)
+    return filled
+
+
+def compute_staleness(panel_last: str) -> dict:
+    """panel 最後日 vs 最近應有交易日(TPE) 的落後交易日數。>=2 紅、==1 黃、0 綠。
+
+    無假日表,以「今天往回退到最近工作日」為保守期望值 → 遇連假可能高估落後,
+    但寧可誤報 stale 也不要靜默過期 (§5.4 P0-2 的設計取向)。
+    """
+    last = pd.to_datetime(str(panel_last)[:10]).date()
+    today = datetime.now(TPE).date()
+    exp = today
+    while exp.weekday() >= 5:      # 週末退到週五
+        exp -= timedelta(days=1)
+    if exp > last:
+        stale_bdays = int(np.busday_count((last + timedelta(days=1)).isoformat(),
+                                          (exp + timedelta(days=1)).isoformat()))
+    else:
+        stale_bdays = 0
+    level = "red" if stale_bdays >= 2 else ("amber" if stale_bdays == 1 else "ok")
+    return {"panel_asof": last.isoformat(), "expected": exp.isoformat(),
+            "stale_bdays": stale_bdays, "stale": stale_bdays >= 2, "level": level}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-refresh", action="store_true", help="skip daily-panel FinMind pull, use existing panel (morning run)")
@@ -487,11 +564,17 @@ def main():
     vix = None if args.no_vix else load_vix()
     rev = None if args.no_rev else load_rev_tilt()
     margin = compute_margin_light(res["panel"]) if maint is not None else None
-    md, html, state = build_dashboard(res["panel"], night, margin=margin, vix=vix, rev=rev)
+    stale = compute_staleness(str(res["panel"]["date"].iloc[-1]))
+    md, html, state = build_dashboard(res["panel"], night, margin=margin, vix=vix, rev=rev, stale=stale)
 
     (OUT / "daily_dashboard.md").write_text(md, encoding="utf-8")
     (OUT / "daily_dashboard.html").write_text(html, encoding="utf-8")
     append_history(state)
+    filled = backfill_outcomes(res["panel"])   # 隔日驗證: 事後 join 前瞻報酬 (無前視)
+    if stale["level"] != "ok":
+        print(f"⚠️ 資料落後 {stale['stale_bdays']} 交易日 (panel as-of {stale['panel_asof']}, "
+              f"最近應為 {stale['expected']}) — 燈號可能過期")
+    print(f"隔日驗證: backfill 新填 {filled} 個前瞻報酬格")
     if not args.no_ops:
         push_ops_console()
     print("\n" + md)

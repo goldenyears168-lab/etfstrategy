@@ -168,8 +168,14 @@ def load_breadth() -> pd.DataFrame:
     hi252 = w.rolling(252, min_periods=252).max()
     lo252 = w.rolling(252, min_periods=252).min()
 
-    above50 = (w > ma50)
-    above200 = (w > ma200)
+    # mask False-from-NaN: a stock with an undefined MA (insufficient history) or
+    # a NaN price that day must be EXCLUDED from the denominator, not counted as
+    # "below MA". `w > ma50` yields False (not NaN) in those cases, which would
+    # wrongly inflate the denominator and deflate the %-above ratio.
+    # Cast to float BEFORE .where so masked cells become NaN in a float64 frame
+    # (masking a bool frame would upcast to object dtype and break downstream math).
+    above50 = (w > ma50).astype(float).where(ma50.notna() & w.notna())
+    above200 = (w > ma200).astype(float).where(ma200.notna() & w.notna())
     is_nh = (w >= hi252)
     is_nl = (w <= lo252)
 

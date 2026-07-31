@@ -15,6 +15,7 @@ from typing import Any
 from stock_db import PROJECT_ROOT
 
 from ops_stock_heatmap import build_stock_heatmap_payload as _build_stock_heatmap_payload
+from ops_holdings_stability import build_holdings_stability_payload as _build_holdings_stability_payload
 
 ROOT = PROJECT_ROOT
 EVENING_DIR = ROOT / "reports/research/branch-footprint-screen/evening_watch"
@@ -635,6 +636,7 @@ BUILDERS: dict[str, Any] = {
     "rotation": build_rotation_payload,
     "chip_macro": build_chip_macro_payload,
     "stock_heatmap": _build_stock_heatmap_payload,
+    "holdings_stability": _build_holdings_stability_payload,
 }
 
 KINDS = tuple(BUILDERS.keys())

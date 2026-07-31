@@ -1882,17 +1882,49 @@ topics:
       正向但尚未決定性驗證**，建議維持現行保守配置（dry-run或小額）、
       累積更多真實樣本外交易後再決定是否放大部位，不建議因本輪結果
       加碼，也不建議因第五輪的錯誤結論降級停用。
+
+      【第七輪：Track D+A.1 permutation/placebo顯著性檢定（2026-07-28）】
+      使用者核准「更進階研究計畫」（misty-discovering-puppy plan），其中
+      Track D要求建立比t-test/Wilcoxon更適合小n厚尾情境的驗證工具。新增
+      `src/research/branch_signal_validation.py`（可重用模組，Track A/B/C
+      共用）：對每個真實觸發事件，從『同一檔股票』全部L1H7合法訊號日中
+      隨機抽一個當假訊號日，重複20,000次建立null分布，測的是「9217選的
+      時機是否比同一批股票上的隨機時機更好」，不依賴t分布漸進假設。
+      對第六輪的n=36事件跑此檢定（3個不同seed交叉驗證，結果穩定）：
+      **單尾經驗p值 mean≈0.005-0.008、median≈0.00000-0.00005（20,000次
+      置換中幾乎沒有任何一次達到或超過觀察值）**。null分布本身：
+      placebo mean of means≈+0.95~0.98%（std≈1.7%），placebo mean of
+      medians≈-0.81~-0.83%（std≈1.35%，中位數null本身略為負值，符合
+      β=1.15調整下這批中小型股在此期間的自然特徵）——觀察到的真實中位數
+      +6.275% 遠遠落在null分布的極端尾部。**這比第六輪的t-test（p=0.043
+      全樣本、去極值後p=0.24）更決定性地支持9217具備真實時機選擇能力**：
+      permutation檢定控制了「這些股票本身在這段期間、這個β調整下的自然
+      報酬特徵」，測的是純粹的timing skill，比對零值的單樣本t-test是更
+      嚴格的null，9217依然大幅超越。詳見
+      whale_9217_permutation_test_result.json。**結論再修正**：9217的
+      live訊號證據強度比第六輪估計的更強——雖然t-test/Wilcoxon對極端值
+      敏感、樣本量仍只有36筆，但permutation檢定（尤其是對極端值天生穩健
+      的中位數統計量）給出了遠比t-test更決定性的正向訊號。仍建議在放大
+      配置前累積更多樣本外交易以防範small-n的結構性風險（例如整個
+      2024-2026窗口剛好處於某個特定市場regime），但目前證據已經比先前
+      任一輪都更支持「9217具備真實可跟單edge」這個假說。
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: weak_pass  # 第五輪月度panel regression結論(無edge)已被證實用錯訊號定義；第六輪用live-faithful滾動5日訊號重測，OOS(n=31) t_p=0.037但Wilcoxon僅邊緣(p=0.058)、去極值後不顯著，判weak_pass非passed
+        G2_oos_holdout: weak_pass  # 第五輪月度panel regression結論(無edge)已被證實用錯訊號定義；第六輪t-test/Wilcoxon為weak_pass等級；第七輪permutation檢定(median p<0.0001, mean p≈0.005-0.008, 20000次×3 seed皆穩定)證據強度明顯更高，但仍維持weak_pass而非passed，因n=36本身樣本量偏小、OOS期與分點自身交易量成長仍有confound，需要更多樣本外時間驗證才升級
         G3_regime_stratification: na
         G4_rejection_registry: passed  # 779Z/920F/9239/9216/9B2a/5852/9268/9800/consensus_pairs/9699x7769/6696/6831 均明確拒絕並記錄理由
         G5_frozen_spec: na
         G6_adoption_report: na
       action: >
         pure research（四輪分點宇宙篩選後仍未找到可採納新候選；9699×7769
-        經深挖後判定reject，暫無pending線索）。**第六輪更新（2026-07-28）：
+        經深挖後判定reject，暫無pending線索）。**第七輪更新（2026-07-28）：
+        用permutation/placebo檢定（src/research/branch_signal_validation.py）
+        重新評估9217的n=36live訊號結果，單尾經驗p值mean≈0.005-0.008、
+        median≈0.00000-0.00005（3個seed×20000次置換皆穩定），比第六輪
+        t-test/Wilcoxon更決定性地支持9217具備真實時機選擇能力。songshan
+        -copytrade建議維持現行dry-run/保守配置，證據方向持續轉強但n仍
+        偏小，累積更多樣本外交易後可考慮升級配置。**第六輪原文（供對照）：
         第五輪判「9217無edge」的月度panel regression訊號定義有瑕疵（測的
         是無條件整月加總，不是live實際交易的滾動5日集中度訊號），已被
         推翻；用真正live訊號(scan_5d_net95)重測顯示方向正向但仍脆弱
@@ -1934,13 +1966,13 @@ topics:
           sector_return + market_return，cluster-robust SE，walk-forward
           IS/OOS）控制產業與大盤共同因子後，仍具統計顯著且經濟顯著的
           正向 forward excess return
-        status: contested  # 原判rejected（月度panel regression：signal係數控制產業/大盤後不顯著）。但2026-07-28於whale-branch-l1h7-discovery topic發現：該月度panel regression的`monthly_net_signal()`訊號定義是「整月無條件加總淨買賣股數」（股票篩選僅「總買進交易日≥20天」流動性門檻，無集中度/金額門檻），跟songshan-copytrade實際live交易的訊號（scan_5d_net95：滾動5交易日buy_5d≥5000萬且net_ratio≥0.95）完全是兩回事，會被同月其他客戶零散流量稀釋掉。用真正live訊號定義重測（n=36, 2024-07~2026-07）：全樣本mean+5.66%/median+6.28%/勝率66.7%/t_p=0.0426但Wilcoxon p=0.0668不顯著、去除前3大極端值後t_p升至0.239顯著性消失、OOS(n=31)t_p=0.037但IS(n=5)樣本太薄且IS/OOS切分被9217自身交易量2024→2026成長4倍混淆。修正結論：「無edge」的原判斷本身用錯了訊號定義，不能維持rejected；但重測結果也遠不到「確認正向edge」的地步（顯著性不耐去極值、勝率62-75%穩定但點估計脆弱）——正確狀態是contested/inconclusive，不是rejected也不是passed。詳見whale_9217_5dnet95_summary.json
+        status: contested  # 【已於下方H2查證完live-faithful訊號後，此H1改為聚焦9217本身】原判rejected（月度panel regression：signal係數控制產業/大盤後不顯著）。但2026-07-28於whale-branch-l1h7-discovery topic發現：該月度panel regression的`monthly_net_signal()`訊號定義是「整月無條件加總淨買賣股數」（股票篩選僅「總買進交易日≥20天」流動性門檻，無集中度/金額門檻），跟songshan-copytrade實際live交易的訊號（scan_5d_net95：滾動5交易日buy_5d≥5000萬且net_ratio≥0.95）完全是兩回事，會被同月其他客戶零散流量稀釋掉。用真正live訊號定義重測（n=36, 2024-07~2026-07）：全樣本mean+5.66%/median+6.28%/勝率66.7%/t_p=0.0426但Wilcoxon p=0.0668不顯著、去除前3大極端值後t_p升至0.239顯著性消失、OOS(n=31)t_p=0.037但IS(n=5)樣本太薄且IS/OOS切分被9217自身交易量2024→2026成長4倍混淆。**2026-07-28再更新**：用permutation/placebo檢定（src/research/branch_signal_validation.py，控制同股票隨機時機的null分布，不依賴t分布假設）重新評估，單尾經驗p值 mean≈0.005-0.008、median≈0.00000-0.00005（3個seed×20000次置換皆穩定）——比t-test更決定性支持9217有真實時機選擇能力。狀態維持contested非passed（n=36仍偏小），但證據強度已比先前任一輪都更支持這個假說成立。詳見whale_9217_5dnet95_summary.json、whale_9217_permutation_test_result.json
       - id: H2-9661-PERSONAL-EDGE
         statement: >
           陳族元（9661富邦新店）比照 H1 同一方法論（身分查證 + 習慣分析 +
           建倉推估 + L1H7 timing + 月度 panel regression），其分點訊號
           具統計顯著且經濟顯著的正向 forward excess return
-        status: rejected  # 月度panel regression：signal係數控制產業/大盤後不顯著；且9661在全宇宙查證中觸及2000+檔股票，與「單一大戶個人重倉決策」前提本身有結構性矛盾
+        status: rejected  # 【2026-07-28 Track A.3 用live-faithful訊號重測，結論維持rejected但這次是用對方法測出來的】原判rejected理由：月度panel regression signal係數控制產業/大盤後不顯著；且9661全宇宙查證觸及2000+檔股票，與「單一大戶個人重倉決策」前提本身有結構性矛盾（此矛盾依然成立，見H3）。用比照9217訂正後的live-faithful訊號（scan_5d_net95, buy_floor=0.5億/net_min=0.95，與9217同協議以利對照；9661無自己的copytrade job/門檻設定，此為合理預設）重測：n=36（2024-07~2026-07），全樣本mean+0.77%/**median-1.90%（負！）**/勝率47.2%（低於50%）/t_p=0.626/Wilcoxon p=0.834，完全不顯著；IS(n=28)幾乎零效果(mean-0.02%)、OOS(n=8)太薄。**permutation/placebo檢定**（同一套方法論，20000次置換）：p_mean=0.274、p_median=0.755——皆不顯著，且median的p值顯示觀察值比null分布中位數還差。年度分解：2024(n=15)mean-2.95%明顯負向、2025(n=13)mean+3.35%轉正、2026(n=8)mean+3.53%，方向不穩定。**這是一個乾淨、真正被正確方法論測過的null result**，跟9217用同一套方法測出的強烈正向形成鮮明對比，佐證整套live-faithful+permutation驗證方法本身沒有「測誰都測出正向」的系統性偏誤。詳見whale_9661_5dnet95_summary.json
       - id: H3-BRANCH-EQUALS-INDIVIDUAL
         statement: >
           securities_trader_id（分點代碼）層級的買賣訊號可乾淨代表單一
@@ -2069,21 +2101,183 @@ topics:
         G5_frozen_spec: na
         G6_adoption_report: na
       action: >
-        contested，非rejected（2026-07-28修正，見H1/H4註記）：H1/H4的
-        「無edge」判斷全部建立在同一個有瑕疵的訊號定義上——
-        `monthly_net_signal()`是整月無條件加總淨買賣股數，跟
-        songshan-copytrade實際live訊號（scan_5d_net95：滾動5交易日
-        buy_5d≥5000萬且net_ratio≥0.95）不是同一件事，會被同月其他客戶
-        流量稀釋。用真正live訊號重測H1（見whale-branch-l1h7-discovery
-        topic第六輪，whale_9217_5dnet95_summary.json）：n=36、全樣本
-        mean+5.66%/勝率66.7%/t_p=0.043但去極值後不顯著、Wilcoxon從未
-        顯著——方向轉正但仍脆弱，不是決定性驗證。H4尚未用live-faithful
-        訊號重跑，同樣待補。H3（分點=全客戶流量聚合，非單一大戶乾淨
-        代理）不受此修正影響，結構性限制依然成立。songshan-copytrade
-        （9217）已核實目前非live（2026-07-28 SSH確認DRY_RUN=1/
-        AUTO_SUBMIT=0），無資金曝險急迫性，建議維持現狀待更多樣本
-        外交易累積，不建議因本topic原結論貿然停用，也不建議因訊號
-        轉正就加碼。12個月天期OOS驗證因資料窗口不足仍是open item。
+        H1(9217)：contested，非rejected（2026-07-28修正）：原「無edge」
+        判斷建立在有瑕疵的訊號定義上——`monthly_net_signal()`是整月無
+        條件加總淨買賣股數，跟songshan-copytrade實際live訊號
+        （scan_5d_net95：滾動5交易日buy_5d≥5000萬且net_ratio≥0.95）不是
+        同一件事，會被同月其他客戶流量稀釋。用真正live訊號重測（n=36）：
+        t-test顯著但去極值後不穩健；改用permutation/placebo檢定（控制
+        同股票隨機時機的null分布）後單尾p值 mean≈0.005-0.008、
+        median≈0.00000-0.00005（3 seed×20000次置換皆穩定）——比t-test更
+        決定性支持9217具備真實時機選擇能力，證據方向持續轉強。
+
+        H2(9661)：**維持rejected，但這次是用對方法測出來的**（2026-07-28
+        Track A.3）：比照9217同協議的live-faithful訊號重測（n=36），
+        全樣本median-1.90%（負）、勝率47.2%（低於50%）、t/Wilcoxon/
+        permutation檢定全部不顯著（p_mean=0.274、p_median=0.755）。這是
+        一個乾淨的null result，跟9217用同一方法測出的強烈正向形成對比，
+        佐證整套方法論本身沒有「測誰都測出正向」的系統性偏誤——9217的
+        正向結果因此更可信。
+
+        H3（分點=全客戶流量聚合，非單一大戶乾淨代理）不受上述修正影響，
+        結構性限制依然成立。H4尚未用live-faithful訊號重跑，同樣待補。
+        songshan-copytrade（9217）已核實目前非live（2026-07-28 SSH確認
+        DRY_RUN=1/AUTO_SUBMIT=0），無資金曝險急迫性，建議維持現狀待
+        更多樣本外交易累積，不建議貿然停用也不建議因訊號轉強就立即加碼。
+        12個月天期OOS驗證因資料窗口不足仍是open item。
+
+  expert-pool-pools-consensus-reverify:
+    title: run_expert_pool_watch.py POOLS（2344/8046/8358三檔股票共識池）方法論體檢
+    status: active
+    phase: hypothesis
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/study_expert_pool_consensus_reverify.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-POOLS-ORIGINAL-METHODOLOGY-SOUND
+        statement: >
+          POOLS系統（fubon_xindian_funnel研究線P3→P7）當初選出2344/8046/8358
+          三組核心分點共識池時，用的backtest協議跟whale-branch-l1h7-discovery
+          事後確立的L1H7 SSOT（cost/beta調整）一致，不是類似8440/1650那種
+          舊式無成本無β協議
+        status: passed  # 確認P4/P5/P6報告本來就用「T+1開·H7收·30bps·β=1.15·vs IX0001」，跟build_expert_pool_trade_knowledge.py SSOT一致；核心分點選拔用「重複n≥8∧同股差>+1pp∧專長差>+1pp∧跨期」四門hard篩選，非隨意挑選。但P6「冠軍網格搜尋」（mode×門檻×policy≈24組合、挑最高分那格）本身有multiple-comparison/data-snooping問題，未做任何多重比較校正，也沒做過permutation檢定——這是本輪要交叉驗證的部分
+      - id: H2-POOLS-CHAMPION-ROBUST-TO-EXTENDED-SAMPLE
+        statement: >
+          P6網格搜尋選出的8046/8358「冠軍」參數組，用延伸樣本
+          （2024-07-01~2026-07-27，比原凍結窗口多10天且用完整歷史重跑
+          而非cherry-pick子集）+ permutation/placebo檢定重新驗證後，
+          統計顯著性與效果量能維持
+        status: rejected  # 8046池原冠軍IS中位+15.7%(n=8)/OOS中位+32.93%(n=4)；延伸樣本重跑n=13後全樣本mean+4.71%/median+4.88%，t_p=0.224、wilcoxon_p=0.376完全不顯著，去除top5極端值後mean翻負。8358池原冠軍IS+20.6%/OOS+39.99%；延伸後n=13 mean+8.35%/median+10.88%，permutation median p=0.0002顯著但mean p=0.115不顯著、去除top5後mean翻負(-2.37%)。兩者原冠軍數字明顯是網格搜尋+極小OOS樣本(n=2~6)膨脹出來的，未經得起延伸樣本+permutation檢驗；僅2344池相對一致(延伸後median 5.80%仍略升於舊登記3.59%，但同樣對極端值敏感)
+      - id: H3-9216-9268-CONSENSUS-FILTERS-NOISE
+        statement: >
+          9216(凱基-信義)/9268(凱基台北)雖然在單獨/全市場層級被判定為造市
+          分點（market_maker_branch_exclusion_v1.json），但在POOLS的「同股
+          ≥2核心分點同時出現」共識規則篩選下，觸發日的行為會顯著偏離它們
+          自己的日常造市模式（例如share_of_day_buy顯著升高），代表共識
+          規則本身具備過濾造市雜訊、留下真正重要重疊日的能力
+        status: passed  # 9216在8046池共識日(n=13) share_of_day_buy mean=2.34%/median=1.01%，遠高於其平常日(n=282) mean=0.24%/median=0%，Mann-Whitney p=0.0057；9268在8358池共識日(n=13) mean=8.37%/median=6.36%，高於平常日(n=483) mean=4.69%/median=1.29%，p=0.011。兩者方向都支持「共識能過濾造市雜訊」；但結構性查證發現保留：9268在8358單獨就有8.3%(41/496天)天數淨買金額≥1億門檻，13次共識事件裡9268全部100%在場(常態性大額，非稀有訊號)；9216則只在7/13次共識事件在場(其在8046自身也僅14.8%~更低天數觸發門檻，較稀有)——真正的判別力量主要來自9875/9227/9216這類「稀有觸發」分點，9268/統一這類「常態活躍」分點在共識裡角色比較像陪襯而非核心判別依據，此細節尚未能完全排除「9268自身稀有大額日是否真攜帶資訊」的疑慮（8046池整體t/wilcoxon本就不顯著）
+    methodology: >
+      沿用whale-branch-l1h7-discovery topic確立的L1H7 SSOT（build_expert_pool_
+      trade_knowledge.py：T+1開盤進場/H7收盤出場/30bps成本/β=1.15/vs IX0001）
+      與新建立的permutation/placebo顯著性檢定（src/research/
+      branch_signal_validation.py：對每個共識事件從同一檔股票全部合法訊號日
+      隨機抽一個當假訊號日，5000次建立null分布）。共識訊號重建沿用
+      run_expert_pool_watch.py既有build_signals()/dedupe()的「同股≥2核心
+      分點同時出現」邏輯（動態載入原始函式，未重寫規則本身），只延伸窗口
+      到完整歷史(2024-07-01~2026-07-27)而非只看P5/P6報告當時的凍結子集。
+    notes: >
+      2026-07-28開題，源自「更進階研究計畫」（misty-discovering-puppy plan）
+      Track C：既有run_expert_pool_watch.py的POOLS系統（2344華邦電/8046南電/
+      8358金居三檔股票、各3個核心分點共識）核心名單裡含9216、9268——這兩個
+      分點在whale-branch-l1h7-discovery研究的L1H7+entity-level驗證下被判定
+      為造市/reject，需要查清楚兩套系統的方法論落差。
+
+      expert_pool_staged_gate（config/order.yaml，目前enabled=true/dry_run=
+      true）風險現況已核實為低風險：jobs底下是手動一次性條目（直接寫死
+      signal_close），不是從POOLS動態讀訊號；mini上.env確認
+      ORDER_EP_STAGED_GATE_DRY_RUN=1；且對應的launchd plist目前並未載入
+      （launchctl list查無此label），兩個既有job的once_date（2026-07-23）
+      也已過期——三重保險下無實際下單風險，不需要立即動作。
+
+      三組共識池L1H7+permutation重新驗證結果總表：
+      | 池 | n | mean | median | win% | t_p | wilcoxon_p | perm_p(mean) | perm_p(median) |
+      | 2344 | 14 | +8.03% | +5.80% | 71.4% | 0.045 | 0.042 | 0.010 | 0.015 |
+      | 8046(含9216) | 13 | +4.71% | +4.88% | 61.5% | 0.224 | 0.376 | 0.115 | 0.026 |
+      | 8358(含9268) | 13 | +8.35% | +10.88% | 69.2% | 0.099 | 0.110 | 0.011 | 0.0002 |
+      三組樣本都偏小(n=13-14)，且都對去除top3-5極端值高度敏感——這跟
+      whale-branch-l1h7-discovery一路發現的「厚尾主導點估計」問題完全一致，
+      不是POOLS獨有問題。8046池證據最弱（去極值後mean翻負、t/wilcoxon本就
+      不顯著），8358居中（permutation median顯著但mean不穩、去極值後mean
+      翻負），2344相對最一致。
+
+      建議：8046池在下次登記/UI呈現時應降級措辭（不要再用「P6冠軍」暗示
+      已驗證，run_expert_pool_watch.py的playbook目前偏樂觀），不建議加大
+      這個池的資金效率權重；8358池保留觀測、同樣不要用冠軍字樣；2344池
+      可維持現狀。9216/9268本身是否真的具備資訊價值，在8046/8358池的
+      證據強度下仍無法完全排除疑慮，但也沒有證據支持「必須立刻從POOLS
+      剔除」——兩者在共識觸發日的行為確實顯著偏離自身平常日基準，方向上
+      支持共識規則有一定的雜訊過濾能力。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: weak_pass  # 延伸樣本非cherry-pick重跑，但n=13-14仍偏小、去極值後不穩健
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # H2 reject並記錄理由；H1/H3 passed但均有保留條件
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: >
+        pure research（不修改POOLS核心名單，也不停用expert_pool_staged_gate
+        ——目前無實際下單風險）。建議：8046池措辭降級（原「P6冠軍」宣稱
+        未能在延伸樣本+permutation檢定下複現）、8358池保留觀測降低優先度、
+        2344池維持現狀。9216/9268是否適合留在POOLS核心名單，留待更多樣本
+        累積後再決定，本輪證據不足以支持立即剔除也不足以完全排除疑慮。
+
+  known-whale-branch-live-signal-validation:
+    title: 已知社群公認大戶分點（9227/9801）live-faithful訊號決定性驗證
+    status: active
+    phase: hypothesis
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/study_whale_branch_5d_net95_live_signal_validation.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-9227-CHENGZHONG-EDGE
+        statement: >
+          9227（凱基-城中，`src/copytrade/branch_signals.py`已引用為
+          DEFAULT_TRADER_ID_KGI_CHENGZHONG常數）用比照9217的live-faithful
+          訊號（scan_5d_net95：滾動5日buy_5d≥0.5億且net_ratio≥0.95）+
+          permutation檢定驗證後，具備統計上站得住腳的正向edge
+        status: rejected  # n=114（2024-07~2026-07），全樣本mean+0.72%/median-1.62%(負)/勝率42.1%(低於50%)，t_p=0.540、wilcoxon_p=0.438皆不顯著。IS(n=26)一度看似正向(mean+3.98%,t_p=0.062邊緣)，但OOS(n=88)完全反轉(mean-0.25%,勝率36.4%，比隨機更差)——典型「小樣本IS運氣」型態而非真實訊號延續。permutation檢定：p_mean=0.231、p_median=0.677，遠不顯著，且觀察median本身就落在null分布中位數(-1.28%)以下。去除top3/top5極端值後皆維持負向。四項獨立證據(全樣本不顯著/OOS反轉/permutation不顯著/去極值後仍負)一致指向無edge，是繼9661之後第二個乾淨null result，跟9217形成的對比進一步佐證方法論本身沒有系統性偏誤
+      - id: H2-9801-SONGJIANG-EDGE
+        statement: >
+          9801（元大-松江，`branch_signals.py`已引用為
+          DEFAULT_TRADER_ID_YUANTA_SONGJIANG常數）用同一套live-faithful
+          訊號+permutation檢定驗證後，具備統計上站得住腳的正向edge
+        status: rejected  # n=31，全樣本mean+4.77%/median+0.75%/勝率64.5%，t_p=0.106不顯著。permutation檢定出現mean/median不一致：p_mean=0.006(顯著)但p_median=0.083(不顯著)——這正是「均值被少數極端值撐起、中位數撐不住」的典型紅旗（比照9216/5852等過去round3候選的教訓）。去除top5極端值後mean直接翻負(-1.16%)。時間分布高度集中：2024(n=7)、2025僅n=1(單一事件不可靠)、2026(n=23)佔74%樣本，效果幾乎全部來自2026年少數事件，樣本代表性存疑。跟9217的permutation結果（mean/median雙雙顯著且去極值後仍正向）形成鮮明對比，判定不具備可信edge，僅算「statistically suggestive但不夠格worth_tracking」，非決定性正向候選
+    methodology: >
+      沿用whale-branch-l1h7-discovery topic的第六/七輪確立的方法：
+      scan_5d_net95 live-faithful訊號定義（滾動5交易日buy_5d≥門檻且
+      net_ratio≥門檻，rising-edge去重）、L1H7 SSOT（T+1開盤進場/H7收盤
+      出場/30bps成本/β=1.15/vs IX0001）、permutation/placebo顯著性檢定
+      （src/research/branch_signal_validation.py，5000-20000次置換）。
+      9227/9801均無自己的copytrade job/門檻設定，統一比照9217的門檻
+      （buy_floor=0.5億, net_min=0.95）以利跨分點直接比較，若使用者對
+      特定分點有不同門檻構想可用--buy-floor/--net-min覆寫重跑（腳本已
+      泛化，見study_whale_branch_5d_net95_live_signal_validation.py）。
+    notes: >
+      2026-07-28開題，源自「更進階研究計畫」（misty-discovering-puppy plan）
+      Track B：不再對未知分點做地毯式搜尋（已證明邊際效益很低），改成
+      只驗證已有先驗信心的少數候選——9227/9801都已在`branch_signals.py`
+      被引用為具名常數，代表過去有人認為它們值得追蹤，但從未用live-
+      faithful協議正確驗證過。
+
+      四個「已知候選」分點的live-faithful+permutation驗證總表：
+      | 分點 | n | mean | median | perm_p(mean) | perm_p(median) | 結論 |
+      | 9217 | 36 | +5.66% | +6.28% | 0.005-0.008 | <0.0001 | **唯一決定性正向** |
+      | 9661 | 36 | +0.77% | -1.90% | 0.274 | 0.755 | 乾淨null |
+      | 9227 | 114 | +0.72% | -1.62% | 0.231 | 0.677 | 乾淨null，OOS反轉 |
+      | 9801 | 31 | +4.77% | +0.75% | 0.006 | 0.083 | mean/median不一致，脆弱 |
+
+      這個對照表本身是本輪最重要的產出：**在4個「已知社群公認/已被引用
+      的大戶分點」裡，只有9217通過決定性驗證**，其餘3個都不夠格。這一方面
+      印證9217的正向結果不是方法論偏誤（因為同一方法對9661/9227測出清楚
+      的負向/null，對9801測出不夠格的脆弱訊號），另一方面也回答了Track B
+      的原始問題——擴大候選池到已知大戶的策略沒有找到第二個可信候選，
+      跟四輪地毯式搜尋的結論方向一致（9217目前仍是唯一站得住腳的分點）。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # walk-forward IS/OOS皆有跑，9227尤其展示了IS看似正向但OOS完全反轉的關鍵教訓
+        G3_regime_stratification: na
+        G4_rejection_registry: passed  # H1/H2均reject並記錄理由
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: >
+        pure research（9227/9801均不採納，非決定性正向候選）。9217依然是
+        唯一通過決定性驗證的分點；Track B「擴大候選池到已知大戶」的策略
+        本身已執行完畢且獲得誠實null result，除非使用者能提供其他具體
+        社群公認大戶分點代碼，否則不建議繼續這個方向。
 
   copytrade-rrg-audit:
     title: 00981A 持股變動 × RRG 互動稽核

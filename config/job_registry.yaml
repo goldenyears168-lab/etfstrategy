@@ -155,6 +155,20 @@ jobs:
     schedule: "weekdays 09:00"
     description: "8-branch weighted crash thermometer + consensus, email. NOTE: 2026-07-27 research found 31-35% discriminative power on fresh events (below chance) — kept running for reference, not a validated signal."
 
+  - label: wantgoo-loop-daily
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:15"
+    description: "玩股網每日情報迴圈: fetch 白名單6位作者新文→落庫(blog_posts)→記分板 score 隔日驗證作者call→擷取(有ANTHROPIC_API_KEY則API萃取, 無則匯出 bundle 供 Claude session)。不下單。DEPLOYED+LOADED on mini 2026-07-31 via scp (NOT install-launchd.sh; new files untracked on mini main — re-scp if mini git resets). 記分板 = data/wantgoo_loop.db author_predictions。設計見 docs/wantgoo-intelligence-audit.md §10。"
+
+  - label: chip-macro-tracker-daily
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 18:00"
+    description: "籌碼→大盤 風控燈號 daily_tracker: refresh panel + 6燈(MA200閘門/外資期貨z60/融資斷頭底/VIX gate/rev傾斜/夜盤) + 資料新鮮度gate + 隔日驗證 backfill_outcomes + ops-console 推送. 不下單. DEPLOYED+LOADED on mini 2026-07-31 via scp. ⚠️ 這是把 Book branch research/dashboard-completeness 的 modern tracker overhaul(MA200/margin-C3/VIX/rev)首次上生產(取代 mini main 的舊版); 會更新公開 ops-console 的 chip_macro payload. 首個排程實跑=部署當日18:00. 新檔在 mini main 未 git-track → mini git reset 要重 scp."
+
   # --- Live TA / website feed ---
   - label: ops-live-ta-poll
     category: webfeed

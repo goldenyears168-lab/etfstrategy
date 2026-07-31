@@ -50,3 +50,11 @@ scripts/1630收盤雷達.command
 | [`reports/daily/regime/daily_brief.md`](reports/daily/regime/daily_brief.md) | **Regime** · 四軸市場環境 |
 
 其餘策略軌（VCP、RRG mono、Minervini SEPA、buy/sell signal radar…）的 daily brief 清單與排程時間，見 [docs/PRD.md](docs/PRD.md) 與 [docs/daily-operations.md](docs/daily-operations.md)。
+
+---
+
+## 研究收官（Phase 1–6）
+
+觀盤儀表板 16 維完整性研究的**收斂總表 / executive summary**：
+[`reports/research/dashboard-completeness/STATE_OF_DASHBOARD.md`](reports/research/dashboard-completeness/STATE_OF_DASHBOARD.md)
+— 真增益總帳（tech-gated champion 系統 C · VIX gate · rev 家族含可交易性裁決）、全部證偽維度清單、殘餘風險、STOP/CONTINUE 建議。可部署系統規格見同目錄 [`DEPLOYABLE_SYSTEM.md`](reports/research/dashboard-completeness/DEPLOYABLE_SYSTEM.md)。
