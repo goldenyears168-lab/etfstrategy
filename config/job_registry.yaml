@@ -203,6 +203,16 @@ cloud_routines:
     order_capable: false
     description: "Read-only data-freshness health check on ops.* (holdings/snapshots/digests/live_ta), emails a report. No local/git access — Supabase MCP + Gmail MCP only."
 
+  - name: detach-gate-risk-health-check
+    schedule: "daily 21:30 Asia/Taipei (found 2026-08-01, created 2026-07-30, previously undocumented)"
+    order_capable: false
+    description: "Read-only freshness check on ops_snapshots kind=risk (Detach Gate payload) — catches the specific 'outer asof advances but inner as_of/session_date stuck' stale-poller failure mode seen 2026-07-28~30. Only pushes a notification on 🔴 (stuck); stays quiet on 🟢/🟡."
+
+  - name: 台股融資盤後監測
+    schedule: "daily ~21:40 Asia/Taipei (found 2026-08-01, created 2026-07-30, previously undocumented)"
+    order_capable: false
+    description: "Pulls TWSE official margin-balance data post-market, judges whether the ongoing margin-call cascade (融資踩踏) is winding down or continuing, for the 7 currently-held stocks concentrated in substrate/packaging + passive components. Read-only, no Supabase writes."
+
 # --- Confirmed retired, files removed from repo 2026-07-29 (not just paused) ---
 # evening-holdings, morning-holdings-brief, intraday-exit-gate, intraday-open/midday/1300-digest,
 # rrg-mono-intraday-watch, vcp-funnel-specs, minervini-sepa-basket, mutual-fund-disclosure-watch,

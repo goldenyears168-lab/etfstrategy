@@ -32,7 +32,7 @@
 ## Quick start
 
 ```bash
-cd "/path/to/股票研究"
+cd ~/goldenstocks
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
