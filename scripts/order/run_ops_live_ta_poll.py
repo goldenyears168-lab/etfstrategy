@@ -219,6 +219,19 @@ def main(argv: list[str] | None = None) -> int:
                     f"at {datetime.now(_TPE).strftime('%H:%M:%S')}",
                     flush=True,
                 )
+                # 盤中每輪重算 + 推「持倉穩定度分級」卡片（非致命，失敗不中斷 poll）
+                if not args.dry_run:
+                    try:
+                        from ops_console_sync import insert_snapshot, supabase_ops_configured
+                        from ops_holdings_stability import build_holdings_stability_payload
+
+                        if supabase_ops_configured():
+                            insert_snapshot(
+                                kind="holdings_stability",
+                                payload=build_holdings_stability_payload(),
+                            )
+                    except Exception as exc:  # noqa: BLE001 — never break the poll loop
+                        print(f"[WARN] holdings_stability push failed: {exc}", file=sys.stderr, flush=True)
             except Exception as exc:  # noqa: BLE001 — keep loop alive
                 print(f"[WARN] round failed: {exc}", file=sys.stderr, flush=True)
             elapsed = time.monotonic() - round_start

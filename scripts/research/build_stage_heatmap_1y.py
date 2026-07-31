@@ -31,11 +31,9 @@ DEFAULT_PIN = ["2492", "3189", "3653", "6505", "6147"]
 PIN_NAMES = {"2492": "華新科", "3189": "景碩", "3653": "健策", "6505": "台塑化", "6147": "頎邦"}
 MA_PERIOD = 30  # weinstein_stage SSOT
 MA_WEEKS = MA_PERIOD  # trading-day equivalent (MA_WEEKS*5) inside stage_series_daily
-CONFIRM_DAYS = 2  # 2026-07-27: merged onto the daily-native + confirmation engine
-# (was per-week classify_weinstein_stage() loop; that classifier still exists and
-# still gets its own bugfix below, but this heatmap now uses stage_series_daily —
-# daily-native rolling + N-day confirmation + higher_lows tolerance — since that's
-# the version validated this session to have far fewer S2<->S1/S4 whipsaws.)
+CONFIRM_DAYS = 1  # same-day flip (was 2 for anti-whipsaw; 2026-07-30 → 1)
+# Heatmap uses stage_series_daily (daily-native rolling + confirm_days +
+# higher_lows tolerance), not the old per-week classify_weinstein_stage() loop.
 
 # Mutable run config (set in main)
 OUT = DEFAULT_OUT
@@ -453,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
                 sl_s = f"{sl:+.1f}%" if sl is not None else "?"
                 ex_s = f"{ex:+.1f}%" if ex is not None else "?"
                 note = f"（{S2_TIER_LABEL[s2_tier(sl, ex, profile)]} · MA斜率{sl_s}/4週 · 乖離{ex_s}）"
-            title = f"{sid} {name} · {d} · weinstein_stage(30W當量·日更2日確認)={STAGE_LABEL.get(s, s)}{note}"
+            title = f"{sid} {name} · {d} · weinstein_stage(30W當量·日更當天確認)={STAGE_LABEL.get(s, s)}{note}"
             cells.append(
                 f'<td class="c" title="{esc(title)}" data-s="{s}" '
                 f'style="background:{c}"></td>'
@@ -545,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
 <body>
 <header>
   <h1>{esc(REPORT_TITLE)}</h1>
-  <div class="sub">weinstein_stage（30週當量 SSOT · 日更＋{CONFIRM_DAYS}日確認引擎，2026-07-27起與診斷版合併）· S2 綠色漸層＝MA斜率／乖離正規化取較強者 · 大盤(IX0001)套用獨立分位校準（見 tooltip，legend 為個股尺度） · 置頂：{esc(pin_note)} · {esc(START)} → {esc(END)} · 建於 {esc(built)} · kind={esc(REPORT_KIND)}</div>
+  <div class="sub">weinstein_stage（30週當量 SSOT · 日更＋當天確認，confirm_days={CONFIRM_DAYS}，2026-07-30起）· S2 綠色漸層＝MA斜率／乖離正規化取較強者 · 大盤(IX0001)套用獨立分位校準（見 tooltip，legend 為個股尺度） · 置頂：{esc(pin_note)} · {esc(START)} → {esc(END)} · 建於 {esc(built)} · kind={esc(REPORT_KIND)}</div>
   <div class="legend">
     <span class="leg"><span class="sw" style="background:{STAGE_COLOR[1]}"></span>S1 打底</span>
     <span class="leg">S2 多頭：
@@ -577,7 +575,7 @@ def main(argv: list[str] | None = None) -> int:
   <tbody>{"".join(rows_html)}</tbody>
 </table>
 </div>
-<p class="hint">weinstein_stage（30週當量，日更＋{CONFIRM_DAYS}日確認，higher_lows 容忍近期低點多跌1%內仍算未破底）。獨立於持倉脈動／RRG 報告。S2 五階綠（+~+++++）＝MA 斜率（4週%）：&lt;{bins[0]} + · {bins[0]}–{bins[1]} ++ · {bins[1]}–{bins[2]} +++ · {bins[2]}–{bins[3]} ++++ · &gt;{bins[3]} +++++（乖離見 tooltip）。左側綠邊＝置頂。Research 觀察用，非下單訊號。</p>
+<p class="hint">weinstein_stage（30週當量，日更＋當天確認 confirm_days={CONFIRM_DAYS}，higher_lows 容忍近期低點多跌1%內仍算未破底）。獨立於持倉脈動／RRG 報告。S2 五階綠（+~+++++）＝MA 斜率（4週%）：&lt;{bins[0]} + · {bins[0]}–{bins[1]} ++ · {bins[1]}–{bins[2]} +++ · {bins[2]}–{bins[3]} ++++ · &gt;{bins[3]} +++++（乖離見 tooltip）。左側綠邊＝置頂。Research 觀察用，非下單訊號。</p>
 <script>
   const PIN = new Set({pin_js});
   const rows = [...document.querySelectorAll('tr.r')];

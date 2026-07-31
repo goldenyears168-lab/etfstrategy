@@ -137,6 +137,22 @@ def fetch_latest_ops_holdings_payload() -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def fetch_live_ta_rows() -> list[dict[str, Any]]:
+    """Latest ``ops_live_ta`` rows (intraday) — stock_id/last_print/phase/note_zh/asof."""
+    if not supabase_ops_configured():
+        return []
+    resp = requests.get(
+        _rest("ops_live_ta"),
+        headers=_headers(prefer="return=representation"),
+        params={"select": "stock_id,stock_name,last_print,phase,action,note_zh,asof"},
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"ops_live_ta get failed: {resp.status_code} {resp.text[:400]}")
+    rows = resp.json()
+    return rows if isinstance(rows, list) else []
+
+
 def insert_holdings(
     payload: dict[str, Any],
     *,

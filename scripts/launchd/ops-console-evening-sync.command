@@ -58,6 +58,19 @@ else
     EXIT=1
   fi
 
+  # 2026-07-30 新增：個股日線補齊（stock_heatmap watchlist），讓熱力圖讀到當日 EOD。
+  # 20:40 已收盤 → FinMind 有當日日線。非致命：失敗只記錄不中斷後續 snapshot 推送。
+  set +e
+  "${PY}" "${ROOT}/src/sync_stock_market_daily.py" \
+    --stock-ids 3189,6147,2492,3653,6505 --sync-db --quiet \
+    2>&1 | tee -a "${RUN_LOG}"
+  rc_daily_bars=${PIPESTATUS[0]}
+  set -e
+  if [[ "${rc_daily_bars}" -ne 0 ]]; then
+    echo "✗ watchlist daily-bars sync exit=${rc_daily_bars}"
+    EXIT=1
+  fi
+
   # 2026-07-27 新增：Weinstein Stage 熱力圖（30週當量·日更2日確認引擎），跑完才有
   # 當天資料可以被下面的 write_ops_console_snapshot.py --kind stage_heatmap 讀到。
   set +e

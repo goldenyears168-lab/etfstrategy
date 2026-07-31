@@ -82,6 +82,18 @@ def _digest_for(kind: str, payload: dict[str, Any]) -> tuple[str, str, str] | No
             f"外資輪動 · 買 {buy_s} / 賣 {sell_s}",
             "info",
         )
+    if kind == "chip_macro":
+        if not payload.get("present"):
+            return None
+        ptxt = payload.get("position_txt") or "—"
+        stage = payload.get("stage") or "—"
+        z60 = payload.get("z60")
+        z_s = f"z60 {z60:+.2f}" if isinstance(z60, (int, float)) else "z60 —"
+        return (
+            f"ops-chip-macro:{payload.get('asof_date') or asof}",
+            f"籌碼風控 · {ptxt}（{stage}, {z_s}）",
+            "info",
+        )
     return None
 
 

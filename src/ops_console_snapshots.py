@@ -14,6 +14,9 @@ from typing import Any
 
 from stock_db import PROJECT_ROOT
 
+from ops_stock_heatmap import build_stock_heatmap_payload as _build_stock_heatmap_payload
+from ops_holdings_stability import build_holdings_stability_payload as _build_holdings_stability_payload
+
 ROOT = PROJECT_ROOT
 EVENING_DIR = ROOT / "reports/research/branch-footprint-screen/evening_watch"
 EXPERT_POOL_DIR = ROOT / "reports/research/branch-footprint-screen/expert_pool"
@@ -21,6 +24,7 @@ SECOND_DISP_DIR = (
     ROOT / "reports/research/branch-footprint-screen/second_disp_top30_l1h7"
 )
 THERMO_STABLE = ROOT / "reports/daily/crash_thermometer.md"
+CHIP_MACRO_HISTORY = ROOT / "reports/research/chip-macro/signal_history.csv"
 DETACH_LATEST = ROOT / "reports/order/snapshots/us_tw_5m_sell_gate_latest.json"
 TIER_A_CFG = ROOT / "config/tier_a_evening_watch.json"
 SECOND_DISP_CFG = ROOT / "config/second_disp_expert_pool_watch.json"
@@ -292,6 +296,15 @@ def _parse_thermo_md(text: str) -> dict[str, Any]:
     }
 
 
+THERMO_RETIRED_NOTE = (
+    "2026-07-28 研究擱置：用五種獨立方法（嚴格walk-forward事件回測、反應vs領先因果拆解、"
+    "跨權值股外資賣超廣度、5家外資大行分點歷史回補交叉驗證、40+組門檻參數穩健性grid）"
+    "重新驗證，判別力介於31~48%，全部低於或貼著亂猜的50%門檻，沒有一種方法找到真實預測力。"
+    "已從 Today 首頁總覽移除，本頁保留僅供歷史參考，不建議當作任何形式的風控依據。"
+    "完整研究過程見 reports/research/branch-footprint-screen/crash_thermometer_lookahead_reaudit_20260727.md"
+)
+
+
 def build_thermo_payload() -> dict[str, Any]:
     stamped = _latest_glob(ROOT / "reports/daily", "*_crash_thermometer.md")
     path = THERMO_STABLE if THERMO_STABLE.is_file() else stamped
@@ -300,6 +313,8 @@ def build_thermo_payload() -> dict[str, Any]:
             "schema": "ops-thermo-v1",
             "title": "大跌溫度計",
             "present": False,
+            "status": "retired_no_signal",
+            "retired_note": THERMO_RETIRED_NOTE,
             "note": "尚無 reports/daily/crash_thermometer.md",
         }
     body = path.read_text(encoding="utf-8", errors="replace")
@@ -308,6 +323,8 @@ def build_thermo_payload() -> dict[str, Any]:
         "schema": "ops-thermo-v1",
         "title": "大跌溫度計",
         "present": True,
+        "status": "retired_no_signal",
+        "retired_note": THERMO_RETIRED_NOTE,
         "path": str(path.relative_to(ROOT)),
         "mtime": _mtime_iso(path),
         **parsed,
@@ -346,7 +363,11 @@ def build_branches_payload() -> dict[str, Any]:
 def build_today_payload() -> dict[str, Any]:
     watch = build_watch_payload()
     risk = build_risk_payload()
-    thermo = build_thermo_payload()
+    # 2026-07-28 移除：大跌溫度計已用五種獨立方法（walk-forward事件回測、反應vs領先、
+    # 跨權值股廣度、5家外資大行分點回補、門檻穩健性grid）驗證過，判別力介於31~48%，
+    # 全部低於或貼著亂猜的50%門檻，沒有一種方法找到真實預測力。不再放進首頁總覽，
+    # 避免被誤讀成有效的即時風控指標。細節見 build_thermo_payload()（現已加註退役說明），
+    # 詳細研究過程見 reports/research/branch-footprint-screen/crash_thermometer_lookahead_reaudit_20260727.md
     return {
         "schema": "ops-today-v1",
         "title": "Today 總覽",
@@ -354,14 +375,10 @@ def build_today_payload() -> dict[str, Any]:
         "watch_asof": (watch.get("evening") or {}).get("asof"),
         "risk_level": risk.get("level"),
         "risk_severity": risk.get("severity"),
-        "thermo_temp_pct": thermo.get("temp_pct"),
-        "thermo_lamp": thermo.get("lamp"),
-        "thermo_asof": thermo.get("asof_date"),
         "n_expert_pools": watch.get("n_expert_pools"),
         "links": {
             "watch": "/watch",
             "risk": "/risk",
-            "thermo": "/thermo",
             "branches": "/branches",
         },
     }
@@ -414,7 +431,7 @@ def build_stage_heatmap_payload() -> dict[str, Any]:
         "s2_gradient": data.get("s2_gradient"),
         "rows": rows,
         "note_zh": (
-            "weinstein_stage（30週當量 SSOT，日更＋2日確認引擎）＋S2強度＝"
+            "weinstein_stage（30週當量 SSOT，日更＋當天確認引擎）＋S2強度＝"
             "max(正規化MA斜率,正規化乖離)。研究觀察用，非下單訊號。"
         ),
     }
@@ -518,6 +535,97 @@ def build_rotation_payload() -> dict[str, Any]:
     }
 
 
+_SIZE_TXT = {0.0: "空手", 0.5: "半倉", 1.0: "全倉"}
+
+
+def build_chip_macro_payload() -> dict[str, Any]:
+    """外資期貨籌碼 × Weinstein 階段 風控燈號（L0×L2）。
+
+    Source: ``daily_tracker.py`` → ``reports/research/chip-macro/signal_history.csv``.
+    定位＝**風控 overlay 非 alpha**：近8年報酬 x1.66 < 買進持有 x3.66，勝在 Sharpe/回撤；
+    空頭與基底無 edge。完整研究見 ``reports/research/chip-macro/RESEARCH_LOG.md``。
+    """
+    import csv
+
+    if not CHIP_MACRO_HISTORY.is_file():
+        return {
+            "schema": "ops-chip-macro-v1",
+            "title": "籌碼風控燈號",
+            "present": False,
+            "note": "尚無 signal_history.csv（等 chip-macro-tracker 首次執行）",
+        }
+    rows = list(csv.DictReader(CHIP_MACRO_HISTORY.read_text(encoding="utf-8").splitlines()))
+    if not rows:
+        return {
+            "schema": "ops-chip-macro-v1",
+            "title": "籌碼風控燈號",
+            "present": False,
+            "note": "signal_history.csv 尚無資料列",
+        }
+
+    def _f(v: Any, d: float = 0.0) -> float:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return d
+
+    last = rows[-1]
+    pos = _f(last.get("position"))
+    z60 = _f(last.get("z60"))
+    armed = str(last.get("armed", "")).strip().lower() in ("true", "1")
+    # 融資斷頭底 (扣除ETF維持率, C3 重驗;純監控)
+    _mx_raw = last.get("maint_exetf")
+    maint_ex = round(_f(_mx_raw), 1) if _mx_raw not in (None, "") else None
+    cover_streak = int(_f(last.get("fut_cover_streak")))
+    dual_bottom = str(last.get("margin_dual_bottom", "")).strip().lower() in ("true", "1")
+    if maint_ex is None:
+        margin_light = None
+    elif dual_bottom:
+        margin_light = {"on": True, "label": f"雙確認底 (扣除ETF維持率 {maint_ex}% × 外資回補{cover_streak}日)"}
+    elif maint_ex < 130:
+        margin_light = {"on": True, "label": f"維持率追繳區 {maint_ex}% (待外資回補;現{cover_streak}日)"}
+    elif maint_ex < 140:
+        margin_light = {"on": True, "label": f"維持率斷頭壓力區 {maint_ex}% (<140觀察)"}
+    else:
+        margin_light = {"on": False, "label": f"扣除ETF維持率 {maint_ex}%"}
+    return {
+        "schema": "ops-chip-macro-v1",
+        "title": "籌碼風控燈號",
+        "present": True,
+        "asof_date": last.get("date"),
+        "headline": last.get("headline"),
+        "position": pos,
+        "position_txt": _SIZE_TXT.get(pos, f"{pos:.1f}"),
+        "ix_close": _f(last.get("ix_close")),
+        "ix_chg_pct": _f(last.get("ix_chg_pct")),
+        "stage": last.get("stage"),
+        "armed": armed,
+        "z60": round(z60, 2),
+        "maint_exetf": maint_ex,
+        "fut_cover_streak": cover_streak,
+        "margin_dual_bottom": dual_bottom,
+        "lights": {
+            "regime": {"on": armed, "label": last.get("stage")},
+            "chip": {"on": _f(last.get("size")) > 0, "label": f"外資期貨 z60 {z60:+.2f}"},
+            **({"margin": margin_light} if margin_light else {}),
+        },
+        "recent": [
+            {
+                "date": r.get("date"),
+                "stage": r.get("stage"),
+                "z60": round(_f(r.get("z60")), 2),
+                "position_txt": _SIZE_TXT.get(_f(r.get("position")), ""),
+            }
+            for r in rows[-6:][::-1]
+        ],
+        "note": (
+            "風控 overlay、非打敗大盤：近8年報酬 x1.66 < 買進持有 x3.66，勝在 Sharpe/回撤（−11% vs −32%）。"
+            "空頭與基底無 edge；DSR 未過關量級勿過度信。研究觀察用，非個股買賣依據。"
+        ),
+        "dashboard_path": "reports/research/chip-macro/daily_dashboard.html",
+    }
+
+
 BUILDERS: dict[str, Any] = {
     "watch": build_watch_payload,
     "risk": build_risk_payload,
@@ -526,6 +634,9 @@ BUILDERS: dict[str, Any] = {
     "today": build_today_payload,
     "stage_heatmap": build_stage_heatmap_payload,
     "rotation": build_rotation_payload,
+    "chip_macro": build_chip_macro_payload,
+    "stock_heatmap": _build_stock_heatmap_payload,
+    "holdings_stability": _build_holdings_stability_payload,
 }
 
 KINDS = tuple(BUILDERS.keys())

@@ -16,7 +16,10 @@
       "Bash(ssh -o BatchMode=yes mac-mini-lan \"cd '/Users/jackm4/Documents/ETF/股票研究' && grep -n 'once_date\\\\|enabled:' config/order.yaml | sed -n '/timed_limit_orders/,/^schedule/p'; grep -B2 -A2 'once_date' config/order.yaml | head -40\")",
       "Bash(ssh -o BatchMode=yes mac-mini-lan \"ps aux | grep -i 'python3.*whale\\\\|python3.*deepdive' | grep -v grep\")",
       "Bash(scp -q \"/Users/jackm4/Documents/ETF/股票研究/scripts/research/whale_branch_l1h7_deepdive_9239_probe.py\" \"mac-mini-lan:/Users/jackm4/Documents/ETF/股票研究/scripts/research/whale_branch_l1h7_deepdive_9239_probe.py\")",
-      "Bash(ssh -o BatchMode=yes mac-mini-lan \"cd '/Users/jackm4/Documents/ETF/股票研究' && source .venv/bin/activate 2>/dev/null && PYTHONPATH=src python3 scripts/research/whale_branch_l1h7_deepdive_9239_probe.py 2>&1\")"
+      "Bash(ssh -o BatchMode=yes mac-mini-lan \"cd '/Users/jackm4/Documents/ETF/股票研究' && source .venv/bin/activate 2>/dev/null && PYTHONPATH=src python3 scripts/research/whale_branch_l1h7_deepdive_9239_probe.py 2>&1\")",
+      "Bash(ssh -o ConnectTimeout=10 mac-mini 'echo \"mini sshd OK: $\\(date\\)\"; uptime')",
+      "Bash(ping -c 3 -t 5 100.81.2.33)",
+      "WebFetch(domain:www.wantgoo.com)"
     ]
   }
 }

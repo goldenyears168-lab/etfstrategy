@@ -176,7 +176,10 @@ def classify_weinstein_stage_fast(df: pd.DataFrame) -> dict[str, Any]:
 
 
 DAILY_TRADING_DAYS_PER_WEEK = 5
-DAILY_CONFIRM_DAYS = 2
+# Same-day flip (confirm_days=1 ≡ use raw_stage). Was 2 for anti-whipsaw when
+# the daily-native engine landed (2026-07-27); user preference 2026-07-30: flip
+# the day the rule fires, not after a second confirming bar.
+DAILY_CONFIRM_DAYS = 1
 DAILY_HIGHER_LOW_TOLERANCE_PCT = 1.0
 
 
@@ -202,9 +205,10 @@ def stage_series_daily(
       as "higher lows", so a normal shallow pullback inside an uptrend doesn't
       reset a stock all the way from S2 straight to S1 (it now lands on S3
       instead — see the fixed fallthrough below).
-    - ``confirm_days``: a new raw stage only takes effect once it has held for
-      this many consecutive trading days, damping single-bar whipsaws (e.g. one
-      bad session pushing price >3% below the MA doesn't instantly flip S2->S4).
+    - ``confirm_days``: a new raw stage takes effect once it has held for this
+      many consecutive trading days. Default ``1`` = same-day flip (``stage``
+      equals ``raw_stage``). Raise to ``2+`` to damp single-bar whipsaws
+      (e.g. one bad session pushing price >3% below the MA flipping S2->S4).
 
     Also fixes a fallthrough in the original rule chain: "price above a rising MA
     but higher_lows failed" fell through to the catch-all ``stage = 1`` (full
