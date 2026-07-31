@@ -111,7 +111,11 @@ Book 雙保險：各袖 `RUN_*=0` + dry-run（見 §4.7）。
 
 - **Stage 0：合併 `research/dashboard-completeness`**：Book主要checkout發現在一個從未push的本地branch上，12筆commit＋48個未commit檔案（chip_macro/ tracker產品化 + wantgoo_loop/ 情報迴圈子系統）。整理成2筆commit（`3ad1a85` chip_macro+wantgoo_loop子系統、`d05c536` 這次session早段遺留的fade訊號研究腳本），跑過完整測試（1556 passed）後 merge進main（`8c3130e`），push、刪除該本地branch。`config/job_registry.yaml`的合併衝突（main先前的`chip-macro-tracker`佔位條目 vs 該branch實際的`chip-macro-tracker-daily`完整條目）採用該branch版本，保留已知的`PANEL_DIR`寫死路徑bug提醒。
 - **Stage 1：git結構收斂 + 意外發現的孤兒branch**：清掉`.claude/worktrees/hungry-yonath-aed334`worktree與對應branch。原訂直接刪除的孤兒branch `fix/launchd-documents-tcc-logpath`（07-28）經檢查發現：裡面的launchd log path修復本身早就在main的祖先鏈裡（非唯一），但另外藏了2筆從未進main的研究commit（`whale-quiet-accumulator-scan`／`whale-branch-position-momentum-2m` 兩個research.yaml主題 + 3支study腳本；4支外資賣壓/台積電相關study腳本）。跟用戶確認後cherry-pick進main（`483a515`、`071934e`），9239那部分結論因main後續有更完整的研究（rejected，理由更詳細）而捨棄不merge，其餘研究內容+腳本文件保留。跑過完整測試（1556 passed）後push、刪除孤兒branch（本地+remote）。
-- **Stage 2（Book側）：code/state分離**：Book的`.env`(8K)/`data`(67GB，含15GB即時寫入的`stocks.db`)/`logs`(26M)/`CAFubon`(5.3M)用`cp -pR`（APFS clonefile）複製到`~/goldenstocks-data`，複製前確認無process正在寫入。驗證：檔案大小完全相符、`stocks.db`本身size+mtime byte-exact、`stock_daily_bars`列數相符(3,554,889)。`~/.zshrc`加上`export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`（Book本身無launchd job，純互動式session，跟mini的Aqua網域gap不同類）。**比照mini的謹慎模式：舊路徑`.env`/`data`/`logs`/`CAFubon`暫不刪除**，待穩定期驗證後（新路徑讀寫正常、無回退舊路徑跡象）才處理。
+- **Stage 2（Book側）：code/state分離**：Book的`.env`(8K)/`data`(67GB，含15GB即時寫入的`stocks.db`)/`logs`(26M)/`CAFubon`(5.3M)用`cp -pR`（APFS clonefile）複製到`~/goldenstocks-data`，複製前確認無process正在寫入。驗證：檔案大小完全相符、`stocks.db`本身size+mtime byte-exact、`stock_daily_bars`列數相符(3,554,889)。`~/.zshrc`加上`export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`（Book本身無launchd job，純互動式session，跟mini的Aqua網域gap不同類）。
+- **第三個env-var傳遞gap（08-01發現+修復）**：驗證時發現非互動式`ssh host 'command'`（一行式SSH指令，本session大量診斷指令＋任何未來自動化都用這個型態）**不會載入`~/.zshrc`**（zsh只對interactive shell載入`.zshrc`，非互動、非登入shell都不載入）——跟07-30發現的「launchctl setenv只對Aqua網域生效」是不同的第三種env gap。修復：Book＋mini都新增`~/.zshenv`（zsh對**所有**呼叫型態，含非互動/非登入，一律載入這個檔案）內容同樣是`export GOLDENSTOCKS_DATA_DIR=$HOME/goldenstocks-data`。驗證：`ssh mac-mini 'echo $GOLDENSTOCKS_DATA_DIR'`／`ssh mac-mini 'python3 -c "from stock_db.util import DEFAULT_DB_PATH; print(DEFAULT_DB_PATH)"'`都正確指向新路徑。
+- **Phase 3 完成（08-01，Book＋mini兩邊都執行）**：用戶明確指示「都做完」，最終安全檢查（複製後mtime/size完全未變、`CAFubon`確認0檔案git-tracked、`.env`/`data`/`logs`已被`.gitignore`排除、`.zshenv` gap已修復確認新路徑在各種呼叫型態下都正確解析）通過後，**刪除Book＋mini兩邊git tree內的舊`.env`／`data`(67GB)／`logs`／`CAFubon`殘留副本**（`rm -rf`，經使用者對這個不可逆動作的AskUserQuestion明確二次確認，因為Claude Code的auto-mode安全分類器攔截了第一次嘗試）。刪除後在兩台機器上都重新smoke test：`load_project_dotenv()`正確讀到新`.env`、`DEFAULT_DB_PATH`指向新`stocks.db`且可查詢（Book 3,554,889列、mini 493,292列——兩邊資料庫本來就各自獨立，這是已知現況非新問題）。額外確認mini的launchd job plist（`~/Library/LaunchAgents/*.plist`）的`StandardOutPath`全部早就指向`~/Library/Logs/com.jackm4.etf/`（07-28 TCC修復的一部分），完全沒有引用剛刪除的舊`logs/`路徑，刪除不影響任何排程job。**Phase 3至此在Book與mini兩邊都完整結案**——`.env`/`data`/`logs`/`CAFubon`只剩`~/goldenstocks-data`一份，git tree裡完全乾淨、不再有任何機密或大型資料檔案殘留。
+- **順便清掉的其他殘留**：mini repo根目錄的5個舊`.env.bak*`備份檔＋1個`.py.bak-lazyimport`除錯殘留（都是untracked雜物，跟正式migration無關，一併清掉）；mini的死symlink `~/etf-stocks`（Cursor worker退役後的殘留連結，指向舊repo路徑，已刪除）；mini的git checkout本身落後main 4筆commit（因為07-31 scp部署的chip_macro/wantgoo_loop檔案跟Book今天Stage 0/1合併進main的內容逐一比對byte-identical後，用`git stash push -u`＋`git pull --ff-only`＋確認stash無獨有內容後`git stash drop`的方式安全同步，無衝突）。
+- **Stage 3（網站資料夾搬遷）與 Stage 4（GitHub改名、mini launchd識別字首改名）尚未開始**，計畫裡寫明這兩步驟需要個別跟用戶確認才執行，目前都還沒問。
 
 ---
 
@@ -459,12 +463,12 @@ Ledger／slots／`stocks.db`／`logs/intraday/` **以 mini 為準**，無需回�
 
 ```bash
 ssh mac-mini 'cd ~/Documents/ETF/股票研究 && scripts/launchd_status_dashboard.sh'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_rrg-c18acc-poll.log'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_leading-dip-poll.log'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_buy-signal-radar.log'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_sell-signal-radar.log'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/intraday/launchd_detach-gate.log'
-ssh mac-mini 'tail -f ~/Documents/ETF/股票研究/logs/launchd_order-wake.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_rrg-c18acc-poll.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_leading-dip-poll.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_buy-signal-radar.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_sell-signal-radar.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/intraday/launchd_detach-gate.log'
+ssh mac-mini 'tail -f ~/goldenstocks-data/logs/launchd_order-wake.log'
 ```
 
 快速重驗（開盤後／異動後）：
@@ -479,10 +483,10 @@ ssh mac-mini 'launchctl list | grep jackm4.etf'
 
 ```bash
 # mini
-sqlite3 data/stocks.db "VACUUM INTO 'data/replica_export/stocks_snap.db';"
+sqlite3 ~/goldenstocks-data/data/stocks.db "VACUUM INTO '$HOME/goldenstocks-data/data/replica_export/stocks_snap.db';"
 # Book
-rsync -az --progress mac-mini:Documents/ETF/股票研究/data/replica_export/stocks_snap.db \
-  data/replica/stocks.db
+rsync -az --progress mac-mini:goldenstocks-data/data/replica_export/stocks_snap.db \
+  ~/goldenstocks-data/data/replica/stocks.db
 ```
 
 ### 5.4 後續 Phase（未完成）
