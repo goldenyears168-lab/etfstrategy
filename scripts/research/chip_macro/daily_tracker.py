@@ -140,10 +140,17 @@ def compute_margin_light(p: pd.DataFrame) -> dict | None:
     extreme = bool(maint_last < 120)    # 極端斷頭 (2025/04 曾117.5)
     deep = bool(maint_last < 130)       # 追繳區, 高信度止跌
     watch = bool(maint_last < 140)      # 斷頭壓力區 (<140 首破 perm p=0.007)
-    cover = bool(streak >= 2)           # champion 前緣確認
-    dual = deep and cover
+    cover = bool(streak >= 2)           # champion 前緣確認 (外資期貨 doi 回補, 領先腿)
+    dual = deep and cover               # 維持率×回補 (維持率為落後價確認)
+    # ★研究驗證版底部雙確認 CAP×COV (chip_interactions/eval_bottom_multiconfirm):
+    #   CAP=融資投降 (margin_bal z60<-1.5) × COV=外資期貨回補≥2日。跨全域133-trial DSR 0.94-1.00,
+    #   champ-OFF 子集仍 fwd10 +2.89% (CAP腿帶真增量非champion重述)。事件級戰術觸底 overlay,
+    #   持10-20日需及時出場 (fwd5不過)。維持率腿為此訊號的「落後確認」(底部在外資已回補後)。
+    capit = bool(pd.notna(mb_z60) and mb_z60 < -1.5)   # 融資投降 (CAP leg)
+    capcov = bool(capit and cover)                      # ★CAP×COV 驗證版雙確認
     return {"maint": float(maint_last), "extreme": extreme, "deep": deep, "watch": watch,
             "cover_streak": int(streak), "cover": cover, "dual": dual,
+            "capit": capit, "capcov": capcov,
             "gap_to_130": float(maint_last - 130),
             "mb_z60": float(mb_z60) if pd.notna(mb_z60) else None,
             "szr": float(szr) if pd.notna(szr) else None}
@@ -159,6 +166,8 @@ def load_vix() -> dict | None:
     → 次日 TAIEX 均報酬 −0.099% vs 平時 +0.088%,同曝險 permutation p=0.035;z>+1.5 p=0.069
     邊際。與 champion(外資期貨 fut_foreign_oi) 相關僅 ±0.03 → 非冗餘,是獨立 risk-off 否決燈。
     純風控、非交易訊號;連續因子(level/Δ)本身無 alpha,只有事件式 spike 有弱前兆。
+    註(交互研究): VIX 恐慌回落當「底部確認腿」8 年僅亮 2 次 = 無效,故此處 VIX 僅作 L0
+    risk-off 閘門,不進底部雙確認;底部訊號改用 CAP×COV(融資投降×外資回補, 見 compute_margin_light)。
     """
     try:
         import requests
@@ -245,9 +254,15 @@ SIZE_TXT = {0.0: "空手", 0.5: "半倉", 1.0: "全倉"}
 
 
 def _margin_verdict(m: dict) -> tuple[str, str, str]:
-    """(light emoji, html-color-key, state text). 扣除ETF維持率。"""
+    """(light emoji, html-color-key, state text). 扣除ETF維持率 + 研究驗證 CAP×COV。
+
+    優先序: ★CAP×COV(融資投降×外資回補, DSR驗證) > 維持率×回補(維持率為落後確認) > 單腿監控。
+    時序: 外資期貨回補(領先) → 融資投降/維持率見底(落後)。VIX 為 L0 risk-off 閘門, 非底部腿。
+    """
+    if m.get("capcov"):
+        return "🟢", "green", "★驗證版底部雙確認（融資投降 × 外資期貨回補, DSR 0.94-1.00；事件級戰術, 需10-20日內出場）"
     if m["dual"]:
-        return "🟢", "green", "雙確認底訊號亮起（維持率追繳區 × 外資回補）"
+        return "🟢", "green", "雙確認（維持率追繳區 × 外資回補；維持率為落後確認, 融資投降腿未達 z<-1.5）"
     if m["extreme"]:
         return "🟠", "amber", "極端斷頭區（<120%，如2025/04），待外資期貨回補確認"
     if m["deep"]:
