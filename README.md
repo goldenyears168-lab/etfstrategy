@@ -17,6 +17,8 @@
 
 ## 從這裡開始
 
+**新人／不熟悉這個系統？先看 [docs/system-overview.md](docs/system-overview.md)**——5分鐘看懂Book/mini/Supabase/網站怎麼分工、資料在哪、排程有哪些。
+
 | 想知道 | 看這份 |
 |--------|--------|
 | 完整產品範圍、資料層、策略清單、非目標 | [docs/PRD.md](docs/PRD.md) |

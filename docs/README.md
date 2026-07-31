@@ -2,6 +2,7 @@
 
 | 文件 | 內容 |
 |------|------|
+| **[system-overview.md](./system-overview.md)** | **新人先看**：Book/mini/Supabase/網站分工、路徑、排程總覽 |
 | **[agent-brief.md](./agent-brief.md)** | **LLM 任務導航**（先讀此份 · 省 token · 任務→檔案對照） |
 | **[terminology.md](./terminology.md)** | **術語規範 SSOT**（中英 · 分層 · 文獻 lineage · **§10 用語對照總表**） |
 | **[architecture.md](./architecture.md)** | **現行架構 · Facts / Regime / Strategy 分層** |
