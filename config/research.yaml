@@ -2537,10 +2537,14 @@ topics:
 
   rrg-mono-breadth-study:
     title: RRG mono hold7 × Breadth zone 分層
-    status: graduated
-    phase: graduated
-    run_scripts:
-      - scripts/run_rrg_mono_breadth_backtest.py
+    status: archived
+    phase: superseded
+    note: >
+      2026-08-01: 目標策略 rrg-mono-hold7 已於 config/strategy.yaml 停用（superseded by
+      rrg-mono-swap-accel），run_scripts 對應腳本也已不存在。G1-G5 曾通過，但 G6 完成前
+      目標策略本身就被取代，不再補做 G6，改標記 archived/superseded。
+    run_scripts_historical:
+      - scripts/run_rrg_mono_breadth_backtest.py  # 已不存在，僅存歷史記錄
     report_dir: reports/research/rrg
     graduation:
       strategy_id: rrg-mono-hold7
@@ -2550,7 +2554,7 @@ topics:
         G3_regime_stratification: passed
         G4_rejection_registry: passed
         G5_frozen_spec: passed
-        G6_adoption_report: pending
+        G6_adoption_report: not_applicable_superseded
       champion_artifact: reports/research/rrg/rrg_mono_hold7_slot_backtest_2026.json
 
   rrg-mono-s2-exit-probe:

@@ -985,13 +985,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.universe and (args.intent or args.intent_debug):
                 from research_universe import print_research_universe_report
 
-                uni = print_research_universe_report(conn, code_tuple)
-                if uni is not None:
-                    from execution_context_report import print_execution_context_report
-
-                    print_execution_context_report(
-                        conn, code_tuple, universe=uni
-                    )
+                print_research_universe_report(conn, code_tuple)
         return 0
 
     exit_code = 0

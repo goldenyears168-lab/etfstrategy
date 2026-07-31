@@ -97,6 +97,8 @@ Ops 工具：`backfill_market_data` · `etfedge_*`
 
 ## 依賴規則（enforce 目標）
 
+> ⚠️ **2026-08-01 健檢**：規則3目前**未被強制執行**——約19-20支L4 launchd daily-brief/screen模組實際上都有import `research.backtest.*`（例如 `rrg_mono_daily_brief.py`、`rrg_mono_swap_accel_screen.py`、`c18acc_extension_screen.py`、`vcp_funnel_specs_daily.py`、`minervini_sepa_daily.py`、`regime_snapshot.py`、`buy_observation.py` 等），多半是因為`research/backtest/finpilot_local_backtest.py`的`load_price_panels`（純DB查詢轉wide-DataFrame工具，本身無回測邏輯）被廣泛當共用helper引用。規則本身仍是合理目標，但現況是文件跟程式碼不一致，尚未動手把`load_price_panels`類的共用helper搬出`research/backtest/`。
+
 1. `copytrade.signals` → 僅 L0 + `holdings_research` 語意
 2. L3 daily pipeline → **不** import `research.backtest.*`
 3. L4 launchd briefs（每日訊號／screen 產出）→ import `analytics.bench`，不 import `copytrade_backtest`；例外見上「績效回填」（非 screen，選用、算歷史績效用）
