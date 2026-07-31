@@ -38,7 +38,10 @@ class TestProjectDotenv(unittest.TestCase):
             env_path = Path(tmp) / ".env"
             env_path.write_text("FINMIND_TOKEN=from_file\n", encoding="utf-8")
             os.environ["FINMIND_TOKEN"] = "your_token_here"
-            with patch("project_dotenv.PROJECT_ROOT", Path(tmp)):
+            with patch("project_dotenv.PROJECT_ROOT", Path(tmp)), patch.dict(
+                os.environ, {}, clear=False
+            ):
+                os.environ.pop("GOLDENSTOCKS_DATA_DIR", None)
                 token = finmind_token_from_env()
             self.assertEqual(token, "from_file")
 
