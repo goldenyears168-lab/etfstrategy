@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR
 
-LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "c18acc_pyramid_ledger.json"
+LEDGER_PATH = DATA_DIR / "order" / "c18acc_pyramid_ledger.json"
 LEDGER_SCHEMA = "c18acc-pyramid-ledger-v1"
 
 

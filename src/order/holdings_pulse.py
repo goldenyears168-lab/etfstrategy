@@ -10,7 +10,7 @@ from datetime import datetime, time
 from pathlib import Path
 from typing import Any, Literal
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR, PROJECT_ROOT
 
 from .morning_holdings_brief import (
     CORE4,
@@ -200,7 +200,7 @@ def _load_rrg_point(
 
 
 def _load_position_meta() -> dict[str, dict[str, Any]]:
-    path = PROJECT_ROOT / "data" / "fubon_position_meta.json"
+    path = DATA_DIR / "fubon_position_meta.json"
     if not path.is_file():
         return {}
     try:

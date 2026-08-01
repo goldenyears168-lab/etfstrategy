@@ -21,12 +21,12 @@ from order.abc_v3_f1_lifecycle import build_client_intent_id
 from order.fubon_orders import order_master_enabled
 from order.intent import ResolvedOrder
 from order.live_submit_guard import assert_live_submit_allowed, live_submit_block_reason
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR
 
 _TZ = ZoneInfo("Asia/Taipei")
 STRATEGY_ID = "detach-gate"
 USER_DEF_PREFIX = "dg"  # short tag for Fubon user_def · matches lifecycle lookup
-LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "detach_gate_ledger.json"
+LEDGER_PATH = DATA_DIR / "order" / "detach_gate_ledger.json"
 SCHEMA = "detach-gate-order-v1"
 
 

@@ -81,7 +81,7 @@ class TestBrokerReconcile(unittest.TestCase):
             class _S:
                 pass
 
-            with patch.object(br, "PROJECT_ROOT", root):
+            with patch.object(br, "DATA_DIR", root / "data"):
                 with patch(
                     "order.fubon_orders.holdings_shares_by_symbol",
                     return_value={"2377": 134, "6505": 1268},

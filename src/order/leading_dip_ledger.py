@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR
 
-LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "leading_dip_ledger.json"
-MID_LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "leading_dip_mid_ledger.json"
+LEDGER_PATH = DATA_DIR / "order" / "leading_dip_ledger.json"
+MID_LEDGER_PATH = DATA_DIR / "order" / "leading_dip_mid_ledger.json"
 SCHEMA = "leading-dip-order-v1"
 MID_SCHEMA = "leading-dip-mid-order-v1"
 STRATEGY_ID = "leading-dip"

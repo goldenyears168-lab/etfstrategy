@@ -22,11 +22,12 @@ import yaml
 
 from order.fubon_orders import order_master_enabled
 from order.songshan_copytrade_order import evaluate_25m_nonfail
+from stock_db import DATA_DIR
 
 _TZ = ZoneInfo("Asia/Taipei")
 ROOT = Path(__file__).resolve().parents[2]
 ORDER_YAML = ROOT / "config" / "order.yaml"
-STATE_PATH = ROOT / "data" / "order" / "expert_pool_staged_gate_state.json"
+STATE_PATH = DATA_DIR / "order" / "expert_pool_staged_gate_state.json"
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
 

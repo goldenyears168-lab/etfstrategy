@@ -10,9 +10,9 @@ from typing import Any
 
 from order.abc_v3_f1_config import AbcV3F1OrderConfig
 from order.abc_v3_f1_lifecycle import entry_blocks_retry, entry_notional
-from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, connect
 
-LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "abc_v3_f1_ledger.json"
+LEDGER_PATH = DATA_DIR / "order" / "abc_v3_f1_ledger.json"
 
 
 def trading_days_between(full_dates: list[str], start: str, end: str) -> int:

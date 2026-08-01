@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR
 
-C18_SLOTS_PATH = PROJECT_ROOT / "data" / "rrg_c18acc_slots.json"
-ABC_LEDGER_PATH = PROJECT_ROOT / "data" / "order" / "abc_v3_f1_ledger.json"
+C18_SLOTS_PATH = DATA_DIR / "rrg_c18acc_slots.json"
+ABC_LEDGER_PATH = DATA_DIR / "order" / "abc_v3_f1_ledger.json"
 
 
 def c18acc_slot_symbols(path: Path | None = None) -> set[str]:

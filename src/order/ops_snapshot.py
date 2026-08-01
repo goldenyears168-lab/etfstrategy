@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR, PROJECT_ROOT
 
 _TZ = ZoneInfo("Asia/Taipei")
 SNAPSHOT_DIR = PROJECT_ROOT / "reports" / "order" / "snapshots"
+LOGS_DIR = DATA_DIR.parent / "logs"
 SCHEMA = "order-ops-snapshot-v1"
 
 
@@ -76,19 +77,19 @@ def build_order_ops_snapshot(*, as_of: datetime | None = None) -> dict[str, Any]
             "ABC_ORDER_RETIRED": True,
         },
         "ledgers": {
-            "c18acc": _ledger_summary(PROJECT_ROOT / "data" / "order" / "c18acc_order_ledger.json"),
+            "c18acc": _ledger_summary(DATA_DIR / "order" / "c18acc_order_ledger.json"),
             "leading_dip": _leading_dip_ledger_summary(
-                PROJECT_ROOT / "data" / "order" / "leading_dip_ledger.json"
+                DATA_DIR / "order" / "leading_dip_ledger.json"
             ),
             "leading_dip_mid": _leading_dip_ledger_summary(
-                PROJECT_ROOT / "data" / "order" / "leading_dip_mid_ledger.json"
+                DATA_DIR / "order" / "leading_dip_mid_ledger.json"
             ),
         },
         "logs": {
-            "c18_poll": str(PROJECT_ROOT / "logs" / "intraday" / "launchd_rrg-c18acc-poll.log"),
-            "buy_radar": str(PROJECT_ROOT / "logs" / "intraday" / "launchd_buy-signal-radar.log"),
+            "c18_poll": str(LOGS_DIR / "intraday" / "launchd_rrg-c18acc-poll.log"),
+            "buy_radar": str(LOGS_DIR / "intraday" / "launchd_buy-signal-radar.log"),
             "leading_dip": str(
-                PROJECT_ROOT / "logs" / "intraday" / "launchd_leading-dip-poll.log"
+                LOGS_DIR / "intraday" / "launchd_leading-dip-poll.log"
             ),
         },
         "notes": [

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from stock_db import PROJECT_ROOT
+from stock_db import DATA_DIR, PROJECT_ROOT
 
 _TZ = ZoneInfo("Asia/Taipei")
 REPORT_DIR = PROJECT_ROOT / "reports" / "order" / "reconcile"
@@ -92,7 +92,7 @@ def _symbols_from_leading_dip_ledger(path: Path) -> set[str]:
 
 
 def _c18_slots() -> list[dict[str, Any]]:
-    path = PROJECT_ROOT / "data" / "rrg_c18acc_slots.json"
+    path = DATA_DIR / "rrg_c18acc_slots.json"
     if not path.is_file():
         return []
     try:
@@ -163,8 +163,8 @@ def build_reconcile_report(session: Any) -> dict[str, Any]:
     }
     broker_syms = set(broker_holdings)
     # ABC Order removed · former ABC fills are manual holdings (not local sleeve).
-    c18_path = PROJECT_ROOT / "data" / "order" / "c18acc_order_ledger.json"
-    dip_path = PROJECT_ROOT / "data" / "order" / "leading_dip_ledger.json"
+    c18_path = DATA_DIR / "order" / "c18acc_order_ledger.json"
+    dip_path = DATA_DIR / "order" / "leading_dip_ledger.json"
     abc: set[str] = set()
     c18 = _symbols_from_ledger(c18_path)
     dip = _symbols_from_leading_dip_ledger(dip_path)
