@@ -15,4 +15,5 @@ from stock_db.order_holdings import *  # noqa: F403
 from stock_db.pre_market_auction import *  # noqa: F403
 from stock_db.rrg import *  # noqa: F403
 from stock_db.screener import *  # noqa: F403
+from stock_db.signal_outcomes import *  # noqa: F403
 from stock_db.vcp import *  # noqa: F403
