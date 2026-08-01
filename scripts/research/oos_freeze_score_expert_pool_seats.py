@@ -31,9 +31,11 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from stock_db import DATA_DIR, DEFAULT_DB_PATH
+
 ROOT = Path(__file__).resolve().parents[2]
-REPLICA_DB = ROOT / "data/replica/stocks.db"
-LOCAL_DB = ROOT / "data/stocks.db"
+REPLICA_DB = DATA_DIR / "replica" / "stocks.db"
+LOCAL_DB = DEFAULT_DB_PATH
 # 分點 tape 來源：優先 SSOT data/stocks.db（mini 上為權威且當前；處置窗全 2026，local 2026 覆蓋完整）。
 # Book 上 replica 為 fallback。OOS 累積需要「當前」資料，故不用凍結時的 replica 快照。
 BRANCH_DB = LOCAL_DB if LOCAL_DB.exists() else REPLICA_DB

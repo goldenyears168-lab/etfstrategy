@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-PANEL_DIR = ROOT / "data" / "research" / "chip_macro"
+from stock_db import DATA_DIR  # noqa: E402
+
+PANEL_DIR = DATA_DIR / "research" / "chip_macro"
 OUT = ROOT / "reports" / "research" / "chip-macro"
 HIST = OUT / "signal_history.csv"
 
@@ -195,7 +197,7 @@ def _vix_verdict(v: dict) -> tuple[str, str]:
     return "🟢", f"VIX 平穩（{v['vix']:.1f}, z60 {v['vix_z60']:+.2f}）"
 
 
-REV_LONG_CSV = ROOT / "data" / "research" / "dashboard" / "rev_yoy_current_long.csv"
+REV_LONG_CSV = DATA_DIR / "research" / "dashboard" / "rev_yoy_current_long.csv"
 
 
 def load_rev_tilt() -> dict | None:

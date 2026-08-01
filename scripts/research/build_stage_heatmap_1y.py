@@ -23,6 +23,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from stage_analysis import stage_series_daily  # noqa: E402
+from stock_db import DEFAULT_DB_PATH  # noqa: E402
 
 DEFAULT_OUT = ROOT / "reports/research/chip-overlays/2327_ta_adaptive/stage_heatmap_1y.html"
 DEFAULT_END = "2026-07-24"
@@ -310,7 +311,7 @@ def _configure_run(args: argparse.Namespace) -> list[str] | None:
         # watchlist mode) — DEFAULT_END is a fixed fallback only, otherwise a
         # scheduled/cron run would keep regenerating the same frozen date range
         # forever instead of advancing with each new trading day.
-        conn = sqlite3.connect(f"file:{(ROOT / 'data' / 'stocks.db').resolve()}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{DEFAULT_DB_PATH.resolve()}?mode=ro", uri=True)
         try:
             ix_end = conn.execute(
                 "SELECT MAX(date) FROM daily_bars WHERE code='IX0001' AND close>0"
@@ -366,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
             universe.append((sid, name_map.get(sid, sid)))
             seen.add(sid)
 
-    conn = sqlite3.connect(f"file:{(ROOT / 'data' / 'stocks.db').resolve()}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"file:{DEFAULT_DB_PATH.resolve()}?mode=ro", uri=True)
     print(
         f"kind={REPORT_KIND} universe={len(universe)} pin={PIN or '—'} "
         f"ma={MA_PERIOD}W · {START}→{END}"

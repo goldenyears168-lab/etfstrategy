@@ -21,13 +21,17 @@ from __future__ import annotations
 import argparse
 import re
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
 ROOT = Path(__file__).resolve().parents[3]
-DB = ROOT / "data" / "wantgoo_loop.db"
+sys.path.insert(0, str(ROOT / "src"))
+from stock_db import DATA_DIR  # noqa: E402
+
+DB = DATA_DIR / "wantgoo_loop.db"
 
 WHITELIST = {
     "407988": "玩股華安/茲安",

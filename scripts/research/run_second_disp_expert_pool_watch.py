@@ -23,11 +23,13 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts" / "research"))
 
 from notify_email import send_alert  # noqa: E402
 from project_dotenv import load_project_dotenv  # noqa: E402
+from stock_db import DATA_DIR, DEFAULT_DB_PATH  # noqa: E402
 
 CFG_PATH = ROOT / "config" / "second_disp_expert_pool_watch.json"
 TWSE_CACHE = (
@@ -521,7 +523,7 @@ def main() -> int:
 
     db = args.db
     if db is None:
-        for p in (ROOT / "data/stocks.db", ROOT / "data/scratch/rolling_mvp_snapshot.db"):
+        for p in (DEFAULT_DB_PATH, DATA_DIR / "scratch" / "rolling_mvp_snapshot.db"):
             if p.exists():
                 db = p
                 break

@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from author_predictions import DB, init_db, add_prediction  # noqa: E402
 
-BUNDLE = Path(__file__).resolve().parents[3] / "data" / "wantgoo_loop_extract_bundle.json"
+BUNDLE = DB.parent / "wantgoo_loop_extract_bundle.json"
 
 EXTRACT_INSTRUCTION = (
     "你是台股籌碼研究助理。逐篇讀作者全文, 只擷取**可證偽的前瞻預測** "

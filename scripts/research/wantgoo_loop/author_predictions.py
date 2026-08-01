@@ -26,15 +26,19 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
-DB = ROOT / "data" / "wantgoo_loop.db"
-PANEL = ROOT / "data" / "research" / "chip_macro" / "panel.parquet"
-STOCKS_DB = ROOT / "data" / "stocks.db"
+sys.path.insert(0, str(ROOT / "src"))
+from stock_db import DATA_DIR, DEFAULT_DB_PATH  # noqa: E402
+
+DB = DATA_DIR / "wantgoo_loop.db"
+PANEL = DATA_DIR / "research" / "chip_macro" / "panel.parquet"
+STOCKS_DB = DEFAULT_DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS author_predictions (
