@@ -151,7 +151,8 @@ jobs:
   - label: crash-thermometer-daily
     category: research
     order_capable: false
-    status: enabled
+    status: retired
+    retired_since: "2026-08-01"  # research 31-35% discriminative power (below chance); retired per user
     schedule: "weekdays 09:00"
     description: "8-branch weighted crash thermometer + consensus, email. NOTE: 2026-07-27 research found 31-35% discriminative power on fresh events (below chance) — kept running for reference, not a validated signal."
 
