@@ -6,6 +6,8 @@ labels are evaluation-only. Fixed annual walk-forward avoids threshold mining.
 """
 from __future__ import annotations
 
+import os
+
 import json
 import sqlite3
 from pathlib import Path
@@ -14,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
-DB = ROOT / "data" / "stocks.db"
+DB = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")
 OUT = ROOT / "reports/research/chip-overlays/2492_knowledge/price_impact_v3"
 SID = "2492"
 AR_WIN = 252

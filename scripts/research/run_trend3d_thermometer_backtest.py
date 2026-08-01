@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -214,7 +215,7 @@ def eval_stock(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", default=str(ROOT / "data" / "stocks.db"))
+    ap.add_argument("--db", default=str((Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")))
     ap.add_argument("--stocks", default=",".join(DEFAULT_STOCKS))
     ap.add_argument(
         "--years",

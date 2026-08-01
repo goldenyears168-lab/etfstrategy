@@ -16,6 +16,8 @@ Out: reports/research/chip-overlays/faithful_finmind_follower/
 """
 from __future__ import annotations
 
+import os
+
 import argparse
 import json
 import sqlite3
@@ -25,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
-DB = ROOT / "data" / "stocks.db"
+DB = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")
 OUT = ROOT / "reports" / "research" / "chip-overlays" / "faithful_finmind_follower"
 REGISTRY = (
     ROOT

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import os
 import sys
 import time
 from datetime import date
@@ -22,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from finmind_client import fetch_finmind, finmind_token  # noqa: E402
 
 OUT = ROOT / "reports" / "research" / "chip-overlays" / "cache"
-DB = ROOT / "data" / "stocks.db"
+DB = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")
 START, END = date(2023, 1, 1), date(2026, 7, 20)
 DELAY = 0.35
 

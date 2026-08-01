@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import os
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -34,7 +35,7 @@ OUT_MD = (
     / "H_EXPERT_SELL_LOOKBACK_WINDOW.md"
 )
 OUT_JSON = OUT_MD.with_suffix(".json")
-DB = ROOT / "data" / "stocks.db"
+DB = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")
 SOURCE = "finmind"
 START, END, OOS = "2024-07-01", "2026-07-20", "2026-01-01"
 COST, BETA, DEDUP = 0.003, 1.15, 5

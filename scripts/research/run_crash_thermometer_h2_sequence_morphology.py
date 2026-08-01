@@ -44,6 +44,7 @@ Research diagnostic（純調查，不修改生產腳本／config）。
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -53,7 +54,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-DB_PATH = ROOT / "data" / "stocks.db"
+DB_PATH = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db")
 OUT_MD = ROOT / "reports" / "research" / "branch-footprint-screen" / "adv_h2_sequence_morphology.md"
 EPISODES_CSV = ROOT / "reports" / "research" / "branch-footprint-screen" / "market_crash_precursor_episodes.csv"
 

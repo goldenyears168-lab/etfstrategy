@@ -14,13 +14,15 @@
 
 from __future__ import annotations
 
+import os
+
 import sqlite3
 from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = REPO_ROOT / "data" / "stocks.db"
+DB_PATH = (Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or REPO_ROOT) / "data" / "stocks.db")
 
 SAMPLE_STOCKS = ["2330", "2603", "2317", "1101", "6505"]
 

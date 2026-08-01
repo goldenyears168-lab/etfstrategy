@@ -27,6 +27,7 @@ import argparse
 import json
 import math
 import sqlite3
+import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -713,7 +714,7 @@ def write_md(payload: dict[str, Any], path: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", type=Path, default=ROOT / "data" / "stocks.db")
+    ap.add_argument("--db", type=Path, default=(Path(os.environ.get("GOLDENSTOCKS_DATA_DIR") or ROOT) / "data" / "stocks.db"))
     ap.add_argument("--start", default="2024-01-02")
     ap.add_argument("--end", default="")
     ap.add_argument("--is-end", default=DEFAULT_IS_END)
