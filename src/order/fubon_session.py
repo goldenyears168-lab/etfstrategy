@@ -14,6 +14,15 @@ from stock_db import PROJECT_ROOT
 
 _FUBON_PY_MAX = (3, 13)
 
+# CAFubon/ lives under GOLDENSTOCKS_DATA_DIR (state root, e.g. ~/goldenstocks-data)
+# when set, not under the code checkout — same pattern as stock_db.util._STATE_ROOT
+# and project_dotenv._default_env_path().
+_STATE_ROOT = (
+    Path(os.environ["GOLDENSTOCKS_DATA_DIR"])
+    if os.environ.get("GOLDENSTOCKS_DATA_DIR")
+    else PROJECT_ROOT
+)
+
 
 def check_python_version() -> None:
     if sys.version_info[:2] > _FUBON_PY_MAX:
@@ -26,7 +35,7 @@ def check_python_version() -> None:
 
 def _resolve_cert(path_str: str) -> Path:
     p = Path(path_str)
-    return p if p.is_absolute() else PROJECT_ROOT / p
+    return p if p.is_absolute() else _STATE_ROOT / p
 
 
 def _login_is_success(res: Any) -> bool:
