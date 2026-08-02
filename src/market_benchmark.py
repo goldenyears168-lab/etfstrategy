@@ -38,7 +38,13 @@ def latest_trading_date(
     on_or_before: str | date | None = None,
     code: str = "IX0001",
 ) -> str | None:
-    """TEJ 台指加權日線最後交易日（非日曆日）。"""
+    """最新交易日（交易日曆，非日曆日）。
+
+    錨定 `stock_daily_bars.trade_date`（watchlist 聯集日線的交易日曆，收盤 ingest 一到
+    即更新），不再綁易腐化的 IX0001/tej 指數 feed —— 2026-08 健檢發現 tej 錨點曾落後
+    16 交易日，令收盤主線靜默套用 3 週前日期。`code` 參數保留供既有呼叫相容，錨點來源
+    已不使用它。
+    """
     ceiling = None
     if on_or_before is not None:
         ceiling = (
@@ -48,19 +54,12 @@ def latest_trading_date(
         )
     if ceiling:
         row = conn.execute(
-            """
-            SELECT MAX(date) AS d FROM daily_bars
-            WHERE code = ? AND source = 'tej' AND date <= ?
-            """,
-            (code, ceiling),
+            "SELECT MAX(trade_date) AS d FROM stock_daily_bars WHERE trade_date <= ?",
+            (ceiling,),
         ).fetchone()
     else:
         row = conn.execute(
-            """
-            SELECT MAX(date) AS d FROM daily_bars
-            WHERE code = ? AND source = 'tej'
-            """,
-            (code,),
+            "SELECT MAX(trade_date) AS d FROM stock_daily_bars"
         ).fetchone()
     if not row or not row["d"]:
         return None
@@ -87,12 +86,8 @@ def is_trading_date(
     code: str = "IX0001",
 ) -> bool:
     row = conn.execute(
-        """
-        SELECT 1 FROM daily_bars
-        WHERE code = ? AND source = 'tej' AND date = ?
-        LIMIT 1
-        """,
-        (code, day.isoformat()),
+        "SELECT 1 FROM stock_daily_bars WHERE trade_date = ? LIMIT 1",
+        (day.isoformat(),),
     ).fetchone()
     return row is not None
 

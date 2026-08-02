@@ -18,16 +18,18 @@ class TestTradingCalendar(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
+        # 交易日曆錨點來源 2026-08 改綁 stock_daily_bars（原 daily_bars/tej 會腐化）。
         self.conn.execute(
             """
-            CREATE TABLE daily_bars (
-                code TEXT, source TEXT, date TEXT, close REAL
+            CREATE TABLE stock_daily_bars (
+                stock_id TEXT, trade_date TEXT, open REAL, close REAL, volume REAL, source TEXT
             )
             """
         )
         for d in ("2026-06-17", "2026-06-18", "2026-06-19"):
             self.conn.execute(
-                "INSERT INTO daily_bars VALUES ('IX0001', 'tej', ?, 1.0)",
+                "INSERT INTO stock_daily_bars (stock_id, trade_date, close) "
+                "VALUES ('2330', ?, 1.0)",
                 (d,),
             )
 
@@ -47,7 +49,8 @@ class TestTradingCalendar(unittest.TestCase):
 
     def test_session_day_before_tej_close(self) -> None:
         self.conn.execute(
-            "INSERT INTO daily_bars VALUES ('IX0001', 'tej', '2026-06-24', 1.0)"
+            "INSERT INTO stock_daily_bars (stock_id, trade_date, close) "
+            "VALUES ('2330', '2026-06-24', 1.0)"
         )
         wed = date(2026, 6, 25)
         self.assertFalse(is_trading_date(self.conn, wed))
