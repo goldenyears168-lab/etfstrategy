@@ -280,24 +280,24 @@ def build_outcomes(
             off = _offset(cal, cal_index, t, h)
             if off is None:
                 rows.append({**row, "status": "pending_future", "outcome_date": None,
-                             "pm_bucket": None, "ret_pct": None, "bench_ret_pct": None,
-                             "alpha_pct": None, "capm_alpha_pct": None, "beta": None})
+                             "entry_date": None, "ret_pct": None, "bench_ret_pct": None,
+                             "alpha_pct": None, "entry_adj_open": None})
                 continue
             entry, exit_day = off
-            row["pm_bucket"] = entry
+            row["entry_date"] = entry
             row["outcome_date"] = exit_day
 
             adj_open_entry, err_in = _adj_entry(conn, sid, entry)
             if err_in is not None:
                 rows.append({**row, "status": err_in, "ret_pct": None,
                              "bench_ret_pct": None, "alpha_pct": None,
-                             "capm_alpha_pct": None, "beta": None})
+                             "entry_adj_open": None})
                 continue
             adj_close_exit, err_out = _adj_exit(conn, sid, exit_day)
             if err_out is not None:
                 rows.append({**row, "status": err_out, "ret_pct": None,
                              "bench_ret_pct": None, "alpha_pct": None,
-                             "capm_alpha_pct": None, "beta": adj_open_entry})
+                             "entry_adj_open": adj_open_entry})
                 continue
 
             ix_open_entry = _b_open(entry)
@@ -305,7 +305,7 @@ def build_outcomes(
             if ix_open_entry is None or ix_close_exit is None or ix_open_entry == 0:
                 rows.append({**row, "status": "skip_no_bench", "ret_pct": None,
                              "bench_ret_pct": None, "alpha_pct": None,
-                             "capm_alpha_pct": None, "beta": adj_open_entry})
+                             "entry_adj_open": adj_open_entry})
                 continue
 
             fwd_ret = adj_close_exit / adj_open_entry - 1.0
@@ -317,7 +317,6 @@ def build_outcomes(
                 "ret_pct": fwd_ret * 100.0,
                 "bench_ret_pct": ix_ret * 100.0,
                 "alpha_pct": excess * 100.0,
-                "capm_alpha_pct": None,
-                "beta": adj_open_entry,
+                "entry_adj_open": adj_open_entry,
             })
     return rows

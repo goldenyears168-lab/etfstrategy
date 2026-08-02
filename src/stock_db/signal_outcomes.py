@@ -5,15 +5,14 @@ at date T with its realized forward return and EXCESS vs IX0001 over three
 trading-day horizons (H5/H10/H20). One row per (run_id, as_of_date, stock_id,
 horizon), LONG format. Writes ONLY the signal_outcomes table (idempotent upsert).
 
-COLUMN REMAP (the stub schema is reused verbatim — see _schema.py:442-461):
+COLUMNS (columns carry their true meaning — renamed 2026-08 from the reused stub):
   as_of_date       = T  (the signal date; RRG data_baseline_date / VCP as_of_date)
-  pm_bucket        = entry date  = T+1 (first trading day strictly after T)
+  entry_date       = T+1 (first trading day strictly after T)
   outcome_date     = exit  date  = T+H (H-th trading day after T)
-  beta             = entry price = adj_open_entry (raw_open * cum_factor at T+1)
+  entry_adj_open   = entry price = adj_open_entry (raw_open * cum_factor at T+1)
   ret_pct          = fwd_ret_H  * 100   (stock leg, ADJUSTED: adj_close_exit/adj_open_entry - 1)
   bench_ret_pct    = ix_ret_H   * 100   (IX0001 leg, house convention via analytics.bench)
   alpha_pct        = excess_H   * 100   (fwd_ret_H - ix_ret_H)
-  capm_alpha_pct   = NULL  (no beta-adjusted alpha computed in this ledger)
   entry_signal     = the trigger rule as shipped (e.g. 'quadrant=leading', 'entry_ready=1')
   chip_tag         = extra classifier ('tier2=1', 'state=...')
   investment_score = the source's own score (RRG rs_ratio / VCP composite_score)
@@ -52,27 +51,26 @@ def upsert_signal_outcomes(conn: sqlite3.Connection, rows: list[dict]) -> int:
     sql = """
         INSERT INTO signal_outcomes (
             run_id, as_of_date, stock_id, horizon, stock_name,
-            outcome_date, pm_bucket, entry_signal, chip_tag, investment_score,
-            ret_pct, bench_ret_pct, alpha_pct, capm_alpha_pct, beta,
+            outcome_date, entry_date, entry_signal, chip_tag, investment_score,
+            ret_pct, bench_ret_pct, alpha_pct, entry_adj_open,
             status, synced_at
         ) VALUES (
             :run_id, :as_of_date, :stock_id, :horizon, :stock_name,
-            :outcome_date, :pm_bucket, :entry_signal, :chip_tag, :investment_score,
-            :ret_pct, :bench_ret_pct, :alpha_pct, :capm_alpha_pct, :beta,
+            :outcome_date, :entry_date, :entry_signal, :chip_tag, :investment_score,
+            :ret_pct, :bench_ret_pct, :alpha_pct, :entry_adj_open,
             :status, :synced_at
         )
         ON CONFLICT(run_id, as_of_date, stock_id, horizon) DO UPDATE SET
             stock_name=excluded.stock_name,
             outcome_date=excluded.outcome_date,
-            pm_bucket=excluded.pm_bucket,
+            entry_date=excluded.entry_date,
             entry_signal=excluded.entry_signal,
             chip_tag=excluded.chip_tag,
             investment_score=excluded.investment_score,
             ret_pct=excluded.ret_pct,
             bench_ret_pct=excluded.bench_ret_pct,
             alpha_pct=excluded.alpha_pct,
-            capm_alpha_pct=excluded.capm_alpha_pct,
-            beta=excluded.beta,
+            entry_adj_open=excluded.entry_adj_open,
             status=excluded.status,
             synced_at=excluded.synced_at
     """
@@ -86,15 +84,14 @@ def upsert_signal_outcomes(conn: sqlite3.Connection, rows: list[dict]) -> int:
                 "horizon": int(r["horizon"]),
                 "stock_name": r.get("stock_name"),
                 "outcome_date": r.get("outcome_date"),
-                "pm_bucket": r.get("pm_bucket"),
+                "entry_date": r.get("entry_date"),
                 "entry_signal": r.get("entry_signal"),
                 "chip_tag": r.get("chip_tag"),
                 "investment_score": _f(r.get("investment_score")),
                 "ret_pct": _f(r.get("ret_pct")),
                 "bench_ret_pct": _f(r.get("bench_ret_pct")),
                 "alpha_pct": _f(r.get("alpha_pct")),
-                "capm_alpha_pct": _f(r.get("capm_alpha_pct")),
-                "beta": _f(r.get("beta")),
+                "entry_adj_open": _f(r.get("entry_adj_open")),
                 "status": r.get("status") or "complete",
                 "synced_at": r.get("synced_at") or synced_at,
             }
