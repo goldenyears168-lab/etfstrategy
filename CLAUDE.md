@@ -60,7 +60,7 @@ launchctl list | grep -c goldenstocks   # >0 表示這台掛著 live 排程 → 
 - 在 **mini** 上改碼會直接影響下次排程 run，動 `scripts/`／`launchd/`／`config/order.yaml` 前先想清楚；不要為了測試改實彈旗標。commit 前先 `git status` 確認沒把生產態誤 `git add`（`.env`／`data/`／`logs/`／`*.db`／`CAFubon/**` 憑證均已 gitignored，但仍別無腦 `git add -A`）。
 - **絕不**在 Book 安裝 live `com.jackm4.goldenstocks.*` launchd；不雙跑 Order launchd。這條硬邊界不因「mini 當開發機」而放寬。
 - 生產 SQLite SSOT 在 mini `${GOLDENSTOCKS_DATA_DIR}/data/stocks.db`（~40GB + WAL，**預設唯讀查詢**，寫入／`VACUUM` 會鎖住正在跑的排程）；Book 只有 replica，兩份不同步是刻意設計。
-- 已知機器差異：`market_vix_daily` **只在 Book**，mini 查不到不是壞掉。
+- `market_vix_daily` **現在 mini 也有**（mini 自算 TAIWAN VIX / VIXTWN，見 commit `92ae3cb`；VIX+VIXTWN，2026-07-31 仍 fresh），不再是 book-only。
 - 機密（`.env`、`CAFubon/`、token）只走 scp/rsync，不進 git、不貼進聊天、不 echo 出值。
 
 **`GOLDENSTOCKS_DATA_DIR`**：可變狀態根目錄（`.env`、`data/`、`logs/`）可搬出 git tree（mini 為 `~/goldenstocks-data`）。新程式碼讀寫 DB／log／ledger 一律走 `stock_db.DATA_DIR` / `DEFAULT_DB_PATH` / `project_dotenv`，**不要**硬寫 `PROJECT_ROOT / "data"`（近期多筆 commit 就是在補這件事）。

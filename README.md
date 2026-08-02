@@ -1,6 +1,8 @@
 # 股票研究 · 台股量化交易 Research OS
 
-**當前版本**：v2.1（2026-07-24）
+**當前版本**：v2.1（2026-07-24）· 權威架構文件見 [CLAUDE.md](CLAUDE.md)
+
+> 🚀 **第一次上手？先看 [QUICKSTART.md](QUICKSTART.md)** —— 確認你在哪台機器、裝環境、不需付費金鑰就能跑通第一次驗證。
 
 台股量化交易研究系統：本地 **SQLite**（`data/stocks.db`）+ market data ingest + **多軌並行 alpha 策略**（RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等）+ **Facts / Regime daily** 每日診斷 + Mac mini 下單層（Order layer）。
 
@@ -41,6 +43,16 @@ cp .env.example .env
 # 編輯 TEJ_API_KEY、FINMIND_TOKEN
 scripts/1630收盤雷達.command
 ```
+
+不確定要不要金鑰、哪台機器能做什麼？見 [QUICKSTART.md](QUICKSTART.md)。
+
+### venv 對照表
+
+| venv | 用途 | 何時需要 |
+|------|------|----------|
+| `.venv` | 主環境（Python 3.13） | 一律需要 |
+| `.venv-fubon` | 富邦 Neo 下單 SDK wheel | 只有真的要送單（Order layer）才需要 |
+| `.venv-qlib` | qlib 研究（Python 3.11） | 只有跑 qlib 研究才需要 |
 
 ---
 

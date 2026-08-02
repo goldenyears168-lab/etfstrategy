@@ -8,23 +8,24 @@
 ## 1. 一張圖看全貌
 
 ```
-Book（MacBook Air · 唯一 IDE，研究/寫程式）
-  ~/goldenstocks         程式碼（git checkout）
+Mac mini（主力機：唯一工作站兼生產機，24小時常開）
+  ~/goldenstocks         程式碼（git checkout；唯一 push 來源）
   ~/goldenstocks-data    .env/CAFubon/資料庫（不進git，機密）
-  0 支 launchd 排程 —— Book 本身不跑任何自動化
+  ~22 支 launchd 排程     全部見 config/job_registry.yaml
+  下單能力：5 支 order job 全部暫停中（見 §3）
+  日常開發/研究/測試/git commit＋push 都在 mini 做（透過 SSH 遠端操作即可，讓 Book 保持涼快）
 
-        │ git push
+        │ git push（單向：只有 mini 推）
         ▼
 GitHub  goldenyears168-lab/goldenstocks（研究主專案）
         goldenyears168-lab/haoshi-quant-ops（網站前端）
-        │ git pull
+        │ git pull --ff-only
         ▼
 
-Mac mini（無頭生產機，24小時常開）
-  ~/goldenstocks         程式碼（跟 Book 同一份，各自獨立 git checkout）
-  ~/goldenstocks-data    .env/CAFubon/資料庫（跟 Book 各自獨立，不同步）
-  ~22 支 launchd 排程     全部見 config/job_registry.yaml
-  下單能力：5 支 order job 全部暫停中（見 §3）
+MacBook Air（pull-only 異地備援，涼快備援機）
+  ~/goldenstocks         程式碼（跟 mini 各自獨立 git checkout）
+  ~/goldenstocks-data    .env/CAFubon/資料庫 replica（跟 mini 各自獨立，不同步；刻意）
+  只 git pull --ff-only 保持備援 —— 永不 commit/push、不裝 launchd
 
         │ 每日寫入
         ▼
