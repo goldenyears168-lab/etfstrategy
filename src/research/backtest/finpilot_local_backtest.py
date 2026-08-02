@@ -9,6 +9,7 @@ from datetime import date
 import pandas as pd
 
 from .copytrade_backtest import bench_return_entry_to_exit
+from .pit_availability import financial_availability_date
 from flow_returns import return_pct, stock_close, stock_open, trading_dates_after
 # load_price_panels/_wide_from_long moved to the neutral price_panels module (L2) so
 # non-research callers don't import this backtest layer; re-exported for backward compat.
@@ -64,8 +65,13 @@ def _roe_at_date(fin: pd.DataFrame, stock_id: str, as_of: str) -> float | None:
     q = fin[
         (fin["stock_id"] == stock_id)
         & (fin["period_type"] == "quarter")
-        & (fin["period_date"] <= as_of)
     ]
+    if q.empty:
+        return None
+    # PIT：只用『公告可得日 <= as_of』的季報（含發布時滯，避免前視）
+    q = q[q["period_date"].map(
+        lambda p: financial_availability_date(p, "quarter") <= as_of
+    )]
     if q.empty:
         return None
     dates = sorted(q["period_date"].unique(), reverse=True)
@@ -87,8 +93,13 @@ def _revenue_yoy_at_date(fin: pd.DataFrame, stock_id: str, as_of: str) -> float 
         (fin["stock_id"] == stock_id)
         & (fin["period_type"] == "month")
         & (fin["metric"] == "revenue")
-        & (fin["period_date"] <= as_of)
     ]
+    if m.empty:
+        return None
+    # PIT：只用『公告可得日 <= as_of』的月營收（次月 10 日公布，避免前視）
+    m = m[m["period_date"].map(
+        lambda p: financial_availability_date(p, "month") <= as_of
+    )]
     if m.empty:
         return None
     latest_row = m.sort_values("period_date").iloc[-1]

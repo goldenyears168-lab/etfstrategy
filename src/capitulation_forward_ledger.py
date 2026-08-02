@@ -18,7 +18,9 @@ from signal_validation import (trading_calendar, index_returns, to_events,
 from stock_db import DEFAULT_DB_PATH  # state root SSOT, portable across machines
 
 DEFAULT_DB = str(DEFAULT_DB_PATH)
-RULES = ("beta_top5", "rsmom_top10", "equal_leading")
+# beta_top5 於 2026-08 健檢移除：它用 stock_beta 的「當前快照 beta」（無日期條件）對
+# 歷史訊號日選股 → 前視洩漏。beta 調整超額仍走 pit_beta（PIT-乾淨），不受影響。
+RULES = ("rsmom_top10", "equal_leading")
 
 
 def signal_days(cur, cal, cpos, close, since="2015-01-01"):
@@ -34,19 +36,17 @@ def leading(cur, day):
                        "WHERE screen_kind='close' AND session_date<=?", (day,)).fetchone()[0]
     if not sess:
         return []
-    return [dict(stock_id=s, rs_momentum=rm, beta=b) for s, rm, b in cur.execute(
-        """SELECT r.stock_id, r.rs_momentum, b.beta FROM rrg_universe_scores r
-           LEFT JOIN stock_beta b ON b.stock_id=r.stock_id AND b.benchmark='^TWII'
+    return [dict(stock_id=s, rs_momentum=rm) for s, rm in cur.execute(
+        """SELECT r.stock_id, r.rs_momentum FROM rrg_universe_scores r
            WHERE r.session_date=? AND r.screen_kind='close' AND r.quadrant LIKE '%leading%'""", (sess,))]
 
 
 def pick(rule, uni):
     if rule == "equal_leading":
         return [u["stock_id"] for u in uni]
-    key = "beta" if rule == "beta_top5" else "rs_momentum"
-    n = 5 if rule == "beta_top5" else 10
-    order = sorted(uni, key=lambda u: (u.get(key) if u.get(key) is not None else -1e9), reverse=True)
-    return [u["stock_id"] for u in order[:n]]
+    # rsmom_top10：依 rs_momentum 取前 10
+    order = sorted(uni, key=lambda u: (u.get("rs_momentum") if u.get("rs_momentum") is not None else -1e9), reverse=True)
+    return [u["stock_id"] for u in order[:10]]
 
 
 def ensure_table(cur):

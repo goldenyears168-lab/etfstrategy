@@ -600,7 +600,13 @@ def vectorized_minervini_pass_pct(
     crit = vectorized_minervini_criteria_count(close)
     effective_min = min(min_pass, 7)
     passed = crit >= effective_min
-    valid = crit.notna() & (crit >= 0)
+    # 分母只計「當日有報價且歷史足夠可算 Minervini（需 ma200）」的股票。
+    # 原本 valid=crit.notna() 恆為 True（criteria_count 內 astype(int) 把 NaN 壓成 0），
+    # 導致未上市/已下市/資料不足者一律灌進分母 → 參與率系統性偏低、跨時不可比
+    # （2026-08 健檢；比照 market_breadth_ma 的 valid 計法修正）。
+    ma200 = close.rolling(200, min_periods=200).mean()
+    valid = close.notna() & ma200.notna()
+    passed = passed & valid
     return (passed.sum(axis=1) / valid.sum(axis=1).replace(0, pd.NA)).fillna(0.0)
 
 

@@ -15,6 +15,7 @@ from research.backtest.finpilot_local_backtest import (
     load_price_panels,
     pit_fundamental_at,
 )
+from research.backtest.pit_availability import financial_availability_date
 from screener_universe import resolve_sync_watchlist
 from stock_db import connect, DEFAULT_DB_PATH
 
@@ -318,7 +319,9 @@ def _roe_change_points(
             equity = float(eq.iloc[0])
             if equity <= 0:
                 continue
-            points[str(pd_date)] = float(ni.iloc[0]) / equity * 100.0
+            # PIT：ROE 步進生效於『公告可得日』而非季底，避免 forward-fill 前視
+            avail = financial_availability_date(str(pd_date), "quarter")
+            points[avail] = float(ni.iloc[0]) / equity * 100.0
     if not fund.empty:
         sub = fund[fund["stock_id"] == stock_id].sort_values("as_of_date")
         for _, row in sub.iterrows():
