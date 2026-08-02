@@ -43,18 +43,21 @@ PYTHONPATH=src .venv/bin/python scripts/supabase_health_check.py        # 收盤
 同一份 repo 在兩台 Mac 各有獨立 checkout。**動手前先確認自己在哪台**：
 
 ```bash
-scutil --get ComputerName   # 「minim4的Mac mini」= 生產機；MacBook = 開發機
+scutil --get ComputerName   # 「minim4的Mac mini」= 主力機（開發＋生產）；MacBook = 涼快備援
 launchctl list | grep -c goldenstocks   # >0 表示這台掛著 live 排程 → 是 mini
 ```
 
+**mini 是唯一工作站兼生產機**：日常改碼、研究、測試、git commit／push 都在 mini 做（透過 SSH 遠端操作即可，讓 MacBook 保持涼快、不發燙降頻）。Book 只是 pull-only 的異地備援。
+
 | Intent | Machine |
 |--------|---------|
-| 改碼、研究、測試、文件、git commit | **MacBook**（開發機） |
+| 改碼、研究、測試、文件、git commit **＋ push** | **Mac mini**（主力機；唯一 push 來源） |
 | Live launchd、送單、生產 `.env`／`data/`／ledger、盤中 log | **Mac mini only** |
+| 只 `git pull` 保持備援（不 commit、不 push、不裝 launchd） | **MacBook** |
 
-- 在 **mini** 上時：改碼會直接影響下次排程 run，動 `scripts/`／`launchd/`／`config/order.yaml` 前先想清楚；不要為了測試改實彈旗標。
-- 在 **Book** 上時：使用者**沒有**提到 mini／生產／launchd／送單／盤中 log → 只動本機，**不要** SSH mini。要生效需使用者明確要求後才 `ssh mac-mini 'cd ~/goldenstocks && git pull'`。
-- **絕不**在 Book 安裝 live `com.jackm4.goldenstocks.*` launchd；不雙跑 Order launchd。
+- **Git 方向**：mini push、Book pull（單向）。mini 用 GitHub **deploy key（Read/write）**推 origin；Book 只 `git pull --ff-only`，**永不**在 Book commit／push，以免兩台分叉。single source of truth = mini。
+- 在 **mini** 上改碼會直接影響下次排程 run，動 `scripts/`／`launchd/`／`config/order.yaml` 前先想清楚；不要為了測試改實彈旗標。commit 前先 `git status` 確認沒把生產態誤 `git add`（`.env`／`data/`／`logs/`／`*.db`／`CAFubon/**` 憑證均已 gitignored，但仍別無腦 `git add -A`）。
+- **絕不**在 Book 安裝 live `com.jackm4.goldenstocks.*` launchd；不雙跑 Order launchd。這條硬邊界不因「mini 當開發機」而放寬。
 - 生產 SQLite SSOT 在 mini `${GOLDENSTOCKS_DATA_DIR}/data/stocks.db`（~40GB + WAL，**預設唯讀查詢**，寫入／`VACUUM` 會鎖住正在跑的排程）；Book 只有 replica，兩份不同步是刻意設計。
 - 已知機器差異：`market_vix_daily` **只在 Book**，mini 查不到不是壞掉。
 - 機密（`.env`、`CAFubon/`、token）只走 scp/rsync，不進 git、不貼進聊天、不 echo 出值。
