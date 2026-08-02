@@ -59,12 +59,12 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | VCP | Pivot Gate / Coil Close · 盤中 screen+brief | —（**已退役排程** · 僅手動） | `scripts/launchd/vcp-funnel-specs.command` |
 | VCP′ | Pivot Gate / Coil Close · 收盤 screen+brief | 16:30 | `scripts/daily_sync.sh`（`RUN_VCP_FUNNEL_CLOSE=1`） |
 | `minervini-sepa-basket` | `minervini_sepa_daily` | —（**已退役排程** · 僅手動） | `scripts/launchd/minervini-sepa-basket.command` |
-| `buy-signal-radar` | C0 買進 advisory | 09:00–13:20 每 5 分 | `scripts/launchd/buy-signal-radar.command` |
-| `sell-signal-radar` | Fubon 持倉 extension 賣出 advisory | 09:06–13:20 每 5 分 | `scripts/launchd/sell-signal-radar.command` |
-| `rrg-c18acc-poll` | C18acc 開倉／換倉（`no_trade_before=13:00`） | 09:00–13:30 每 5 分 · 進場窗 ≥13:00 | `scripts/launchd/rrg-c18acc-poll.command` |
-| `leading-dip-poll` | Leading Dip 衛星袖 | 09:05–13:25 每 5 分 | `scripts/launchd/leading-dip-poll.command` |
-| `songshan-copytrade-poll` | 跟單松山（5d淨比95∩!mega + 25m nonfail · 1 張） | 09:25–09:40 每 5 分 | `scripts/launchd/songshan-copytrade-poll.command` · 現況見 [config/job_registry.yaml](../config/job_registry.yaml) |
-| `expert-pool-staged-gate` | 專家池 gap→05→25（≠ 松山尺） | 09:00／01／05／25 | `scripts/launchd/expert-pool-staged-gate.command` |
+| `buy-signal-radar` | C0 買進 advisory | **已停用**（原 09:00–13:20/5分） | `scripts/launchd/buy-signal-radar.command` |
+| `sell-signal-radar` | Fubon 持倉 extension 賣出 advisory | **已退役**（見 job_registry） | `scripts/launchd/sell-signal-radar.command` |
+| `rrg-c18acc-poll` | C18acc 開倉／換倉（`no_trade_before=13:00`） | **已停用·三重鎖**（原 09:00–13:30/5分 · 進場窗 ≥13:00） | `scripts/launchd/rrg-c18acc-poll.command` |
+| `leading-dip-poll` | Leading Dip 衛星袖 | **已停用·三重鎖**（原 09:05–13:25/5分） | `scripts/launchd/leading-dip-poll.command` |
+| `songshan-copytrade-poll` | 跟單松山（5d淨比95∩!mega + 25m nonfail · 1 張） | **已停用·三重鎖**（原 09:25–09:40/5分） | `scripts/launchd/songshan-copytrade-poll.command` · 現況見 [config/job_registry.yaml](../config/job_registry.yaml) |
+| `expert-pool-staged-gate` | 專家池 gap→05→25（≠ 松山尺） | **已停用·三重鎖**（原 09:00／01／05／25） | `scripts/launchd/expert-pool-staged-gate.command` |
 | `rrg-mono-swap-accel-extension` | extension overlay（legacy · 手動） | — | `scripts/run_c18acc_extension_screen.py` |
 | ②a | RRG mono 收盤前預警 + universe snapshot | —（**已退役排程** · 僅手動） | `scripts/launchd/rrg-mono-intraday-watch.command` |
 | ② | 收盤 ETF 日報（含 RRG universe close + mono 槽位 + **stock_daily_lens**） | 16:30 | `scripts/1630收盤雷達.command` |
@@ -80,12 +80,12 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | `daily_briefs.snapshot_json` | `etf-daily-v1` · `regime-snapshot-v1` · **`vcp-daily-v1`** | sync 時預算 | — |
 | `rrg_universe_scores` | RRG 成分股象限（`intraday` / `close`） | 13:00 / 16:30（Python 內建） | `RUN_SUPABASE_RESEARCH_SYNC` |
 | `stock_daily_lens` · `lens_daily_alert` | 跨層 Lens · 當日 headline | 16:30 `daily_sync` | `RUN_SUPABASE_LENS_SYNC`（launchd 預設 1） |
-| `site_content` | 六層靜態頁 · 策略 registry · 採納報告 · catalog 長文 | Readdy 直連 Supabase · authoring 見 [readdy-regime-strategy-lineage.md §7.4](./readdy-regime-strategy-lineage.md) | — |
+| `site_content` | 六層靜態頁 · 策略 registry · 採納報告 · catalog 長文 | Readdy 直連 Supabase · authoring 見 [readdy-regime-strategy-lineage.md §7.4](../archives/RETIRED_readdy-regime-strategy-lineage.md) | — |
 | `strategy_performance_yearly` | 已採納策略分年績效 | **手動** `scripts/sync_strategy_performance.py` 或 `RUN_STRATEGY_PERF_SYNC=1` | `RUN_STRATEGY_PERF_SYNC` |
 
 > `daily_briefs.snapshot_json`：`regime_daily` → `regime-snapshot-v1` · `etf_daily` → **`etf-daily-v1`**（Readdy 直讀，勿 parse MD）。`content_html` 不再 sync。
 
-> Migration **013**（registry 欄位）已部署 · 驗證 SQL 見 [readdy-regime-strategy-lineage.md §7.0](./readdy-regime-strategy-lineage.md)。
+> Migration **013**（registry 欄位）已部署 · 驗證 SQL 見 [readdy-regime-strategy-lineage.md §7.0](../archives/RETIRED_readdy-regime-strategy-lineage.md)。
 
 **收盤後健康檢查**（公開站是否 stale）：
 

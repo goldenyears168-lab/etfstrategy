@@ -11,7 +11,7 @@
 |---------|------|------------------|
 | [`config/strategy.yaml`](../config/strategy.yaml) | 各軌**契約版**回測規格（本金/槽位/持有期皆為該軌「真實交易方式」） | **否** — 原樣保留 |
 | [`evaluation-contract.md`](./evaluation-contract.md) | Per-track backtest spec · 已退役 league table 的歷史記錄 | **否** — 本文件是退役後的**新提案**，非舊 `track_evaluation.py` 復辟 |
-| [`strategy_catalog.md`](../supabase/site/strategy_catalog.md) §績效對照 | 對外公開頁 · 契約版數字 | **否** — 維持原樣；本標準的輸出**另開新分節**，並清楚標籤「比較限定版，非操作建議」 |
+| `strategy_catalog.md`（已歸檔移除） §績效對照 | 對外公開頁 · 契約版數字 | **否** — 維持原樣；本標準的輸出**另開新分節**，並清楚標籤「比較限定版，非操作建議」 |
 | `src/strategy_performance_yearly.py` | 現有部分統一層（共同年窗 + `excess_kind` 標籤） | **擴充** — 本文件是它的下一步：把「標籤差異」變成「消除差異」 |
 
 ---
@@ -206,4 +206,4 @@ SSOT：`config/backtest_standard.yaml` · schema：`config/slot_backtest_summary
 | [evaluation-contract.md](./evaluation-contract.md) | 現行 per-track 契約版 backtest spec · 退役歷史 |
 | [architecture.md](./architecture.md) | Facts/Regime/Research/Strategy 分層 |
 | [terminology.md](./terminology.md) | 術語規範 SSOT |
-| [strategy_catalog.md](../supabase/site/strategy_catalog.md) | 對外契約版績效對照頁 |
+| strategy_catalog.md（已歸檔移除） | 對外契約版績效對照頁 |

@@ -2,7 +2,7 @@
 
 **當前版本**：v2.1（2026-07-24）
 
-台股量化交易研究系統：本地 **SQLite**（`data/stocks.db`）+ market data ingest + **多軌並行 alpha 策略**（RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等）+ **Facts / Regime daily** 每日診斷 + Mac mini 自動下單執行層。
+台股量化交易研究系統：本地 **SQLite**（`data/stocks.db`）+ market data ingest + **多軌並行 alpha 策略**（RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等）+ **Facts / Regime daily** 每日診斷 + Mac mini 下單層（Order layer）。
 
 > **專案起源**：ETF 持股追蹤（Phase 0），現行 **ETF 持股變化只是其中一項資料來源與訊號**（`etf-daily` Facts 層 + `00981a-l1h9` 跟單訊號），並非整個系統的核心；核心是個股層級的多軌策略研究。
 

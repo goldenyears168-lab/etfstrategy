@@ -9,7 +9,7 @@
 
 > **免責**：產出僅供個人研究，不構成投資建議；下單層僅本機 infra，所有數據與報告皆在本地。
 
-> ⚠️ **2026-07-23 重大變更**：公開站 Readdy 已退役，`stock_research.*` Supabase schema 已清空。現行系統為**本地研究 OS + 下單執行層**兩部分，外加私人 ops 後台（非公開展示站）。詳見 §7 與 [`archives/PUBLIC_SITE_RETIRED.md`](../archives/PUBLIC_SITE_RETIRED.md)。
+> ⚠️ **2026-07-23 重大變更**：公開站 Readdy 已退役，`stock_research.*` Supabase schema 已清空。現行系統為**本地研究 OS + 下單層（Order layer）**兩部分，外加私人 ops 後台（非公開展示站）。詳見 §7 與 [`archives/PUBLIC_SITE_RETIRED.md`](../archives/PUBLIC_SITE_RETIRED.md)。
 
 ---
 
@@ -18,7 +18,7 @@
 台股 **量化交易研究系統**（**Multi-Research OS**），由**兩個核心部分**組成：
 
 1. **本地研究 OS** — SQLite（`data/stocks.db`）+ 排程 ingest + **多條 alpha 軌並列**（無 ensemble 加權），核心是**個股層級**的策略研究：RRG 動能輪動、VCP 型態篩選、Minervini SEPA、00981A 跟單 copytrade 等。各軌 backtest spec 在 `config/strategy.yaml`，探索主題在 `config/research.yaml`。
-2. **下單執行層（本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。完整藍圖見 [order-layer-prd.md](./order-layer-prd.md)。Mac mini 常開自動執行。
+2. **下單層（Order layer · 本機 infra）** — `config/order.yaml` · `src/order/`，富邦 Neo 本機送單；策略腳本只寫 `reports/order/intents/*.json`，不 import `order`。完整藍圖見 [order-layer-prd.md](./order-layer-prd.md)。Mac mini 常開自動執行。
 
 **產出形式**：
 - 📊 本地 markdown 報告（`reports/daily/`）
@@ -140,10 +140,12 @@ RUN_SUPABASE_SIGNAL_SYNC=0
 
 ## 8. 每日排程
 
+> Live 排程狀態 SSOT 是 [config/job_registry.yaml](../config/job_registry.yaml)。下表為設計時刻表；截至 2026-08-02，`buy-signal-radar` 已停用、`sell-signal-radar` 已退役（`status` 見 registry），實機不再於盤中觸發。
+
 | 時間 | 工作 |
 |------|------|
-| 09:00–13:20（每 5 分） | `buy-signal-radar` |
-| 09:06–13:20（每 5 分） | `sell-signal-radar` |
+| ~~09:00–13:20（每 5 分）~~ **已停用** | `buy-signal-radar` |
+| ~~09:06–13:20（每 5 分）~~ **已退役** | `sell-signal-radar` |
 | 13:00 | VCP funnel brief（盤中）· RRG mono intraday watch |
 | 16:30 | `daily_sync.sh`（ingest → ETF 日報 → Regime 日報 → RRG mono/swap-accel → VCP 收盤 → Lens → Supabase sync） |
 | 16:35 | `minervini-sepa-basket`（月末) |

@@ -439,7 +439,7 @@ ORDER BY horizon;
 
 > **目的**：讓統計／量化審閱者能追溯「假說 → 規則實作 → 樣本 → 檢定 → 採納／拒絕」全鏈路。  
 > **窗口**：2025-05-28 ～ 2026-06-17 · **基準策略** L1H9（T+1 開盤買 · 持有 9 日 · 每日 10k 等權 · α vs IX0001 · 0 bps）。  
-> **逐研究報告**：filter #2–#10 見 [`reports/research/_archive/00981a-filter-studies.md`](../reports/research/_archive/00981a-filter-studies.md) · **DB 結論**：`copytrade_research_conclusions`（`details_json` 含完整數字）。
+> **逐研究報告**：filter #2–#10 見 `reports/research/_archive/00981a-filter-studies.md`（已歸檔移除） · **DB 結論**：`copytrade_research_conclusions`（`details_json` 含完整數字）。
 
 ### 10.1 共通評估契約（Filter Evaluation Contract）
 
@@ -459,21 +459,21 @@ ORDER BY horizon;
 ### 10.2 假設總表（#2–#10 + 執行層 + H1）
 
 > **契約更新 2026-06-18**：Primary 改為 **累計 α**（`total_alpha_ntd`）；單池實現超額 為 Secondary。  
-> **重跑**：20260618 批次 filter 可自 DB / 封存摘要查閱；H1 報告 [`hypothesis`](../reports/research/00981a-copytrade/20260618_00981a_hypothesis_l1h9.md)。
+> **重跑**：20260618 批次 filter 可自 DB / 封存摘要查閱；H1 報告 `hypothesis`（已歸檔移除）。
 
 | # | 假設 | 狀態 | 判決 | Primary Δ勝率 | 累計 α / Leg 檢定 | 報告 |
 |---|------|------|------|-----------------|-------------------|------|
-| **H1** | 跳過單日 5–10 檔異動的訊號日 | ✅ 2026-06-18 | **採納** | **+3.32 pp**（66.84%） | 累計 **+39,983**（↑173）· 單池 +9,098（↓）· 5-10 vs 2-4 p=0.12 | [`hypothesis`](../reports/research/00981a-copytrade/20260618_00981a_hypothesis_l1h9.md) |
-| **2** | 新进優先於加码（Initiation） | ✅ 2026-06-18 | **拒絕** | **−11.1 pp**（52.4%） | 累計 +7,135 vs +39,810 · p(W)=0.57 | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **3** | 隔夜跳空區間（Gap Band） | ✅ 2026-06-18 | **拒絕** skip | skip_extreme **−2.6 pp** · mild **−9.2 pp** | 累計 −14,146 · leg 區間內/外 **p=0.020**（方向相反） | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **4** | 大盤期貨隔夜風控（Macro Gap） | ✅ 2026-06-18 | **探索採納** `skip_tx<-3%`；拒絕 macro | skip_tx **+0.27 pp** · skip_macro **−1.7 pp** | 累計 +41,702（↑1,892）· 僅跳過 **2 日** · p(W)=0.0001 | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **5** | v8 行為樹 Eligible | ✅ 2026-06-18 | **拒絕** | **−8.2 pp** | 累計 +9,591 vs +39,810 · leg p=0.16 | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **6** | TA Pattern Gate | ✅ 2026-06-18 | **拒絕** 全局 | skip_overextended **−0.7 pp** · gate **−4.3 pp** | 累計 +2,984（↑）但勝率降 · leg **p=0.012** | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **7** | 籌碼確認（外資+融資） | ✅ 2026-06-18 | **拒絕** | chip_confirm **−8.6 pp** | 累計 +7,221 vs +39,810 · leg p=0.48 | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **8** | 開盤量價確認（09:05–15） | ✅ 2026-06-18 | **拒絕** 全局 | skip **−0.13 pp** | 累計 +36,375 vs +39,810 · leg **p=0.043** · L1+ **−8.3 pp** | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **9** | 加碼力度分位（Conviction） | ✅ 2026-06-18 | **拒絕** | top30 **−1.2 pp** | 累計 +6,013 vs +39,810 · leg **p=0.061** | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **10** | 多軌共振（Cross-Track） | ✅ 2026-06-18 | **拒絕** | triple **−5.6 pp** | 累計 +14,801 vs +39,810 · triple leg p=0.44 | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
-| **—** | 限價進場 −1/−2/−3%（執行） | ✅ 2026-06-18 | **拒絕** | −1% **−6.4 pp** · −3% **−7.1 pp** | 累計大降 · 成交 leg **p<0.0001** | [封存摘要](../reports/research/_archive/00981a-filter-studies.md) |
+| **H1** | 跳過單日 5–10 檔異動的訊號日 | ✅ 2026-06-18 | **採納** | **+3.32 pp**（66.84%） | 累計 **+39,983**（↑173）· 單池 +9,098（↓）· 5-10 vs 2-4 p=0.12 | `hypothesis`（已歸檔移除） |
+| **2** | 新进優先於加码（Initiation） | ✅ 2026-06-18 | **拒絕** | **−11.1 pp**（52.4%） | 累計 +7,135 vs +39,810 · p(W)=0.57 | 封存摘要（已歸檔移除） |
+| **3** | 隔夜跳空區間（Gap Band） | ✅ 2026-06-18 | **拒絕** skip | skip_extreme **−2.6 pp** · mild **−9.2 pp** | 累計 −14,146 · leg 區間內/外 **p=0.020**（方向相反） | 封存摘要（已歸檔移除） |
+| **4** | 大盤期貨隔夜風控（Macro Gap） | ✅ 2026-06-18 | **探索採納** `skip_tx<-3%`；拒絕 macro | skip_tx **+0.27 pp** · skip_macro **−1.7 pp** | 累計 +41,702（↑1,892）· 僅跳過 **2 日** · p(W)=0.0001 | 封存摘要（已歸檔移除） |
+| **5** | v8 行為樹 Eligible | ✅ 2026-06-18 | **拒絕** | **−8.2 pp** | 累計 +9,591 vs +39,810 · leg p=0.16 | 封存摘要（已歸檔移除） |
+| **6** | TA Pattern Gate | ✅ 2026-06-18 | **拒絕** 全局 | skip_overextended **−0.7 pp** · gate **−4.3 pp** | 累計 +2,984（↑）但勝率降 · leg **p=0.012** | 封存摘要（已歸檔移除） |
+| **7** | 籌碼確認（外資+融資） | ✅ 2026-06-18 | **拒絕** | chip_confirm **−8.6 pp** | 累計 +7,221 vs +39,810 · leg p=0.48 | 封存摘要（已歸檔移除） |
+| **8** | 開盤量價確認（09:05–15） | ✅ 2026-06-18 | **拒絕** 全局 | skip **−0.13 pp** | 累計 +36,375 vs +39,810 · leg **p=0.043** · L1+ **−8.3 pp** | 封存摘要（已歸檔移除） |
+| **9** | 加碼力度分位（Conviction） | ✅ 2026-06-18 | **拒絕** | top30 **−1.2 pp** | 累計 +6,013 vs +39,810 · leg **p=0.061** | 封存摘要（已歸檔移除） |
+| **10** | 多軌共振（Cross-Track） | ✅ 2026-06-18 | **拒絕** | triple **−5.6 pp** | 累計 +14,801 vs +39,810 · triple leg p=0.44 | 封存摘要（已歸檔移除） |
+| **—** | 限價進場 −1/−2/−3%（執行） | ✅ 2026-06-18 | **拒絕** | −1% **−6.4 pp** · −3% **−7.1 pp** | 累計大降 · 成交 leg **p<0.0001** | 封存摘要（已歸檔移除） |
 
 **小結（累計 α Primary）**：原 §10 九項 filter **仍全拒**（勝率多為負）；**新增採納** H1 `skip_5_10`；#4 `skip_tx<-3%` 為 **探索採納**（累計 α 升但僅 2 個跳過日，實盤意義有限）。#6 `skip_overextended` 累計 α 略升但勝率仍降 → 不採全局 skip。
 
@@ -645,7 +645,7 @@ $PY $SCRIPT --compare-allocation --strategy-id L1H9 --write-db
 
 ### 10.8 復檢結果（R-A / R-B · 2026-06-18）
 
-> 報告：[封存摘要](../reports/research/_archive/00981a-filter-studies.md) · batch `00981a-r-a-l1h9-20260618` / `00981a-r-b-l1h9-20260618`
+> 報告：封存摘要（已歸檔移除） · batch `00981a-r-a-l1h9-20260618` / `00981a-r-b-l1h9-20260618`
 
 **採納門檻（§10.7.4）**：Δ勝率 &gt; 0 **且** **累計 α** 提升 **且** p(W) &lt; 0.05（單池實現超額 僅 Secondary 參考）。
 
@@ -818,7 +818,7 @@ PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \
 
 **各桶 H*（累計 α 峰值）**：`2-4` / `5-10` / `11+` / `1` 在樣本內皆指向 **H27**（需 extended batch）；全局單池 Optimal hold (H*) 仍 **H9**（§5.2）。
 
-報告：[`l1f1_leg_bucket_horizon`](../reports/research/00981a-copytrade/20260618_00981a_l1f1_leg_bucket_horizon.md)
+報告：`l1f1_leg_bucket_horizon`（已歸檔移除）
 
 **實務含義**：
 
@@ -855,7 +855,7 @@ PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \
 
 **判決**：**`5_10_marginal_only`** — 5–10 桶 H9 近乎零 excess，延長 H 顯著修復；但跨桶分布差異未達 KW 顯著（可能為 **全局長持效應**，見 L1-H1）。5–10 **日均** Δα（420）高於 2–4（267），方向符合子假說，但 Mann–Whitney 單尾 p≈0.115 未過門檻。
 
-報告：[`l1h3_interaction`](../reports/research/00981a-copytrade/20260618_00981a_l1h3_interaction.md)
+報告：`l1h3_interaction`（已歸檔移除）
 
 **實務含義**：
 
@@ -905,7 +905,7 @@ PYTHONPATH=src .venv/bin/python scripts/run_00981a_copytrade_backtest.py \
 - 落地方式：**5–10 日獨立 H20 槽**，與全局 H9 槽並行，而非單池混用。
 - P4 skip 提捕獲率（14.4%）但 1 槽實現超額 仍低於 P1。
 
-報告：[`l1policy`](../reports/research/00981a-copytrade/20260618_00981a_l1policy.md)
+報告：`l1policy`（已歸檔移除）
 
 ### 11.7 待驗證（下一輪）
 

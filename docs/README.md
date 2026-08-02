@@ -13,7 +13,7 @@
 | [unified-backtest-standard.md](./unified-backtest-standard.md) | 跨軌比較層設計（不取代契約版） · 規劃中 |
 | [PRD.md](./PRD.md) | **現行產品範圍**（living doc） |
 | [order-layer-prd.md](./order-layer-prd.md) | **Order layer（下單層）完整藍圖** · Phase 0–4 |
-| [修改計畫書.md](./修改計畫書.md) | **跨層交叉 Lens · ETF 資金故事**（規劃中） |
+| 修改計畫書.md（已歸檔移除） | **跨層交叉 Lens · ETF 資金故事**（規劃中） |
 
 ---
 

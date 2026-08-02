@@ -14,7 +14,7 @@
 
 | 假設 | 判決 | Primary 證據 | 摘要 |
 |------|------|--------------|------|
-| #2 新进-only | 拒絕 | Δ勝率 **−11.1pp** | [`_archive/00981a-filter-studies.md`](../reports/research/_archive/00981a-filter-studies.md) |
+| #2 新进-only | 拒絕 | Δ勝率 **−11.1pp** | `_archive/00981a-filter-studies.md`（已歸檔移除） |
 | #3 跳空 band skip | 拒絕 | skip 極端 gap 更差 | 同上 |
 | #6 TA pattern gate | 拒絕 | skip 過熱 leg **p=0.012** 更差 | 同上 |
 | #7 籌碼確認 | 拒絕 | Δ勝率 −8.6pp | 同上 |
@@ -120,12 +120,12 @@
 下列 DB 表 **未刪除**（只讀審計）：
 
 - `copytrade_*_filter_compare`、`copytrade_recheck_compare`、`copytrade_v8_filter_compare` 等
-- 封存摘要：[`reports/research/_archive/00981a-filter-studies.md`](../reports/research/_archive/00981a-filter-studies.md)
+- 封存摘要：`reports/research/_archive/00981a-filter-studies.md`（已歸檔移除）
 
 ---
 
 ## 4. 相關文件
 
 - 跟單方法論：[`00981a-copytrade-research-methodology.md`](00981a-copytrade-research-methodology.md)
-- 行為研究架構：[`00981a-behavior-research.md`](00981a-behavior-research.md)
-- OOS 審計：摘要見 [`reports/research/_archive/etf-behavior-studies.md`](../reports/research/_archive/etf-behavior-studies.md)
+- 行為研究架構：`00981a-behavior-research.md`（已歸檔移除）
+- OOS 審計：摘要見 `reports/research/_archive/etf-behavior-studies.md`（已歸檔移除）
