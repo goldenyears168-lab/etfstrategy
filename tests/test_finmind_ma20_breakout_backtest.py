@@ -53,6 +53,9 @@ class ValidateSmokeTests(unittest.TestCase):
 
         if not DEFAULT_DB_PATH.is_file():
             self.skipTest("no stocks.db")
+        import os
+        if not os.environ.get("RUN_SLOW_DB_TESTS"):
+            self.skipTest("slow real-DB smoke (~16s on mini); set RUN_SLOW_DB_TESTS=1 to run")
         conn = connect(DEFAULT_DB_PATH)
         try:
             out = count_condition_passes(conn, "tw100", "2024-06-01", "2024-06-30")
