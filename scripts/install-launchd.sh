@@ -31,7 +31,6 @@ LABELS=(
   com.jackm4.goldenstocks.expert-pool-chart-digest
   com.jackm4.goldenstocks.holdings-branch-sell-monitor
   com.jackm4.goldenstocks.branch-tape-prewarm
-  com.jackm4.goldenstocks.crash-thermometer-daily
   com.jackm4.goldenstocks.ops-console-evening-sync
   com.jackm4.goldenstocks.mini-schedule
 )
@@ -48,7 +47,6 @@ TEMPLATES=(
   com.jackm4.goldenstocks.expert-pool-chart-digest.plist.template
   com.jackm4.goldenstocks.holdings-branch-sell-monitor.plist.template
   com.jackm4.goldenstocks.branch-tape-prewarm.plist.template
-  com.jackm4.goldenstocks.crash-thermometer-daily.plist.template
   com.jackm4.goldenstocks.ops-console-evening-sync.plist.template
   com.jackm4.goldenstocks.mini-schedule.plist.template
 )
@@ -72,7 +70,6 @@ usage() {
     expert-pool-chart-digest   週一至五 20:05（專家池達標 HTML 圖文 · 無達標不寄 · 不下單）
     holdings-branch-sell-monitor  週一至五 20:10（富邦持倉×專家分點淨賣預警 · 不下單）
     branch-tape-prewarm        週一至五 18:30（分點 tape 補檔 POOLS∪持倉 · 讓 20:00 起純讀 DB · 不下單）
-    crash-thermometer-daily    週一至五 09:00（大跌溫度計 · 加權8家+共識 · email · 不下單）
     ops-console-evening-sync   週一至五 20:40（ops.snapshots／sleeve／holdings 上牆 · 不下單）
     mini-schedule              每日 08:30（headless Claude 資料體檢 · 唯讀 DB · 不下單）
                                判準 SSOT：scripts/launchd/mini-schedule-prompt.txt
@@ -110,7 +107,6 @@ LAUNCHD_COMMANDS=(
   expert-pool-chart-digest
   holdings-branch-sell-monitor
   branch-tape-prewarm
-  crash-thermometer-daily
   ops-console-evening-sync
 )
 
@@ -198,6 +194,8 @@ RETIRED_LABELS=(
   com.jackm4.goldenstocks.ops-live-ta-poll
   com.jackm4.goldenstocks.live-ta-kbar-sync
   com.jackm4.goldenstocks.sell-signal-radar
+  # 2026-08-02 退役（訊號經驗證無效 31-35% · python 保留）
+  com.jackm4.goldenstocks.crash-thermometer-daily
   # 2026-08-02 mini 每日體檢搬入 repo 版控：舊手裝 label → 新 mini-schedule
   com.goldenstocks.mini
 )
@@ -445,7 +443,6 @@ render_template() {
       -e "s|{{EXPERT_POOL_CHART_LAUNCHER}}|${EXPERT_POOL_CHART_LAUNCHER}|g" \
       -e "s|{{HOLDINGS_BRANCH_SELL_LAUNCHER}}|${HOLDINGS_BRANCH_SELL_LAUNCHER}|g" \
       -e "s|{{BRANCH_TAPE_PREWARM_LAUNCHER}}|${BRANCH_TAPE_PREWARM_LAUNCHER}|g" \
-      -e "s|{{CRASH_THERMOMETER_LAUNCHER}}|${CRASH_THERMOMETER_LAUNCHER}|g" \
       -e "s|{{OPS_CONSOLE_EVENING_LAUNCHER}}|${OPS_CONSOLE_EVENING_LAUNCHER}|g" \
       -e "s|{{MINI_SCHEDULE_LAUNCHER}}|${MINI_SCHEDULE_LAUNCHER}|g" \
       -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
@@ -641,19 +638,6 @@ install_branch_tape_prewarm_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${BRANCH_TAPE_PREWARM_LAUNCHER}"
   chmod +x "${BRANCH_TAPE_PREWARM_LAUNCHER}"
-}
-
-install_crash_thermometer_launcher() {
-  local src="${LAUNCHD_SRC}/crash-thermometer-daily-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  CRASH_THERMOMETER_LAUNCHER="${app_support}/crash-thermometer-daily.sh"
-  if [[ ! -f "${src}" ]]; then
-    echo "✗ 缺少 ${src}" >&2
-    exit 1
-  fi
-  mkdir -p "${app_support}"
-  render_template "${src}" "${CRASH_THERMOMETER_LAUNCHER}"
-  chmod +x "${CRASH_THERMOMETER_LAUNCHER}"
 }
 
 install_ops_console_evening_launcher() {
@@ -895,7 +879,6 @@ install_agents() {
   EXPERT_POOL_CHART_LAUNCHER=""
   HOLDINGS_BRANCH_SELL_LAUNCHER=""
   BRANCH_TAPE_PREWARM_LAUNCHER=""
-  CRASH_THERMOMETER_LAUNCHER=""
   OPS_CONSOLE_EVENING_LAUNCHER=""
   MINI_SCHEDULE_LAUNCHER=""
   EVENING_HOLDINGS_LAUNCHER=""
@@ -920,7 +903,6 @@ install_agents() {
   install_expert_pool_chart_launcher
   install_holdings_branch_sell_launcher
   install_branch_tape_prewarm_launcher
-  install_crash_thermometer_launcher
   install_ops_console_evening_launcher
   install_mini_schedule_launcher
   # specialty-expert-pool-watch retired 2026-07-20 · merged into nightly-expert-digest

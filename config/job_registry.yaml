@@ -8,8 +8,10 @@
 # job currently will; check status + the .env flags for that.
 # status: enabled | disabled (launchctl disable — persists across reboot/reinstall)
 #
-# generated: 2026-07-29 · verified directly against mini (~/Library/LaunchAgents/*.plist +
-# launchctl print-disabled), not from memory or docs.
+# generated: 2026-07-29 · reconciled 2026-08-02 against live launchctl list
+# (retired ops-live-ta-poll/live-ta-kbar-sync; winbond→nightly-expert-digest;
+#  added capitulation-oos-accumulate). Verified directly against mini
+# (~/Library/LaunchAgents/*.plist + launchctl print-disabled), not from memory or docs.
 
 version: job-registry-v1
 
@@ -113,12 +115,14 @@ jobs:
     description: "分點 tape backfill for POOLS ∪ holdings, so 20:00+ jobs read pure DB"
 
   # --- 分點/expert-pool research + digests (the line that stays active) ---
-  - label: winbond-expert-pool-watch
+  # installed launchd label is `nightly-expert-digest`; earlier names
+  # specialty-expert-pool-watch / winbond-expert-pool-watch merged into it.
+  - label: nightly-expert-digest
     category: research
     order_capable: false
     status: enabled
     schedule: "weekdays 20:00"
-    description: "Expert-pool + 松山/新店 buy-side consensus digest, email only"
+    description: "Expert-pool + 松山/新店 buy-side consensus digest, email only (formerly winbond-/specialty-expert-pool-watch)"
 
   - label: second-disp-expert-pool-watch
     category: research
@@ -148,6 +152,13 @@ jobs:
     schedule: "weekly, Sat 08:00"
     description: "Disposition-stock OOS sample accumulation for expert-pool validation"
 
+  - label: capitulation-oos-accumulate
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 19:00"
+    description: "投降抄底 forward OOS ledger (capitulation_forward_ledger.py); accumulates out-of-sample events to break the single 2026 regime limit. Read-only DB, email only, 不下單. Added 2026-08-01 (commit ba3e198)."
+
   - label: crash-thermometer-daily
     category: research
     order_capable: false
@@ -174,14 +185,16 @@ jobs:
   - label: ops-live-ta-poll
     category: webfeed
     order_capable: false
-    status: enabled
+    status: retired
+    retired_since: "2026-08-01"  # in install-launchd.sh RETIRED_LABELS; python kept, plist removed
     schedule: "weekdays ~08:50 trigger, loops to 13:35"
     description: "Live holdings TA → ops.live_ta (Supabase); single Fubon login per poll cycle"
 
   - label: live-ta-kbar-sync
     category: webfeed
     order_capable: false
-    status: enabled
+    status: retired
+    retired_since: "2026-08-01"  # in install-launchd.sh RETIRED_LABELS; python kept, plist removed
     schedule: "weekdays 14:00"
     description: "Daily stock_kbar_1m gap-fill for today's dynamic Live TA universe (added 2026-07-28)"
 
@@ -233,7 +246,7 @@ cloud_routines:
 # evening-holdings, morning-holdings-brief, intraday-exit-gate, intraday-open/midday/1300-digest,
 # rrg-mono-intraday-watch, vcp-funnel-specs, minervini-sepa-basket, mutual-fund-disclosure-watch,
 # weekly-deep, c18acc-extension-overlay, order-chase-open, etfedge-import,
-# specialty-expert-pool-watch (merged into winbond-expert-pool-watch).
+# specialty-expert-pool-watch / winbond-expert-pool-watch (merged into nightly-expert-digest).
 # See git log (2026-07-29 commits) for why each was retired.
 
 # --- Completed 2026-08-01: GitHub repo renamed etfstrategy -> goldenstocks, mini's launchd
