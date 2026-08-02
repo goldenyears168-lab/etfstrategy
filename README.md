@@ -52,7 +52,6 @@ scripts/1630收盤雷達.command
 |------|------|----------|
 | `.venv` | 主環境（Python 3.13） | 一律需要 |
 | `.venv-fubon` | 富邦 Neo 下單 SDK wheel | 只有真的要送單（Order layer）才需要 |
-| `.venv-qlib` | qlib 研究（Python 3.11） | 只有跑 qlib 研究才需要 |
 
 ---
 

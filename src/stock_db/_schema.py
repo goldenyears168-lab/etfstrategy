@@ -723,21 +723,6 @@ CREATE TABLE IF NOT EXISTS stock_corporate_actions (
 CREATE INDEX IF NOT EXISTS idx_stock_corporate_actions_date
     ON stock_corporate_actions (ex_date DESC, symbol_key);
 
-CREATE TABLE IF NOT EXISTS qlib_tw_factor_scores (
-    stock_id TEXT NOT NULL,
-    as_of_date TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    stock_name TEXT,
-    composite_score REAL NOT NULL,
-    rank_n INTEGER NOT NULL,
-    feature_date TEXT NOT NULL,
-    features_json TEXT,
-    synced_at TEXT NOT NULL,
-    PRIMARY KEY (stock_id, as_of_date, model_id)
-);
-CREATE INDEX IF NOT EXISTS idx_qlib_tw_factor_date
-    ON qlib_tw_factor_scores (as_of_date DESC, model_id, rank_n);
-
 CREATE TABLE IF NOT EXISTS flow_event_legs (
     event_date TEXT NOT NULL,
     prev_date TEXT NOT NULL,

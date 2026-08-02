@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 常用指令
 
 ```bash
-# 環境（主 venv；.venv-fubon 專供 Fubon Neo SDK，.venv-qlib 供 qlib 研究）
+# 環境（主 venv；.venv-fubon 專供 Fubon Neo SDK）。qlib/TW100-ML 線已退役（2026-08）
 source .venv/bin/activate
 
 # Lint（CI 同款；只檢 E9/F63/F7/F82 語法與未定義名稱）
