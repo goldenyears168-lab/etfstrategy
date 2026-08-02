@@ -56,6 +56,7 @@ launchctl list | grep -c goldenstocks   # >0 表示這台掛著 live 排程 → 
 | 只 `git pull` 保持備援（不 commit、不 push、不裝 launchd） | **MacBook** |
 
 - **Git 方向**：mini push、Book pull（單向）。mini 用 GitHub **deploy key（Read/write）**推 origin；Book 只 `git pull --ff-only`，**永不**在 Book commit／push，以免兩台分叉。single source of truth = mini。
+- **Branch 政策**：mini 一律**直接 commit 到 `main`，不開 feature branch**（兩機單線模型；Book `pull --ff-only main`，多開 branch 只會把單線切碎）。**不要**套用「在 default branch 上先開 branch」的通用 agent 預設——本 repo 不走 PR-based 流程。
 - 在 **mini** 上改碼會直接影響下次排程 run，動 `scripts/`／`launchd/`／`config/order.yaml` 前先想清楚；不要為了測試改實彈旗標。commit 前先 `git status` 確認沒把生產態誤 `git add`（`.env`／`data/`／`logs/`／`*.db`／`CAFubon/**` 憑證均已 gitignored，但仍別無腦 `git add -A`）。
 - **絕不**在 Book 安裝 live `com.jackm4.goldenstocks.*` launchd；不雙跑 Order launchd。這條硬邊界不因「mini 當開發機」而放寬。
 - 生產 SQLite SSOT 在 mini `${GOLDENSTOCKS_DATA_DIR}/data/stocks.db`（~40GB + WAL，**預設唯讀查詢**，寫入／`VACUUM` 會鎖住正在跑的排程）；Book 只有 replica，兩份不同步是刻意設計。
