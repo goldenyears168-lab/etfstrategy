@@ -192,6 +192,21 @@ jobs:
     schedule: "weekdays 20:40"
     description: "ops.snapshots / sleeve / holdings sync to Supabase for the website"
 
+  # --- Local AI agent job (headless Claude Code, not a Python pipeline) ---
+  - label: mini-schedule
+    category: health
+    order_capable: false
+    status: enabled
+    schedule: "daily 08:30"
+    description: >-
+      mini daily data health check — headless `claude -p` (sonnet,
+      --dangerously-skip-permissions), read-only on stocks.db, writes
+      goldenstocks-data/data/research/daily_health_<date>.md. Moved into repo
+      version control 2026-08-02 from goldenstocks-data/scripts/mini_schedule.sh
+      (old hand-installed label com.goldenstocks.mini retired). Criteria SSOT:
+      scripts/launchd/mini-schedule-prompt.txt. cwd is GOLDENSTOCKS_DATA_DIR so
+      that directory's CLAUDE.md acts as the agent's guardrail.
+
 # --- Cloud agents (not mini launchd — Claude Code scheduled routines, separate system) ---
 cloud_routines:
   - name: daily-foreign-rotation-commentary

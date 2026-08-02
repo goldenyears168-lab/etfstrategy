@@ -17,41 +17,40 @@ AGENT_DIR="${HOME}/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 GUI_DOMAIN="gui/${UID_NUM}"
 
-# 研究層 collect job（fubon-premarket/fubon-intraday-quote-collect · pre-market-auction-collect）刻意不在此陣列：plist 佔位符無 launcher template，安裝方式見各 scripts/launchd/*collect*.command 檔頭（一次性手動 sed + bootstrap）。
+# 研究層 collect job（fubon-premarket/fubon-intraday-quote-collect）刻意不在此陣列：plist 佔位符無 launcher template，安裝方式見各 scripts/launchd/*collect*.command 檔頭（一次性手動 sed + bootstrap）。
+# （pre-market-auction-collect 已於 2026-08-01 退役，見 RETIRED_LABELS。）
 LABELS=(
   com.jackm4.goldenstocks.rrg-c18acc-poll
   com.jackm4.goldenstocks.buy-signal-radar
-  com.jackm4.goldenstocks.sell-signal-radar
   com.jackm4.goldenstocks.detach-gate
   com.jackm4.goldenstocks.leading-dip-poll
   com.jackm4.goldenstocks.songshan-copytrade-poll
   com.jackm4.goldenstocks.expert-pool-staged-gate
-  com.jackm4.goldenstocks.winbond-expert-pool-watch
+  com.jackm4.goldenstocks.nightly-expert-digest
   com.jackm4.goldenstocks.second-disp-expert-pool-watch
   com.jackm4.goldenstocks.expert-pool-chart-digest
   com.jackm4.goldenstocks.holdings-branch-sell-monitor
   com.jackm4.goldenstocks.branch-tape-prewarm
   com.jackm4.goldenstocks.crash-thermometer-daily
-  com.jackm4.goldenstocks.ops-live-ta-poll
   com.jackm4.goldenstocks.ops-console-evening-sync
+  com.jackm4.goldenstocks.mini-schedule
 )
 
 TEMPLATES=(
   com.jackm4.goldenstocks.rrg-c18acc-poll.plist.template
   com.jackm4.goldenstocks.buy-signal-radar.plist.template
-  com.jackm4.goldenstocks.sell-signal-radar.plist.template
   com.jackm4.goldenstocks.detach-gate.plist.template
   com.jackm4.goldenstocks.leading-dip-poll.plist.template
   com.jackm4.goldenstocks.songshan-copytrade-poll.plist.template
   com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
-  com.jackm4.goldenstocks.winbond-expert-pool-watch.plist.template
+  com.jackm4.goldenstocks.nightly-expert-digest.plist.template
   com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
   com.jackm4.goldenstocks.expert-pool-chart-digest.plist.template
   com.jackm4.goldenstocks.holdings-branch-sell-monitor.plist.template
   com.jackm4.goldenstocks.branch-tape-prewarm.plist.template
   com.jackm4.goldenstocks.crash-thermometer-daily.plist.template
-  com.jackm4.goldenstocks.ops-live-ta-poll.plist.template
   com.jackm4.goldenstocks.ops-console-evening-sync.plist.template
+  com.jackm4.goldenstocks.mini-schedule.plist.template
 )
 
 usage() {
@@ -64,22 +63,24 @@ usage() {
   現行排程（Order layer · C18acc / Leading Dip / Songshan；本地時間）：
     rrg-c18acc-poll         週一至五 09:00–13:30 每 5 分（C18acc swap · auto-submit）
     buy-signal-radar        週一至五 09:00–13:20 每 5 分（notify；ABC Order 已退役）
-    sell-signal-radar       週一至五 09:06–13:20 每 5 分（extension 持倉賣出 advisory）
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
     songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 預算制約10萬）
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
-    winbond-expert-pool-watch  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
+    nightly-expert-digest  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
     expert-pool-chart-digest   週一至五 20:05（專家池達標 HTML 圖文 · 無達標不寄 · 不下單）
     holdings-branch-sell-monitor  週一至五 20:10（富邦持倉×專家分點淨賣預警 · 不下單）
     branch-tape-prewarm        週一至五 18:30（分點 tape 補檔 POOLS∪持倉 · 讓 20:00 起純讀 DB · 不下單）
     crash-thermometer-daily    週一至五 09:00（大跌溫度計 · 加權8家+共識 · email · 不下單）
-    ops-live-ta-poll           週一至五 08:50 觸發一次 · --loop 至 13:35（持倉 Live TA → ops.live_ta · 一登入 · 不下單）
     ops-console-evening-sync   週一至五 20:40（ops.snapshots／sleeve／holdings 上牆 · 不下單）
+    mini-schedule              每日 08:30（headless Claude 資料體檢 · 唯讀 DB · 不下單）
+                               判準 SSOT：scripts/launchd/mini-schedule-prompt.txt
+                               cwd 為 GOLDENSTOCKS_DATA_DIR（護欄＝該目錄 CLAUDE.md）
 
-  已退役（不再安裝；手動仍可用 scripts/launchd/*.command 或 1630收盤雷達）：
-    specialty-expert-pool-watch（已併入 winbond-expert-pool-watch 統一入口）·
+  已退役（不再安裝；手動仍可用對應 python）：
+    pre-market-auction-collect · ops-live-ta-poll · live-ta-kbar-sync · sell-signal-radar（2026-08-01 退役 · python 保留 · 配備/範本備份於 goldenstocks-data/.retired-launchd-backup-*）·
+    specialty-expert-pool-watch（已併入 nightly-expert-digest 統一入口）·
     morning-holdings-brief（2026-07-16 退役 · 手動仍可用 scripts/order/morning_holdings_brief.py）·
     ABC v3+f1 Order（buy-radar 不再送單）·
     intraday-exit-gate（結構停損閘門 · 已退回 Research）·
@@ -100,18 +101,16 @@ EOF
 LAUNCHD_COMMANDS=(
   rrg-c18acc-poll
   buy-signal-radar
-  sell-signal-radar
   detach-gate
   leading-dip-poll
   songshan-copytrade-poll
   expert-pool-staged-gate
-  winbond-expert-pool-watch
+  nightly-expert-digest
   second-disp-expert-pool-watch
   expert-pool-chart-digest
   holdings-branch-sell-monitor
   branch-tape-prewarm
   crash-thermometer-daily
-  ops-live-ta-poll
   ops-console-evening-sync
 )
 
@@ -194,6 +193,13 @@ RETIRED_LABELS=(
   com.jackm4.goldenstocks.minervini-sepa-basket
   com.jackm4.goldenstocks.intraday-exit-gate
   com.jackm4.goldenstocks.specialty-expert-pool-watch
+  # 2026-08-01 退役（保留 python；見 goldenstocks-data/.retired-launchd-backup-*）
+  com.jackm4.goldenstocks.pre-market-auction-collect
+  com.jackm4.goldenstocks.ops-live-ta-poll
+  com.jackm4.goldenstocks.live-ta-kbar-sync
+  com.jackm4.goldenstocks.sell-signal-radar
+  # 2026-08-02 mini 每日體檢搬入 repo 版控：舊手裝 label → 新 mini-schedule
+  com.goldenstocks.mini
 )
 
 uninstall_retired_agents() {
@@ -269,7 +275,6 @@ render_template() {
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -294,7 +299,6 @@ render_template() {
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -320,7 +324,6 @@ render_template() {
         -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -346,7 +349,6 @@ render_template() {
         -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
         -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
@@ -387,7 +389,6 @@ render_template() {
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -412,7 +413,6 @@ render_template() {
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
@@ -436,19 +436,18 @@ render_template() {
       -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
       -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
       -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-      -e "s|{{SELL_RADAR_LAUNCHER}}|${SELL_RADAR_LAUNCHER}|g" \
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
       -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
       -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
-      -e "s|{{WINBOND_EXPERT_LAUNCHER}}|${WINBOND_EXPERT_LAUNCHER}|g" \
+      -e "s|{{NIGHTLY_EXPERT_DIGEST_LAUNCHER}}|${NIGHTLY_EXPERT_DIGEST_LAUNCHER}|g" \
       -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
       -e "s|{{EXPERT_POOL_CHART_LAUNCHER}}|${EXPERT_POOL_CHART_LAUNCHER}|g" \
       -e "s|{{HOLDINGS_BRANCH_SELL_LAUNCHER}}|${HOLDINGS_BRANCH_SELL_LAUNCHER}|g" \
       -e "s|{{BRANCH_TAPE_PREWARM_LAUNCHER}}|${BRANCH_TAPE_PREWARM_LAUNCHER}|g" \
       -e "s|{{CRASH_THERMOMETER_LAUNCHER}}|${CRASH_THERMOMETER_LAUNCHER}|g" \
-      -e "s|{{OPS_LIVE_TA_LAUNCHER}}|${OPS_LIVE_TA_LAUNCHER}|g" \
       -e "s|{{OPS_CONSOLE_EVENING_LAUNCHER}}|${OPS_CONSOLE_EVENING_LAUNCHER}|g" \
+      -e "s|{{MINI_SCHEDULE_LAUNCHER}}|${MINI_SCHEDULE_LAUNCHER}|g" \
       -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
       -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
       -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
@@ -525,19 +524,6 @@ install_buy_radar_launcher() {
   chmod +x "${BUY_RADAR_LAUNCHER}"
 }
 
-install_sell_radar_launcher() {
-  local src="${LAUNCHD_SRC}/sell-signal-radar-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  SELL_RADAR_LAUNCHER="${app_support}/sell-signal-radar.sh"
-  if [[ ! -f "${src}" ]]; then
-    echo "✗ 缺少 ${src}" >&2
-    exit 1
-  fi
-  mkdir -p "${app_support}"
-  render_template "${src}" "${SELL_RADAR_LAUNCHER}"
-  chmod +x "${SELL_RADAR_LAUNCHER}"
-}
-
 install_detach_gate_launcher() {
   local src="${LAUNCHD_SRC}/detach-gate-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
@@ -592,17 +578,17 @@ install_ep_staged_gate_launcher() {
   chmod +x "${EP_STAGED_GATE_LAUNCHER}"
 }
 
-install_winbond_expert_launcher() {
-  local src="${LAUNCHD_SRC}/winbond-expert-pool-watch-launcher.sh.template"
+install_nightly_expert_digest_launcher() {
+  local src="${LAUNCHD_SRC}/nightly-expert-digest-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  WINBOND_EXPERT_LAUNCHER="${app_support}/winbond-expert-pool-watch.sh"
+  NIGHTLY_EXPERT_DIGEST_LAUNCHER="${app_support}/nightly-expert-digest.sh"
   if [[ ! -f "${src}" ]]; then
     echo "✗ 缺少 ${src}" >&2
     exit 1
   fi
   mkdir -p "${app_support}"
-  render_template "${src}" "${WINBOND_EXPERT_LAUNCHER}"
-  chmod +x "${WINBOND_EXPERT_LAUNCHER}"
+  render_template "${src}" "${NIGHTLY_EXPERT_DIGEST_LAUNCHER}"
+  chmod +x "${NIGHTLY_EXPERT_DIGEST_LAUNCHER}"
 }
 
 install_second_disp_expert_launcher() {
@@ -670,19 +656,6 @@ install_crash_thermometer_launcher() {
   chmod +x "${CRASH_THERMOMETER_LAUNCHER}"
 }
 
-install_ops_live_ta_launcher() {
-  local src="${LAUNCHD_SRC}/ops-live-ta-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  OPS_LIVE_TA_LAUNCHER="${app_support}/ops-live-ta-poll.sh"
-  if [[ ! -f "${src}" ]]; then
-    echo "✗ 缺少 ${src}" >&2
-    exit 1
-  fi
-  mkdir -p "${app_support}"
-  render_template "${src}" "${OPS_LIVE_TA_LAUNCHER}"
-  chmod +x "${OPS_LIVE_TA_LAUNCHER}"
-}
-
 install_ops_console_evening_launcher() {
   local src="${LAUNCHD_SRC}/ops-console-evening-sync-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
@@ -694,6 +667,24 @@ install_ops_console_evening_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${OPS_CONSOLE_EVENING_LAUNCHER}"
   chmod +x "${OPS_CONSOLE_EVENING_LAUNCHER}"
+}
+
+install_mini_schedule_launcher() {
+  local src="${LAUNCHD_SRC}/mini-schedule-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  MINI_SCHEDULE_LAUNCHER="${app_support}/mini-schedule.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  # 判準 SSOT：prompt 進 repo 後，改判準 = 改這支檔案（不是改程式）
+  if [[ ! -f "${PROJECT_ROOT}/scripts/launchd/mini-schedule-prompt.txt" ]]; then
+    echo "✗ 缺少 ${PROJECT_ROOT}/scripts/launchd/mini-schedule-prompt.txt" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${MINI_SCHEDULE_LAUNCHER}"
+  chmod +x "${MINI_SCHEDULE_LAUNCHER}"
 }
 
 install_evening_holdings_launcher() {
@@ -895,19 +886,18 @@ install_agents() {
   C18ACC_LAUNCHER=""
   EXTENSION_LAUNCHER=""
   BUY_RADAR_LAUNCHER=""
-  SELL_RADAR_LAUNCHER=""
   DETACH_GATE_LAUNCHER=""
   LEADING_DIP_LAUNCHER=""
   SONGSHAN_COPYTRADE_LAUNCHER=""
   EP_STAGED_GATE_LAUNCHER=""
-  WINBOND_EXPERT_LAUNCHER=""
+  NIGHTLY_EXPERT_DIGEST_LAUNCHER=""
   SECOND_DISP_EXPERT_LAUNCHER=""
   EXPERT_POOL_CHART_LAUNCHER=""
   HOLDINGS_BRANCH_SELL_LAUNCHER=""
   BRANCH_TAPE_PREWARM_LAUNCHER=""
   CRASH_THERMOMETER_LAUNCHER=""
-  OPS_LIVE_TA_LAUNCHER=""
   OPS_CONSOLE_EVENING_LAUNCHER=""
+  MINI_SCHEDULE_LAUNCHER=""
   EVENING_HOLDINGS_LAUNCHER=""
   MORNING_BRIEF_LAUNCHER=""
   INTRADAY_GATE_LAUNCHER=""
@@ -921,20 +911,19 @@ install_agents() {
   WEEKLY_DEEP_LAUNCHER=""
   install_c18acc_launcher
   install_buy_radar_launcher
-  install_sell_radar_launcher
   install_detach_gate_launcher
   install_leading_dip_launcher
   install_songshan_copytrade_launcher
   install_ep_staged_gate_launcher
-  install_winbond_expert_launcher
+  install_nightly_expert_digest_launcher
   install_second_disp_expert_launcher
   install_expert_pool_chart_launcher
   install_holdings_branch_sell_launcher
   install_branch_tape_prewarm_launcher
   install_crash_thermometer_launcher
-  install_ops_live_ta_launcher
   install_ops_console_evening_launcher
-  # specialty-expert-pool-watch retired 2026-07-20 · merged into winbond-expert-pool-watch
+  install_mini_schedule_launcher
+  # specialty-expert-pool-watch retired 2026-07-20 · merged into nightly-expert-digest
   # morning-holdings-brief retired 2026-07-16 · not installed
 
   echo "專案：${PROJECT_ROOT}"

@@ -5,6 +5,11 @@
 >
 > 8-section 採納報告的正式模板（`docs/readdy-regime-strategy-lineage.md §1.2`）已隨公開站退役
 > 移到 `archives/RETIRED_readdy-regime-strategy-lineage.md`，本文件改仿 [`00981a-copytrade-research-methodology.md`](00981a-copytrade-research-methodology.md) 的結構撰寫。
+>
+> ⚠️ **2026-08-02 資料狀態更新**：本研究所依賴的「含 106 檔已下市股的 2504 檔擴充宇宙」（第0.4節）
+> 已於 macbook/Book 端瘦身時移除，本地不再保留該擴充宇宙。**要重跑或重驗本策略前，須先執行
+> `scripts/research/backfill_delisted_stock_universe.py` + `scripts/backfill_delisted_stock_prices.py`
+> 重建存活者偏誤修正宇宙**，否則回測會退回存活者偏誤狀態。（策略仍為 research、未上線，正式下單不受影響。）
 
 ## 0. 研究問題演進
 

@@ -1,0 +1,45 @@
+你是本機每日排程 agent,可存取專案目錄 /Users/jackm4/goldenstocks-data 與本機資料庫 data/stocks.db(約 40GB SQLite,含 100+ 表)。
+請用 bash + sqlite3 自動完成以下「mini 每日資料體檢」,全程自動化、不要問我、用你的專業判斷。所有結論都必須附上實際查詢的 SQL 與真實數字,嚴禁腦補。
+
+【最重要:先分清「設計上就小量」與「真的壞掉」——這是避免假警報的核心】
+每張表有它自己「預期的資料輪廓」。低數量 ≠ 壞掉。判定「真斷點」只認兩個標準:
+  (a) 沒有最新交易日的資料(相對 trade_anchor 落後 ≥2 個交易日),或
+  (b) 最新交易日的量,相對「該表自己近 20 個交易日的中位數」驟降到 < 50%。
+**嚴禁用任何絕對基準(例如「應有 1000~2500 檔」)去判斷 watchlist 表**——那是先前造成天天假警報的元兇。
+
+【各表預期輪廓(2026-08-01 根因調查核定,可實查驗證)】
+- daily_bars:指數表,約 13 個 code(TAIEX/IX0001/TWII…),不是個股。是交易日錨點來源。預期每交易日約 13 筆。
+- stock_daily_bars:**不是全市場表**,是多支 watchlist 同步的聯集(晚間同步只灌少數觀察股,如 3189,6147,2492,3653,6505)。近月每交易日約 130~370 檔屬正常,忽多忽少正常。只在符合 (a) 或 (b) 時才算壞。
+- stock_institutional_daily:小焦點清單,常態約 5~7 檔/天,正常。用 (a)(b) 判。
+- stock_broker_branch_daily(分點):常態由 branch-tape-prewarm 每日補「POOLS ∪ 富邦持倉」約 44 檔(~4萬列/天)。2026-07-16 以前的 ~50萬列/~2300檔是研究回填 campaign 的遺產、已結束,**不代表現在「應該」有那麼多**。除非另建全市場分點排程,否則 ~44 檔即正常。
+- market_vix_daily:**mini 本機不預期存在**(VIX 只在 Book)。查不到 = 正常,標「本機不適用」,不要算 ❌。
+- tech_risk_daily_snapshot、vcp_screen_scores_v2、qlib_tw_factor_scores、us_daily_bars、stock_margin_daily、futures_institutional_daily:用 (a)(b) 判準。
+
+【任務】
+1) 交易日錨點:trade_anchor = (SELECT max(date) FROM daily_bars)。印出它。
+
+2) 主幹表健康表:對下列「表 -> 日期欄」逐一算 ①max(日期) ②落後 trade_anchor 幾個交易日 ③最新交易日的量 vs 該表近 20 交易日中位數(%)。狀態依「預期輪廓 + (a)(b)」判:✅正常 / ⚠️留意 / ❌真斷點。查詢出錯標「查詢失敗」並附錯誤、不要中止。
+   daily_bars=date, stock_daily_bars=trade_date, market_vix_daily=date,
+   tech_risk_daily_snapshot=session_date,
+   futures_institutional_daily=trade_date, stock_institutional_daily=trade_date,
+   stock_margin_daily=trade_date, vcp_screen_scores_v2=as_of_date,
+   qlib_tw_factor_scores=as_of_date, us_daily_bars=trade_date
+   (market_vix_daily 若不存在 → 標「本機不適用」,不算 ❌。)
+
+3) 真斷點清單:**只列**符合 (a) 或 (b) 的表,並註明是「沒有最新交易日」還是「相對自身中位數驟降」。設計上就小量的表(見輪廓)不要列進來。若無真斷點,明講「今日無真斷點」。
+
+4) 昨日驗證:讀 data/research/ 底下最近一份 daily_health_*.md(若有),對照它的「真斷點清單」,今天逐項說「已修復 / 仍斷 / 新增」。若無前一份,寫「首日,無可驗證」。
+
+5) 今日可用結論:只從「健康 ✅」的表挑 3 件今天真正值得注意的事(例:tech_risk 的 TSM/SOX 位置、三大法人/期貨動向、因子分數變化),各附 SQL 與數字。壞掉或不適用的表不要當結論來源。
+
+6) 產出報告到 data/research/daily_health_<今天日期YYYYMMDD>.md,結構固定:
+   ## 交易日錨點
+   ## 主幹表健康(表格:表 / 最新日 / 落後天數 / 最新量vs自身中位數% / 狀態)
+   ## 真斷點清單(只列真的壞的;無則明講)
+   ## 昨日驗證
+   ## 今日可用結論(僅取健康表,附 SQL)
+   ## 最該先修的一件事(你的判斷:哪個真斷點對「情報品質」影響最大,下一步怎麼查)
+
+7) 最後在 stdout 印出:報告檔完整路徑 + 三行摘要(幾張表 ❌真斷點、有無新增斷點、最該修的一件事)。
+
+限制:mini 版,控制在合理成本內。只讀本機資料庫,不要爬任何外部網站,不要修改資料庫。

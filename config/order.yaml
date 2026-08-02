@@ -307,8 +307,11 @@ expert_pool_staged_gate:
     dd05_perfect_min_pct: -2.0
     ret25_skip_max_pct: -2.0
   jobs:
+    # 過期範例（已停用）· jobs 為每日手動維護：每個交易日新增一筆 once_date=當日、
+    # 帶當日 symbol 與昨收 signal_close。無有效 job 時排程不再靜默空轉，會印
+    # EP_STAGED_GATE_NO_ACTIVE_JOBS=1 並（每日一次）寄提醒。
     - id: ep_2327_20260723
-      enabled: true
+      enabled: false
       once_date: "2026-07-23"
       symbol: "2327"
       signal_close: 703
@@ -316,7 +319,7 @@ expert_pool_staged_gate:
       user_def: ep2327
       notes: "國巨 · 收703 · <717開買 · 717–731等05 · ≥731或>724等25"
     - id: ep_8046_20260723
-      enabled: true
+      enabled: false
       once_date: "2026-07-23"
       symbol: "8046"
       signal_close: 1305

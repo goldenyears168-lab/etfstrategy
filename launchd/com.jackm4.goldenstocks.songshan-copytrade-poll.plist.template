@@ -15,11 +15,13 @@
 	<dict>
 		<key>SYNC_PROFILE</key>
 		<string>songshan-copytrade-poll</string>
+		<key>GOLDENSTOCKS_DATA_DIR</key>
+		<string>/Users/jackm4/goldenstocks-data</string>
 		<key>RUN_SONGSHAN_COPYTRADE_POLL</key>
 		<string>1</string>
+		<!-- SAFE defaults · 實彈由 .env 的 ORDER_MASTER_ENABLED + 袖 ENABLED 開啟 -->
 		<key>ORDER_SONGSHAN_COPYTRADE_ENABLED</key>
-		<string>1</string>
-		<!-- Safe defaults; .env / order.env override live -->
+		<string>0</string>
 		<key>ORDER_SONGSHAN_COPYTRADE_DRY_RUN</key>
 		<string>1</string>
 		<key>ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT</key>

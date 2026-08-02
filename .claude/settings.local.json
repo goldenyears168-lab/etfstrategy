@@ -19,7 +19,15 @@
       "Bash(ssh -o BatchMode=yes mac-mini-lan \"cd '/Users/jackm4/goldenstocks' && source .venv/bin/activate 2>/dev/null && PYTHONPATH=src python3 scripts/research/whale_branch_l1h7_deepdive_9239_probe.py 2>&1\")",
       "Bash(ssh -o ConnectTimeout=10 mac-mini 'echo \"mini sshd OK: $\\(date\\)\"; uptime')",
       "Bash(ping -c 3 -t 5 100.81.2.33)",
-      "WebFetch(domain:www.wantgoo.com)"
+      "WebFetch(domain:www.wantgoo.com)",
+      "Bash(.venv/bin/python -V)",
+      "Bash(.venv-fubon/bin/python -V)",
+      "Bash(.venv-qlib/bin/python -V)",
+      "Read(//Applications/Tailscale.app/**)",
+      "Bash(tailscale status *)",
+      "Bash(/Applications/Tailscale.app/Contents/MacOS/Tailscale status *)",
+      "Bash(scutil --get ComputerName)",
+      "Read(//Users/jackm4/goldenstocks-data/docs/**)"
     ]
   }
 }

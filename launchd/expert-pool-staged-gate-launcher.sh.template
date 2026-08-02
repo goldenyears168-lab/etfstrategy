@@ -99,6 +99,25 @@ if echo "${OUT}" | grep -qE '"status": "(bought|dry_run_buy|skipped|wait_05|wait
   set -e
 fi
 
+# 今日無有效 job（config/order.yaml jobs 的 once_date 已過期）→ 每日一次提醒，
+# 別再靜默空轉。marker 由 run_expert_pool_staged_gate.py 印出。
+if echo "${OUT}" | grep -q 'EP_STAGED_GATE_NO_ACTIVE_JOBS=1'; then
+  NOJOB_FLAG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/ep_staged_gate_nojob_${STAMP}.flag"
+  if [[ ! -f "${NOJOB_FLAG}" ]]; then
+    echo "WARN: expert-pool-staged-gate 今日無有效 job（config once_date 已過期）· 需更新 config/order.yaml"
+    set +e
+    "${ROOT}/.venv/bin/python" "${ROOT}/scripts/notify_job_result.py" \
+      --subject-prefix="Expert-pool staged gate · 今日無有效標的" \
+      --exit-code=0 \
+      --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_expert-pool-staged-gate.log" \
+      --extra=$'staged-gate 今日無有效 job（config/order.yaml 的 expert_pool_staged_gate.jobs · once_date 已過期）。\n若要今日啟用，請更新 jobs（symbol／signal_close／once_date=今日）。' \
+      --env-flag="ORDER_EP_STAGED_GATE_SUBMIT_EMAIL"
+    NOTIFY_RC=$?
+    set -e
+    [[ "${NOTIFY_RC}" -eq 0 ]] && : >"${NOJOB_FLAG}"
+  fi
+fi
+
 END_LINE="=== launchd expert-pool-staged-gate end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
 echo "${END_LINE}" >>"${TICK_LOG}"
 echo "${END_LINE}"

@@ -49,7 +49,42 @@ def main() -> int:
     if stage and args.ignore_clock:
         os.environ["ORDER_EP_STAGED_GATE_STAGE"] = stage
 
-    from order.expert_pool_staged_gate import run_staged_gate
+    from order.expert_pool_staged_gate import load_gate_config, run_staged_gate
+
+    # 今日無任何有效 job（config jobs 全停用或 once_date 已過期）時，不要靜默空轉。
+    # once_date 為空 = 每日皆有效；否則必須等於今日才算有效。
+    # 印出明顯 marker（launcher 會據此每日寄一次提醒），並跳過（連富邦都不連）。
+    cfg = load_gate_config()
+    jobs = cfg.get("jobs") or []
+    active_today = [
+        j
+        for j in jobs
+        if isinstance(j, dict)
+        and j.get("enabled", True)
+        and str(j.get("once_date") or "") in ("", day)
+    ]
+    if jobs and not active_today:
+        stale = sorted({str(j.get("once_date")) for j in jobs if isinstance(j, dict)})
+        print(
+            json.dumps(
+                {
+                    "status": "no_active_jobs",
+                    "session_date": day,
+                    "configured_jobs": len(jobs),
+                    "stale_once_dates": stale,
+                    "hint": (
+                        "更新 config/order.yaml 的 expert_pool_staged_gate.jobs"
+                        "（symbol／signal_close／once_date=今日）以啟用"
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+        )
+        print("EP_STAGED_GATE_NO_ACTIVE_JOBS=1")
+        print("EP_STAGED_GATE=1")
+        return 0
 
     out = run_staged_gate(
         session_date=day,

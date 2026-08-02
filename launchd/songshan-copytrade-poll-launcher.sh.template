@@ -68,7 +68,7 @@ _load_env_file "${APP_SUPPORT}/order.env" "order.env"
 _load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
 
 export RUN_SONGSHAN_COPYTRADE_POLL="${RUN_SONGSHAN_COPYTRADE_POLL:-1}"
-export ORDER_SONGSHAN_COPYTRADE_ENABLED="${ORDER_SONGSHAN_COPYTRADE_ENABLED:-1}"
+export ORDER_SONGSHAN_COPYTRADE_ENABLED="${ORDER_SONGSHAN_COPYTRADE_ENABLED:-0}"
 export ORDER_SONGSHAN_COPYTRADE_DRY_RUN="${ORDER_SONGSHAN_COPYTRADE_DRY_RUN:-1}"
 export ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT="${ORDER_SONGSHAN_COPYTRADE_AUTO_SUBMIT:-0}"
 
@@ -96,22 +96,34 @@ set -e
 
 echo "${OUT}"
 
+# 寄信去重（比照 rrg-c18acc）：同一組標的訊號當天只寄一次，避免 dry-run 下
+# 窗內每 tick 因未寫 ledger 而重複寄信。簽章 = 當日訊號行的股票代碼集合。
 if echo "${OUT}" | grep -qE 'SONGSHAN_COPYTRADE_ENTRY=1|SONGSHAN_COPYTRADE_FAIL_SKIP=1'; then
-  EXTRA_LINES="$(echo "${OUT}" | grep -E 'SONGSHAN_COPYTRADE_|status=|"symbol"' || true)"
-  EXTRA=$'跟單松山（五日累積淨比95 ∩ !mega + 25m nonfail）· 活動\n'"${EXTRA_LINES}"$'\n'
-  for rel in \
-    "reports/order/snapshots/songshan_copytrade_latest.json" \
-    "reports/order/snapshots/songshan_copytrade_${STAMP}.json"; do
-    [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
-  done
-  set +e
-  "${ROOT}/.venv/bin/python" "${ROOT}/scripts/notify_job_result.py" \
-    --subject-prefix="Songshan copytrade poll" \
-    --exit-code="${EXIT}" \
-    --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_songshan-copytrade-poll.log" \
-    --extra="${EXTRA}" \
-    --env-flag="ORDER_SONGSHAN_COPYTRADE_SUBMIT_EMAIL"
-  set -e
+  SIG_CONTENT="$(echo "${OUT}" | grep -E 'SONGSHAN_COPYTRADE_ENTRY=1|SONGSHAN_COPYTRADE_FAIL_SKIP=1' | grep -oE '[0-9]{4,6}' | sort -u | tr '\n' ',')"
+  [[ -z "${SIG_CONTENT}" ]] && SIG_CONTENT="daily"
+  SIG_HASH="$(printf '%s' "${SIG_CONTENT}" | shasum 2>/dev/null | cut -c1-12)"
+  SIG_FLAG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/songshan_copytrade_mail_${STAMP}_${SIG_HASH}.flag"
+  if [[ -f "${SIG_FLAG}" ]]; then
+    echo "skip mail: 同組松山跟單訊號今日已通知 (${SIG_HASH})"
+  else
+    EXTRA_LINES="$(echo "${OUT}" | grep -E 'SONGSHAN_COPYTRADE_|status=|"symbol"' || true)"
+    EXTRA=$'跟單松山（五日累積淨比95 ∩ !mega + 25m nonfail）· 活動\n'"${EXTRA_LINES}"$'\n'
+    for rel in \
+      "reports/order/snapshots/songshan_copytrade_latest.json" \
+      "reports/order/snapshots/songshan_copytrade_${STAMP}.json"; do
+      [[ -f "${ROOT}/${rel}" ]] && EXTRA+="${rel}"$'\n'
+    done
+    set +e
+    "${ROOT}/.venv/bin/python" "${ROOT}/scripts/notify_job_result.py" \
+      --subject-prefix="Songshan copytrade poll" \
+      --exit-code="${EXIT}" \
+      --log-path="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/launchd_songshan-copytrade-poll.log" \
+      --extra="${EXTRA}" \
+      --env-flag="ORDER_SONGSHAN_COPYTRADE_SUBMIT_EMAIL"
+    NOTIFY_RC=$?
+    set -e
+    [[ "${NOTIFY_RC}" -eq 0 ]] && : >"${SIG_FLAG}"
+  fi
 fi
 
 END_LINE="=== launchd songshan-copytrade-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="

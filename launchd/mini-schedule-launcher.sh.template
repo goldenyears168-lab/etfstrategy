@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# mini 每日資料體檢（08:30）：headless Claude Code 讀本機 stocks.db → data/research/daily_health_<date>.md
+#
+# 2026-08-02 由 goldenstocks-data/scripts/mini_schedule.sh 搬入 repo 版控（舊 label
+# com.goldenstocks.mini 已列入 RETIRED_LABELS，下次 install 自動卸載）。
+#
+# cwd 刻意留在 GOLDENSTOCKS_DATA_DIR，不要改成 repo：
+#   · prompt 內 data/stocks.db、data/research/ 都是相對路徑（repo 沒有 data/）
+#   · 該目錄的 CLAUDE.md 是這支 --dangerously-skip-permissions agent 的唯一護欄
+
+set -uo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+DATA_DIR="${GOLDENSTOCKS_DATA_DIR:-${HOME}/goldenstocks-data}"
+PROMPT="${ROOT}/scripts/launchd/mini-schedule-prompt.txt"
+
+# launchd 環境極精簡：~/.local/bin 有 claude、/usr/bin 有 sqlite3
+export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+LOG_DIR="${DATA_DIR}/logs/mini_schedule"
+mkdir -p "${LOG_DIR}"
+LOG="${LOG_DIR}/run_$(date '+%Y%m%d_%H%M%S').log"
+
+code=0
+{
+  echo "=== mini 排程開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+  if [[ ! -r "${PROMPT}" ]]; then
+    echo "!! 找不到 prompt: ${PROMPT}（判準 SSOT）· 中止" >&2
+    exit 1
+  fi
+
+  # headless 登入 · 只住 data 目錄、不進 git。兩種方式擇一（見該檔檔頭）：
+  #   (A) 用 mini 上 `claude setup-token` 已存的憑證 → 檔內 token 行保持註解（現行）
+  #   (B) 背景登入失敗時才填 CLAUDE_CODE_OAUTH_TOKEN
+  # 因此「沒設到變數」是正常狀態，不可當失敗；檔案不存在也只警告。
+  if [[ -r "${DATA_DIR}/.env.schedule" ]]; then
+    # shellcheck disable=SC1091
+    source "${DATA_DIR}/.env.schedule"
+  else
+    echo "WARN: 無 ${DATA_DIR}/.env.schedule · 改用已存憑證"
+  fi
+
+  # 解析 claude：優先原生安裝，再退桌面版 app bundle
+  CLAUDE="${HOME}/.local/bin/claude"
+  if [[ ! -x "${CLAUDE}" ]]; then
+    CLAUDE="$(ls -td "${HOME}/Library/Application Support/Claude/claude-code/"*/claude.app/Contents/MacOS/claude 2>/dev/null | head -1)"
+  fi
+  if [[ -z "${CLAUDE}" || ! -x "${CLAUDE}" ]]; then
+    echo "!! 找不到 claude 執行檔 · 中止" >&2
+    exit 1
+  fi
+  echo "claude: ${CLAUDE}"
+  echo "prompt: ${PROMPT}"
+
+  cd "${DATA_DIR}" || { echo "!! 進不了資料目錄 ${DATA_DIR}" >&2; exit 1; }
+
+  "${CLAUDE}" -p "$(cat "${PROMPT}")" \
+    --model sonnet \
+    --dangerously-skip-permissions
+  code=$?
+  echo "=== 結束 exit=${code} $(date '+%Y-%m-%d %H:%M:%S') ==="
+} >>"${LOG}" 2>&1
+
+exit "${code}"

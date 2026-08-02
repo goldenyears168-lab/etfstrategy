@@ -17,15 +17,18 @@
 		<string>rrg-c18acc-poll</string>
 		<key>RUN_RRG_C18ACC_SCREEN</key>
 		<string>1</string>
-		<!-- Live defaults · order.env / project .env may override -->
+		<!-- 明寫 data dir，確保一定載入 goldenstocks-data/.env（不再只靠全域 launchctl setenv） -->
+		<key>GOLDENSTOCKS_DATA_DIR</key>
+		<string>/Users/jackm4/goldenstocks-data</string>
+		<!-- SAFE defaults · 實彈只由單一 SSOT（ORDER_MASTER_ENABLED + 各袖 ENABLED）在 .env 開啟 -->
 		<key>ORDER_C18ACC_DRY_RUN</key>
-		<string>0</string>
+		<string>1</string>
 		<key>ORDER_C18ACC_APPLY_STATE</key>
 		<string>1</string>
 		<key>ORDER_C18ACC_ORDER_ENABLED</key>
-		<string>1</string>
+		<string>0</string>
 		<key>ORDER_C18ACC_AUTO_SUBMIT</key>
-		<string>1</string>
+		<string>0</string>
 		<key>C18ACC_NO_TRADE_BEFORE</key>
 		<string>13:20</string>
 		<key>RUN_RRG_C18ACC_EMAIL</key>

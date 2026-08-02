@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jackm4.goldenstocks.winbond-expert-pool-watch</string>
+	<string>com.jackm4.goldenstocks.nightly-expert-digest</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>{{WINBOND_EXPERT_LAUNCHER}}</string>
+		<string>{{NIGHTLY_EXPERT_DIGEST_LAUNCHER}}</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/tmp</string>
@@ -50,9 +50,9 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/winbond-expert-pool-watch.launchd.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/nightly-expert-digest.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/winbond-expert-pool-watch.launchd.err.log</string>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/nightly-expert-digest.launchd.err.log</string>
 	<key>RunAtLoad</key>
 	<false/>
 </dict>

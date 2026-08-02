@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAMP="$(date '+%Y%m%d')"
-LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_winbond-expert-pool-watch.log"
+LAUNCHD_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/launchd_nightly-expert-digest.log"
 RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/evening_research_watch_${STAMP}.log"
 
 mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"

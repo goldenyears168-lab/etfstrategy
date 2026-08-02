@@ -49,10 +49,12 @@ Supabase（project: lzaomqzsiqudkojokevr，顯示名稱「好時股市研究」�
 | 路徑 | 內容 | 進 git？ | Book 有 | mini 有 |
 |------|------|---------|---------|---------|
 | `~/goldenstocks` | 程式碼 | ✓ | ✓ | ✓ |
-| `~/goldenstocks-data` | `.env`／`CAFubon/`（券商憑證）／`data/stocks.db` | **✗ 機密**，`.gitignore` | ✓（研究用複本） | ✓（**生產正本**） |
+| `~/goldenstocks-data` | `.env`／`CAFubon/`（券商憑證）／`data/stocks.db` | **✗ 機密**，`.gitignore` | ✓（聚焦子集 ~687 檔） | ✓（**生產正本**） |
 | `~/goldenstocks-web` | 網站前端原始碼 | ✓（獨立 repo） | ✓ | — |
 
 **Book 跟 mini 的 `data/stocks.db` 是兩份獨立資料庫，不會互相同步**——這是刻意設計，不是bug。程式碼用 `git push`/`git pull` 同步；資料/機密只用 SSH/scp/rsync，絕不進 git、絕不貼進聊天。
+
+> **2026-08-02**：Book 的 `stocks.db` 已從全市場 2504 檔瘦身為 mini 聚焦宇宙的 **687 檔子集**（省下 ~6GB，15G→8.8G）。Book 每日資料不保證最新，需要當前資料直接查 mini。含已下市股的「存活者偏誤修正擴充宇宙」不再保留於本地任何副本，日後重驗跨期動能等研究時需以 `scripts/research/backfill_delisted_stock_universe.py` 重建。
 
 ---
 
