@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from finmind_client import fetch_tick_snapshots
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from market_benchmark import load_benchmark_close
 from project_config import DEFAULT_ETF_CODES
 from project_dotenv import load_project_dotenv

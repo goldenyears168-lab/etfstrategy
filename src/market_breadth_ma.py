@@ -12,7 +12,7 @@ from typing import Literal
 
 import pandas as pd
 
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from market_benchmark import load_benchmark_close
 from stock_db import DEFAULT_DB_PATH, connect
 

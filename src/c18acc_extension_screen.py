@@ -21,7 +21,7 @@ from c18acc_extension_overlay import (
 )
 from project_dotenv import load_project_dotenv
 from report_paths import REPORTS_DIR
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_mono_score_swap_c import champion_score_swap_c_config
 from rrg_mono_swap_accel_screen import (
     ALIGN_MODE,

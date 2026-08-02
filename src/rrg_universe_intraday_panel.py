@@ -11,7 +11,7 @@ import pandas as pd
 
 from market_benchmark import load_benchmark_close
 from project_config import DEFAULT_ETF_CODES
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_lens_score_swap import _rebalance_minutes
 from rrg_rotation import classify_quadrant, compute_rrg_panel
 from rrg_universe_snapshot import _intraday_benchmark_price, kbar_close_at_minute

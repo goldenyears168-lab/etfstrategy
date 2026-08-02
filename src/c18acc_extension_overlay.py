@@ -27,12 +27,12 @@ from intraday_extension_radar import (
     pick_exit_for_mode,
     scan_session,
 )
-from stock_db import PROJECT_ROOT
+from stock_db import LOGS_DIR, PROJECT_ROOT
 from research.backtest.c18acc_extension_exit import _ma20, _prior_close
 from research.backtest.rrg_mono_score_swap_c import _trading_days_between
 from stock_db.kbar import kbar_mainline_day_has_data, load_kbar_day_5m_bars
 
-OVERLAY_LOG_PATH = PROJECT_ROOT / "logs" / "c18acc_extension_overlay.log"
+OVERLAY_LOG_PATH = LOGS_DIR / "c18acc_extension_overlay.log"
 OR_EXT_WATCH_CSV_PATH = PROJECT_ROOT / "reports" / "research" / "rrg" / "c18acc_or_ext_watch_log.csv"
 # Round3 I36 · hybrid backtest +0.30pp vs I0（2024–2026）
 DEFAULT_EXIT_MODE: ExitMode = "combo_spike"

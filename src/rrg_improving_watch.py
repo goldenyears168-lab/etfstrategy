@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from project_config import DEFAULT_ETF_CODES
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_improving_lifecycle_backtest import ImprovingDayRow, scan_improving_signal_day
 from research.backtest.rrg_improving_s3rv_executable import (
     attach_sid_stats_to_rows,

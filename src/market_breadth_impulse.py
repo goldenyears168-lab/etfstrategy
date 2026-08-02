@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from market_breadth_ma import classify_breadth_zone
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 
 
 @dataclass(frozen=True)

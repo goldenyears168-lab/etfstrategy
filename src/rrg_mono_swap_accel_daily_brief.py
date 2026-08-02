@@ -13,7 +13,7 @@ from typing import Any
 from market_benchmark import load_benchmark_close
 from project_config import DEFAULT_ETF_CODES
 from report_paths import REPORTS_DIR
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_mono_score_swap_c import (
     RRG_MONO_SWAP_ACCEL_SHORT,
     RRG_MONO_SWAP_ACCEL_SLUG,

@@ -40,7 +40,7 @@ from regime_interpret import (
 )
 from lens_ui_copy import RRG_MIGRATION_LABELS_ZH
 from regime_snapshot import build_regime_snapshot
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from rrg_rotation import DEFAULT_LENGTH
 from stage_analysis import WEEKLY_MA_PERIOD, daily_to_weekly, vectorized_minervini_pass_pct
 

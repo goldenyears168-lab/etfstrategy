@@ -15,12 +15,13 @@ from typing import Any
 from project_dotenv import load_project_dotenv
 from report_paths import REPORTS_DIR
 from research.backtest.broad_momentum_tv_backtest import params_from_config
-from research.backtest.finpilot_local_backtest import load_price_panels, month_end_trading_dates
+from price_panels import load_price_panels
+from research.backtest.finpilot_local_backtest import month_end_trading_dates
 from stage_analysis import MINERVINI_CRITERIA_TOTAL, vectorized_minervini_criteria_count
-from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, PROJECT_ROOT, connect
 
 STRATEGY_ID = "minervini-sepa-basket"
-STATE_PATH = PROJECT_ROOT / "data" / "minervini_sepa_basket_state.json"
+STATE_PATH = DATA_DIR / "minervini_sepa_basket_state.json"
 INTENTS_DIR = PROJECT_ROOT / "reports" / "order" / "intents"
 
 

@@ -59,8 +59,8 @@ from rrg_mono_intraday_watch import _session_date
 from rrg_rotation import compute_rrg_panel
 from rrg_universe_intraday_panel import spread_class_snapshots_at_minute
 from market_benchmark import load_benchmark_close
-from research.backtest.finpilot_local_backtest import load_price_panels
-from stock_db import DEFAULT_DB_PATH, PROJECT_ROOT, connect, load_etf_constituent_watchlist
+from price_panels import load_price_panels
+from stock_db import DATA_DIR, DEFAULT_DB_PATH, LOGS_DIR, PROJECT_ROOT, connect, load_etf_constituent_watchlist
 from stock_db.kbar import (
     kbar_5m_fresh_for_poll,
     kbar_day_has_data,
@@ -78,11 +78,11 @@ from c18acc_extension_overlay import (
 )
 from yahoo_chart_sync import fetch_tw_intraday_kbar_rows
 
-STATE_PATH = PROJECT_ROOT / "data" / "rrg_c18acc_slots.json"
+STATE_PATH = DATA_DIR / "rrg_c18acc_slots.json"
 STATE_SCHEMA = "rrg-c18acc-slots-v1"
 INTENTS_DIR = PROJECT_ROOT / "reports" / "order" / "intents"
-TICK_LOG_PATH = PROJECT_ROOT / "logs" / "intraday" / "rrg_c18acc_poll_tick.log"
-CLOSE_PANEL_CACHE_PATH = PROJECT_ROOT / "data" / "cache" / "c18acc_close_bench.pkl"
+TICK_LOG_PATH = LOGS_DIR / "intraday" / "rrg_c18acc_poll_tick.log"
+CLOSE_PANEL_CACHE_PATH = DATA_DIR / "cache" / "c18acc_close_bench.pkl"
 # Default aligned with champion no_trade_before; runtime uses _spread_gate_anchor()
 SPREAD_GATE_NO_TRADE_BEFORE = "13:00"
 ALIGN_MODE = "backtest_pit"
@@ -2380,11 +2380,11 @@ def main(argv: list[str] | None = None) -> int:
     import json
     from pathlib import Path
 
-    from stock_db import PROJECT_ROOT
+    from stock_db import DATA_DIR
     from order.order_fill_report import maybe_send_c18acc_pool_digest
 
     state: dict = {}
-    slots_path = PROJECT_ROOT / "data" / "rrg_c18acc_slots.json"
+    slots_path = DATA_DIR / "rrg_c18acc_slots.json"
     if slots_path.is_file():
         try:
             loaded = json.loads(slots_path.read_text(encoding="utf-8"))

@@ -22,7 +22,9 @@
 import sqlite3, sys, math, argparse, random
 import statistics as st
 
-DEFAULT_DB = "/Users/jackm4/goldenstocks-data/data/stocks.db"
+from stock_db import DEFAULT_DB_PATH  # state root SSOT, portable across machines
+
+DEFAULT_DB = str(DEFAULT_DB_PATH)
 
 
 # ── 共用原語 ────────────────────────────────────────────────

@@ -21,7 +21,7 @@ from market_breadth_ma import (
     classify_breadth_zone,
 )
 from regime_config import impulse_params_from_regime, load_regime_config, rhythm_tiers_from_regime
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from rrg_rotation import QUADRANT_LABEL, compute_rrg_panel
 from stage_analysis import (
     MINERVINI_CRITERIA_TOTAL,

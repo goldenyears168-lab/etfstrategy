@@ -11,7 +11,7 @@ import sqlite3
 import yaml
 
 from project_config import DEFAULT_ETF_CODES
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_mono_backtest import build_mono_up_fresh_calendar
 from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP, rank_shortlist_scale
 from research.backtest.rrg_mono_swap_exit_b import build_mono_tier2_calendar

@@ -13,21 +13,21 @@ from typing import Any
 
 import pandas as pd
 
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from flow_returns import trading_dates_after
 from market_benchmark import load_benchmark_close
 from project_config import DEFAULT_ETF_CODES
 from rrg_rotation import classify_quadrant, compute_rrg_panel
 from report_paths import REPORTS_DIR
 from stock_db import (
+    DATA_DIR,
     DEFAULT_DB_PATH,
-    PROJECT_ROOT,
     connect,
     load_etf_constituent_watchlist,
 )
 
 REPORTS = REPORTS_DIR
-STATE_PATH = PROJECT_ROOT / "data" / "rrg_mono_slots.json"
+STATE_PATH = DATA_DIR / "rrg_mono_slots.json"
 
 LENGTH = 20
 LOOKBACK = 4

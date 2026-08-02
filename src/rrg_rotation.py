@@ -26,9 +26,9 @@ import numpy as np
 import pandas as pd
 
 from analytics.bench import bench_return_entry_to_exit, compute_excess_significance
+from price_panels import load_price_panels
 from research.backtest.finpilot_local_backtest import (
     basket_return_h9,
-    load_price_panels,
     month_end_trading_dates,
     pit_fundamental_at,
     load_fundamental_snapshot,

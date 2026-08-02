@@ -209,7 +209,7 @@ def build_position_timeline_to_poll(
     from research.backtest.archive.c18acc_kinematic_timeline_cache import _build_kinematic_timeline
     from research.backtest.archive.c18acc_triple_wma_extreme_profile import _frame_idx_for_minute
     from research.backtest.dual_wma_signal_backtest import _build_stock_frame_maps, _price_at
-    from research.backtest.finpilot_local_backtest import load_price_panels
+    from price_panels import load_price_panels
     from rrg_universe_intraday_panel import (
         WMA_MICRO_LENGTH,
         WMA_ULTRA_LENGTH,

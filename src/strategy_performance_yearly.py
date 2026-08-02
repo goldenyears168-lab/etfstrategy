@@ -14,7 +14,7 @@ import requests
 from research.backtest.chunge_funnel_backtest import VCP_COIL_CLOSE, VCP_PIVOT_GATE, run_chunge_slot_backtest
 from research.backtest.copytrade_backtest import simulate_fixed_slots
 from backtest_standard_config import comparison_notional_ntd
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_mono_backtest import run_breadth_zone_comparison
 from research.backtest.slot_backtest_summary import SlotBacktestConfig
 from research.backtest.slot_portfolio_metrics import portfolio_metrics_for_periods

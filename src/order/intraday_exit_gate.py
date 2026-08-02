@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from order.morning_holdings_brief import CORE4
-from stock_db import PROJECT_ROOT, load_order_holdings_snapshot_rows
+from stock_db import LOGS_DIR, PROJECT_ROOT, load_order_holdings_snapshot_rows
 from stock_db.kbar import kbar_sql_minute
 from stock_db.order_holdings import append_intraday_exit_log
 
@@ -280,7 +280,7 @@ def default_gate_report_path(session_date: str) -> Any:
 
 def default_gate_daily_log_path(session_date: str) -> Any:
     stamp = session_date.replace("-", "")
-    return PROJECT_ROOT / "logs" / "intraday" / f"intraday_exit_gate_{stamp}.log"
+    return LOGS_DIR / "intraday" / f"intraday_exit_gate_{stamp}.log"
 
 
 def gate_evaluation_final(conn: sqlite3.Connection, session_date: str) -> bool:

@@ -17,6 +17,7 @@ _STATE_ROOT = (
     else PROJECT_ROOT
 )
 DATA_DIR = _STATE_ROOT / "data"
+LOGS_DIR = _STATE_ROOT / "logs"
 DEFAULT_DB_PATH = DATA_DIR / "stocks.db"
 
 

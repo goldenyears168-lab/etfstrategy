@@ -26,7 +26,7 @@ from report_paths import (
     REGIME_CHART_ZWEIG_EMA,
     regime_snapshot_dir,
 )
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from rrg_rotation import DEFAULT_LENGTH, classify_quadrant, compute_rrg_panel
 from stage_analysis import WEEKLY_MA_PERIOD, daily_to_weekly, vectorized_minervini_pass_pct
 from vcp_nse_port.bars import rows_to_ohlcv_df

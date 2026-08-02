@@ -23,8 +23,10 @@ import sqlite3, sys, os, json, glob, datetime as dt
 
 sys.path.insert(0, os.path.expanduser("~/goldenstocks/src"))
 
-DB = "/Users/jackm4/goldenstocks-data/data/stocks.db"
-CACHE_DIR = os.path.expanduser("~/goldenstocks-data/data/_intra_cache")
+from stock_db import DATA_DIR, DEFAULT_DB_PATH  # noqa: E402  (state root SSOT, portable across machines)
+
+DB = str(DEFAULT_DB_PATH)
+CACHE_DIR = str(DATA_DIR / "_intra_cache")
 SEED_GLOB = "/private/tmp/claude-501/-Users-jackm4-goldenstocks-data/*/scratchpad/intra_cache"
 VIX_FLOOR = 30.0
 EXIT_VIX = 25.0

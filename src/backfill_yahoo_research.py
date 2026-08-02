@@ -219,7 +219,7 @@ def sync_rrg_history(
 ) -> int:
     from market_benchmark import load_benchmark_close
     from project_config import DEFAULT_ETF_CODES
-    from research.backtest.finpilot_local_backtest import load_price_panels
+    from price_panels import load_price_panels
     from rrg_universe_snapshot import build_universe_rows_from_panels, persist_universe_snapshot
 
     close, _, _ = load_price_panels(conn)

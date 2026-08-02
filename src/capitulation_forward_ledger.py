@@ -15,8 +15,9 @@ import sqlite3, sys, os, json, argparse, datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from signal_validation import (trading_calendar, index_returns, to_events,
                                fwd_pct, pit_beta, leave_one_event_out, summarize)
+from stock_db import DEFAULT_DB_PATH  # state root SSOT, portable across machines
 
-DEFAULT_DB = "/Users/jackm4/goldenstocks-data/data/stocks.db"
+DEFAULT_DB = str(DEFAULT_DB_PATH)
 RULES = ("beta_top5", "rsmom_top10", "equal_leading")
 
 

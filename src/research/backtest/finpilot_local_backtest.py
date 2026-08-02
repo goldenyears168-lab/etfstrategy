@@ -10,6 +10,9 @@ import pandas as pd
 
 from .copytrade_backtest import bench_return_entry_to_exit
 from flow_returns import return_pct, stock_close, stock_open, trading_dates_after
+# load_price_panels/_wide_from_long moved to the neutral price_panels module (L2) so
+# non-research callers don't import this backtest layer; re-exported for backward compat.
+from price_panels import _wide_from_long, load_price_panels  # noqa: F401
 
 
 @dataclass(frozen=True)
@@ -25,38 +28,6 @@ FINPILOT_STRATEGIES: tuple[FinPilotStrategySpec, ...] = (
     FinPilotStrategySpec("s05", "創新高+月營收年增>0", "s05_newhigh_revenue.py"),
     FinPilotStrategySpec("s06", "創新高+ROE>15%", "s06_newhigh_roe.py"),
 )
-
-
-def _wide_from_long(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Long → wide panel. pandas pivot mis-labels trade_date index on this dataset."""
-    mat: dict[str, dict[str, float]] = {}
-    for sid, td, val in zip(df["stock_id"], df["trade_date"], df[col], strict=True):
-        mat.setdefault(td, {})[sid] = float(val)
-    dates = sorted(mat)
-    stocks = sorted({s for day in mat.values() for s in day})
-    return pd.DataFrame(
-        {s: [mat[d].get(s, float("nan")) for d in dates] for s in stocks},
-        index=pd.Index(dates, name="trade_date"),
-    )
-
-
-def load_price_panels(conn: sqlite3.Connection) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    rows = conn.execute(
-        """
-        SELECT stock_id, trade_date, open, close, volume, source
-        FROM stock_daily_bars
-        ORDER BY trade_date, stock_id,
-            CASE source WHEN 'finmind' THEN 0 WHEN 'yfinance' THEN 1 ELSE 2 END
-        """
-    ).fetchall()
-    if not rows:
-        raise RuntimeError("stock_daily_bars 無資料，請先跑 daily_sync / stock market sync")
-    df = pd.DataFrame(rows, columns=["stock_id", "trade_date", "open", "close", "volume", "source"])
-    df = df.drop_duplicates(subset=["stock_id", "trade_date"], keep="first")
-    close = _wide_from_long(df, "close").astype(float)
-    opn = _wide_from_long(df, "open").astype(float)
-    vol = _wide_from_long(df, "volume").astype(float)
-    return close, opn, vol
 
 
 def load_fundamental_snapshot(conn: sqlite3.Connection) -> pd.DataFrame:

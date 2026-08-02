@@ -19,7 +19,7 @@ from c18acc_extension_overlay import ExtensionAlert, overlay_scan_config, scan_h
 from project_config import DEFAULT_ETF_CODES
 from project_dotenv import load_project_dotenv
 from report_paths import REPORTS_DIR
-from research.backtest.finpilot_local_backtest import load_price_panels
+from price_panels import load_price_panels
 from research.backtest.rrg_mono_intraday_ab import DEFAULT_C_SWEEP, rank_shortlist_scale
 from rrg_mono_daily_brief import ScanRow
 from rrg_mono_intraday_watch import _session_date
@@ -43,12 +43,12 @@ from buy_observation import (
     _slice_top_n,
     build_observation_pool,
 )
-from stock_db import PROJECT_ROOT, load_etf_constituent_watchlist
+from stock_db import DATA_DIR, load_etf_constituent_watchlist
 from stock_db.kbar import kbar_mainline_day_has_data
 
-DEDUP_PATH = PROJECT_ROOT / "data" / "signal_radar_dedup.json"
-BUY_STATE_PATH = PROJECT_ROOT / "data" / "signal_radar_buy_state.json"
-POSITION_META_PATH = PROJECT_ROOT / "data" / "fubon_position_meta.json"
+DEDUP_PATH = DATA_DIR / "signal_radar_dedup.json"
+BUY_STATE_PATH = DATA_DIR / "signal_radar_buy_state.json"
+POSITION_META_PATH = DATA_DIR / "fubon_position_meta.json"
 BUY_STRATEGY_ID = "buy-signal-radar"
 SELL_STRATEGY_ID = "sell-signal-radar"
 

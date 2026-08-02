@@ -546,10 +546,10 @@ def enrich_lifecycle_events(
 
 
 def build_sid_history_cache(conn: sqlite3.Connection | None = None, *, force: bool = False) -> pd.DataFrame:
-    from stock_db import PROJECT_ROOT
+    from stock_db import DEFAULT_DB_PATH
 
     conn = conn or connect()
-    db_path = PROJECT_ROOT / "data" / "stocks.db"
+    db_path = DEFAULT_DB_PATH
     db_mtime = db_path.stat().st_mtime if db_path.is_file() else 0.0
     if (
         not force
