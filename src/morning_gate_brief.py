@@ -19,6 +19,8 @@ Run: PYTHONPATH=src .venv/bin/python src/morning_gate_brief.py [--no-email]
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -33,6 +35,7 @@ GAP_A, GAP_B, GAP_SIGMA, HIT = 0.23, 1.06, 0.99, 0.73
 CALIB = "2026-08 · 55 日 May–Jul · PIT"
 TPE = timezone(timedelta(hours=8))
 OUT = REPORTS_ROOT / "daily" / "morning-gate"
+MORNING_BRIEF_TO = "jack7701637@gmail.com"   # 收件人（可被 env MORNING_BRIEF_TO 覆寫）
 
 
 def _preopen_overnight(sym: str) -> float | None:
@@ -182,6 +185,36 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     return subj, body
 
 
+def _ai_interpretation(body: str) -> str | None:
+    """headless `claude -p` 對機械數據寫『AI 淨判讀』。失敗回 None（本封自動退回純數據）。"""
+    prompt = (
+        "你是台股資深盤前分析師。下面是今天 08:30『盤前定調』的機械數據（純程式算的，不是你算的）。\n"
+        "請用繁體中文寫『AI 淨判讀』，4–6 句，涵蓋：\n"
+        "1) 綜合這些數字，大盤開盤怎麼看；2) 電子/台積電那條軸怎麼看；\n"
+        "3) 訊號間有沒有矛盾（例如美期漲但日經跌）；4) 持現貨者要不要盤前避險/減碼。\n"
+        "只根據下方數據、誠實、直接給結論、不客套寒暄、不做買賣張數建議。\n\n"
+        "===== 機械數據 =====\n" + body
+    )
+    try:
+        r = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True, text=True, timeout=150, cwd="/tmp",
+        )
+        out = (r.stdout or "").strip()
+        return out or None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] AI 判讀失敗（退回純數據）: {type(exc).__name__}: {exc}")
+        return None
+
+
+def _send(subject: str, body: str, to: str) -> None:
+    """直接走 Gmail SMTP 寄一封（繞過 RUN_ALERT_EMAIL，因本 brief 有自己的 gate）。"""
+    from notify_email import _smtp_send
+    html = ("<pre style='font-family:ui-monospace,monospace;white-space:pre-wrap'>"
+            + body.replace("<", "&lt;") + "</pre>")
+    _smtp_send(subject, body, html_body=html, to=to)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="台股 08:30 盤前定調簡報（不下單）")
     ap.add_argument("--no-email", action="store_true", help="只印/寫檔、不寄信")
@@ -198,12 +231,25 @@ def main(argv: list[str] | None = None) -> int:
     (OUT / "latest.md").write_text(body, encoding="utf-8")
 
     if not args.no_email:
+        to = os.environ.get("MORNING_BRIEF_TO") or MORNING_BRIEF_TO
+        # 第一封：純數據（機械程式）
         try:
-            from notify_email import send_alert
-            html = "<pre style='font-family:ui-monospace,monospace'>" + body.replace("<", "&lt;") + "</pre>"
-            send_alert(subj, body, html_body=html)  # 受 RUN_ALERT_EMAIL gate
+            _send(f"台股08:30盤前定調〔純數據〕· {session} · {subj.split('·')[-1].strip()}", body, to)
+            print(f"✓ 寄出純數據信 → {to}")
         except Exception as exc:  # noqa: BLE001
-            print(f"[warn] 寄信失敗（不影響簡報產出）: {type(exc).__name__}: {exc}")
+            print(f"[warn] 純數據信寄送失敗: {type(exc).__name__}: {exc}")
+        # 第二封：AI 判讀（headless claude -p；失敗自動退回純數據）
+        ai = _ai_interpretation(body)
+        if ai:
+            body_ai = ("# 🤖 AI 判讀（非決定性 · 僅供參考 · 由 claude -p 產生）\n\n"
+                       + ai + "\n\n" + "=" * 40 + "\n以下為純數據（機械程式）：\n\n" + body)
+        else:
+            body_ai = "# 🤖 AI 判讀\n\n（AI 判讀失敗，本封自動退回純數據）\n\n" + body
+        try:
+            _send(f"台股08:30盤前定調〔AI判讀〕· {session}", body_ai, to)
+            print(f"✓ 寄出 AI 判讀信 → {to}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] AI 判讀信寄送失敗: {type(exc).__name__}: {exc}")
     return 0
 
 
