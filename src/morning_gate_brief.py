@@ -168,8 +168,10 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     nk = _asia_early_drift("^N225")   # 日經（主要亞洲確認 · 增量最強）
     ks = _asia_early_drift("^KS11")   # 韓股（次要 · 日經已大致吸收）
     txn = _tx_night_gap(session)      # 主預測子：台指期夜盤收缺口（週二～五）
-    # 穩健守衛：夜盤缺口異常大(>3%)或與 NQ 明顯反向(|txn|>1.5 且反號) → 視為可疑、退回 NQ，防資料 artifact
-    txn_ok = (txn is not None and abs(txn) <= 3.0
+    # 穩健守衛（2026-08 用 0050 現貨實際缺口驗證後放寬）：
+    #   · 夜盤缺口 >8% 才擋（只攔絕對離譜的資料錯誤；7/31 曾真跳空 +6.95%，真行情不擋）
+    #   · 與 NQ 明顯反向(|txn|>1.5 且反號) → 退回 NQ（處理週一：週末無夜盤、after_market 為 stale 週五資料）
+    txn_ok = (txn is not None and abs(txn) <= 8.0
               and (nq is None or abs(txn) < 1.5 or (txn > 0) == (nq > 0)))
     if txn_ok:
         g = predict_gap(txn, GAP_TXN_A, GAP_TXN_B, GAP_TXN_SIGMA)
