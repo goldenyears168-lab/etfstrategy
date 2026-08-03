@@ -70,6 +70,36 @@ def _preopen_overnight(sym: str) -> float | None:
         return None
 
 
+def _kospi_early_drift() -> float | None:
+    """韓股 KOSPI 開盤後(08:00 TW 開)到 ~08:30 的早盤漂移%。
+
+    只取『開盤後漂移』而非開盤跳空——跳空與 NQ 冗餘(corr 0.68、零增量)，
+    早盤漂移才有小增量(R² +0.04, 2026-06~07)，當『最早的亞洲現貨確認』。網路失敗回 None。
+    """
+    try:
+        import warnings
+        warnings.filterwarnings("ignore")
+        import pandas as pd
+        import yfinance as yf
+        from zoneinfo import ZoneInfo
+        tw = ZoneInfo("Asia/Taipei")
+        h = yf.Ticker("^KS11").history(period="5d", interval="30m")
+        if h.empty:
+            return None
+        h.index = pd.to_datetime(h.index).tz_convert(tw)
+        by = {str(d): sub for d, sub in h.groupby(h.index.date)}
+        today = by[sorted(by)[-1]]
+        t = today.index.strftime("%H:%M")
+        opn = float(today["Open"].iloc[0])          # 08:00 TW 開盤
+        pre = today["Close"][t <= "08:30"]
+        if pre.empty or not opn:
+            return None
+        return (float(pre.iloc[-1]) / opn - 1) * 100
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] KOSPI 抓取失敗: {type(exc).__name__}: {exc}")
+        return None
+
+
 def _regime(conn) -> dict:
     conn.row_factory = None
     out: dict = {}
@@ -96,6 +126,7 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     """回傳 (subject, markdown/html body)。"""
     nq = _preopen_overnight("NQ=F")
     es = _preopen_overnight("ES=F")
+    ks = _kospi_early_drift()
     g = predict_gap(nq)
     reg = _regime(conn)
     vix_d, vix = reg["VIX"]
@@ -125,6 +156,12 @@ def build_brief(conn, session: str) -> tuple[str, str]:
         f"   NQ 那斯達克期  {nq:+.2f}%   ← 科技/台積電軸" if nq is not None else "   NQ 那斯達克期  —（抓取失敗）",
         f"   ES 標普期      {es:+.2f}%   ← 大盤軸" if es is not None else "   ES 標普期      —",
         f"   NQ−ES 價差    {spread}   （NQ 弱於 ES=科技單獨被打）",
+        "",
+        "### ◆ 亞洲確認（KOSPI 08:00 開盤後早盤漂移 · live）",
+        (f"   KOSPI 早盤  {ks:+.2f}%   "
+         + ("→ 與美期同向 · 亞洲確認" if (nq is not None and (ks > 0) == (nq > 0)) else "→ 與美期背離 · 亞洲分歧、降信心")
+         + "（僅小增量 R²+0.04，非主訊號）"
+         if ks is not None else "   KOSPI 早盤  —（抓取失敗）"),
         "",
         "### ◆ Regime 背景（前收 · 慢速不變）",
         f"   VIX {vix:.2f}（{vix_tag}） @ {vix_d}" if vix else "   VIX —",
