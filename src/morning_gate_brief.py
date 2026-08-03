@@ -31,8 +31,10 @@ from report_paths import REPORTS_ROOT  # noqa: E402
 from stock_db import connect  # noqa: E402
 
 # ── 缺口迴歸係數（凍結；定期重新校準） ──────────────────────────
+# 主：台指期夜盤收缺口（TW 自身隔夜，corr 0.88、σ 0.77，週二～五）；fallback：NQ 隔夜（週一/夜盤無資料）
+GAP_TXN_A, GAP_TXN_B, GAP_TXN_SIGMA = 0.13, 0.91, 0.77
 GAP_A, GAP_B, GAP_SIGMA, HIT = 0.23, 1.06, 0.99, 0.73
-CALIB = "2026-08 · 55 日 May–Jul · PIT"
+CALIB = "2026-08 · 55–58 日 May–Jul · PIT"
 TPE = timezone(timedelta(hours=8))
 OUT = REPORTS_ROOT / "daily" / "morning-gate"
 MORNING_BRIEF_TO = "jack7701637@gmail.com"   # 收件人（可被 env MORNING_BRIEF_TO 覆寫）
@@ -118,12 +120,45 @@ def _regime(conn) -> dict:
     return out
 
 
-def predict_gap(nq_overnight: float | None) -> dict | None:
-    if nq_overnight is None:
+def predict_gap(value: float | None, a: float = GAP_A, b: float = GAP_B,
+                sigma: float = GAP_SIGMA) -> dict | None:
+    if value is None:
         return None
-    p = GAP_A + GAP_B * nq_overnight
-    return {"pred": p, "lo": p - GAP_SIGMA, "hi": p + GAP_SIGMA,
+    p = a + b * value
+    return {"pred": p, "lo": p - sigma, "hi": p + sigma,
             "dir": "偏多開高" if p > 0.15 else "偏空開低" if p < -0.15 else "約平盤"}
+
+
+def _tx_night_gap(session: str) -> float | None:
+    """台指期夜盤 05:00 收相對前一日日盤收的隔夜缺口%（TW 自身隔夜，最準的缺口預測子）。
+
+    週二～五可用；週一無夜盤或 FinMind after_market 08:30 前未更新 → 回 None（build_brief 自動退回 NQ）。
+    """
+    try:
+        from datetime import date, timedelta
+
+        from finmind_client import fetch_finmind
+        sess = date.fromisoformat(session)
+        rows = fetch_finmind("TaiwanFuturesDaily", "TX", sess - timedelta(days=7), sess)
+        rows = rows if isinstance(rows, list) else (rows.get("data") or [])
+        best: dict = {}
+        for r in rows:
+            if "/" in str(r.get("contract_date", "")):   # 排除 spread 合約
+                continue
+            k = (r["date"], r["trading_session"])
+            if r["volume"] > best.get(k, (-1, None))[0]:
+                best[k] = (r["volume"], r)
+        am = best.get((session, "after_market"))
+        pos_dates = sorted({d for (d, s) in best if s == "position" and d < session})
+        if not am or not pos_dates:
+            return None
+        prev_close = best[(pos_dates[-1], "position")][1]["close"]
+        if not prev_close:
+            return None
+        return (am[1]["close"] / prev_close - 1) * 100
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] 台指期夜盤缺口抓取失敗（退回 NQ）: {type(exc).__name__}: {exc}")
+        return None
 
 
 def build_brief(conn, session: str) -> tuple[str, str]:
@@ -132,7 +167,19 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     es = _preopen_overnight("ES=F")
     nk = _asia_early_drift("^N225")   # 日經（主要亞洲確認 · 增量最強）
     ks = _asia_early_drift("^KS11")   # 韓股（次要 · 日經已大致吸收）
-    g = predict_gap(nq)
+    txn = _tx_night_gap(session)      # 主預測子：台指期夜盤收缺口（週二～五）
+    # 穩健守衛：夜盤缺口異常大(>3%)或與 NQ 明顯反向(|txn|>1.5 且反號) → 視為可疑、退回 NQ，防資料 artifact
+    txn_ok = (txn is not None and abs(txn) <= 3.0
+              and (nq is None or abs(txn) < 1.5 or (txn > 0) == (nq > 0)))
+    if txn_ok:
+        g = predict_gap(txn, GAP_TXN_A, GAP_TXN_B, GAP_TXN_SIGMA)
+        pred_formula = (f"{GAP_TXN_A:+.2f} + {GAP_TXN_B:.2f}×台指期夜盤收缺口({txn:+.2f}%) "
+                        f"· σ={GAP_TXN_SIGMA:.2f} · corr 0.88（TW 自身隔夜·最準）")
+    else:
+        g = predict_gap(nq)
+        rej = f"；台指期夜盤缺口 {txn:+.2f}% 異常/與美期反向、已略過" if txn is not None else "；週一/夜盤無資料"
+        pred_formula = (f"{GAP_A:+.2f} + {GAP_B:.2f}×NQ隔夜({nq:+.2f}%) · σ={GAP_SIGMA:.2f}"
+                        f"（NQ fallback{rej}）" if nq is not None else "—")
     reg = _regime(conn)
     vix_d, vix = reg["VIX"]
     vtw_d, vtw = reg["VIXTWN"]
@@ -141,7 +188,7 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     if g:
         head = f"{'🟢' if g['dir']=='偏多開高' else '🔴' if g['dir']=='偏空開低' else '⚪'} 預測開盤 {g['pred']:+.2f}%（{g['dir']}）"
         gapline = (f"≈ **{g['pred']:+.2f}%**  信賴帶 {g['lo']:+.2f}% ~ {g['hi']:+.2f}% (±1σ)\n"
-                   f"   公式 {GAP_A:+.2f} + {GAP_B:.2f}×NQ隔夜({nq:+.2f}%) · 方向命中 {HIT:.0%}（{CALIB}）")
+                   f"   公式 {pred_formula} · 方向命中 {HIT:.0%}（{CALIB}）")
     else:
         head = "⚠️ 無法取得美期，僅提供 regime 背景"
         gapline = "（美期盤前抓取失敗，缺口無法預測；見下 regime）"
