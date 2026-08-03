@@ -167,6 +167,13 @@ jobs:
     schedule: "weekdays 09:00"
     description: "8-branch weighted crash thermometer + consensus, email. NOTE: 2026-07-27 research found 31-35% discriminative power on fresh events (below chance) — kept running for reference, not a validated signal."
 
+  - label: morning-gate-brief
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 08:25"
+    description: "台股盤前定調簡報 (src/morning_gate_brief.py)：yfinance 抓 NQ/ES 盤前隔夜 → 迴歸預測台股開盤缺口 (缺口% ≈ 0.23 + 1.06×NQ隔夜%, 55日 corr 0.79/命中73%) + VIX/VIXTWN regime。只定調開盤缺口 (研究證實開盤後首時段 corr −0.09、雜訊勿追殺)。不下單。寄信預設關 (RUN_MORNING_BRIEF_EMAIL=1 才寄)。由 scripts/install-wantgoo-loop-launchd.sh 安裝。研究依據 src/research/backtest/us_tw_vix_gate_study*.py。Added 2026-08-03。"
+
   - label: wantgoo-loop-daily
     category: research
     order_capable: false

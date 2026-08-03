@@ -4,6 +4,9 @@
 #       daily_tracker: refresh panel + 6燈 + 資料新鮮度gate + 隔日驗證backfill + ops推送
 #   com.jackm4.goldenstocks.wantgoo-loop-daily        週一至五 20:15
 #       fetch 白名單6位新文 + 記分板 score + 擷取(有金鑰API/無金鑰匯出bundle)
+#   com.jackm4.goldenstocks.morning-gate-brief        週一至五 08:25
+#       盤前定調: yfinance NQ/ES 盤前 + VIX/VIXTWN → 台股開盤缺口預測 + regime · 不下單
+#       寄信預設關(RUN_MORNING_BRIEF_EMAIL=1 才寄)
 #
 # 刻意獨立於 install-launchd.sh（那支管 live order layer，不宜混改）。
 # log: stdout→ ~/Library/Logs/com.jackm4.goldenstocks/（避開 Documents TCC → EX_CONFIG(78)）
@@ -25,6 +28,7 @@ GUI_DOMAIN="gui/${UID_NUM}"
 LABELS=(
   com.jackm4.goldenstocks.chip-macro-tracker-daily
   com.jackm4.goldenstocks.wantgoo-loop-daily
+  com.jackm4.goldenstocks.morning-gate-brief
 )
 
 mode="${1:-install}"
@@ -64,6 +68,7 @@ install() {
   echo "手動測試（不等排程）:"
   echo "  launchctl kickstart -k ${GUI_DOMAIN}/com.jackm4.goldenstocks.chip-macro-tracker-daily"
   echo "  launchctl kickstart -k ${GUI_DOMAIN}/com.jackm4.goldenstocks.wantgoo-loop-daily"
+  echo "  launchctl kickstart -k ${GUI_DOMAIN}/com.jackm4.goldenstocks.morning-gate-brief"
 }
 
 case "${mode}" in
