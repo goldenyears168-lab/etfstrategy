@@ -12,9 +12,13 @@ from strategy_registry import StrategyRegistry, load_strategy_registry
 # daily_sync step → registry strategy_id(s) + optional RUN_* override.
 # strategy_ids: run when ANY listed strategy is registry-active (enabled + env_flag).
 _DAILY_SYNC_STEPS: dict[str, dict[str, Any]] = {
+    # Infra, not strategy-owned: writes the RRG universe close snapshot consumed by
+    # holdings_pulse / rrg_universe_intraday_panel / rrg_mono_intraday_watch. It used to
+    # be gated on (rrg-mono-hold7 OR rrg-mono-swap-accel); once both were disabled
+    # (hold7 earlier, swap-accel/C18acc on 2026-08-04) that gate would have silently
+    # starved every downstream panel. Registry gate removed — RUN_* is the only switch.
     "rrg_universe_close": {
-        "strategy_ids": ("rrg-mono-hold7", "rrg-mono-swap-accel"),
-        "match": "any",
+        "strategy_ids": (),
         "run_env": "RUN_RRG_UNIVERSE_CLOSE",
         "run_default": "1",
     },

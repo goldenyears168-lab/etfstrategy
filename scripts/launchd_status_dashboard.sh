@@ -17,12 +17,11 @@ NOW_HM="$(date '+%H:%M')"
 NOW_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # label|顯示名|排程說明|log 檔（相對 ROOT）|適用日（1-5=週一至五,7=週日,0=全部）
-# 現行 = Order layer（C18acc / Leading Dip / sell / detach）；digest / evening / VCP / exit-gate 等已退役
-# ABC Order 已退役 2026-07-15
+# 現行 = Order layer（Leading Dip / Songshan / sell / detach）；digest / evening / VCP / exit-gate 等已退役
+# ABC Order 已退役 2026-07-15 · C18acc poll 已退役 2026-08-04（策略不再採用）
 JOBS=(
   "com.jackm4.goldenstocks.order-wake|下單防睡眠|週一至五 08:55|logs/launchd_order-wake.log|1-5"
   "com.jackm4.goldenstocks.order-chase-open|開盤追價|週一至五 09:00–09:04 每分鐘|logs/launchd_order-chase-open.log|1-5"
-  "com.jackm4.goldenstocks.rrg-c18acc-poll|C18acc swap poll|週一至五 09:00–13:30 每 5 分|logs/intraday/launchd_rrg-c18acc-poll.log|1-5"
   "com.jackm4.goldenstocks.buy-signal-radar|Buy signal radar|週一至五 09:00–13:20 每 5 分|logs/intraday/launchd_buy-signal-radar.log|1-5"
   "com.jackm4.goldenstocks.sell-signal-radar|Sell signal radar|週一至五 09:06–13:20 每 5 分|logs/intraday/launchd_sell-signal-radar.log|1-5"
   "com.jackm4.goldenstocks.detach-gate|Detach Gate 台美脫鉤|週一至五 09:40–12:30 每 5 分|logs/intraday/launchd_detach-gate.log|1-5"
@@ -322,7 +321,7 @@ print_today_timeline() {
 
   printf '\n%b今日剩餘排程%b（週一至五 · 現在 %s）\n' "$(c "1")" "$(reset)" "${NOW_HM}"
   local slots=(
-    "09:00|C18acc · Buy radar 開始"
+    "09:00|Buy radar 開始"
     "09:05|Leading Dip poll 開始"
     "09:06|Sell radar 開始"
     "09:40|Detach Gate 開始"
@@ -339,13 +338,12 @@ print_today_timeline() {
   if [[ "${shown}" -eq 0 ]]; then
     printf '  （盤後定時排程已過；09:00–13:30 高頻 radar 若 Agent 正常仍會每 5 分觸發）\n'
   fi
-  printf '  … 09:00–13:30  C18acc / Buy / Sell radar 每 5 分 · Detach Gate 09:40–12:30\n'
+  printf '  … 09:00–13:30  Buy / Sell radar 每 5 分 · Detach Gate 09:40–12:30\n'
 }
 
 print_log_hints() {
   printf '\n%b快速追 log%b\n' "$(c "1")" "$(reset)"
   printf '  tail -f %s/logs/intraday/launchd_buy-signal-radar.log\n' "${ROOT}"
-  printf '  tail -f %s/logs/intraday/launchd_rrg-c18acc-poll.log\n' "${ROOT}"
   printf '  tail -f %s/logs/intraday/launchd_sell-signal-radar.log\n' "${ROOT}"
   printf '  tail -f %s/logs/intraday/launchd_detach-gate.log\n' "${ROOT}"
   printf '  tail -f %s/logs/intraday/launchd_leading-dip-poll.log\n' "${ROOT}"

@@ -58,11 +58,23 @@ class PipelineGatesTests(unittest.TestCase):
         reason = daily_sync_skip_reason("rrg_mono_daily", env)
         self.assertEqual(reason, "registry enabled=false")
 
-    def test_rrg_universe_any_strategy_gate(self) -> None:
+    def test_rrg_universe_close_is_infra_not_strategy_gated(self) -> None:
+        """Universe snapshot must survive every strategy being disabled.
+
+        It used to be gated on (rrg-mono-hold7 OR rrg-mono-swap-accel); when both went
+        disabled (C18acc retired 2026-08-04) that silently starved holdings_pulse /
+        rrg_universe_intraday_panel / rrg_mono_intraday_watch. RUN_* is the only switch now.
+        """
         reg = _registry_with_disabled("rrg-mono-hold7", "rrg-mono-swap-accel")
         env = {**os.environ, "RUN_RRG_UNIVERSE_CLOSE": "1"}
-        reason = daily_sync_skip_reason("rrg_universe_close", env, registry=reg)
-        self.assertIn("registry enabled=false", reason or "")
+        self.assertIsNone(daily_sync_skip_reason("rrg_universe_close", env, registry=reg))
+
+    def test_rrg_universe_close_run_env_off(self) -> None:
+        env = {**os.environ, "RUN_RRG_UNIVERSE_CLOSE": "0"}
+        self.assertEqual(
+            daily_sync_skip_reason("rrg_universe_close", env),
+            "RUN_RRG_UNIVERSE_CLOSE=0",
+        )
 
     def test_copytrade_l1h9_respects_registry(self) -> None:
         reg = _registry_with_disabled("00981a-l1h9")

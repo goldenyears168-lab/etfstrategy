@@ -85,7 +85,7 @@ strategies:
     kind: competition
     schedule: daily_sync
     schedule_time: "16:30 Asia/Taipei Mon-Fri"
-    enabled: true
+    enabled: false  # 2026-08-04 排程暫停（C18acc 退場拆除中）· 須與 strategies.yaml 一致
     parent_strategy: rrg-mono-hold7
     n_slots: 3
     hold_days: 10
@@ -316,7 +316,7 @@ strategies:
     launchd_label: com.jackm4.goldenstocks.sell-signal-radar
     schedule_time: "09:06–13:20 Asia/Taipei Mon-Fri · 5m"
     env_flag: RUN_SELL_SIGNAL_RADAR
-    enabled: true
+    enabled: false  # 2026-08-04 排程暫停（C18acc extension · 隨主軌退場）
     parent_strategy: rrg-mono-swap-accel
     module: strategy_signal_radar
     screen_script: scripts/run_sell_signal_radar.py

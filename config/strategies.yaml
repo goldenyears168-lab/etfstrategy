@@ -61,7 +61,7 @@ strategies:
     title: RRG mono swap-accel · C18acc
     layer: strategy
     kind: competition
-    enabled: true
+    enabled: false  # 2026-08-04 排程暫停（C18acc 退場拆除中）· 須與 strategy.yaml 一致
     parent_strategy: rrg-mono-hold7
     description: >
       daily_sync 16:30 收盤診斷（Scheme A）+ 盤中 avg_accel/5m poll live screen ·
@@ -133,7 +133,7 @@ strategies:
     title: C18acc Extension overlay
     layer: strategy
     kind: competition
-    enabled: true
+    enabled: false  # 2026-08-04 排程暫停（隨 C18acc 主軌退場）
     parent_strategy: rrg-mono-swap-accel
     env_flag: RUN_C18ACC_EXTENSION_SCREEN
     description: >

@@ -125,7 +125,7 @@ Gate 兩層且皆須通過：`config/strategies.yaml` 的 `enabled`（registry g
 
 `config/job_registry.yaml` 是「裝了什麼、能不能送單」的唯一 SSOT，勿只信 `docs/daily-operations.md` 舊表。
 
-現況：5 支 order-capable job（`rrg-c18acc-poll`／`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）全部三重鎖住 ——
+現況：4 支 order-capable job（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）全部三重鎖住 ——
 1. `.env` 旗標本身安全（`ORDER_*_DRY_RUN=1` / `ORDER_*_ENABLED=0`）
 2. `launchctl disable`（重開機／重裝不復活）
 3. `.env` 總開關 `ORDER_MASTER_ENABLED=0`（`src/order/fubon_orders.py` 檢查）
@@ -133,6 +133,19 @@ Gate 兩層且皆須通過：`config/strategies.yaml` 的 `enabled`（registry g
 改動下單相關程式時**維持 dry-run／disabled 為預設**：plist template 與 launcher template 內的 `ORDER_*_DRY_RUN` 一律 `1`、`ORDER_*_AUTO_SUBMIT` 一律 `0`，實彈只由 mini 的 `.env` 開。恢復送單能力必須是使用者明確直接的指示。
 
 **ABC Order 軌已退役**（2026-07-16）；`buy-signal-radar` 只寄信、不送單。
+**C18acc 排程已退役**（2026-08-04 · 策略不再採用 · 主要動機是不再收它的失敗信）。安靜是靠三層，**不是**靠改程式：
+1. launchd 移除 —— plist／launcher／`.command` 從 repo 與 mini 刪除，label 進 `RETIRED_LABELS`，重跑安裝腳本只會再卸載一次、不會復活
+2. `config/strategies.yaml`＋`config/strategy.yaml` 的 `rrg-mono-swap-accel`／`-extension` 設 `enabled: false`（registry gate 擋掉收盤 brief）
+3. `.env` 的 `RUN_RRG_C18ACC_SCREEN`／`_EMAIL`／`RUN_C18ACC_POOL_DIGEST_EMAIL`／`RUN_RRG_MONO_SWAP_ACCEL_DAILY` 全設 0
+
+**程式碼與 `config/order.yaml` 規格一律未動**（`src/order/c18acc_*.py`、screen、research／backtest 線都在），要研究時手動跑 `scripts/run_rrg_mono_swap_accel_screen.py` 即可。退役時尚有 3 個未平槽位（2377／2103／4167），現為手動持倉。
+
+⚠️ 關掉 `rrg-mono-swap-accel` 的副作用（已處理，但值得記住這個模式）：`rrg_universe_close` 原本 gate 是 `hold7 OR swap-accel`（`match: any`），而 hold7 早已 disabled，所以 swap-accel 是**唯一**還撐著它的——一關就會讓 `rrg_universe_scores` 的 `screen_kind='close'` 停止寫入，而它有兩個活的消費者：
+
+- `capitulation-oos-accumulate`（launchd · 平日 19:00）取 `MAX(session_date) WHERE screen_kind='close'`，停寫後會凍在舊日期、每天拿同一份舊快照繼續累積 OOS 事件——**不會報錯**，但會污染 OOS ledger
+- `stock_daily_lens`（收盤 · `RUN_STOCK_DAILY_LENS=1`）呼叫 `load_rrg_universe_scores(conn, date, "close")` 三次 → 上網站
+
+已把該步從 registry gate 解耦（`src/pipeline_gates.py` · `strategy_ids: ()`，純 infra 只吃 `RUN_RRG_UNIVERSE_CLOSE`），並補測試釘住。**教訓**：退役策略前先查 `_DAILY_SYNC_STEPS` 裡有沒有 `match: any` 的步驟把它列為 parent——那種 gate 會在最後一個 parent 被關掉時靜默熄火。
 
 ---
 

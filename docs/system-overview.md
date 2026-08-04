@@ -12,7 +12,7 @@ Mac mini（主力機：唯一工作站兼生產機，24小時常開）
   ~/goldenstocks         程式碼（git checkout；唯一 push 來源）
   ~/goldenstocks-data    .env/CAFubon/資料庫（不進git，機密）
   ~22 支 launchd 排程     全部見 config/job_registry.yaml
-  下單能力：5 支 order job 全部暫停中（見 §3）
+  下單能力：4 支 order job 全部暫停中（見 §3）
   日常開發/研究/測試/git commit＋push 都在 mini 做（透過 SSH 遠端操作即可，讓 Book 保持涼快）
 
         │ git push（單向：只有 mini 推）
@@ -61,13 +61,15 @@ Supabase（project: lzaomqzsiqudkojokevr，顯示名稱「好時股市研究」�
 
 ## 3. Order layer（下單層）現況
 
-**目前無一支具備實際下單能力**——5 支 order-capable job（`rrg-c18acc-poll`／`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）都是三重保險同時鎖住：
+**目前無一支具備實際下單能力**——4 支 order-capable job（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）都是三重保險同時鎖住：
 
 1. `.env` 旗標本身安全（`DRY_RUN=1` 或 `ORDER_ENABLED=0`）
 2. `launchctl disable`（重開機、重裝都不會復活）
 3. `.env` 的 `ORDER_MASTER_ENABLED=0` 總開關
 
 要恢復下單能力必須是明確、直接的指示，不會因為重跑安裝腳本或改其他設定而不小心復活。
+
+C18acc（`rrg-c18acc-poll`）的**排程**已於 **2026-08-04 徹底退役**（策略不再採用，主要是不想再收到它的失敗信）：不只是停用——plist／launcher／`.command` 已從 repo 與 mini 刪除，label 進 `install-launchd.sh` 的 `RETIRED_LABELS`，重跑安裝腳本只會再卸載一次、不會重建。**程式碼與 `config/order.yaml` 規格刻意全部保留**（`src/order/c18acc_*.py`、`rrg_mono_swap_accel_screen.py`、research／backtest 線都在），安靜是靠 registry `enabled: false` + `.env` 旗標 0 + 沒有排程可觸發；要研究時仍可手動跑。退役時尚有 3 個未平槽位（2377／2103／4167），現為手動持倉，Leading Dip 仍會排除它們。
 
 ---
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 安裝下單層 launchd（C18acc · Leading Dip · sell/exit ops）
-# ABC Order 已退役（2026-07-15）。Facts / Regime / VCP / digest 等已退役排程（可手動跑）。
+# 安裝下單層 launchd（Leading Dip · Songshan · sell/exit ops）
+# ABC Order 已退役（2026-07-15）。C18acc 排程已退役（2026-08-04 · 策略不再採用）。
+# Facts / Regime / VCP / digest 等已退役排程（可手動跑）。
 #
 # 用法：
 #   scripts/install-launchd.sh           # 安裝並載入
@@ -20,7 +21,6 @@ GUI_DOMAIN="gui/${UID_NUM}"
 # 研究層 collect job（fubon-premarket/fubon-intraday-quote-collect）刻意不在此陣列：plist 佔位符無 launcher template，安裝方式見各 scripts/launchd/*collect*.command 檔頭（一次性手動 sed + bootstrap）。
 # （pre-market-auction-collect 已於 2026-08-01 退役，見 RETIRED_LABELS。）
 LABELS=(
-  com.jackm4.goldenstocks.rrg-c18acc-poll
   com.jackm4.goldenstocks.buy-signal-radar
   com.jackm4.goldenstocks.detach-gate
   com.jackm4.goldenstocks.leading-dip-poll
@@ -36,7 +36,6 @@ LABELS=(
 )
 
 TEMPLATES=(
-  com.jackm4.goldenstocks.rrg-c18acc-poll.plist.template
   com.jackm4.goldenstocks.buy-signal-radar.plist.template
   com.jackm4.goldenstocks.detach-gate.plist.template
   com.jackm4.goldenstocks.leading-dip-poll.plist.template
@@ -58,8 +57,7 @@ usage() {
   預設：將 launchd/*.plist.template 渲染後安裝到
         ~/Library/LaunchAgents/ 並 launchctl load。
 
-  現行排程（Order layer · C18acc / Leading Dip / Songshan；本地時間）：
-    rrg-c18acc-poll         週一至五 09:00–13:30 每 5 分（C18acc swap · auto-submit）
+  現行排程（Order layer · Leading Dip / Songshan；本地時間）：
     buy-signal-radar        週一至五 09:00–13:20 每 5 分（notify；ABC Order 已退役）
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
@@ -76,6 +74,8 @@ usage() {
                                cwd 為 GOLDENSTOCKS_DATA_DIR（護欄＝該目錄 CLAUDE.md）
 
   已退役（不再安裝；手動仍可用對應 python）：
+    rrg-c18acc-poll（2026-08-04 退役 · C18acc 策略不再採用 · order 層 python 保留 ·
+                     plist／launcher 備份於 goldenstocks-data/.retired-launchd-backup-*）·
     pre-market-auction-collect · ops-live-ta-poll · live-ta-kbar-sync · sell-signal-radar（2026-08-01 退役 · python 保留 · 配備/範本備份於 goldenstocks-data/.retired-launchd-backup-*）·
     specialty-expert-pool-watch（已併入 nightly-expert-digest 統一入口）·
     morning-holdings-brief（2026-07-16 退役 · 手動仍可用 scripts/order/morning_holdings_brief.py）·
@@ -90,13 +90,12 @@ usage() {
   注意：Mac 須已登入。盤中 poll 用 StartInterval=300（非 Aqua CalendarInterval），
         開盤窗由 launcher 過濾；order-wake 每 5 分 caffeinate。launchd stdout 寫
         ~/Library/Logs/com.jackm4.goldenstocks/（避開 Documents TCC → EX_CONFIG）。
-        rrg-c18acc-poll · leading-dip-poll · buy/sell radar · detach-gate
+        leading-dip-poll · buy/sell radar · detach-gate
         以 Application Support launcher + /bin/bash 背景執行。
 EOF
 }
 
 LAUNCHD_COMMANDS=(
-  rrg-c18acc-poll
   buy-signal-radar
   detach-gate
   leading-dip-poll
@@ -198,6 +197,8 @@ RETIRED_LABELS=(
   com.jackm4.goldenstocks.crash-thermometer-daily
   # 2026-08-02 mini 每日體檢搬入 repo 版控：舊手裝 label → 新 mini-schedule
   com.goldenstocks.mini
+  # 2026-08-04 退役（C18acc 策略不再採用 · src/order/c18acc_* python 保留）
+  com.jackm4.goldenstocks.rrg-c18acc-poll
 )
 
 uninstall_retired_agents() {
@@ -221,12 +222,6 @@ generate_five_minute_clock_calendar() {
     printf '\t<key>StartInterval</key>\n'
     printf '\t<integer>300</integer>\n'
   } >"${out}"
-}
-
-generate_c18acc_calendar_intervals() {
-  local out="/tmp/com.jackm4.goldenstocks.c18acc-calendar.xml"
-  generate_five_minute_clock_calendar "${out}"
-  C18ACC_CALENDAR_INTERVALS_FILE="${out}"
 }
 
 generate_buy_radar_calendar_intervals() {
@@ -259,22 +254,14 @@ generate_songshan_copytrade_calendar_intervals() {
   SONGSHAN_COPYTRADE_CALENDAR_INTERVALS_FILE="${out}"
 }
 
-generate_extension_calendar_intervals() {
-  local out="/tmp/com.jackm4.goldenstocks.extension-calendar.xml"
-  generate_five_minute_clock_calendar "${out}"
-  EXTENSION_CALENDAR_INTERVALS_FILE="${out}"
-}
-
 render_template() {
   local template="$1"
   local dest="$2"
   if grep -q '{{BUY_RADAR_CALENDAR_INTERVALS}}' "${template}"; then
     generate_buy_radar_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
         -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -295,10 +282,8 @@ render_template() {
   if grep -q '{{SELL_RADAR_CALENDAR_INTERVALS}}' "${template}"; then
     generate_sell_radar_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
         -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -320,10 +305,8 @@ render_template() {
     generate_detach_gate_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
         -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -345,13 +328,11 @@ render_template() {
     generate_leading_dip_calendar_intervals
     sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
         -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
         -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
         -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
         -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
         -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
         -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
         -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
         -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
         -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -382,57 +363,8 @@ render_template() {
       >"${dest}"
     return
   fi
-  if grep -q '{{C18ACC_CALENDAR_INTERVALS}}' "${template}"; then
-    generate_c18acc_calendar_intervals
-    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
-        -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
-        -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
-        -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
-        -e "s|{{VCP_FUNNEL_LAUNCHER}}|${VCP_FUNNEL_LAUNCHER}|g" \
-        -e "s|{{RRG_MONO_INTRADAY_LAUNCHER}}|${RRG_MONO_INTRADAY_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_1300_DIGEST_LAUNCHER}}|${INTRADAY_1300_DIGEST_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_OPEN_DIGEST_LAUNCHER}}|${INTRADAY_OPEN_DIGEST_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_MIDDAY_DIGEST_LAUNCHER}}|${INTRADAY_MIDDAY_DIGEST_LAUNCHER}|g" \
-        -e "s|{{MUTUAL_FUND_LAUNCHER}}|${MUTUAL_FUND_LAUNCHER}|g" \
-        -e "s|{{MINERVINI_LAUNCHER}}|${MINERVINI_LAUNCHER}|g" \
-        -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
-        "${template}" \
-      | sed "/{{C18ACC_CALENDAR_INTERVALS}}/r ${C18ACC_CALENDAR_INTERVALS_FILE}" \
-      | sed '/{{C18ACC_CALENDAR_INTERVALS}}/d' \
-      >"${dest}"
-    return
-  fi
-  if grep -q '{{EXTENSION_CALENDAR_INTERVALS}}' "${template}"; then
-    generate_extension_calendar_intervals
-    sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
-        -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
-        -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
-        -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
-        -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
-        -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
-        -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
-        -e "s|{{VCP_FUNNEL_LAUNCHER}}|${VCP_FUNNEL_LAUNCHER}|g" \
-        -e "s|{{RRG_MONO_INTRADAY_LAUNCHER}}|${RRG_MONO_INTRADAY_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_1300_DIGEST_LAUNCHER}}|${INTRADAY_1300_DIGEST_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_OPEN_DIGEST_LAUNCHER}}|${INTRADAY_OPEN_DIGEST_LAUNCHER}|g" \
-        -e "s|{{INTRADAY_MIDDAY_DIGEST_LAUNCHER}}|${INTRADAY_MIDDAY_DIGEST_LAUNCHER}|g" \
-        -e "s|{{MUTUAL_FUND_LAUNCHER}}|${MUTUAL_FUND_LAUNCHER}|g" \
-        -e "s|{{MINERVINI_LAUNCHER}}|${MINERVINI_LAUNCHER}|g" \
-        -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
-        "${template}" \
-      | sed "/{{EXTENSION_CALENDAR_INTERVALS}}/r ${EXTENSION_CALENDAR_INTERVALS_FILE}" \
-      | sed '/{{EXTENSION_CALENDAR_INTERVALS}}/d' \
-      >"${dest}"
-    return
-  fi
   sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
       -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
-      -e "s|{{C18ACC_LAUNCHER}}|${C18ACC_LAUNCHER}|g" \
       -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
@@ -445,7 +377,6 @@ render_template() {
       -e "s|{{BRANCH_TAPE_PREWARM_LAUNCHER}}|${BRANCH_TAPE_PREWARM_LAUNCHER}|g" \
       -e "s|{{OPS_CONSOLE_EVENING_LAUNCHER}}|${OPS_CONSOLE_EVENING_LAUNCHER}|g" \
       -e "s|{{MINI_SCHEDULE_LAUNCHER}}|${MINI_SCHEDULE_LAUNCHER}|g" \
-      -e "s|{{EXTENSION_LAUNCHER}}|${EXTENSION_LAUNCHER}|g" \
       -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
       -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
       -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -461,7 +392,7 @@ render_template() {
 }
 
 sync_order_env_mirror() {
-  # Mirror non-secret ORDER_/C18ACC_ keys for launchd (Documents .env may be TCC-blocked).
+  # Mirror non-secret ORDER_/RUN_ keys for launchd (Documents .env may be TCC-blocked).
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
   local src_env="${PROJECT_ROOT}/.env"
   local dest="${app_support}/order.env"
@@ -471,41 +402,13 @@ sync_order_env_mirror() {
     echo "# Whitelist only · no passwords / cert paths"
     if [[ -f "${src_env}" ]]; then
       # shellcheck disable=SC2016
-      grep -E '^(ORDER_C18ACC_|C18ACC_|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_EP_STAGED_GATE|RUN_RRG_C18ACC_|RUN_C18ACC_|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
+      grep -E '^(ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_EP_STAGED_GATE|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
         "${src_env}" 2>/dev/null \
         | grep -Eiv '(PASSWORD|SECRET|TOKEN|CERT|KEY|PIN)=' || true
     fi
   } >"${dest}"
   chmod 600 "${dest}"
   echo "  order.env mirror → ${dest}"
-}
-
-install_c18acc_launcher() {
-  local src="${LAUNCHD_SRC}/rrg-c18acc-poll-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  C18ACC_LAUNCHER="${app_support}/rrg-c18acc-poll.sh"
-  if [[ ! -f "${src}" ]]; then
-    echo "✗ 缺少 ${src}" >&2
-    exit 1
-  fi
-  mkdir -p "${app_support}"
-  APP_SUPPORT="${app_support}"
-  render_template "${src}" "${C18ACC_LAUNCHER}"
-  chmod +x "${C18ACC_LAUNCHER}"
-  sync_order_env_mirror
-}
-
-install_extension_launcher() {
-  local src="${LAUNCHD_SRC}/c18acc-extension-overlay-launcher.sh.template"
-  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
-  EXTENSION_LAUNCHER="${app_support}/c18acc-extension-overlay.sh"
-  if [[ ! -f "${src}" ]]; then
-    EXTENSION_LAUNCHER=""
-    return 0
-  fi
-  mkdir -p "${app_support}"
-  render_template "${src}" "${EXTENSION_LAUNCHER}"
-  chmod +x "${EXTENSION_LAUNCHER}"
 }
 
 install_buy_radar_launcher() {
@@ -867,8 +770,6 @@ install_agents() {
   migrate_intraday_logs
   uninstall_retired_agents
   ensure_launchd_commands
-  C18ACC_LAUNCHER=""
-  EXTENSION_LAUNCHER=""
   BUY_RADAR_LAUNCHER=""
   DETACH_GATE_LAUNCHER=""
   LEADING_DIP_LAUNCHER=""
@@ -892,7 +793,7 @@ install_agents() {
   MUTUAL_FUND_LAUNCHER=""
   MINERVINI_LAUNCHER=""
   WEEKLY_DEEP_LAUNCHER=""
-  install_c18acc_launcher
+  sync_order_env_mirror
   install_buy_radar_launcher
   install_detach_gate_launcher
   install_leading_dip_launcher

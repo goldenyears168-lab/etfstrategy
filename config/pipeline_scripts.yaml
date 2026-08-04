@@ -88,8 +88,7 @@ scripts:
   run_c18acc_extension_screen:
     path: scripts/run_c18acc_extension_screen.py
     layer: pipeline
-    pipeline: launchd
-    launchd: scripts/launchd/c18acc-extension-overlay.command
+    pipeline: manual   # launchd c18acc-extension-overlay 已退役；.command 亦已刪除
     module: src/c18acc_extension_screen.py
     strategy_id: rrg-mono-swap-accel-extension
 

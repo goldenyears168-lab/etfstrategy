@@ -180,7 +180,7 @@ facts → regime → research → strategy (+ order layer 本機)
 
 | Sleeve | 觸發 | 自動送單 | 上限／備註 |
 |--------|------|----------|------------|
-| **C18acc / rrg-mono-swap-accel** | `rrg-c18acc-poll` | ✅（`ORDER_C18ACC_*`） | 3 槽 · 2 萬／槽 · confirm_bars=**1** · pyramid 採納 |
+| **C18acc / rrg-mono-swap-accel** | ~~`rrg-c18acc-poll`~~ **排程 2026-08-04 退役** | ❌ 無排程可觸發（registry `enabled: false` + `.env` 旗標 0） | 程式碼／`order.yaml` 規格未動；手動 `scripts/run_rrg_mono_swap_accel_screen.py` |
 | **Leading Dip**（+ mid） | `leading-dip-poll` | ✅（`ORDER_LEADING_DIP_*`） | coverage + mid · 與 C18 互斥 |
 | **Detach Gate** | `detach-gate` | ❌ 已暫停（`launchctl disable` + `ORDER_ENABLED=0`） | 半砍規格保留（floor(qty/2) @ bid1）· 現況不送單 · 見 config/job_registry.yaml |
 | **buy / sell signal radar** | launchd | ❌ 寄信 only | ABC 池關閉 |
@@ -452,7 +452,7 @@ detach_gate:
 | 假設 | H-ENTRY-PYRAMID-1 | H-C18-PYRAMID-1 |
 | 適用 | （retired） | `rrg-mono-swap-accel` |
 | 觸發 | — | `ret_from_entry_pct<0` 且持倉 W3 RV 自 in-hold trough 反彈 ≥0.3 |
-| Poll | — | 嵌入 `rrg-c18acc-poll`（亦可手動 `run_c18acc_position_poll.py`） |
+| Poll | — | 原嵌入 `rrg-c18acc-poll`（排程 2026-08-04 退役）· 僅手動 `run_c18acc_position_poll.py` |
 | 部位 | — | 等權重第二筆 · `C18ACC_BUDGET_TWD_PER_SLOT` |
 | 出場 | — | sync_exit · leg1 S2/sim 動態出場 |
 | 預設 | `enabled: false` · `retired_from_order: true` | **`enabled: true`**（Strategy `pyramid_add.enabled: true`） |

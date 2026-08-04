@@ -25,6 +25,8 @@ scripts/1630收盤雷達.command
 
 **啟用策略軌**：同時設 `config/strategies.yaml` + `config/strategy.yaml` · `enabled: true`（兩檔一致），並開對應 `RUN_*`。
 
+> **退役策略前先檢查**：`src/pipeline_gates.py` 的 `_DAILY_SYNC_STEPS` 內有沒有 `match: any` 的步驟把該策略列為 parent。那種 gate 在**最後一個** parent 被關掉時會靜默熄火。2026-08-04 退 `rrg-mono-swap-accel` 時就踩到——它是 `rrg_universe_close` 唯一還活著的 parent，而 `capitulation-oos-accumulate`（19:00）與 `stock_daily_lens` 都在吃該步產出的 `screen_kind='close'` 資料。該步已改為純 infra（`strategy_ids: ()`）。
+
 **健康檢查**（registry 與 `RUN_*` 不一致時 WARN）：
 
 ```bash
@@ -37,7 +39,8 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | 步驟 | slim | full（`.env.example`） | Registry `strategy_id` |
 |------|------|------------------------|-------------------------|
 | ingest + 持股 + **etf-daily** + **regime-daily** | ✓ | ✓ | `etf-daily` · `regime-daily`（恆 `enabled: true`） |
-| RRG universe / mono / swap-accel brief | ✗ | ✓ | `rrg-mono-hold7` · `rrg-mono-swap-accel` |
+| RRG universe close snapshot | ✗ | ✓ | **無 registry gate**（純 infra · 只吃 `RUN_RRG_UNIVERSE_CLOSE`） |
+| RRG mono / swap-accel brief | ✗ | ✓ | `rrg-mono-hold7` · `rrg-mono-swap-accel`（兩者皆已 `enabled: false`） |
 | L1H9 copytrade screen | ✓ | ✓ | `00981a-l1h9` |
 | VCP funnel close | ✗ | ✓ | `vcp-pivot-gate` / `vcp-coil-close` |
 | stock_daily_lens → Supabase | ✗ | ✓ | （跨層 publish · 僅 `RUN_STOCK_DAILY_LENS`） |
@@ -61,7 +64,7 @@ PYTHONPATH=src .venv/bin/python src/pipeline_gates.py list-mismatches
 | `minervini-sepa-basket` | `minervini_sepa_daily` | —（**已退役排程** · 僅手動） | `scripts/launchd/minervini-sepa-basket.command` |
 | `buy-signal-radar` | C0 買進 advisory | **已停用**（原 09:00–13:20/5分） | `scripts/launchd/buy-signal-radar.command` |
 | `sell-signal-radar` | Fubon 持倉 extension 賣出 advisory | **已退役**（見 job_registry） | `scripts/launchd/sell-signal-radar.command` |
-| `rrg-c18acc-poll` | C18acc 開倉／換倉（`no_trade_before=13:00`） | **已停用·三重鎖**（原 09:00–13:30/5分 · 進場窗 ≥13:00） | `scripts/launchd/rrg-c18acc-poll.command` |
+| `rrg-c18acc-poll` | C18acc 開倉／換倉 | **排程已退役**（2026-08-04 · plist／launcher／`.command` 已刪 · registry + `.env` 旗標全關） | 手動：`scripts/run_rrg_mono_swap_accel_screen.py`（程式碼未動） |
 | `leading-dip-poll` | Leading Dip 衛星袖 | **已停用·三重鎖**（原 09:05–13:25/5分） | `scripts/launchd/leading-dip-poll.command` |
 | `songshan-copytrade-poll` | 跟單松山（5d淨比95∩!mega + 25m nonfail · 1 張） | **已停用·三重鎖**（原 09:25–09:40/5分） | `scripts/launchd/songshan-copytrade-poll.command` · 現況見 [config/job_registry.yaml](../config/job_registry.yaml) |
 | `expert-pool-staged-gate` | 專家池 gap→05→25（≠ 松山尺） | **已停用·三重鎖**（原 09:00／01／05／25） | `scripts/launchd/expert-pool-staged-gate.command` |

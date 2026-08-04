@@ -8,7 +8,7 @@
 # job currently will; check status + the .env flags for that.
 # status: enabled | disabled (launchctl disable — persists across reboot/reinstall)
 #
-# generated: 2026-07-29 · reconciled 2026-08-02 against live launchctl list
+# generated: 2026-07-29 · reconciled 2026-08-04 (rrg-c18acc-poll fully retired) · 2026-08-02 against live launchctl list
 # (retired ops-live-ta-poll/live-ta-kbar-sync; winbond→nightly-expert-digest;
 #  added capitulation-oos-accumulate). Verified directly against mini
 # (~/Library/LaunchAgents/*.plist + launchctl print-disabled), not from memory or docs.
@@ -17,14 +17,11 @@ version: job-registry-v1
 
 jobs:
   # --- Order layer (all order_capable=true jobs are currently disabled) ---
-  - label: rrg-c18acc-poll
-    category: order
-    order_capable: true
-    status: disabled
-    disabled_since: "2026-07-27"
-    schedule: "weekdays 09:00-13:30, every 5min"
-    description: "C18acc swap main sleeve — auto-submit when enabled"
-
+  # rrg-c18acc-poll RETIRED 2026-08-04 — strategy no longer adopted. plist/launcher/.command
+  # deleted from repo + mini, label moved to install-launchd.sh RETIRED_LABELS (auto-uninstalls
+  # on any future install run), launchctl disable kept as belt-and-braces.
+  # src/order/c18acc_*.py kept for manual/backtest use. Backup:
+  # goldenstocks-data/.retired-launchd-backup-20260804-c18acc/
   - label: leading-dip-poll
     category: order
     order_capable: true
@@ -74,7 +71,7 @@ jobs:
     schedule: "weekdays 09:00-13:30, every 5min"
     description: "Holdings extension advisory, notify only; paused as non-分點 clutter"
 
-  # --- Infra helper (paused because its only clients — the 5 order jobs — are all off) ---
+  # --- Infra helper (paused because its only clients — the 4 order jobs — are all off) ---
   - label: order-wake
     category: infra
     order_capable: false
