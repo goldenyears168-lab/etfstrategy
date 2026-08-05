@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# TMF micro-channel Order poll · .venv-fubon · 日盤 08:45–13:45 + 夜盤 15:00–05:00
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+EXIT=0
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday" "${APP_SUPPORT}"
+mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
+
+export TZ="${TZ:-Asia/Taipei}"
+
+HM="$(date '+%H:%M')"
+# 對齊 src/order/tmf_channel_marketdata.py · in_tmf_trade_window
+in_window=0
+if [[ "${HM}" > "08:44" && "${HM}" < "13:46" ]]; then
+  in_window=1
+elif [[ "${HM}" > "14:59" || "${HM}" < "05:00" ]]; then
+  in_window=1
+fi
+if [[ "${in_window}" -ne 1 ]]; then
+  exit 0
+fi
+
+LOCKDIR="${APP_SUPPORT}/tmf-channel-poll.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 240 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous tmf-channel-poll still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/tmf_channel_live_${STAMP}.log"
+
+echo ""
+echo "=== launchd tmf-channel-poll tick $(date '+%Y-%m-%d %H:%M:%S') hm=${HM} ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
+
+# Fail-closed only if still unset after .env（plist 預設會被 source .env 覆寫成實彈）
+export ORDER_TMF_CHANNEL_ENABLED="${ORDER_TMF_CHANNEL_ENABLED:-0}"
+export ORDER_TMF_CHANNEL_DRY_RUN="${ORDER_TMF_CHANNEL_DRY_RUN:-1}"
+export ORDER_TMF_CHANNEL_AUTO_SUBMIT="${ORDER_TMF_CHANNEL_AUTO_SUBMIT:-0}"
+
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing .venv-fubon python: ${PYTHON}"
+  exit 1
+fi
+
+set +e
+OUT="$("${PYTHON}" "${ROOT}/scripts/order/run_tmf_channel_poll.py" --json 2>&1)"
+EXIT=$?
+set -e
+
+{
+  echo ""
+  echo "=== launchd tmf-channel-poll tick $(date '+%Y-%m-%d %H:%M:%S') hm=${HM} ==="
+  echo "${OUT}"
+  echo "=== launchd tmf-channel-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+} >>"${TICK_LOG}"
+
+echo "${OUT}"
+echo "=== launchd tmf-channel-poll end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+exit "${EXIT}"

@@ -519,3 +519,38 @@ strategies:
       notes: >
         Complementary uplift vs coverage ≈ +15 (+18%) · only_new hit≈87% med≈+6.2 ·
         採納為衛星袖 · 不取代 main。
+
+  tmf-micro-channel:
+    title: TMF 微型臺指 · Channel Final v1.1.2（日 hi38／夜 15–30）
+    kind: research_adopted
+    schedule: launchd
+    launchd_label: com.jackm4.goldenstocks.tmf-channel-poll
+    schedule_time: "day 08:45–13:45 + night 15:00–05:00 · poll 1–5m"
+    env_flag: ORDER_TMF_CHANNEL_ENABLED
+    enabled: true
+    module: order.tmf_channel_order
+    screen_script: scripts/order/run_tmf_channel_poll.py
+    research_topic: tmf-hang-hi-day-tighten
+    config_ref: config/order.yaml
+    description: >
+      微型臺指近月限價雙向通道 · hybrid_trail + regime dampen + PI retain ·
+      2026-08-05 採納 D38：日 hang 30–38、夜絕對 15–30（night_hang_lo/hi）。
+      Order desired-state reconciler · max_lots=1。
+    matcher:
+      id: tmf_channel_v112
+      product: TMF
+      recipe_version: final_v1_1_2_day_hi38_night1530
+    execution:
+      asset: futopt
+      max_lots: 1
+      entry: limit_rod_dual_hang
+      exit: hybrid_trail_ioc_or_market
+    backtest:
+      spec_type: bar_1m_day_night
+      source_module: jack_channel_v6_pv
+      frozen_id: final_v1_1_2_day_hi38_night1530
+      source_summary: docs/tmf-micro-channel-final-v1-1-prd.md
+      metrics:
+        - junjul_net
+        - green_days
+        - improve_on_vs_off

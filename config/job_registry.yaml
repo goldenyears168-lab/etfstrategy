@@ -16,7 +16,7 @@
 version: job-registry-v1
 
 jobs:
-  # --- Order layer (all order_capable=true jobs are currently disabled) ---
+  # --- Order layer ---
   # rrg-c18acc-poll RETIRED 2026-08-04 — strategy no longer adopted. plist/launcher/.command
   # deleted from repo + mini, label moved to install-launchd.sh RETIRED_LABELS (auto-uninstalls
   # on any future install run), launchctl disable kept as belt-and-braces.
@@ -53,6 +53,14 @@ jobs:
     disabled_since: "2026-07-29"
     schedule: "weekdays 09:00-13:30, every 5min"
     description: "TW/US detach risk gate — was flag-safe but job wasn't launchctl-disabled until 07-29 audit"
+
+  - label: tmf-channel-poll
+    category: order
+    order_capable: true
+    status: enabled
+    enabled_since: "2026-08-05"
+    schedule: "every 60s · day 08:45-13:45 + night 15:00-05:00"
+    description: "TMF micro-channel Final v1.1.2 futopt desired-state reconciler · launchd live via .env 四鎖"
 
   # --- Notify-only, no order code path (ABC retired) ---
   - label: buy-signal-radar

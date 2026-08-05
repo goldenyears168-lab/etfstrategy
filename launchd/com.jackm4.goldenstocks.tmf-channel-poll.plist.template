@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.tmf-channel-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{TMF_CHANNEL_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SYNC_PROFILE</key>
+		<string>tmf-channel-poll</string>
+		<key>GOLDENSTOCKS_DATA_DIR</key>
+		<string>/Users/jackm4/goldenstocks-data</string>
+		<key>TZ</key>
+		<string>Asia/Taipei</string>
+		<!-- Fail-closed defaults only（與 leading-dip 等同款）。
+		     launcher 會 source GOLDENSTOCKS_DATA_DIR/.env 覆寫；勿把這三行誤讀成「永遠 dry」。 -->
+		<key>ORDER_TMF_CHANNEL_ENABLED</key>
+		<string>0</string>
+		<key>ORDER_TMF_CHANNEL_DRY_RUN</key>
+		<string>1</string>
+		<key>ORDER_TMF_CHANNEL_AUTO_SUBMIT</key>
+		<string>0</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 每 60 秒；日盤／夜盤窗由 launcher + in_tmf_trade_window 過濾 -->
+	<key>StartInterval</key>
+	<integer>60</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- futopt login + reconcile 偶發 >30s -->
+	<key>ExitTimeOut</key>
+	<integer>180</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tmf-channel-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tmf-channel-poll.launchd.err.log</string>
+</dict>
+</plist>

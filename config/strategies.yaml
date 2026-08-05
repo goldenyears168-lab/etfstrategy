@@ -212,3 +212,16 @@ strategies:
     sources:
       - reports/research/rrg/20260715_leading_dip_time_sleeve_expand.md
       - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md
+
+  tmf-micro-channel:
+    title: TMF 微型臺指 · Channel Final v1.1.2
+    layer: strategy
+    kind: research_adopted
+    enabled: true
+    env_flag: ORDER_TMF_CHANNEL_ENABLED
+    description: >
+      微型臺指近月 channel · Order futopt · Final v1.1.2：日 hang 30–38、
+      夜絕對 15–30（D38 day-only）。白皮書 docs/tmf-micro-channel-final-v1-1-prd.md。
+    sources:
+      - docs/tmf-micro-channel-final-v1-1-prd.md
+      - reports/research/channel_lab/tmf_hang_hi_day_vs_shared_lab.json
