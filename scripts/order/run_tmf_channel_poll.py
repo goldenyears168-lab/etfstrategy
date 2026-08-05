@@ -3,7 +3,8 @@
 
 Examples:
   .venv-fubon/bin/python scripts/order/run_tmf_channel_poll.py --json
-  ORDER_TMF_CHANNEL_ENABLED=1 ORDER_TMF_CHANNEL_DRY_RUN=1 \\
+  # --force is refused unless explicitly unlocked (do not dual-run with launchd):
+  ORDER_TMF_CHANNEL_FORCE_OK=1 ORDER_TMF_CHANNEL_DRY_RUN=1 \\
     .venv-fubon/bin/python scripts/order/run_tmf_channel_poll.py --force --json
 
 Live submit requires ALL of:
@@ -13,6 +14,8 @@ Live submit requires ALL of:
   ORDER_TMF_CHANNEL_DRY_RUN=0
 and launchd job ``com.jackm4.goldenstocks.tmf-channel-poll`` enabled
 (``scripts/install-launchd.sh`` installs + enables it).
+
+Production path is **launchd only** — never nohup/night_loop alongside it.
 """
 
 from __future__ import annotations

@@ -25,6 +25,7 @@ LABELS=(
   com.jackm4.goldenstocks.detach-gate
   com.jackm4.goldenstocks.leading-dip-poll
   com.jackm4.goldenstocks.songshan-copytrade-poll
+  com.jackm4.goldenstocks.tmf-channel-poll
   com.jackm4.goldenstocks.expert-pool-staged-gate
   com.jackm4.goldenstocks.nightly-expert-digest
   com.jackm4.goldenstocks.second-disp-expert-pool-watch
@@ -40,6 +41,7 @@ TEMPLATES=(
   com.jackm4.goldenstocks.detach-gate.plist.template
   com.jackm4.goldenstocks.leading-dip-poll.plist.template
   com.jackm4.goldenstocks.songshan-copytrade-poll.plist.template
+  com.jackm4.goldenstocks.tmf-channel-poll.plist.template
   com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
   com.jackm4.goldenstocks.nightly-expert-digest.plist.template
   com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
@@ -62,6 +64,7 @@ usage() {
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
     songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 預算制約10萬）
+    tmf-channel-poll        每 60 秒（日盤 08:45–13:45 + 夜盤 15:00–05:00 · TMF 微型臺指 · 預設 dry-run）
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
     nightly-expert-digest  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
@@ -100,6 +103,7 @@ LAUNCHD_COMMANDS=(
   detach-gate
   leading-dip-poll
   songshan-copytrade-poll
+  tmf-channel-poll
   expert-pool-staged-gate
   nightly-expert-digest
   second-disp-expert-pool-watch
@@ -369,6 +373,7 @@ render_template() {
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
       -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
+      -e "s|{{TMF_CHANNEL_LAUNCHER}}|${TMF_CHANNEL_LAUNCHER}|g" \
       -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
       -e "s|{{NIGHTLY_EXPERT_DIGEST_LAUNCHER}}|${NIGHTLY_EXPERT_DIGEST_LAUNCHER}|g" \
       -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
@@ -402,7 +407,7 @@ sync_order_env_mirror() {
     echo "# Whitelist only · no passwords / cert paths"
     if [[ -f "${src_env}" ]]; then
       # shellcheck disable=SC2016
-      grep -E '^(ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_EP_STAGED_GATE_|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_EP_STAGED_GATE|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
+      grep -E '^(ORDER_MASTER_ENABLED|ORDER_RESERVED_CASH_|ORDER_LIVE_|ORDER_ALLOW_|ORDER_DETACH_GATE_|ORDER_LEADING_DIP_|ORDER_SONGSHAN_COPYTRADE_|ORDER_EP_STAGED_GATE_|ORDER_TMF_CHANNEL_|ORDER_TMF_ACCOUNT|RUN_LEADING_DIP_|RUN_SONGSHAN_COPYTRADE_|RUN_EP_STAGED_GATE|RUN_DETACH_GATE|FUBON_FORCE_SUBPROCESS)' \
         "${src_env}" 2>/dev/null \
         | grep -Eiv '(PASSWORD|SECRET|TOKEN|CERT|KEY|PIN)=' || true
     fi
@@ -462,6 +467,24 @@ install_songshan_copytrade_launcher() {
   APP_SUPPORT="${app_support}"
   render_template "${src}" "${SONGSHAN_COPYTRADE_LAUNCHER}"
   chmod +x "${SONGSHAN_COPYTRADE_LAUNCHER}"
+}
+
+install_tmf_channel_launcher() {
+  local src="${LAUNCHD_SRC}/tmf-channel-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  TMF_CHANNEL_LAUNCHER="${app_support}/tmf-channel-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  if [[ ! -x "${PROJECT_ROOT}/.venv-fubon/bin/python" ]]; then
+    echo "✗ tmf-channel-poll 需要 ${PROJECT_ROOT}/.venv-fubon/bin/python" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${TMF_CHANNEL_LAUNCHER}"
+  chmod +x "${TMF_CHANNEL_LAUNCHER}"
 }
 
 install_ep_staged_gate_launcher() {
@@ -774,6 +797,7 @@ install_agents() {
   DETACH_GATE_LAUNCHER=""
   LEADING_DIP_LAUNCHER=""
   SONGSHAN_COPYTRADE_LAUNCHER=""
+  TMF_CHANNEL_LAUNCHER=""
   EP_STAGED_GATE_LAUNCHER=""
   NIGHTLY_EXPERT_DIGEST_LAUNCHER=""
   SECOND_DISP_EXPERT_LAUNCHER=""
@@ -798,6 +822,7 @@ install_agents() {
   install_detach_gate_launcher
   install_leading_dip_launcher
   install_songshan_copytrade_launcher
+  install_tmf_channel_launcher
   install_ep_staged_gate_launcher
   install_nightly_expert_digest_launcher
   install_second_disp_expert_launcher
@@ -845,14 +870,19 @@ install_agents() {
     echo "✓ ${label}"
   done
 
+  # TMF is the live order sleeve · enable so reboot/reinstall does not leave it disabled
+  launchctl enable "${GUI_DOMAIN}/com.jackm4.goldenstocks.tmf-channel-poll" 2>/dev/null || true
+  launchctl kickstart -k "${GUI_DOMAIN}/com.jackm4.goldenstocks.tmf-channel-poll" 2>/dev/null || true
+
   mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
 
   echo ""
   verify_documents_launch
   echo ""
   echo "完成。檢查："
-  echo "  launchctl list | grep jackm4.etf"
+  echo "  launchctl list | grep jackm4"
   echo "  # launchd stdout（避開 Documents TCC）：~/Library/Logs/com.jackm4.goldenstocks/"
+  echo "  # TMF tick log：\${GOLDENSTOCKS_DATA_DIR:-~/goldenstocks-data}/logs/intraday/tmf_channel_live_\$(date +%Y%m%d).log"
   echo "  # 業務 tick log 仍在：${PROJECT_ROOT}/logs/intraday/"
   echo "  tail -f ${PROJECT_ROOT}/logs/intraday/leading_dip_\$(date +%Y%m%d).log"
 }

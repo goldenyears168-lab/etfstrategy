@@ -173,8 +173,15 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
             "broker_pos": None,
         }
         save_ledger(self.ledger_path, killed_ledger)
+        # Never write production data/order/tmf_channel_broadcast.json from unit tests.
+        self._emit_patch = mock.patch(
+            "order.tmf_channel_broadcast.emit_from_summary",
+            side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+        )
+        self._emit_patch.start()
 
     def tearDown(self):
+        self._emit_patch.stop()
         Path(self.ledger_path).unlink(missing_ok=True)
 
     def test_flattens_naked_position_while_killed(self):
@@ -231,6 +238,26 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
 
         self.assertTrue(out["reason"].startswith("killed:"))
         self.assertIn("no network", out.get("kill_flatten_error", ""))
+
+
+class ForceCliGateTest(unittest.TestCase):
+    def test_cli_force_refused_without_env(self):
+        import os
+        from order.tmf_channel_order import main
+
+        os.environ.pop("ORDER_TMF_CHANNEL_FORCE_OK", None)
+        rc = main(["--force", "--json"])
+        self.assertEqual(rc, 2)
+
+    def test_cli_force_allowed_with_env(self):
+        import os
+        from order import tmf_channel_order as mod
+
+        os.environ["ORDER_TMF_CHANNEL_FORCE_OK"] = "1"
+        self.addCleanup(lambda: os.environ.pop("ORDER_TMF_CHANNEL_FORCE_OK", None))
+        with mock.patch.object(mod, "reconcile_once", return_value={"ok": True, "reason": "outside_session"}):
+            rc = mod.main(["--force", "--json"])
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":

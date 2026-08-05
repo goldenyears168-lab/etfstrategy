@@ -1,0 +1,40 @@
+---
+description: TMF micro-channel — launchd-only single path; no manual daemon / force dual-run
+alwaysApply: true
+---
+
+# TMF channel · 單一執行路徑（SSOT）
+
+Incident lesson **2026-08-05**：日盤收後空窗（13:46–14:59）另起 nohup／night daemon，並用 `--force` dry poll，寫出假熔斷 broadcast（`day_pnl=-450`），與正本 ledger（`killed=false` · `+704`）分叉。險造成夜盤雙跑。
+
+## 唯一合法路徑
+
+| 項目 | 規定 |
+|------|------|
+| 排程 | **只** `com.jackm4.goldenstocks.tmf-channel-poll`（`scripts/install-launchd.sh`） |
+| 時窗 | launcher 過濾：日 08:45–13:45 · 夜 15:00–05:00；空窗 **exit 0** |
+| 實彈 | `${GOLDENSTOCKS_DATA_DIR}/.env` 四鎖；plist 內 `ENABLED=0`／`DRY_RUN=1` 是 fail-closed，**不是**永遠 dry |
+| 正本狀態 | `data/order/tmf_channel_ledger.json` |
+| UI 快照 | `data/order/tmf_channel_broadcast.json`（**:8770 只讀**；不得當控制輸入） |
+
+## 禁止（除非使用者白紙黑字要求）
+
+- `nohup`／`setsid`／自寫 `day_loop`／`night_loop`／`NIGHT_DAEMON_*`
+- 與 launchd **同時**跑任何 `run_tmf_channel_poll.py`
+- CLI `--force`（空窗硬跑 simulate 會污染 ledger／broadcast）。程式已硬擋：需 `ORDER_TMF_CHANNEL_FORCE_OK=1`
+- 為「接 recipe／修 UI／查狀態」另起背景 poll
+- 把 broadcast 的 `killed` 當成 ledger 正本
+
+## Agent 查狀態時
+
+```bash
+launchctl list | grep tmf
+ps -axo pid,command | grep -E 'run_tmf_channel_poll|tmf_channel_.*loop' | grep -v grep
+# ledger 正本（勿 --force）
+python3 -c 'import json;print(json.load(open("/Users/jackm4/goldenstocks-data/data/order/tmf_channel_ledger.json"))["killed"],
+json.load(open("/Users/jackm4/goldenstocks-data/data/order/tmf_channel_ledger.json"))["day_pnl_pts"])'
+# 盤外刷新 broadcast：不帶 --force 跑一次即可（reason=outside_session）
+```
+
+- 發現手動 loop／daemon → **先殺再報**，不要並存「幫忙再起一支」。
+- 跑 `tests/test_tmf_channel_order.py` 時勿讓 `GOLDENSTOCKS_DATA_DIR` 指向生產 data（kill 測試曾污染過 production `tmf_channel_broadcast.json`；測試已 mock emit）。

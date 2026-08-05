@@ -125,12 +125,12 @@ Gate 兩層且皆須通過：`config/strategies.yaml` 的 `enabled`（registry g
 
 `config/job_registry.yaml` 是「裝了什麼、能不能送單」的唯一 SSOT，勿只信 `docs/daily-operations.md` 舊表。
 
-現況：4 支 order-capable job（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）全部三重鎖住 ——
+現況（2026-08-05）：**唯一 live order-capable job**＝`tmf-channel-poll`（launchd enabled · 實彈靠 `.env` 四鎖；plist 內仍是 fail-closed 預設，勿誤讀成永遠 dry）。其餘 4 支（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）仍三重鎖住 ——
 1. `.env` 旗標本身安全（`ORDER_*_DRY_RUN=1` / `ORDER_*_ENABLED=0`）
 2. `launchctl disable`（重開機／重裝不復活）
-3. `.env` 總開關 `ORDER_MASTER_ENABLED=0`（`src/order/fubon_orders.py` 檢查）
+3. `.env` 總開關 `ORDER_MASTER_ENABLED`（TMF 實盤時為 1；其餘袖仍各自 disabled／dry）
 
-改動下單相關程式時**維持 dry-run／disabled 為預設**：plist template 與 launcher template 內的 `ORDER_*_DRY_RUN` 一律 `1`、`ORDER_*_AUTO_SUBMIT` 一律 `0`，實彈只由 mini 的 `.env` 開。恢復送單能力必須是使用者明確直接的指示。
+改動下單相關程式時**維持 dry-run／disabled 為預設**：plist template 與 launcher template 內的 `ORDER_*_DRY_RUN` 一律 `1`、`ORDER_*_AUTO_SUBMIT` 一律 `0`，實彈只由 mini 的 `.env` 開。TMF **禁止**另起 nohup／手動 daemon（會與 launchd 雙跑）。恢復其他袖送單能力必須是使用者明確直接的指示。
 
 **ABC Order 軌已退役**（2026-07-16）；`buy-signal-radar` 只寄信、不送單。
 **C18acc 排程已退役**（2026-08-04 · 策略不再採用 · 主要動機是不再收它的失敗信）。安靜是靠三層，**不是**靠改程式：

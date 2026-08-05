@@ -606,11 +606,30 @@ def reconcile_once(
 def main(argv: list[str] | None = None) -> int:
     import argparse
     import json
+    import os
 
     ap = argparse.ArgumentParser(description="TMF channel Order poll (desired-state)")
-    ap.add_argument("--force", action="store_true", help="ignore session window")
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="ignore session window (requires ORDER_TMF_CHANNEL_FORCE_OK=1)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    # Hard gate: empty-window --force can recompute day_pnl on stale bars and
+    # trip kill into the production ledger / broadcast (2026-08-05 incident).
+    # Tests call reconcile_once(force=...) directly and are unaffected.
+    if args.force and os.environ.get("ORDER_TMF_CHANNEL_FORCE_OK", "").strip() != "1":
+        msg = (
+            "refusing --force without ORDER_TMF_CHANNEL_FORCE_OK=1 "
+            "(avoids dual-path / false kill on production ledger; "
+            "use launchd tmf-channel-poll inside the session window instead)"
+        )
+        if args.json:
+            print(json.dumps({"ok": False, "reason": "force_refused", "error": msg}))
+        else:
+            print(f"tmf-channel ERROR: {msg}", file=sys.stderr)
+        return 2
     summary = reconcile_once(force=args.force)
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
