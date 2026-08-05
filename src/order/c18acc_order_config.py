@@ -69,7 +69,7 @@ def load_c18acc_order_config(cfg: dict[str, Any] | None = None) -> C18accOrderCo
         spec = {}
     lifecycle = raw.get("lifecycle") if isinstance(raw.get("lifecycle"), dict) else {}
 
-    yaml_enabled = bool(spec.get("enabled", True))
+    yaml_enabled = bool(spec.get("enabled", False))
     order_enabled = _env_flag("ORDER_C18ACC_ORDER_ENABLED", "1" if yaml_enabled else "0")
     auto_submit = _env_flag("ORDER_C18ACC_AUTO_SUBMIT", "0") and order_master_enabled()
     dry_run = _env_flag("ORDER_C18ACC_DRY_RUN", "1")

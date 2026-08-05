@@ -19,6 +19,9 @@ class TestOrderChase(unittest.TestCase):
     def test_shares_for_budget(self) -> None:
         self.assertEqual(shares_for_budget(10000, 174.5), 57)
         self.assertEqual(shares_for_budget(10000, 5195.0), 1)
+        # Never coerce a broken/zero budget into a 1-share odd lot
+        self.assertEqual(shares_for_budget(0, 148.5), 0)
+        self.assertEqual(shares_for_budget(100, 148.5), 0)
 
     def test_load_chase_spec_v1(self) -> None:
         payload = {

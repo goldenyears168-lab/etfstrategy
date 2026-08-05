@@ -29,30 +29,121 @@ class _Act:
 
 class TestC18accOrder(unittest.TestCase):
     def test_dry_run_returns_all_actions(self) -> None:
+        from order.c18acc_order_config import C18accOrderConfig
+
         actions = [
             _Act("swap", "2330", side="sell", counterparty_id="2454"),
             _Act("swap", "2454", side="buy", counterparty_id="2330"),
         ]
-        out = process_c18acc_orders(
-            actions,
-            session_date="2026-07-09",
-            poll_minute="10:00",
+        cfg = C18accOrderConfig(
+            order_enabled=True,
+            auto_submit=False,
             dry_run=True,
+            budget_twd_per_slot=20_000,
+            board_lot=False,
+            price_type="chase_ask",
+            market_type="intraday_odd",
+            time_in_force="rod",
+            user_def="rrg-mono-swap-accel",
+            entry_confirm_bars=1,
+            candidate_pool="fresh",
+            avoid_spread_mixed=True,
+            allow_pool_override=False,
+            prior_ret_days=5,
+            prior_ret_max=0.12,
+            spread_gate_no_trade_before="13:00",
+            poll_max_attempts=1,
+            poll_interval_sec=0.0,
+            submit_notify=False,
         )
+        with patch("order.c18acc_order.load_c18acc_order_config", return_value=cfg):
+            out = process_c18acc_orders(
+                actions,
+                session_date="2026-07-09",
+                poll_minute="10:00",
+                dry_run=True,
+            )
         self.assertTrue(out["dry_run"])
         self.assertEqual(len(out["applied_actions"]), 2)
         self.assertEqual(out["priority"], "sell_first")
 
-    def test_live_path_refuses_under_pytest(self) -> None:
-        """Regression · pytest must never reach Fubon (2026-07-13 incident)."""
-        out = process_c18acc_orders(
-            [_Act("entry", "2377", side="buy")],
-            session_date=today_session_date(),
-            poll_minute="10:00",
+    def test_live_path_refuses_under_test_runner(self) -> None:
+        """Regression · pytest/unittest must never reach Fubon (2026-07-13 / 2026-08-04).
+
+        Uses a non-tradable fake symbol so a guard regression cannot hit a real
+        name (2026-08-04 used 2377 and produced a live odd-lot fill).
+        """
+        from order.c18acc_order_config import C18accOrderConfig
+
+        fake_cfg = C18accOrderConfig(
+            order_enabled=True,
+            auto_submit=True,
             dry_run=False,
+            budget_twd_per_slot=20_000,
+            board_lot=False,
+            price_type="chase_ask",
+            market_type="intraday_odd",
+            time_in_force="rod",
+            user_def="rrg-mono-swap-accel",
+            entry_confirm_bars=1,
+            candidate_pool="fresh",
+            avoid_spread_mixed=True,
+            allow_pool_override=False,
+            prior_ret_days=5,
+            prior_ret_max=0.12,
+            spread_gate_no_trade_before="13:00",
+            poll_max_attempts=1,
+            poll_interval_sec=0.0,
+            submit_notify=False,
         )
+        with patch("order.c18acc_order.load_c18acc_order_config", return_value=fake_cfg):
+            out = process_c18acc_orders(
+                [_Act("entry", "ZZZZ", side="buy")],
+                session_date=today_session_date(),
+                poll_minute="10:00",
+                dry_run=False,
+            )
         self.assertEqual(out.get("status"), "error")
         self.assertIn("live_submit_blocked", str(out.get("reason") or ""))
+
+    @patch("order.c18acc_order.load_c18acc_order_config")
+    def test_live_path_refuses_when_master_off(self, mock_cfg) -> None:
+        """Explicit dry_run=False must still die on ORDER_MASTER_ENABLED=0."""
+        import os
+
+        from order.c18acc_order_config import C18accOrderConfig
+
+        mock_cfg.return_value = C18accOrderConfig(
+            order_enabled=True,
+            auto_submit=True,
+            dry_run=False,
+            budget_twd_per_slot=20_000,
+            board_lot=False,
+            price_type="chase_ask",
+            market_type="intraday_odd",
+            time_in_force="rod",
+            user_def="rrg-mono-swap-accel",
+            entry_confirm_bars=1,
+            candidate_pool="fresh",
+            avoid_spread_mixed=True,
+            allow_pool_override=False,
+            prior_ret_days=5,
+            prior_ret_max=0.12,
+            spread_gate_no_trade_before="13:00",
+            poll_max_attempts=1,
+            poll_interval_sec=0.0,
+            submit_notify=False,
+        )
+        with patch("order.live_submit_guard.under_test_runner", return_value=False):
+            with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "0"}, clear=False):
+                out = process_c18acc_orders(
+                    [_Act("entry", "ZZZZ", side="buy")],
+                    session_date=today_session_date(),
+                    poll_minute="10:00",
+                    dry_run=False,
+                )
+        self.assertEqual(out.get("status"), "error")
+        self.assertIn("ORDER_MASTER_ENABLED=0", str(out.get("reason") or ""))
 
     def test_sort_sell_before_buy(self) -> None:
         actions = [

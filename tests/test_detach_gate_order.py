@@ -226,9 +226,10 @@ class TestDryRunPath(unittest.TestCase):
 
 
 class TestOrderMasterSwitch(unittest.TestCase):
-    """ORDER_MASTER_ENABLED gates the env-derived auto_submit default only —
-    explicit dry_run=/auto_submit= params (as used above) bypass it, matching
-    every other order-capable sleeve."""
+    """ORDER_MASTER_ENABLED gates env-derived auto_submit; place_resolved_order
+    also refuses when MASTER=0 (last-line choke · 2026-08-04). Explicit
+    dry_run=/auto_submit= still affect preview/status, but cannot reach broker.
+    """
 
     def _run_with_env(self, env: dict[str, str]) -> dict:
         import os

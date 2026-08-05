@@ -194,6 +194,15 @@ def _submit_one(
             qty = budget_qty if qty <= 0 else min(qty, budget_qty)
         elif qty <= 0 and px > 0:
             qty = shares_for_budget(cfg.budget_twd_per_slot, px)
+        if qty <= 0:
+            return {
+                "kind": act.kind,
+                "side": act.side,
+                "symbol": symbol,
+                "status": "skipped",
+                "reason": "qty_zero",
+                "client_intent_id": cid,
+            }
         notional = qty * px
         if available_cash is not None:
             ok, cap_reason = can_afford_buy(

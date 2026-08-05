@@ -262,8 +262,13 @@ def place_resolved_order(
 ) -> dict[str, Any]:
     from order.live_submit_guard import assert_live_submit_allowed
 
-    # Last-line choke · pytest / ORDER_LIVE_FORBIDDEN must never reach the broker
+    # Last-line choke · test runner / MASTER=0 / backdated must never reach broker
     assert_live_submit_allowed()
+    if not order_master_enabled():
+        # Belt-and-suspenders · assert_live_submit_allowed already checks MASTER
+        raise RuntimeError("live_submit_blocked:ORDER_MASTER_ENABLED=0")
+    if int(resolved.quantity_shares or 0) <= 0:
+        raise RuntimeError("live_submit_blocked:quantity_shares<=0")
     account = acc or session.primary
     order = build_order(resolved)
     res = session.sdk.stock.place_order(account, order)

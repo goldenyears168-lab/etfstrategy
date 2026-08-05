@@ -31,6 +31,52 @@ class TestOrderMasterEnabled(unittest.TestCase):
         with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "true"}):
             self.assertTrue(order_master_enabled())
 
+    def test_place_resolved_order_refuses_master_off(self) -> None:
+        from order.fubon_orders import place_resolved_order
+        from order.intent import ResolvedOrder
+
+        resolved = ResolvedOrder(
+            symbol="ZZZZ",
+            side="buy",
+            quantity_shares=1,
+            price="100.0",
+            price_type="limit",
+            market_type="intraday_odd",
+            time_in_force="rod",
+            order_type="stock",
+            user_def="test",
+            note=None,
+            source="test",
+        )
+        with patch("order.live_submit_guard.under_test_runner", return_value=False):
+            with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "0"}, clear=False):
+                with self.assertRaises(RuntimeError) as ctx:
+                    place_resolved_order(object(), resolved)
+        self.assertIn("ORDER_MASTER_ENABLED=0", str(ctx.exception))
+
+    def test_place_resolved_order_refuses_zero_qty(self) -> None:
+        from order.fubon_orders import place_resolved_order
+        from order.intent import ResolvedOrder
+
+        resolved = ResolvedOrder(
+            symbol="ZZZZ",
+            side="buy",
+            quantity_shares=0,
+            price="100.0",
+            price_type="limit",
+            market_type="intraday_odd",
+            time_in_force="rod",
+            order_type="stock",
+            user_def="test",
+            note=None,
+            source="test",
+        )
+        with patch("order.live_submit_guard.under_test_runner", return_value=False):
+            with patch.dict(os.environ, {"ORDER_MASTER_ENABLED": "1"}, clear=False):
+                with self.assertRaises(RuntimeError) as ctx:
+                    place_resolved_order(object(), resolved)
+        self.assertIn("quantity_shares<=0", str(ctx.exception))
+
 
 class TestFubonEnumMapping(unittest.TestCase):
     def test_is_open_order_status_zero(self) -> None:

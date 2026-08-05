@@ -168,6 +168,14 @@ def init_session_state(spec: ChaseSpec, trade_date: str) -> ChaseSessionState:
 
 
 def shares_for_budget(budget_twd: int, price: float) -> int:
+    """Whole shares affordable under ``budget_twd`` at ``price``.
+
+    Returns 0 when budget cannot buy even one share. Never coerce to 1 —
+    that previously turned a broken/zero budget into an odd-lot live order
+    (2026-08-04).
+    """
     if price <= 0:
         raise ValueError("price 須 > 0")
-    return max(1, int(budget_twd // price))
+    if budget_twd <= 0:
+        return 0
+    return int(budget_twd // price)
