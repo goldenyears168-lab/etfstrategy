@@ -208,7 +208,7 @@ strategies:
     # · C18ACC_PRIOR_5D_RET_MAX · C18ACC_ALLOW_POOL_OVERRIDE · C18ACC_NO_TRADE_BEFORE
     # · C18ACC_CONFIRM_BARS
 
-  # TMF 微型臺指 · Channel Final v1.2.0 PV16（16 格 cell book · engine=tmf_channel.causal_engine）
+  # TMF 微型臺指 · Channel Final v1.3.0（PV16 cell-tune v2 · O-anchor · engine=tmf_channel.causal_engine）
   # Research SSOT: docs/tmf-micro-channel-final-v1-1-prd.md · tmf-hang-hi-day-tighten
   # Adapter: src/order/fubon_futopt_orders.py · reconciler: tmf_channel_order.py
   tmf-micro-channel:
@@ -227,7 +227,7 @@ strategies:
     poll_script: scripts/order/run_tmf_channel_worker.py
     launchd: com.jackm4.goldenstocks.tmf-channel-poll
     notes: >
-      Desired-state reconciler · Final v1.2.0 PV16 · engine=tmf_channel.causal_engine
+      Desired-state reconciler · Final v1.3.0 PV16 cell-tune v2（O-anchor）· engine=tmf_channel.causal_engine
       · launchd KeepAlive worker（重用 Fubon session；INTERVAL≈20s）。
       實彈須四鎖全開。超額／孤兒持倉會先 flatten。近月自動解析；日盤+夜盤窗。
 

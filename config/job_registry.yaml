@@ -60,7 +60,7 @@ jobs:
     status: enabled
     enabled_since: "2026-08-05"
     schedule: "KeepAlive worker · interval≈20s in-window · day 08:45-13:45 + night 15:00-05:00"
-    description: "TMF Final v1.2.0 PV16 · tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
+    description: "TMF Final v1.3.0 PV16 cell-tune v2（O-anchor）· tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
 
   - label: tmf-sim-server
     category: notify

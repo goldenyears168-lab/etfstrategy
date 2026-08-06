@@ -125,7 +125,7 @@ Gate 兩層且皆須通過：`config/strategies.yaml` 的 `enabled`（registry g
 
 `config/job_registry.yaml` 是「裝了什麼、能不能送單」的唯一 SSOT，勿只信 `docs/daily-operations.md` 舊表。
 
-現況（2026-08-05）：**唯一 live order-capable job**＝`tmf-channel-poll`（launchd enabled · 實彈靠 `.env` 四鎖；plist 內仍是 fail-closed 預設，勿誤讀成永遠 dry）。其餘 4 支（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）仍三重鎖住 ——
+現況（2026-08-06）：**唯一 live order-capable job**＝`tmf-channel-poll`（launchd enabled · 實彈靠 `.env` 四鎖；plist 內仍是 fail-closed 預設，勿誤讀成永遠 dry）。架構為 **KeepAlive 常駐 worker**（非 StartInterval 冷啟動）：`scripts/order/run_tmf_channel_worker.py` → `src/tmf_channel/worker_loop.py`，重用單一 Fubon session、窗內每 ≈20s 對帳一次；引擎 SSOT＝`src/tmf_channel/causal_engine.py`（新人先讀 `src/tmf_channel/README.md`）。改完程式要讓 worker 吃到新碼＝跑 `scripts/order/tmf_cutover.sh`（preflight → kickstart → 驗首輪對帳），**不要**手動 kill。其餘 4 支（`leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate`）仍三重鎖住 ——
 1. `.env` 旗標本身安全（`ORDER_*_DRY_RUN=1` / `ORDER_*_ENABLED=0`）
 2. `launchctl disable`（重開機／重裝不復活）
 3. `.env` 總開關 `ORDER_MASTER_ENABLED`（TMF 實盤時為 1；其餘袖仍各自 disabled／dry）

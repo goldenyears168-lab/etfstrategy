@@ -46,6 +46,9 @@
 | **buy / sell signal radar** | `src/strategy_signal_radar.py`, `config/strategy.yaml` · `buy-signal-radar` / `sell-signal-radar` | `scripts/launchd/*-signal-radar.command` |
 | **launchd 排錯** | `config/pipeline_scripts.yaml`, `docs/daily-operations.md` | 對應 `scripts/launchd/*.command` |
 | **下單 · Fubon** | [order-layer-prd.md](./order-layer-prd.md), `src/order/`, `config/order.yaml`, `scripts/order/` | `reports/order/`（runtime） |
+| **TMF cell 參數 · recipe** | `src/order/tmf_channel_pv16_book.py`, [tmf-micro-channel-final-v1-1-prd.md](./tmf-micro-channel-final-v1-1-prd.md) | `src/order/tmf_channel_pv16_book.py`, `tests/test_tmf_channel_pv16_book.py` |
+| **TMF worker · 下單路徑除錯** | `src/tmf_channel/README.md`（架構總覽）, `src/tmf_channel/worker_loop.py`, `.cursor/rules/tmf-channel-single-path.mdc`, log `logs/intraday/tmf_channel_live_YYYYMMDD.log` | `src/tmf_channel/worker_loop.py`／`session_pool.py`；部署走 `scripts/order/tmf_cutover.sh` |
+| **TMF 研究新假說** | `reports/research/channel_lab/README.md`, `src/tmf_channel/harness.py` | 新增 lab 腳本（**禁 fork 引擎**；SSOT＝`src/tmf_channel/causal_engine.py`） |
 | **回測 · 採納策略** | `config/strategy.yaml`, `docs/evaluation-contract.md` | `src/research/backtest/`（production 48 模組）· sweep 見 `backtest/archive/` |
 | **探索 sweep** | `config/research.yaml`, `scripts/run_research_sweep.py` | `src/research/` |
 | **FinMind 策略市集回測** | `docs/strategy-marketplace/README.md`, `config/research.yaml` · `topics.finmind-*`（archived backlog） | `scripts/research/archive/run_finmind_*` |

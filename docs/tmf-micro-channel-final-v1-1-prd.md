@@ -1,10 +1,10 @@
-# TMF 微型臺指 · Channel Final v1.2 · 技術白皮書 / PRD
+# TMF 微型臺指 · Channel Final v1.2+ · 技術白皮書 / PRD
 
 | 欄位 | 內容 |
 |------|------|
-| 版本 | **final_v1_2_0_pv16_specialized** |
-| 日期 | 2026-08-06（PV16 specialized 採納＋架構切開：引擎進 `src/tmf_channel`） |
-| 狀態 | **Order 層**；recipe v1.2.0：session×PV8＝16 cell；四鎖 + **唯一執行路徑＝launchd KeepAlive `tmf-channel-poll` worker**（重用 Fubon session；禁止 nohup 雙跑） |
+| 版本 | **final_v1_3_0_pv16_celltune_v2**（`recipe_version` SSOT：`src/order/tmf_channel_pv16_book.py`） |
+| 日期 | 2026-08-06（celltune v2 採納＋架構切開：引擎進 `src/tmf_channel` · 16:03 cutover 上線） |
+| 狀態 | **Order 層**；recipe v1.3.0：session×PV8＝16 cell（SPECIALIZED＋CELL_TUNE_V2 疊加）；四鎖 + **唯一執行路徑＝launchd KeepAlive `tmf-channel-poll` worker**（重用 Fubon session；禁止 nohup 雙跑；見 §7.2） |
 | 商品 | 微型臺指期貨 **近月**（Fubon `tickers` 自動解析） |
 | 引擎 | **`src/tmf_channel/causal_engine.py`**（`tmf_channel.engine` · hang_anchor=O）；lab `hang_anchor_causal_lab.py` 僅 shim |
 | Paper UI | `reports/research/channel_lab/live_v6_sim_server.py` · `:8770` |
@@ -268,7 +268,7 @@ Gift 單依出場：`trail` keep%~70%（主保留通道）；`struct_break` 最�
 | 手動入口 | `scripts/order/run_tmf_channel_poll.py` | `.venv-fubon`；除錯用；正式靠 launchd |
 | Sleeve 設定 | `config/order.yaml` · `tmf-micro-channel` | **`enabled: true` · `auto_submit: true`**（2026-08-05 決策改）|
 | Ledger | `data/order/tmf_channel_ledger.json` | API／kill／last desired |
-| launchd | `com.jackm4.goldenstocks.tmf-channel-poll` | **已安裝 + enabled**（2026-08-06 起 KeepAlive 常駐 worker · 窗內 interval≈20s · session 重用；原 `StartInterval=60` 已退役 · launcher 過濾日／夜窗） |
+| launchd | `com.jackm4.goldenstocks.tmf-channel-poll` | **已安裝 + enabled**（2026-08-06 起 KeepAlive 常駐 worker · 窗內 interval≈20s · session 重用；原 `StartInterval=60` 已退役 · 日／夜時窗改由 worker 內部 sleep 處理，見 §7.2） |
 | 採納登錄 | `config/strategy.yaml` + `strategies.yaml` | **已改 `enabled: true`**（2026-08-05） |
 | 其餘 order-capable 策略 | `leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate` | 全部 `job_registry.yaml status: disabled` + `launchctl print-disabled ⇒ disabled`，無背景 process；**TMF 是下單層目前唯一實際運作的策略** |
 
@@ -366,7 +366,7 @@ Fubon futopt 1m ──► tmf_channel_order.reconcile_once
 ### 5.7 分層邊界
 - Lab **不** import `src/order/`；Order poll **可**載入 lab 引擎（路徑注入）。  
 - 預設 `ORDER_MASTER_ENABLED=0` + TMF 四鎖（plist fail-closed；實彈只靠 `${GOLDENSTOCKS_DATA_DIR}/.env`）。  
-- 正式排程：**launchd `tmf-channel-poll` 已安裝且 enabled**（`StartInterval=60` · launcher 過濾日／夜窗）。禁止另起 nohup／手動 daemon，以免雙跑。
+- 正式排程：**launchd `tmf-channel-poll` 已安裝且 enabled**（2026-08-06 起 **KeepAlive 常駐 worker**，窗內 ~20s 對帳、窗外 idle 60s；原 `StartInterval=60` 冷登入已退役，見 §7.2）。禁止另起 nohup／手動 daemon，以免雙跑。
 
 ---
 
@@ -444,11 +444,32 @@ Fubon futopt 1m (day+AH) ──► live_v6_sim_server
 
 | 檔 | 職責 |
 |----|------|
-| `jack_channel_v6_pv.py` | 策略狀態機 |
+| `src/tmf_channel/causal_engine.py` | 策略狀態機（引擎 **SSOT**；lab `hang_anchor_causal_lab.py`／舊 `jack_channel_v6_pv.py` 僅 shim／archive） |
+| `src/order/tmf_channel_pv16_book.py` | 16-cell recipe book（`RECIPE_VERSION` SSOT；SPECIALIZED＋CELL_TUNE_V2 疊加） |
 | `live_v6_sim_server.py` | Paper 服務、近月、API |
 | `tmf_order_translator.py` | P0 節流委託計畫 |
 | `exit_lab_*.json` / `trend_dampen_bakeoff` | 研究證據 |
 | `docs/order-layer-prd.md` | 全庫 Order 層總 PRD |
+
+### 7.2 v1.2.0+ 執行架構（2026-08-06 · 16:03 cutover 上線）
+
+上圖為 Paper UI 資料流；**live 下單路徑**自 2026-08-06 起改為 launchd KeepAlive 常駐 worker（取代 `StartInterval=60` 每分鐘冷登入）：
+
+```
+launchd KeepAlive (com.jackm4.goldenstocks.tmf-channel-poll)
+  └─► launcher（lockdir 防雙跑 · source .env 四鎖）
+        └─► scripts/order/run_tmf_channel_worker.py
+              └─► tmf_channel.worker_loop（窗內 ~20s／窗外 idle 60s，內部 sleep 不退出）
+                    ├─ tmf_channel.session_pool（單次 Fubon 登入 · 跨輪重用）
+                    └─ tmf_channel_order.reconcile_once
+                          ├─ src/tmf_channel/causal_engine.py（desired-state：want_s/want_l/open_pos）
+                          └─ fubon_futopt_orders place/cancel（四鎖 · 任一未開＝dry）
+```
+
+- **Recipe**：`recipe_version = final_v1_3_0_pv16_celltune_v2`；cell book 在 `src/order/tmf_channel_pv16_book.py`（`SPECIALIZED_PATCHES` 先套、`CELL_TUNE_V2_PATCHES` 後套、後者優先）。
+- **引擎 SSOT**：`src/tmf_channel/`（`causal_engine.py`＋`harness.py`）；禁再 import `reports/` lab 引擎或 fork。
+- **部署**：`scripts/order/tmf_cutover.sh`（preflight import 檢查 → `launchctl kickstart -k` → 等首輪對帳；停機 < 5 秒）。
+- **手動除錯**：`scripts/order/run_tmf_channel_poll.py --json` 單次；勿與 worker 並跑、勿 `--force`（見 `.cursor/rules/tmf-channel-single-path.mdc`）。
 
 ---
 
@@ -509,6 +530,8 @@ Fubon futopt 1m (day+AH) ──► live_v6_sim_server
 | **Confidence round 1+2** | **2026-08-05** | 兩輪多 agent 驗證 13 個子步驟（§4.2）；出場參數排名下修為低信心、撮合優於限價上修為高信心 |
 | **Kill-switch flatten stopgap** | **2026-08-05 開盤前** | 發現 TMF 無券商端停損單、熔斷全凍結＝裸倉無下限風險（R11）；窄範圍補丁上線 + 3 test（§5.0.2） |
 | **口數規劃 tick-native 驗證** | **2026-08-05** | 研究 max_lots=1 vs 2 過程中，修正兩個回測未來函數 bug，初步發現連現行 max_lots=1 都是負期望值（R15，見 `reports/research/channel_lab/H-LOT-FIXED2_and_v112_tick_native_validation.md`）；**未經獨立複驗，未改動實盤** |
+| **v1.2.0 架構切開 · cutover** | **2026-08-06 16:03** | 引擎凍結遷入 `src/tmf_channel/`（`causal_engine.py` SSOT，lab 檔改 shim）；launchd 改 **KeepAlive 常駐 worker**（`run_tmf_channel_worker.py` · session 重用 · 窗內 ~20s），退役 `StartInterval=60` 冷登入；`scripts/order/tmf_cutover.sh` 一鍵部署（§7.2） |
+| **v1.3.0 celltune v2** | **2026-08-06** | `recipe_version` → **final_v1_3_0_pv16_celltune_v2**：`src/order/tmf_channel_pv16_book.py` 於 SPECIALIZED 之上疊加 `CELL_TUNE_V2_PATCHES`（後套者優先） |
 
 ---
 

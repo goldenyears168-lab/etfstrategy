@@ -189,7 +189,7 @@ def active_cell_payload(
 
 
 def paper_recipe_overlay() -> dict[str, Any]:
-    """Keys merged into PAPER_RECIPE for Final v1.2.0."""
+    """Keys merged into PAPER_RECIPE (base overlay since Final v1.2.0; still live under v1.3.0)."""
     return dict(
         hang_anchor="O",
         tick_native=False,  # live poll = 1m bars (STRICT_BAR floor)

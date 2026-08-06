@@ -7,20 +7,25 @@ alwaysApply: true
 
 Incident lesson **2026-08-05**：日盤收後空窗（13:46–14:59）另起 nohup／night daemon，並用 `--force` dry poll，寫出假熔斷 broadcast（`day_pnl=-450`），與正本 ledger（`killed=false` · `+704`）分叉。險造成夜盤雙跑。
 
-## 唯一合法路徑
+## 唯一合法路徑（2026-08-06 起：KeepAlive worker）
 
 | 項目 | 規定 |
 |------|------|
-| 排程 | **只** `com.jackm4.goldenstocks.tmf-channel-poll`（`scripts/install-launchd.sh`） |
-| 時窗 | launcher 過濾：日 08:45–13:45 · 夜 15:00–05:00；空窗 **exit 0** |
-| 實彈 | `${GOLDENSTOCKS_DATA_DIR}/.env` 四鎖；plist 內 `ENABLED=0`／`DRY_RUN=1` 是 fail-closed，**不是**永遠 dry |
+| 排程 | **只** `com.jackm4.goldenstocks.tmf-channel-poll`（`scripts/install-launchd.sh`）＝ launchd **KeepAlive** → launcher（lockdir 防雙跑）→ `scripts/order/run_tmf_channel_worker.py` 長駐 worker。原 `StartInterval=60` 冷登入已退役 |
+| 節奏 | `tmf_channel.worker_loop`：窗內 ~20s 對帳一輪、窗外 idle 60s（`ORDER_TMF_CHANNEL_WORKER_INTERVAL`／`_IDLE`）；`tmf_channel.session_pool` 單次 Fubon 登入、跨輪重用 |
+| 時窗 | 日 08:45–13:45 · 夜 15:00–05:00；空窗 worker **內部 sleep**（不退出、不重登入），launcher 不再逐次 exit 0 |
+| 引擎 SSOT | `src/tmf_channel/causal_engine.py`（`tmf_channel.engine`）。**禁**再 import `reports/` lab 引擎或另行 fork；lab 檔僅 shim |
+| 手動除錯 | `scripts/order/run_tmf_channel_poll.py --json`（單次 · `.venv-fubon`）；勿 `--force` |
+| 部署 | `scripts/order/tmf_cutover.sh`（preflight import 檢查 → `launchctl kickstart -k` → 等首輪對帳；`--dry` 只 preflight） |
+| 實彈 | `${GOLDENSTOCKS_DATA_DIR}/.env` 四鎖；plist／launcher 內 `ENABLED=0`／`DRY_RUN=1` 是 fail-closed，**不是**永遠 dry |
 | 正本狀態 | `data/order/tmf_channel_ledger.json` |
 | UI 快照 | `data/order/tmf_channel_broadcast.json`（**:8770 只讀**；不得當控制輸入） |
 
 ## 禁止（除非使用者白紙黑字要求）
 
-- `nohup`／`setsid`／自寫 `day_loop`／`night_loop`／`NIGHT_DAEMON_*`
-- 與 launchd **同時**跑任何 `run_tmf_channel_poll.py`
+- `nohup`／`setsid`／自寫 `day_loop`／`night_loop`／`NIGHT_DAEMON_*`；手動另起 `run_tmf_channel_worker.py`（KeepAlive 已常駐，重啟一律走 `tmf_cutover.sh`）
+- 與 launchd worker **同時**跑任何 `run_tmf_channel_poll.py`（窗內單次除錯也會與 worker 搶對帳）
+- fork／複製引擎邏輯到 lab 腳本再回頭 import（引擎唯一正本＝`src/tmf_channel/causal_engine.py`；研究走 `tmf_channel.harness`）
 - CLI `--force`（空窗硬跑 simulate 會污染 ledger／broadcast）。程式已硬擋：需 `ORDER_TMF_CHANNEL_FORCE_OK=1`
 - 為「接 recipe／修 UI／查狀態」另起背景 poll
 - 把 broadcast 的 `killed` 當成 ledger 正本
@@ -29,7 +34,8 @@ Incident lesson **2026-08-05**：日盤收後空窗（13:46–14:59）另起 noh
 
 ```bash
 launchctl list | grep tmf
-ps -axo pid,command | grep -E 'run_tmf_channel_poll|tmf_channel_.*loop' | grep -v grep
+# 正常態：恰好一支 run_tmf_channel_worker.py（launchd 起的）；多於一支或出現 poll/loop 即異常
+ps -axo pid,command | grep -E 'run_tmf_channel_worker|run_tmf_channel_poll|tmf_channel_.*loop' | grep -v grep
 # ledger 正本（勿 --force）
 python3 -c 'import json;print(json.load(open("/Users/jackm4/goldenstocks-data/data/order/tmf_channel_ledger.json"))["killed"],
 json.load(open("/Users/jackm4/goldenstocks-data/data/order/tmf_channel_ledger.json"))["day_pnl_pts"])'

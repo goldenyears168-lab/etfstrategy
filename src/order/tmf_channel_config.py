@@ -1,9 +1,10 @@
-"""TMF channel Order sleeve config · Final v1.2.0 PV16 specialized.
+"""TMF channel Order sleeve config · Final v1.3.0 PV16 cell-tune v2 (O-anchor).
 
 Fail-closed: enabled/auto_submit off, dry_run on unless env overrides.
 Also gated by ORDER_MASTER_ENABLED (see fubon_orders.order_master_enabled).
 
-Engine SSOT: ``tmf_channel.causal_engine`` (hang_anchor=O) · session_pv_book 16 cells.
+Engine SSOT: ``tmf_channel.causal_engine`` (hang_anchor=O) · session_pv_book 16 cells
++ CELL_TUNE_V2_PATCHES (see tmf_channel_pv16_book.RECIPE_VERSION for the live tag).
 Prior: Final v1.1.3 day-hi38 / night 15–30 / far_cover 65–105 (exit skeleton kept).
 """
 

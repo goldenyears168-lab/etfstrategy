@@ -3,6 +3,8 @@
 SSOT for live simulate: ``tmf_channel.engine`` (causal O-anchor).
 Recipe / 16-cell book remain in ``order.tmf_channel_config`` /
 ``order.tmf_channel_pv16_book``.
+
+執行路徑、模組表、不變式與常見任務見同目錄 ``README.md``。
 """
 
 from __future__ import annotations
