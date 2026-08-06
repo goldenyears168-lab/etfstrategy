@@ -52,3 +52,13 @@ vendor/cftc-cot/
 # Claude local machine settings
 .claude/settings.local.json
 .cursor_api_key_tmp
+
+# TMF channel research caches live under GOLDENSTOCKS_DATA_DIR/cache/tmf_channel/
+# (local symlinks in channel_lab must not be committed)
+reports/research/channel_lab/tx_1m_*.json
+reports/research/channel_lab/tick_raw_cache*.json
+reports/research/channel_lab/finmind_tx_tick_by_day/
+reports/research/channel_lab/nikkei_us_*.json
+reports/research/channel_lab/us_vix_intraday_1h_cache.json
+reports/research/channel_lab/vixtwn_1m_cache.json
+reports/research/channel_lab/nikkei_historical_cache.json

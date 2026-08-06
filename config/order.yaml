@@ -208,7 +208,7 @@ strategies:
     # · C18ACC_PRIOR_5D_RET_MAX · C18ACC_ALLOW_POOL_OVERRIDE · C18ACC_NO_TRADE_BEFORE
     # · C18ACC_CONFIRM_BARS
 
-  # TMF 微型臺指 · Channel Final v1.1.2（日 hi38／夜絕對 15–30）
+  # TMF 微型臺指 · Channel Final v1.2.0 PV16（16 格 cell book · engine=tmf_channel.causal_engine）
   # Research SSOT: docs/tmf-micro-channel-final-v1-1-prd.md · tmf-hang-hi-day-tighten
   # Adapter: src/order/fubon_futopt_orders.py · reconciler: tmf_channel_order.py
   tmf-micro-channel:
@@ -220,14 +220,15 @@ strategies:
     place_every: 5
     rail_match_pts: 2.0
     max_api_per_poll: 16   # 單輪 reconciler 上限；0＝不限
-    max_api_per_day: 0      # 0＝不限日額（首日實盤）；>0 才熔斷
+    max_api_per_day: 400    # 日 API 保險絲（place/cancel）；0＝不限
     kill_day_loss_pts: 400
     user_def: tmfch
     own_ledger: data/order/tmf_channel_ledger.json
-    poll_script: scripts/order/run_tmf_channel_poll.py
+    poll_script: scripts/order/run_tmf_channel_worker.py
     launchd: com.jackm4.goldenstocks.tmf-channel-poll
     notes: >
-      Desired-state reconciler。Recipe：hang_lo/hi=30/38；night_hang_lo/hi=15/30。
+      Desired-state reconciler · Final v1.2.0 PV16 · engine=tmf_channel.causal_engine
+      · launchd KeepAlive worker（重用 Fubon session；INTERVAL≈20s）。
       實彈須四鎖全開。超額／孤兒持倉會先 flatten。近月自動解析；日盤+夜盤窗。
 
 # ABC pyramid_add · retired with ABC Order（2026-07-15）· stub only

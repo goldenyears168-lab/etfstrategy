@@ -59,8 +59,16 @@ jobs:
     order_capable: true
     status: enabled
     enabled_since: "2026-08-05"
-    schedule: "every 60s · day 08:45-13:45 + night 15:00-05:00"
-    description: "TMF micro-channel Final v1.1.2 futopt desired-state reconciler · launchd live via .env 四鎖"
+    schedule: "KeepAlive worker · interval≈20s in-window · day 08:45-13:45 + night 15:00-05:00"
+    description: "TMF Final v1.2.0 PV16 · tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
+
+  - label: tmf-sim-server
+    category: notify
+    order_capable: false
+    status: enabled
+    enabled_since: "2026-08-06"
+    schedule: "KeepAlive · always-on"
+    description: "TMF paper UI HTTP :8770（live_v6_sim_server · PYTHONPATH=src 走 tmf_channel 引擎）· 不下單"
 
   # --- Notify-only, no order code path (ABC retired) ---
   - label: buy-signal-radar

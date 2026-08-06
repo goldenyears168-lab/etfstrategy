@@ -1,7 +1,10 @@
-"""TMF channel Order sleeve config · Final v1.1.2 day-hi38 + night 15–30.
+"""TMF channel Order sleeve config · Final v1.2.0 PV16 specialized.
 
 Fail-closed: enabled/auto_submit off, dry_run on unless env overrides.
 Also gated by ORDER_MASTER_ENABLED (see fubon_orders.order_master_enabled).
+
+Engine SSOT: ``tmf_channel.causal_engine`` (hang_anchor=O) · session_pv_book 16 cells.
+Prior: Final v1.1.3 day-hi38 / night 15–30 / far_cover 65–105 (exit skeleton kept).
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from typing import Any
 
 from order.config import load_order_config
 from order.fubon_orders import order_master_enabled
+from order.tmf_channel_pv16_book import RECIPE_VERSION, paper_recipe_overlay
 
 STRATEGY_ID = "tmf-micro-channel"
 USER_DEF = "tmfch"
@@ -41,38 +45,33 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-# Formal Order recipe (Final v1.1.2) — day hang_hi tighten; night absolute 15–30
-# Research: tmf-hang-hi-day-tighten · D38_dayonly (tmf_hang_hi_day_vs_shared_lab.json)
-PAPER_RECIPE: dict[str, Any] = dict(
+# Exit / risk skeleton retained from v1.1.3; hang/quiet/EARLY/block → PV16 book.
+_PAPER_BASE: dict[str, Any] = dict(
     eod_flatten=False,  # poll must not flatten mid-session
-    hang_lo=30.0,
-    hang_hi=38.0,
     stop_pts=150.0,
     min_hold_before_stop=12,
     open_bias_pts=0.0,
     night_entries=True,
-    night_hang_scale=0.5,  # unused when night_hang_lo/hi set
-    night_hang_lo=15.0,
-    night_hang_hi=30.0,
-    skip_quiet_regime=True,
+    night_hang_scale=0.5,
     day_dir_filter=False,
     in_pos_hang="both",
     exit_mode="hybrid_trail",
     trail_arm_pts=50.0,
     trail_giveback_pts=40.0,
-    far_cover_lo=80.0,
-    far_cover_hi=120.0,
+    far_cover_lo=65.0,
+    far_cover_hi=105.0,
     struct_exit_look=12,
     min_hold_before_smart=3,
-    trend_hang_dampen="regime",
     gap_fill_improve=True,
     improv_struct_grace_bars=5,
     improv_struct_min_pts=5.0,
     improv_struct_until_trail=False,
     place_every=3,
-    max_lots=2,
+    max_lots=1,
     allow_flip=False,
 )
+
+PAPER_RECIPE: dict[str, Any] = {**_PAPER_BASE, **paper_recipe_overlay()}
 
 
 @dataclass(frozen=True)
@@ -91,6 +90,7 @@ class TmfChannelOrderConfig:
     product: str
     kill_day_loss_pts: float
     recipe: dict[str, Any]
+    recipe_version: str
 
 
 def load_tmf_channel_order_config(cfg: dict[str, Any] | None = None) -> TmfChannelOrderConfig:
@@ -104,20 +104,24 @@ def load_tmf_channel_order_config(cfg: dict[str, Any] | None = None) -> TmfChann
     dry = _env_flag("ORDER_TMF_CHANNEL_DRY_RUN", "1")
     if not master:
         auto = False
-    # Live cannot escape dry unless master+enabled+auto_submit all on
     if not (master and enabled and auto):
         dry = True
 
-    max_lots = _env_int("ORDER_TMF_CHANNEL_MAX_LOTS", int(block.get("max_lots", 1)))
     place_every = _env_int(
         "ORDER_TMF_CHANNEL_PLACE_EVERY", int(block.get("place_every", 5))
     )
     recipe = dict(PAPER_RECIPE)
-    recipe["max_lots"] = max(1, min(2, max_lots))
+    # Deep-copy book so poll mutations cannot corrupt module singleton
+    book = recipe.get("session_pv_book")
+    if isinstance(book, dict):
+        from copy import deepcopy
+
+        recipe["session_pv_book"] = deepcopy(book)
+    _ = _env_int("ORDER_TMF_CHANNEL_MAX_LOTS", int(block.get("max_lots", 1)))
+    recipe["max_lots"] = 1
     recipe["place_every"] = max(1, place_every)
-    # Live default: 1 lot until proven
-    if not dry:
-        recipe["max_lots"] = min(recipe["max_lots"], 1)
+    recipe["hang_anchor"] = "O"
+    recipe["recipe_version"] = RECIPE_VERSION
 
     return TmfChannelOrderConfig(
         strategy_id=str(block.get("strategy_id") or STRATEGY_ID),
@@ -146,4 +150,5 @@ def load_tmf_channel_order_config(cfg: dict[str, Any] | None = None) -> TmfChann
             float(block.get("kill_day_loss_pts", 400.0)),
         ),
         recipe=recipe,
+        recipe_version=RECIPE_VERSION,
     )

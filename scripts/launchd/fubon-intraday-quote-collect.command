@@ -48,6 +48,11 @@ if [[ -f "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" ]]; then
   set -e
 fi
 
+if [[ "${RUN_FUBON_INTRADAY_QUOTE_COLLECT:-1}" != "1" ]]; then
+  echo "skip: RUN_FUBON_INTRADAY_QUOTE_COLLECT=${RUN_FUBON_INTRADAY_QUOTE_COLLECT:-1}"
+  exit 0
+fi
+
 PYTHON="${ROOT}/.venv-fubon/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then
   echo "✗ missing venv-fubon python: ${PYTHON}"

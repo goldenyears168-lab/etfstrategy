@@ -145,6 +145,7 @@ def _dry_cfg(ledger_path: str) -> TmfChannelOrderConfig:
         product="TMF",
         kill_day_loss_pts=400.0,
         recipe={},
+        recipe_version="test",
     )
 
 
@@ -258,6 +259,138 @@ class ForceCliGateTest(unittest.TestCase):
         with mock.patch.object(mod, "reconcile_once", return_value={"ok": True, "reason": "outside_session"}):
             rc = mod.main(["--force", "--json"])
         self.assertEqual(rc, 0)
+
+
+class OneLotScaleBlockTest(unittest.TestCase):
+    """max_lots=1 must drop same-side want so resting scale cannot fill to n=2."""
+
+    def test_blocks_same_side_short_keeps_protect_long(self):
+        from order.tmf_channel_order import block_same_side_scale_wants
+
+        ws, wl, why = block_same_side_scale_wants(
+            44844.0, 44696.0, open_pos={"s": "S", "n": 1}, max_lots=1
+        )
+        self.assertIsNone(ws)
+        self.assertEqual(wl, 44696.0)
+        self.assertIn("side=S", why or "")
+
+    def test_blocks_same_side_long_keeps_protect_short(self):
+        from order.tmf_channel_order import block_same_side_scale_wants
+
+        ws, wl, why = block_same_side_scale_wants(
+            44515.0, 44415.0, open_pos={"s": "L", "n": 1}, max_lots=1
+        )
+        self.assertEqual(ws, 44515.0)
+        self.assertIsNone(wl)
+        self.assertIn("side=L", why or "")
+
+    def test_flat_keeps_dual_hang(self):
+        from order.tmf_channel_order import block_same_side_scale_wants
+
+        ws, wl, why = block_same_side_scale_wants(
+            100.0, 90.0, open_pos=None, max_lots=1
+        )
+        self.assertEqual(ws, 100.0)
+        self.assertEqual(wl, 90.0)
+        self.assertIsNone(why)
+
+    def test_config_hard_locks_max_lots_to_one(self):
+        env = {
+            "ORDER_MASTER_ENABLED": "0",
+            "ORDER_TMF_CHANNEL_MAX_LOTS": "2",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            cfg = load_tmf_channel_order_config()
+        self.assertEqual(cfg.max_lots, 1)
+        self.assertEqual(cfg.recipe.get("max_lots"), 1)
+
+
+class DayPnlFilterTest(unittest.TestCase):
+    def test_filters_prior_night_out_of_calendar_day(self):
+        from order.tmf_channel_order import day_pnl_from_sim_trades
+
+        trades = [
+            {"xt": "2026-08-05T22:10:00.000+08:00", "pnl": -800.0},
+            {"xt": "2026-08-06T01:10:00.000+08:00", "pnl": -500.0},  # trading day Aug 5
+            {"xt": "2026-08-06T10:10:00.000+08:00", "pnl": -50.0},
+            {"xt": "2026-08-06T11:00:00.000+08:00", "pnl": 12.0},
+        ]
+        # Whole-window sum would be -1338 and false-trip kill; day filter keeps day session only.
+        self.assertEqual(day_pnl_from_sim_trades(trades, "2026-08-06"), -38.0)
+        self.assertEqual(day_pnl_from_sim_trades(trades, "2026-08-05"), -1300.0)
+
+    def test_live_skips_sim_day_pnl_kill(self):
+        from order.tmf_channel_order import trip_day_pnl_kill
+
+        self.assertTrue(
+            trip_day_pnl_kill(dry_run=True, day_pnl_pts=-662.0, kill_day_loss_pts=400.0)
+        )
+        self.assertFalse(
+            trip_day_pnl_kill(dry_run=False, day_pnl_pts=-662.0, kill_day_loss_pts=400.0)
+        )
+
+
+class QuietFlatEntryGateTest(unittest.TestCase):
+    def _desired(self, pv: str, skip_quiet_mode: str = "dry") -> dict:
+        return {
+            "regime": pv,
+            "active_cell": {
+                "pv": pv,
+                "recipe": {"skip_quiet_mode": skip_quiet_mode},
+            },
+        }
+
+    def test_flat_dry_strips_entry_rails(self):
+        from order.tmf_channel_order import apply_quiet_flat_entry_gate
+
+        ws, wl, why = apply_quiet_flat_entry_gate(
+            44312.0,
+            44200.0,
+            broker_live=None,
+            desired=self._desired("dry"),
+        )
+        self.assertIsNone(ws)
+        self.assertIsNone(wl)
+        self.assertEqual(why, "quiet_flat_skip:dry|dry")
+
+    def test_flat_contract_kept_when_quiet_is_dry_only(self):
+        from order.tmf_channel_order import apply_quiet_flat_entry_gate
+
+        ws, wl, why = apply_quiet_flat_entry_gate(
+            44312.0,
+            44200.0,
+            broker_live=None,
+            desired=self._desired("contract", "dry"),
+        )
+        self.assertEqual(ws, 44312.0)
+        self.assertEqual(wl, 44200.0)
+        self.assertIsNone(why)
+
+    def test_in_position_keeps_protect_rails(self):
+        from order.tmf_channel_order import apply_quiet_flat_entry_gate
+
+        ws, wl, why = apply_quiet_flat_entry_gate(
+            None,
+            44200.0,
+            broker_live={"s": "S", "n": 1, "ep": 44350.0},
+            desired=self._desired("dry"),
+        )
+        self.assertIsNone(ws)
+        self.assertEqual(wl, 44200.0)
+        self.assertIsNone(why)
+
+    def test_broker_zero_size_still_gates(self):
+        from order.tmf_channel_order import apply_quiet_flat_entry_gate
+
+        ws, wl, why = apply_quiet_flat_entry_gate(
+            100.0,
+            90.0,
+            broker_live={"s": "S", "n": 0},
+            desired=self._desired("dry"),
+        )
+        self.assertIsNone(ws)
+        self.assertIsNone(wl)
+        self.assertIn("quiet_flat_skip", why or "")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,24 @@
       "Bash(tailscale status *)",
       "Bash(/Applications/Tailscale.app/Contents/MacOS/Tailscale status *)",
       "Bash(scutil --get ComputerName)",
-      "Read(//Users/jackm4/goldenstocks-data/docs/**)"
+      "Read(//Users/jackm4/goldenstocks-data/docs/**)",
+      "Bash(launchctl list *)",
+      "Bash(git -C /Users/jackm4/goldenstocks log --oneline -1)",
+      "Bash(git -C /Users/jackm4/goldenstocks status --short)",
+      "Bash(git -C /Users/jackm4/goldenstocks branch --show-current)",
+      "Bash(grep -rlі \"futures\\\\|期貨\\\\|stf\\\\|个股期\\\\|個股期\" src/ config/)",
+      "Bash(open /Users/jackm4/goldenstocks/camera.svg)",
+      "Bash(cd /Users/jackm4/goldenstocks; echo \"=== installed plists \\(c18acc\\) ===\"; ls ~/Library/LaunchAgents/ | grep -i c18acc; echo \"=== all installed ===\"; ls ~/Library/LaunchAgents/ | grep goldenstocks; echo \"=== launchd templates ===\"; ls launchd/ | grep -i c18acc)",
+      "Bash(cd /Users/jackm4/goldenstocks-data; ls -la logs/intraday/launchd_rrg-c18acc-poll*.log logs/intraday/rrg_c18acc_poll_tick.log 2>/dev/null; echo \"=== err tail ===\"; tail -30 logs/intraday/launchd_rrg-c18acc-poll.err.log 2>/dev/null)",
+      "Bash(cd /Users/jackm4/goldenstocks; echo \"=== status dashboard c18acc ===\"; grep -n \"c18acc\" scripts/launchd_status_dashboard.sh; echo; echo \"=== which installed launchers run c18acc python ===\"; grep -ln \"c18acc\" \"$HOME/Library/Application Support/com.jackm4.goldenstocks/\"*.sh 2>/dev/null)",
+      "Bash(python3 -)",
+      "Bash(curl -s http://127.0.0.1:8770/)",
+      "Bash(curl -s http://127.0.0.1:8770/api/state)",
+      "Bash(lsof -nP -iTCP -sTCP:LISTEN)",
+      "Bash(PYTHONPATH=. python3 -c ' *)",
+      "Bash(echo \"--- env data dir ---\"; grep -m1 GOLDENSTOCKS_DATA_DIR .env 2>/dev/null; grep -m1 GOLDENSTOCKS_DATA_DIR .env.example 2>/dev/null *)",
+      "Bash(.venv/bin/ruff check *)",
+      "Bash(.venv/bin/pytest tests/ --ignore=tests/research/archive -q)"
     ]
   }
 }

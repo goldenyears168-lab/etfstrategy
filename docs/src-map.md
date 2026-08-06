@@ -77,6 +77,8 @@ query_stock_prices → sync_etf_holdings → etf_daily_report → regime_daily_b
 | 路徑 | 模組 |
 |------|------|
 | `order/` | `intent` · `config` · `fubon_session` · `fubon_account` · `fubon_orders` |
+| `src/tmf_channel/` | TMF 微型台指凍結套件（2026-08-06 自 channel_lab 遷入）：`causal_engine`（simulate SSOT）· `engine`（public API）· `harness`（研究入口 · 強制 live `PAPER_RECIPE`）· `session_pool`／`worker_loop`（常駐 worker）· `nq_gate`＋`nq_signal` · `blotter` · `aux_cache`／`cache_store`／`desired_cache`。lab 內 `hang_anchor_causal_lab.py` 僅剩 shim；勿再 fork 引擎 |
+| `scripts/order/run_tmf_channel_worker.py` | TMF KeepAlive worker 入口（launchd `tmf-channel-poll`）；`run_tmf_channel_poll.py` 為手動除錯入口；`tmf_cutover.sh` 一鍵重啟載入新碼 |
 | `scripts/order/` | `submit_intents.py` · `fubon_login_test.py` |
 | `scripts/order/chase_scheduled.py` | 開盤窗追價（每分鐘 · 限價=賣一 · 最多 5 輪）· **已退役、不裝 launchd**（2026-07-26 撤 mini；`install-order-launchd.sh` 每次執行會自動卸載，見 `LEGACY_LABELS`） |
 | `scripts/launchd/order-chase-open.command` | 程式碼仍在，僅供需要時手動 bootstrap；非日常排程 |

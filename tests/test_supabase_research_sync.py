@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+from stock_db import DEFAULT_DB_PATH, connect
 from supabase_research_sync import (
     BRIEF_CATALOG,
     BriefRecord,
@@ -20,6 +21,27 @@ from supabase_research_sync import (
     load_brief,
     sync_slot,
 )
+
+
+def _db_has_market_data() -> bool:
+    """True only when a populated stocks.db is reachable (mini), not the empty
+    schema an ambient connect() may leave at DEFAULT_DB_PATH on CI. Guards
+    integration tests that hit the real close panel via market_benchmark."""
+    if not DEFAULT_DB_PATH.is_file():
+        return False
+    try:
+        conn = connect(DEFAULT_DB_PATH)
+    except Exception:
+        return False
+    try:
+        return (
+            conn.execute("SELECT 1 FROM stock_daily_bars LIMIT 1").fetchone()
+            is not None
+        )
+    except Exception:
+        return False
+    finally:
+        conn.close()
 
 
 class TestBriefCatalog(unittest.TestCase):
@@ -148,6 +170,8 @@ class TestBriefCatalog(unittest.TestCase):
     def test_load_intraday_attaches_intraday_snapshot_json(
         self, mock_find: object, mock_baseline: object
     ) -> None:
+        if not _db_has_market_data():
+            self.skipTest("stocks.db has no stock_daily_bars data")
         root = Path(__file__).resolve().parent.parent
         sample = root / "reports/daily/20260622_rrg_mono_intraday_watch.md"
         sample.parent.mkdir(parents=True, exist_ok=True)
@@ -264,6 +288,10 @@ class TestBriefCatalog(unittest.TestCase):
         conn.execute(
             "INSERT INTO daily_bars VALUES ('IX0001', 'tej', '2026-06-24', 1.0)"
         )
+        # market_benchmark.is_trading_date() queries stock_daily_bars for the
+        # weekday gate — seed the mocked session date so 1300 is not skipped.
+        conn.execute("CREATE TABLE stock_daily_bars (code TEXT, trade_date TEXT)")
+        conn.execute("INSERT INTO stock_daily_bars VALUES ('IX0001', '2026-06-24')")
         with patch("supabase_research_sync.connect", return_value=conn):
             result = sync_slot("1300")
         self.assertFalse(any("non-trading-day" in s for s in result.skipped))

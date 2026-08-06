@@ -19,25 +19,27 @@
 		<string>/Users/jackm4/goldenstocks-data</string>
 		<key>TZ</key>
 		<string>Asia/Taipei</string>
-		<!-- Fail-closed defaults only（與 leading-dip 等同款）。
-		     launcher 會 source GOLDENSTOCKS_DATA_DIR/.env 覆寫；勿把這三行誤讀成「永遠 dry」。 -->
+		<!-- Fail-closed defaults only. launcher sources GOLDENSTOCKS_DATA_DIR/.env -->
 		<key>ORDER_TMF_CHANNEL_ENABLED</key>
 		<string>0</string>
 		<key>ORDER_TMF_CHANNEL_DRY_RUN</key>
 		<string>1</string>
 		<key>ORDER_TMF_CHANNEL_AUTO_SUBMIT</key>
 		<string>0</string>
+		<key>ORDER_TMF_CHANNEL_WORKER_INTERVAL</key>
+		<string>20</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<!-- 每 60 秒；日盤／夜盤窗由 launcher + in_tmf_trade_window 過濾 -->
-	<key>StartInterval</key>
-	<integer>60</integer>
+	<!-- Long-lived worker: KeepAlive（內部 sleep 對帳）；勿再用 StartInterval 冷登入 -->
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>15</integer>
 	<key>RunAtLoad</key>
 	<true/>
-	<!-- futopt login + reconcile 偶發 >30s -->
 	<key>ExitTimeOut</key>
-	<integer>180</integer>
+	<integer>60</integer>
 	<key>StandardOutPath</key>
 	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tmf-channel-poll.launchd.log</string>
 	<key>StandardErrorPath</key>

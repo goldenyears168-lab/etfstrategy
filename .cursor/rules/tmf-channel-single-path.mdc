@@ -36,5 +36,10 @@ json.load(open("/Users/jackm4/goldenstocks-data/data/order/tmf_channel_ledger.js
 # 盤外刷新 broadcast：不帶 --force 跑一次即可（reason=outside_session）
 ```
 
-- 發現手動 loop／daemon → **先殺再報**，不要並存「幫忙再起一支」。
-- 跑 `tests/test_tmf_channel_order.py` 時勿讓 `GOLDENSTOCKS_DATA_DIR` 指向生產 data（kill 測試曾污染過 production `tmf_channel_broadcast.json`；測試已 mock emit）。
+發現手動 loop／daemon → **先殺再報**，不要並存「幫忙再起一支」。
+跑 `tests/test_tmf_channel_order.py` 時勿讓 `GOLDENSTOCKS_DATA_DIR` 指向生產 data（kill 測試曾污染過 production `tmf_channel_broadcast.json`；測試已 mock emit）。
+
+## 商品（研究 vs 暫時 live）
+
+- **研究／未來正式單 = TX 大台**（R15 tick 用 TX 是刻意對準，不是誤代理）。
+- 現行 live `tmf-micro-channel` 的 **TMF 微型**只是暫時實驗；獨立複驗**不要**改抓 TMF tick。

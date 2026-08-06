@@ -1,19 +1,24 @@
-# TMF 微型臺指 · Channel Final v1.1 · 技術白皮書 / PRD
+# TMF 微型臺指 · Channel Final v1.2 · 技術白皮書 / PRD
 
 | 欄位 | 內容 |
 |------|------|
-| 版本 | **final_v1_1_2_day_hi38_night1530** |
-| 日期 | 2026-08-05（D38 日 hi38／夜 15–30 採納進 Order） |
-| 狀態 | **Order 層實盤**；recipe v1.1.2：日掛距 30–38、夜絕對 15–30；四鎖 + **唯一執行路徑＝launchd `tmf-channel-poll`**（禁止手動 nohup／daemon 雙跑） |
-| 商品 | 微型臺指期貨 **近月**（Fubon `tickers` 自動解析；2026-08-04 現為 `TMFH6`／086，到期 2026-08-19） |
-| 引擎 | `reports/research/channel_lab/jack_channel_v6_pv.py` |
+| 版本 | **final_v1_2_0_pv16_specialized** |
+| 日期 | 2026-08-06（PV16 specialized 採納＋架構切開：引擎進 `src/tmf_channel`） |
+| 狀態 | **Order 層**；recipe v1.2.0：session×PV8＝16 cell；四鎖 + **唯一執行路徑＝launchd KeepAlive `tmf-channel-poll` worker**（重用 Fubon session；禁止 nohup 雙跑） |
+| 商品 | 微型臺指期貨 **近月**（Fubon `tickers` 自動解析） |
+| 引擎 | **`src/tmf_channel/causal_engine.py`**（`tmf_channel.engine` · hang_anchor=O）；lab `hang_anchor_causal_lab.py` 僅 shim |
 | Paper UI | `reports/research/channel_lab/live_v6_sim_server.py` · `:8770` |
+| Research harness | `tmf_channel.harness`（強制 live `PAPER_RECIPE`）· bars SSOT：`$GOLDENSTOCKS_DATA_DIR/cache/tmf_channel/bars.sqlite` |
 | Order dry | `tmf_order_translator.py` · `/api/orders-dry` · `tmf_orders_dry.json` |
 | 術語 | 見 `docs/terminology.md`；採納規格見 `config/strategy.yaml` · `tmf-micro-channel` |
 
 > **免責**：個人研究紙上規格與本機 infra 藍圖；不構成投資建議。Live 送單須另經 Order layer 閘門（`ORDER_MASTER_ENABLED` 等）。
 
-> **2026-08-05 決策**：開盤前修復 B1/B2（§5.0.1）後，**取消**原「連續 ≥3 個交易時段 dry」驗收；**今日即實盤下單**（日盤 08:45 起）。殘餘風險（修復後首日曝光、熔斷實戰未觸發）接受，靠四鎖＋`max_lots=1`＋日 API／虧損熔斷＋人工值守控損。
+> **2026-08-06 架構切開（收盤後）**：引擎遷入 `src/tmf_channel/`；launchd 改 KeepAlive worker＋session pool；TX／tick cache 遷出 git tree 至 `GOLDENSTOCKS_DATA_DIR/cache/tmf_channel/`（SQLite day-lazy）；舊 fork 進 `archive/engines/`。
+
+> **2026-08-06 採納**：H2H vs Final v1.1.3（STRICT_TICK/BAR · 25d/83d）PASS → `PAPER_RECIPE` 換 PV16 specialized；硬規則 night climax_up block L,S 不變。
+
+> **2026-08-05 決策**：開盤前修復 B1/B2（§5.0.1）後，**取消**原「連續 ≥3 個交易時段 dry」驗收；**當日即實盤下單**（日盤 08:45 起）。殘餘風險接受，靠四鎖＋`max_lots=1`＋日 API／虧損熔斷＋人工值守控損。
 
 ---
 
@@ -263,7 +268,7 @@ Gift 單依出場：`trail` keep%~70%（主保留通道）；`struct_break` 最�
 | 手動入口 | `scripts/order/run_tmf_channel_poll.py` | `.venv-fubon`；除錯用；正式靠 launchd |
 | Sleeve 設定 | `config/order.yaml` · `tmf-micro-channel` | **`enabled: true` · `auto_submit: true`**（2026-08-05 決策改）|
 | Ledger | `data/order/tmf_channel_ledger.json` | API／kill／last desired |
-| launchd | `com.jackm4.goldenstocks.tmf-channel-poll` | **已安裝 + enabled**（2026-08-05 · `StartInterval=60` · launcher 過濾日／夜窗） |
+| launchd | `com.jackm4.goldenstocks.tmf-channel-poll` | **已安裝 + enabled**（2026-08-06 起 KeepAlive 常駐 worker · 窗內 interval≈20s · session 重用；原 `StartInterval=60` 已退役 · launcher 過濾日／夜窗） |
 | 採納登錄 | `config/strategy.yaml` + `strategies.yaml` | **已改 `enabled: true`**（2026-08-05） |
 | 其餘 order-capable 策略 | `leading-dip-poll`／`songshan-copytrade-poll`／`expert-pool-staged-gate`／`detach-gate` | 全部 `job_registry.yaml status: disabled` + `launchctl print-disabled ⇒ disabled`，無背景 process；**TMF 是下單層目前唯一實際運作的策略** |
 
@@ -467,6 +472,7 @@ Fubon futopt 1m (day+AH) ──► live_v6_sim_server
 | R12 | 出場參數 50/40/12 未證實為聯合最優（35 候選中原僅排第 6，兩窗聯合重排未跑完） | 維持現行值（無更優候選證據）；待補跑 `exit_lab_two_window_joint_rank.py`（需更長執行時間或分批） |
 | R13 | Regime 門檻 CLIMAX/DRY 跨情境（±30%、跨月份）皆為死參數 | 非過擬合證據，但也非必要自由度；不影響現行運行，記錄供未來簡化參考 |
 | R14 | Regime 門檻 CONTRACT 比預期敏感（Apr-May 窗 ±30% 內已 FRAGILE −13%） | 尚未深入查，優先度低，排入後續健檢 |
+| R15 | 回測方法論兩個未來函數（收盤價 C[t] 定價 rail 卻對照同根更早的 tick；tick-native 加碼餓死）修正後，83天真實 **TX** tick 驗證顯示**連現行 max_lots=1 都是負期望值**（−13,520pt／44.6%勝天／maxDD −14,477） | **未緩解，初步發現未經獨立複驗**：`reports/research/channel_lab/H-LOT-FIXED2_and_v112_tick_native_validation.md`；資料為 **TX 大台**（未來正式商品；現行 TMF 僅暫時實驗，不必改抓 TMF tick）；VIX盤別邊界出場等次要路徑尚未改tick-native；需要獨立複驗或至少排入下一輪健檢再決定是否影響實盤／未來 TX |
 
 ---
 
@@ -502,6 +508,7 @@ Fubon futopt 1m (day+AH) ──► live_v6_sim_server
 | **Fullnight Jun-Jul restatement** | **2026-08-05** | FinMind TX tick 補 00:00–04:59；43 天基準由 +78,567 改報 **+93,549／+93,392**（§4.1） |
 | **Confidence round 1+2** | **2026-08-05** | 兩輪多 agent 驗證 13 個子步驟（§4.2）；出場參數排名下修為低信心、撮合優於限價上修為高信心 |
 | **Kill-switch flatten stopgap** | **2026-08-05 開盤前** | 發現 TMF 無券商端停損單、熔斷全凍結＝裸倉無下限風險（R11）；窄範圍補丁上線 + 3 test（§5.0.2） |
+| **口數規劃 tick-native 驗證** | **2026-08-05** | 研究 max_lots=1 vs 2 過程中，修正兩個回測未來函數 bug，初步發現連現行 max_lots=1 都是負期望值（R15，見 `reports/research/channel_lab/H-LOT-FIXED2_and_v112_tick_native_validation.md`）；**未經獨立複驗，未改動實盤** |
 
 ---
 
@@ -512,3 +519,5 @@ Final v1.1.1 已接進 Order 層（futopt + desired-state reconciler）。開盤
 **2026-08-05 決策**：取消「≥3 個交易時段 dry」阻斷，**今日實盤下單**。B1/B2 已修、單測過，但屬修復後首日曝光——風險已知並接受；控損靠四鎖開通、`max_lots=1`、日 API／虧損熔斷、人工值守。開鎖步驟見 §5.0 清單（改 `.env` 四鎖；本 PRD 變更**不會**自動送單）。
 
 **開盤後補充**：兩輪多 agent 驗證（§4.2）+ FinMind 完整夜盤重報（§4.1，基準改為 ~93.5k）之後，又發現並修好一個既有的結構性缺口——熔斷觸發後原本會讓既有部位變成無防護裸倉（R11，§5.0.2），已用窄範圍市價平倉補丁緩解並測試。**剩餘最大未解缺口**：出場參數 50/40/12 的兩窗聯合排名沒有跑完，站不站得住腳仍無最終答案；多數壓力測試（成本／VIX 疊加）仍以舊 78,767 為基準，未對新 93.5k 重算。目前下單層唯一實際運作的策略是 TMF micro-channel，其餘 order-capable job 皆確認為 disabled、無背景 process。
+
+**2026-08-05 當日再補充（R15）**：原本要回答「max_lots 要不要開 2」，往下查證時在既有的 1 分 K 回測方法論裡發現兩個未來函數（出場用收盤價而非盤中觸價；掛單定價用這根 K 棒還沒發生的收盤價 C[t]，卻對照同一根 K 棒更早的真實 tick 判斷成交）。用完整 83 天真實 FinMind tick 資料重建、修正兩個 bug 後的 tick-native 引擎顯示：**連現行 `max_lots=1` 都是負期望值**（83天 −13,520pt、44.6% 勝天、maxDD −14,477pt；固定 2 口版本更負）。這只是初步發現，同一輪過程中我自己就先後做出兩次「看起來可信但其實有 bug」的正期望值結果，尚未經獨立複驗，也還沒把 VIX 盤別邊界出場等次要路徑改成 tick-native。**這件事目前沒有觸發任何自動熔斷或停止動作**——是否要暫停、縮小或維持現行實盤，是需要 jack 決定的事，細節見 `reports/research/channel_lab/H-LOT-FIXED2_and_v112_tick_native_validation.md` 與 R15。

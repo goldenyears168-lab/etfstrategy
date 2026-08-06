@@ -26,6 +26,7 @@ LABELS=(
   com.jackm4.goldenstocks.leading-dip-poll
   com.jackm4.goldenstocks.songshan-copytrade-poll
   com.jackm4.goldenstocks.tmf-channel-poll
+  com.jackm4.goldenstocks.tmf-sim-server
   com.jackm4.goldenstocks.expert-pool-staged-gate
   com.jackm4.goldenstocks.nightly-expert-digest
   com.jackm4.goldenstocks.second-disp-expert-pool-watch
@@ -42,6 +43,7 @@ TEMPLATES=(
   com.jackm4.goldenstocks.leading-dip-poll.plist.template
   com.jackm4.goldenstocks.songshan-copytrade-poll.plist.template
   com.jackm4.goldenstocks.tmf-channel-poll.plist.template
+  com.jackm4.goldenstocks.tmf-sim-server.plist.template
   com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
   com.jackm4.goldenstocks.nightly-expert-digest.plist.template
   com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
@@ -64,7 +66,8 @@ usage() {
     detach-gate             週一至五 09:40–12:30 每 5 分（台美脫鉤閘門 · 半倉買一）
     leading-dip-poll        週一至五 09:05–13:25 每 5 分（Leading Dip · 獨立袖套 · 預設 dry-run）
     songshan-copytrade-poll 週一至五 09:25–09:40 每 5 分（跟單松山 5d淨比95∩!mega+25m nonfail · 預算制約10萬）
-    tmf-channel-poll        每 60 秒（日盤 08:45–13:45 + 夜盤 15:00–05:00 · TMF 微型臺指 · 預設 dry-run）
+    tmf-channel-poll        KeepAlive worker（日盤+夜盤 · TMF · 重用 session · 預設 dry-run）
+    tmf-sim-server          KeepAlive（TMF paper UI :8770 · 不下單 · PYTHONPATH=src 用新引擎）
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
     nightly-expert-digest  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
@@ -369,6 +372,7 @@ render_template() {
   fi
   sed -e "s|{{PROJECT_ROOT}}|${PROJECT_ROOT}|g" \
       -e "s|{{APP_SUPPORT}}|${APP_SUPPORT:-${HOME}/Library/Application Support/com.jackm4.goldenstocks}|g" \
+      -e "s|{{HOME}}|${HOME}|g" \
       -e "s|{{BUY_RADAR_LAUNCHER}}|${BUY_RADAR_LAUNCHER}|g" \
       -e "s|{{DETACH_GATE_LAUNCHER}}|${DETACH_GATE_LAUNCHER}|g" \
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \

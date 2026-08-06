@@ -17,6 +17,21 @@ class RegimeSnapshotJsonTests(unittest.TestCase):
         if not DEFAULT_DB_PATH.is_file():
             raise unittest.SkipTest("stocks.db missing")
         cls.conn = connect(DEFAULT_DB_PATH)
+        # An ambient connect() elsewhere in the suite can leave an empty schema
+        # at DEFAULT_DB_PATH on CI, so is_file() alone is not enough — require
+        # real market data before running these integration tests.
+        try:
+            has_data = (
+                cls.conn.execute(
+                    "SELECT 1 FROM stock_daily_bars LIMIT 1"
+                ).fetchone()
+                is not None
+            )
+        except Exception:
+            has_data = False
+        if not has_data:
+            cls.conn.close()
+            raise unittest.SkipTest("stocks.db has no stock_daily_bars data")
 
     @classmethod
     def tearDownClass(cls) -> None:

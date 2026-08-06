@@ -243,6 +243,105 @@ def is_tmf_acct_symbol(sym: str, *, front_symbol: str | None = None) -> bool:
 _is_tmf_acct_symbol = is_tmf_acct_symbol
 
 
+def _order_type_label(order_type: Any) -> str:
+    name = str(getattr(order_type, "name", order_type) or "").lower()
+    if "close" in name:
+        return "close"
+    if "new" in name or "open" in name:
+        return "new"
+    return name or "unknown"
+
+
+def base_order_no(order_no: str | None) -> str:
+    """``s00u5-0000`` → ``s00u5`` (close_position_record split-fill suffix)."""
+    s = str(order_no or "").strip()
+    if "-" in s:
+        return s.split("-", 1)[0]
+    return s
+
+
+def query_tmf_close_position_legs(
+    session: FubonSession,
+    *,
+    acc: Any | None = None,
+    start_date: str,
+    end_date: str | None = None,
+    front_symbol: str | None = None,
+) -> list[dict[str, Any]]:
+    """Authoritative TMF fill legs from ``futopt_accounting.close_position_record``.
+
+    Prefer this over ``order_history`` / ``get_order_results`` for blotter PnL:
+    history often lacks ``last_time`` and market fills show ``price=0``, while
+    close records carry real fill prices (and split lots as ``order_no-000N``).
+
+    ``start_date`` / ``end_date``: ``YYYY/MM/DD`` or ``YYYY-MM-DD``.
+    """
+    account = acc or pick_futopt_account(session)
+    fa = getattr(session.sdk, "futopt_accounting", None)
+    if fa is None or not hasattr(fa, "close_position_record"):
+        return []
+
+    def _slash(d: str) -> str:
+        return str(d).strip().replace("-", "/")[:10]
+
+    start = _slash(start_date)
+    end = _slash(end_date) if end_date else None
+    if end:
+        res = fa.close_position_record(account, start, end)
+    else:
+        res = fa.close_position_record(account, start)
+    if not _result_ok(res) and getattr(res, "data", None) is None:
+        raise RuntimeError(
+            getattr(res, "message", None) or "close_position_record failed"
+        )
+    out: list[dict[str, Any]] = []
+    for row in list(_result_data(res) or []):
+        sym = str(getattr(row, "symbol", "") or "")
+        if not is_tmf_acct_symbol(sym, front_symbol=front_symbol):
+            continue
+        side = _bs_to_side(getattr(row, "buy_sell", None))
+        if side is None:
+            continue
+        try:
+            n = int(getattr(row, "orig_lots", None) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            continue
+        try:
+            px = float(getattr(row, "price", None))
+        except (TypeError, ValueError):
+            continue
+        if not (px > 0):
+            continue
+        raw_no = str(getattr(row, "order_no", "") or "")
+        date_raw = str(getattr(row, "date", "") or "").replace("/", "-")[:10]
+        try:
+            tax = float(getattr(row, "tax", None) or 0)
+        except (TypeError, ValueError):
+            tax = 0.0
+        try:
+            fee = float(getattr(row, "transaction_fee", None) or 0)
+        except (TypeError, ValueError):
+            fee = 0.0
+        out.append(
+            {
+                "date": date_raw,
+                "s": side,
+                "px": round(px, 1),
+                "n": n,
+                "order_no": base_order_no(raw_no) or raw_no,
+                "order_no_raw": raw_no,
+                "order_type": _order_type_label(getattr(row, "order_type", None)),
+                "tax": tax,
+                "fee": fee,
+                "symbol": sym,
+                "source": "close_position_record",
+            }
+        )
+    return out
+
+
 def query_tmf_broker_net(
     session: FubonSession,
     *,
@@ -304,6 +403,128 @@ def query_tmf_broker_net(
         "ep": (px_sum / px_n) if px_n else None,
         "acct_symbol": acct_sym,
     }
+
+
+def query_tmf_margin_equity(
+    session: FubonSession,
+    *,
+    acc: Any | None = None,
+) -> dict[str, Any] | None:
+    """Fubon clearing SSOT for today realized / unrealized / fees (NTD).
+
+    ``futopt_accounting.query_margin_equity`` — this is what the app's
+    「今日平倉損益」aligns to, not our FIFO reconstruction.
+    """
+    account = acc or pick_futopt_account(session)
+    fa = getattr(session.sdk, "futopt_accounting", None)
+    if fa is None or not hasattr(fa, "query_margin_equity"):
+        return None
+    res = fa.query_margin_equity(account)
+    if not _result_ok(res) and getattr(res, "data", None) is None:
+        return None
+    rows = list(_result_data(res) or [])
+    if not rows:
+        return None
+    # Prefer NTD / TWD row
+    row = None
+    for r in rows:
+        cur = str(getattr(r, "currency", "") or "").upper()
+        if cur in ("NTD", "TWD", "NT$", ""):
+            row = r
+            break
+    row = row or rows[0]
+
+    def _f(name: str) -> float | None:
+        try:
+            v = getattr(row, name, None)
+            if v is None:
+                return None
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    realized = _f("fut_realized_pnl")
+    unrealized = _f("fut_unrealized_pnl")
+    fee = _f("today_trading_fee")
+    tax = _f("today_trading_tax")
+    pv = 10.0  # TMF NT$/pt
+    out: dict[str, Any] = {
+        "date": str(getattr(row, "date", "") or "").replace("/", "-")[:10],
+        "currency": str(getattr(row, "currency", "") or "NTD"),
+        "fut_realized_pnl_ntd": realized,
+        "fut_unrealized_pnl_ntd": unrealized,
+        "today_trading_fee_ntd": fee,
+        "today_trading_tax_ntd": tax,
+        "buy_lot": _f("buy_lot"),
+        "sell_lot": _f("sell_lot"),
+        "today_equity": _f("today_equity"),
+        "point_value_ntd": pv,
+        "source": "query_margin_equity",
+    }
+    if realized is not None:
+        out["fut_realized_pnl_pts"] = round(realized / pv, 2)
+    if unrealized is not None:
+        out["fut_unrealized_pnl_pts"] = round(unrealized / pv, 2)
+    if fee is not None or tax is not None:
+        cost = float(fee or 0) + float(tax or 0)
+        out["today_cost_ntd"] = cost
+        out["today_cost_pts"] = round(cost / pv, 2)
+        if realized is not None:
+            # App「平倉損益」is typically gross; net-of-today-fees is derived.
+            out["fut_realized_net_ntd"] = round(realized - cost, 1)
+            out["fut_realized_net_pts"] = round((realized - cost) / pv, 2)
+    return out
+
+
+def query_tmf_single_position_pnl(
+    session: FubonSession,
+    *,
+    acc: Any | None = None,
+    front_symbol: str | None = None,
+) -> dict[str, Any] | None:
+    """Open TMF lot + broker ``profit_or_loss`` (NTD) from query_single_position."""
+    account = acc or pick_futopt_account(session)
+    fa = getattr(session.sdk, "futopt_accounting", None)
+    if fa is None or not hasattr(fa, "query_single_position"):
+        return None
+    res = fa.query_single_position(account)
+    rows = list(_result_data(res) or [])
+    for row in rows:
+        sym = str(getattr(row, "symbol", "") or "")
+        if not is_tmf_acct_symbol(sym, front_symbol=front_symbol):
+            continue
+        side = _bs_to_side(getattr(row, "buy_sell", None))
+        try:
+            n = int(getattr(row, "orig_lots", None) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if side is None or n <= 0:
+            continue
+        try:
+            ep = float(getattr(row, "price", None))
+        except (TypeError, ValueError):
+            ep = None
+        try:
+            mkt = float(getattr(row, "market_price", None))
+        except (TypeError, ValueError):
+            mkt = None
+        try:
+            pol = float(getattr(row, "profit_or_loss", None))
+        except (TypeError, ValueError):
+            pol = None
+        pv = 10.0
+        return {
+            "s": side,
+            "n": n,
+            "ep": ep,
+            "market_price": mkt,
+            "profit_or_loss_ntd": pol,
+            "profit_or_loss_pts": (round(pol / pv, 2) if pol is not None else None),
+            "order_no": base_order_no(str(getattr(row, "order_no", "") or "")),
+            "acct_symbol": sym,
+            "source": "query_single_position",
+        }
+    return None
 
 
 # Never call dir()/vars() on Fubon Neo SDK objects — dir() on some handles

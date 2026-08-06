@@ -6175,3 +6175,884 @@ topics:
     notes: >
       2026-07-23 開題並掛 mini 20:35 觀測。證據見 LEADERBOARD_whale100_balanced_n /
       LEADERBOARD_w300x_balanced_n / focus7_enriched。未採納。
+
+  tmf-match-price-improvement:
+    title: TMF 撮合價優於限價（gap-through price improvement）
+    status: graduated
+    phase: adopted
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_price_improvement_lab.py
+    hypotheses:
+      - id: H-PI-GAP
+        statement: >
+          限價掛單在跳空穿越 bar 以開盤價（優於限價）成交；此 gift 若能在回歸／出場前保留，
+          可形成可測 edge。Final v1.1 已預設 gap_fill_improve=true；本線量化 gift 質量並測試
+          「開盤±K 掛 → 部分回歸出場」harvest 配方。
+        status: passed
+        evidence: >
+          Jun–Jul improve ON−OFF Δnet≈+20.5k；gift 質量≈21.8k pts（853 fills）。
+          已 Formal 進 final_v1_1_1_pi_retain。
+      - id: H-PI-HARVEST
+        statement: >
+          專門為撈 improvement 設計的 session-open ±hang + revert 出場，在 improve ON 時
+          顯著優於同一配方 improve OFF（paired Δ > 0 且可解釋為 gift 保留）。
+        status: rejected
+        evidence: 大多負期望；不成獨立策略。
+      - id: H-PI-STRUCT-GRACE
+        statement: >
+          gift 進場後延遲 struct_break（grace bars）可提高 gift 保留並提升總 net。
+        status: passed
+        evidence: >
+          grace=5 → net 78,767（vs grace0 78,696）；struct gift keep% 改善。
+          grace≥8 / until_trail 傷 net → 拒絕。Formal：improv_struct_grace_bars=5。
+    do_not:
+      - 未過閘寫入 strategy.yaml / Order live
+      - 把 1 分 OHLC 的 gap-through 等同真實盤前試撮簿
+      - 假設所有限價成交都優於委託價（僅跳空穿越／競價撮合類）
+      - 採用 long grace 或 until_trail（傷 net）
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05：Formal 進 jack_channel_v6_pv + live_v6_sim_server + 白皮書 §3.6
+
+  tmf-fullnight-eod-gap:
+    title: TMF 通道 · 23:59 EOD 契約 vs 完整夜盤 00:00–05:00
+    status: graduated
+    phase: adopted
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/fullnight_eod_gap_lab.py
+      - reports/research/channel_lab/fullnight_junjul_restatement.py
+    hypotheses:
+      - id: H-FN-MISMATCH
+        statement: >
+          舊 IS（cache 止於 23:59 + eod_flatten）與紙上（完整 afterhours + eod_flatten=False）
+          不是同一評價契約；落差集中在未測的 00:00–05:00。
+        status: passed
+        evidence: >
+          fullnight_eod_gap_lab.json：10 可重建 session；A +13041 vs C +14240 / D net+u +14249；
+          午夜進場 107 筆 net +864（WR 44%）。白皮書 §4.1。
+      - id: H-FN-BLOWUP
+        statement: 00:00–05:00 會系統性抹掉短夜盤回測優勢（隱藏爆倉）。
+        status: rejected
+        evidence: 10-session 午夜段合計仍為正；日勝率 90% 不變；僅個別日變差。
+      - id: H-FN-JJ-EQUIV
+        statement: 只把 Jun–Jul 的 eod_flatten 改 False 即可等同紙上。
+        status: rejected
+        evidence: 無 00–05 bars 時關旗標只停浮盈；須 FinMind tick backfill。
+      - id: H-FN-JJ-RESTATE
+        statement: >
+          FinMind TX tick 補齊 Jun–Jul 00:00–04:59 後，紙上契約淨利不低於舊短夜盤契約，
+          且日勝率不崩。
+        status: passed
+        evidence: >
+          fullnight_junjul_restatement.json：A +78,567 → C +93,549 / D net+u +93,594；
+          WR 98% 不變；午夜 779 筆 net +14,328（WR 47%）。白皮書 §4.1 Phase B。
+    do_not:
+      - 把舊短夜盤 +78k 稱為紙上／實盤等價（應改報 ~+93.5k）
+      - 把 FinMind TX tick→1m 當成 TMF 原生券商 1m（點值路徑相同、合約／微結構仍有差）
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05 Phase B 完成：Jun–Jul 43/43 session 已 backfill。
+      腳本 fullnight_junjul_restatement.py；cache tx_1m_fullnight_cache.json。
+      評價 SSOT 改報 C/D。殘餘：跨季 OOS、TMF 原生 1m 對照、實盤滑價。
+
+  tmf-dry-far-short-spike:
+    title: TMF 通道 · 空倉 dry 也掛＋遠距空掛／尖點捕捉
+    status: rejected
+    phase: closed
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/dry_far_short_spike_lab.py
+      - reports/research/channel_lab/dry_far_short_spike_deep.py
+    hypotheses:
+      - id: H-DRY-HANG
+        statement: >
+          關閉 skip_quiet_regime（空倉 dry/contract 仍允許新掛）可增加可成交空掛機會，
+          且 Jun–Jul IS 淨利相對 Final v1.1.1 基準不崩（Δnet ＞ −5k 點且 placeS↑）。
+        status: pending
+        evidence: >
+          IS B +80,727 vs A +78,767（Δ+2.0k，placeS 8177→9008）過草稿門檻；
+          OOS peek Apr–May 反轉（A +33.5k → B +29.5k，Δ−4.1k）。未 Formal；需 regime 分層／尖點事件審計。
+      - id: H-FAR-S
+        statement: >
+          在允許 dry 掛前提下，把掛距拉到 60–120 或 80–150 點，可捕捉更遠「尖點」空單，
+          且 IS 淨利 ≥ 基準（或風險調整後可接受）。
+        status: rejected
+        evidence: >
+          IS C +52.3k / D +43.5k 均遠低於 A +78.8k（Δ約 −26k／−35k）。遠距掛降頻且傷 net。
+      - id: H-SPIKE-NODAMP
+        statement: >
+          為接尖點需關閉 trend_hang_dampen（急漲仍掛空）；整體期望仍不劣於基準。
+        status: rejected
+        evidence: >
+          IS E +34.7k（Δ−44k）、WR 48%；OOS peek 更差。不宜為尖點關 regime 濾網。
+    do_not:
+      - 未過閘寫入 strategy.yaml / order.yaml / 實盤 poll
+      - 盤中改 live Final v1.1.1 掛距或 skip_quiet
+      - 把單根插針樣本當成採納證據
+      - 與 live HTML／Order 混用同一 recipe 開關
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05 開題＋首輪 sweep＋deep dive（實盤未動）。
+      產物：dry_far_short_spike_lab.json / dry_far_short_spike_deep.json。
+      說服點：尖點棒上影≥80 時 A 已成交空 18 筆 +1489（WR72%），E 多抓幾乎同數卻 −102；
+      climax_up 空單 E 240 筆 −3069。遠掛整體淨利崩；allow_dry IS 微贏、OOS 日配對輸。
+      下一步若做：只審計 B 的 quiet 進場子集，不碰 far／nodamp。
+
+  tmf-hang-band-realtime-range:
+    title: TMF 通道口 · 即時振幅統一日夜（取代 night×0.5）
+    status: rejected
+    phase: closed
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_hang_band_range_lab.py
+      - reports/research/channel_lab/tmf_hang_band_blindspot_lab.py
+      - reports/research/channel_lab/tmf_hang_band_session_ratio_lab.py
+      - reports/research/channel_lab/tmf_hang_hi_sweep_lab.py
+      - reports/research/channel_lab/tmf_hang_band_cross_day_lab.py
+    hypotheses:
+      - id: H-BAND-UNIFY
+        statement: >
+          以 PIT 滾動價格振幅（range_look × k）即時決定 hang_lo/hi，日夜同一公式、
+          取消 night_hang_scale，Jun–Jul IS 淨利不劣於 Final v1.1.1（Δnet ≥ −3k），
+          且夜盤 net 不崩。
+        status: rejected
+        evidence: >
+          首輪絕對 envelope 最佳 E IS Δ−10.4k。盲點輪：session/tr_median 在 cap=60 下
+          夜 hi p50 仍=60（BS2 釘死），IS 仍 −11k～−13k。
+      - id: H-BAND-OOS
+        statement: >
+          同一 range 配方在 Apr–May OOS peek 相對基準 Δnet ≥ −5k（或日勝率不掉超過 5pp）。
+        status: rejected
+        evidence: >
+          首輪／盲點輪（cap60）OOS Δ約 −6～−8k。T3(cap45) OOS≈持平但是 cap 混淆（見 H-BAND-CAP）。
+      - id: H-BAND-FIXED1
+        statement: >
+          僅把 night_hang_scale 改 1.0（日夜固定 30–60）即可等同 range 方案效果。
+        status: rejected
+        evidence: B/W1 IS Δ−14.6k；固定全日 30–60 不可行。
+      - id: H-BAND-BLINDSPOT
+        statement: >
+          首輪失敗主因是錯誤工具：rolling max−min 被尖點／長窗釘在 cap，且總 net 掩蓋夜盤崩。
+        status: passed
+        evidence: >
+          BS1 夜盤 pre-session bleed 僅 7%；BS2 envelope≥釘 cap proxy **72.6%**。
+          session envelope／tr_median 夜 hi p50 仍 60（對照基準夜 30）。見
+          tmf_hang_band_blindspot_lab.json diagnosis。
+      - id: H-BAND-CAP
+        statement: >
+          看似過關的 session+k0.25+cap45（T3）主要來自全域降低 hang_hi，而非即時振幅公式。
+        status: passed
+        evidence: >
+          對照 C1 hang_hi=45+night×0.5：IS +102k／OOS +37.3k 優於 T3 OOS；
+          T3≈C3，即時 session envelope 幾乎無額外貢獻。見 tmf_hang_band_bs6_cap_confound.json。
+      - id: H-BAND-SESSION-RATIO
+        statement: >
+          hi(t) = ref_hi × (local_TR(t) / session_baseline_TR(session_type))，
+          local_TR 為 session-scoped 中位 bar TR，baseline 為同型別（day 或 night）
+          歷史 session 的 PIT trailing-N 中位（N=5/10），day/night 共用同一 ref_hi
+          （60 或 50 皆試），cap 刻意放寬到 75 以排除 cap 混淆，測試日夜是否能靠
+          「相對自身基準的活動比值」自然收斂，取代 night_hang_scale。
+        status: rejected
+        evidence: >
+          Band 診斷：night hi p50 落在 50–63（≈ref_hi），從未落入 15–30 目標帶，
+          與 day hi p50（51–64）幾乎相同——同型別 baseline 正規化把 day/night
+          振幅差異數學上抵銷掉了（typical night bar 的 local/baseline≈1，跟
+          typical day bar 一樣），結構性失敗、非參數問題。Backtest：IS 基準 A
+          +93,749，最佳變體 R4(n10,ref50) +89,468（Δ−4.3k），最差 R2(n10,ref60)
+          +79,540（Δ−14.2k）；OOS peek 全數 Δ−11k～−13.3k；IS night net 全變體
+          塌陷（+50,988 → +37k～+40k）。cap=75 雖放寬仍被 day/night 對稱命中
+          30–40%（非 H-BAND-CAP 那種夜盤獨有混淆，但值得留意）。見
+          tmf_hang_band_session_ratio_lab.json /
+          tmf_hang_band_session_ratio_lab.py。
+      - id: H-BAND-CROSS-DAY
+        statement: >
+          針對同型別 baseline 抵銷日夜差的結構盲點，改用日盤 TR 作唯一分母：
+          hi(t)=ref_hi×(local_TR/day_baseline_TR)，日夜同一公式、無 night_hang_scale；
+          先過 band gate（夜 hi p50∈15–35），再要求 IS/夜盤/OOS 淨利門檻
+          （且 ref_hi=60 以避免 hang_hi 下修混淆）。
+        status: rejected
+        evidence: >
+          實證 night_TR/day_TR p50=0.528（≈既有 night×0.5）。Band：X1–X6 夜 hi p50
+          皆落入 20–31（gate 過）——成功製造「看起來像 ×0.5 的口寬」。但 ref_hi=60
+          變體夜盤 net 全崩（IS night Δ−8.1k～−9.3k）；唯一 draft-pass 的 X5(ref40)
+          日 hi p50=42，屬 hang_hi 下修混淆（與 H-BAND-CAP／HANGHI-SWEEP 同類），
+          不算本假設成立。結論：cross-day 解釋了為何固定 0.5 合理，但動態比值
+          路徑≠固定 ×0.5 的成交／進出場分佈，夜盤 PnL 仍輸。見
+          tmf_hang_band_cross_day_lab.json。
+      - id: H-BAND-SCALE-ORIGIN
+        statement: >
+          固定 night_hang_scale=0.5 近似「夜盤中位 bar-TR／日盤中位 bar-TR」的長期比值，
+          而非任意魔術常數。
+        status: passed
+        evidence: >
+          2026-04–07 cache：day TR p50=36、night TR p50=19，比值 0.528。
+          Cross-day 夜 ratio p50 亦穩定 ≈0.5。見 tmf_hang_band_cross_day_lab.json
+          empirical_tr。
+    do_not:
+      - 未過閘改 live Final v1.1.1 / order.yaml / 盤中 poll
+      - 用時鐘再乘第二層 night scale（雙重縮帶）
+      - 把成交量 rvol 再塞進掛距公式（rvol 已管 regime）
+      - 把 cap／ref_hi 下調的淨利贏當成「即時振幅統一日夜」已驗證
+      - 再 sweep 更多 envelope k（在 cap=60 下夜盤已被釘死，工具錯）
+      - 用同型別（day-vs-day／night-vs-night）trailing baseline 做 ratio
+      - 用 ref_hi≪60 的 cross-day 結果宣稱取代 night×0.5（與 hang_hi 下修混淆）
+      - 只過 band gate（夜 hi≈30）就當策略可採納——路徑動態仍可傷夜盤 PnL
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05 開題＋多輪盲點研究（實盤未動）。產物含
+      tmf_hang_band_cross_day_lab.json。
+      已拒絕：絕對 envelope、night_scale=1、同型別 ratio、把 T3/cap 當 range 勝利、
+      cross-day 動態比值取代 ×0.5（band 對、夜盤 net 不對；ref40 混淆）。
+      已通過診斷：BS2 釘 cap；H-BAND-SCALE-ORIGIN（0.5≈夜/日 TR）。
+      本主題「單一即時公式取代 night×0.5 且夜盤不傷」仍未達成；固定 ×0.5
+      仍是夜盤口寬的務實 SSOT。獨立日盤調參 hang_hi 下修已另開
+      **tmf-hang-hi-day-tighten**（勿再混進本主題）。
+
+  tmf-hang-hi-day-tighten:
+    title: TMF 通道 · 日盤 hang_hi 收緊（35／40）graduation
+    status: graduated
+    phase: adopted
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_hang_hi_sweep_lab.py
+      - reports/research/channel_lab/tmf_hang_hi_graduation_lab.py
+      - reports/research/channel_lab/tmf_hang_hi_day_vs_shared_lab.py
+    hypotheses:
+      - id: H-HI-BEAT
+        statement: >
+          在 hang_lo=30、night_hang_scale=0.5、session_scale 不變下，hang_hi∈{35,40}
+          相對 Final v1.1.1（hi=60）於 Jun–Jul IS 與 Apr–May OOS peek 淨利皆更高。
+        status: passed
+        evidence: >
+          graduation lab：hi40 IS +105,616（Δ+11,867）OOS +37,034（Δ+3,514）；
+          hi35 IS +105,346（Δ+11,597）OOS +40,214（Δ+6,694）。見
+          tmf_hang_hi_graduation_lab.json。
+      - id: H-HI-DAY-SOURCE
+        statement: >
+          增益主要來自日盤 net；夜盤 net 允許小幅回吐（Δ≥−3k），不宣稱夜盤改善。
+        status: passed
+        evidence: >
+          shared hi40：day Δ+13,531／night Δ−1,664。day-only 對照見 H-HI-DAYONLY。
+      - id: H-HI-PRIMARY40
+        statement: >
+          在 {35,40} shared 中，若 IS 差距 ≤2% of baseline，採納 hang_hi=40 為 frozen 主選。
+        status: superseded
+        evidence: >
+          已被 H-HI-DAYONLY 階乘實驗取代：shared 不是最佳結構；見 day_vs_shared lab。
+      - id: H-HI-DAYONLY
+        statement: >
+          預註冊比較：shared（hi∈{35,38,40}×night×0.5）vs day-only
+          （同 hi，但 night_hang_lo/hi 固定 15/30＝基準夜盤）。規則：OOS≥A0 後最大化 IS。
+          預期 day-only 不劣於同 hi 的 shared（因夜盤不被迫縮口）。
+        status: passed
+        evidence: >
+          控制組 Z（hi60+夜絕對15/30）≡A0（Δ0）。優勝：**D38_dayonly**
+          （日 30–38／夜 15–30）IS Δ+14,515、OOS Δ+6,365、夜 Δ+77、pair_win 72.1%。
+          同 hi 對照 D40−S40：IS +1,741 全來自夜盤差（日 Δ 相同）。
+          Shared 全家夜 Δ≈−1.7k。產物：tmf_hang_hi_day_vs_shared_lab.json。
+    do_not:
+      - 未過 G2 正式 holdout＋人工確認前寫入 strategy.yaml／order live／改盤中 poll
+      - 把 hang_lo 隨 hi 等比例縮放（先前 paired 傷夜盤）
+      - 與 tmf-hang-band-realtime-range「取代 night×0.5」混談
+      - 只改 hang_hi 卻宣稱「夜盤不變」（shared 會把夜 hi 收到 ~23）
+      - 只因 hi=38 IS 最高就忽略 day-only 結構（必須帶 night_hang_lo/hi）
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: passed
+        G4_rejection_registry: passed
+        G5_frozen_spec: passed
+        G6_adoption_report: passed
+    notes: >
+      2026-08-05 階乘結論：**日盤收緊 + 夜盤維持 15–30** 優於共用 hang_hi×0.5。
+      Frozen／Order 已採納：**hang_hi=38、hang_lo=30、night_hang_lo=15、night_hang_hi=30**
+      （`final_v1_1_2_day_hi38_night1530` · `src/order/tmf_channel_config.py`）。
+      G2 仍為 Apr–May peek 註記；產物：tmf_hang_hi_day_vs_shared_lab.json。
+
+  tmf-vix-crash-rally-short-bias:
+    title: VIXTWN 崩＋前一日大漲 → 換盤偏空（flat L）
+    status: archived
+    phase: closed
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/vix_crash_rally_short_bias_lab.py
+    hypotheses:
+      - id: H-VIX-CRASH-RALLY-SHORT
+        statement: >
+          當 VIXTWN lag1 Δ 大幅為負（恐慌崩）且前一交易日日盤大漲時，下一換盤應偏空：
+          只平多、保留空（與現行「VIX 下跌→平空 vix_dn_flat_S」相反）。期望在
+          Jun–Jul IS 與 Apr–May OOS 皆優於 Final v1.1.1 baseline。
+        status: pending
+        evidence: >
+          產物 vix_crash_rally_short_bias_lab.json。主閾值 crash≤−2pt ∧ rally≥80pt：
+          IS +170／OOS +148 vs baseline，但 hit 僅 4／3 日；事件極稀。不改 live。
+    do_not:
+      - 未過閘寫入 strategy.yaml / Order live / PAPER_RECIPE
+      - 把單日券商 VIX% 直覺直接當進場訊號
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: pending
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05 開題。引擎 hook vix_crash_rally_short 預設 False（live 不受影響）。
+      現行 VIX 規則 ablation 仍見 vix_lag1_session_bias_ablation.json（中性）。
+
+  tmf-pv-regime-16way:
+    title: TMF 通道 · classify_pv 8→16 分類細分（confirm/diverge · impulse強弱 · regime新舊三軸並行）
+    status: rejected
+    phase: closed
+    layer: research
+    ⚠️_STALE_BASELINE_WARNING: >
+      2026-08-05 發現：本主題所有 hypotheses 的 evidence（H-PV16-CONFIRM-*／
+      H-PV16-IMPULSE-*／H-PV16-COMBO-*／H-PV16-DAYONLY-GATE，含三折 blind
+      holdout）全部是拿手抄的「V11」dict（hang_hi=60.0、night_hang_scale=0.5，
+      對應 Final v1.1.1）當基準測的。**這不是真正 live 的 recipe**——同一天
+      另一主題 tmf-hang-hi-day-tighten 已把 hang_hi=38＋夜盤絕對15–30
+      （Final v1.1.2）採納進 src/order/tmf_channel_config.py 的 PAPER_RECIPE，
+      V11 早就是被取代的舊版本，只是沒人在派這輪 pv16 研究前去核對過。
+      改用真正 PAPER_RECIPE 重跑後（tmf_pv16_realrecipe_revalidate_lab.json），
+      H-PV16-DAYONLY-GATE 原本「5/5 窗口同向」的結論**不成立**——真實 recipe 下
+      只剩 3/5，OOS peek 與 fold1 由正轉負（fold1 −2,221，非雜訊層級）。
+      **讀本主題任何一條 hypothesis 的數字前，先看它的 evidence 是否已經標注
+      「REAL_RECIPE re-validated」；沒有標注的都是對著舊 V11 測的，不代表
+      現在真正 live 的行為，不可直接引用為採納依據。**
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_pv16_confirm_lab.py
+      - reports/research/channel_lab/tmf_pv16_impulse_lab.py
+      - reports/research/channel_lab/tmf_pv16_fresh_lab.py
+      - reports/research/channel_lab/tmf_pv16_g2_holdout_lab.py
+      - reports/research/channel_lab/tmf_pv16_g2_holdout2_lab.py
+      - reports/research/channel_lab/tmf_pv16_fold2_night_blindspot_diag.py
+      - reports/research/channel_lab/tmf_pv16_dayonly_lab.py
+      - reports/research/channel_lab/tmf_pv16_fold3_lab.py
+      - reports/research/channel_lab/tmf_pv16_realrecipe_revalidate_lab.py
+      - reports/research/channel_lab/tmf_pv16_fold1_realrecipe_diag.py
+    hypotheses:
+      - id: H-PV16-CONFIRM-DAMPEN
+        statement: >
+          把 classify_pv 的 climax/expand/normal 三態各自加一個「創新N根高/低（confirm）
+          vs 未創極值（diverge）」子軸（8→~16 態，dry/contract 僅加方向）。§3.4 對稱
+          regime dampen 只在 confirm 觸發、diverge 視同 normal（不 dampen），
+          預期 IS 與 OOS 皆優於 Final v1.1.1 baseline。
+        status: pending
+        evidence: >
+          collapsed baseline 與原始引擎逐筆位元級重現（IS 78767／OOS 33520，n 完全相同），
+          fork 忠實。H1：IS +9,485（+12%）OOS +4,824（+14%）；日夜皆同向、
+          43 天中多數同向、均利同步上升非交易量稀釋。見 tmf_pv16_confirm_lab.json。
+      - id: H-PV16-CONFIRM-REVERSAL
+        statement: >
+          在 diverge 子態（爆量卻未創極值，疑似出貨頂／竭盡）反手偏向對面
+          （而非僅停用 dampen），預期優於 H-PV16-CONFIRM-DAMPEN。
+        status: pending
+        evidence: >
+          IS +13,980（+18%）OOS(peek) +4,993（+15%），日夜皆同向、43 天中 32 天同向改善
+          （最大單日僅佔總增益13%）。2026-08-05 blind holdout fold #1（2026-01-02～
+          03-31，55 天）：net +3,627（baseline 27,099→30,726，n=1717，wr 50%），未反轉、
+          比 peek 縮小約27%。**同日 fold #2（2025-10-01～12-31，62 天，人工修過 3 天
+          pick_contract 誤選合約的資料瑕疵後才跑）：net −118（baseline 4,811→4,693，
+          n=625，wr 42%）——反轉，但幅度極小，且拆開來看日盤實際 +1,011、是夜盤
+          −1,129 撐掉的**。fold #2 這段本身 baseline 淨利就很薄（62天僅+4,811、
+          534筆，遠低於 fold #1 的 27,099／1660筆），統計力偏弱。兩摺 IS/peek/fold1
+          三個窗口正、fold2 幾乎持平轉負，尚未達到「跨窗口穩定」的採納門檻。
+          見 tmf_pv16_g2_holdout_lab.json、tmf_pv16_g2_holdout2_lab.json。
+      - id: H-PV16-IMPULSE-STRONG
+        statement: >
+          impulse 正規化為 impulse_z（÷ 40 根 PIT 中位數 |ΔC| × √look），climax/expand
+          依 |impulse_z| 門檻分 strong/weak（掃 1.0／1.5），§3.4 dampen 只在 strong 觸發，
+          weak（爆量但價格幾乎沒動，疑似吸籌/雜訊）視同 normal。
+        status: pending
+        evidence: >
+          collapsed baseline 位元級重現。兩門檻皆同向：z1.0 IS +8,709(+11%) OOS(peek)
+          +2,584(+8%)；z1.5 IS +11,199(+14%) OOS(peek) +3,620(+11%)。blind fold #1
+          （Jan–Mar 55天）：z1.0 net +1,084（僅存 peek 42%，偏雜訊）；z1.5 net +2,437
+          （存 peek 67%）。**blind fold #2（Oct–Dec 62天）：z1.0 net −405、z1.5 net
+          −1,224——兩門檻皆反轉，z1.5 反轉幅度相對 fold2 baseline（僅+4,811）已算
+          明顯**。四條軸線裡在兩摺 blind 資料上表現最不穩定者，目前證據不支持採納。
+      - id: H-PV16-IMPULSE-QUIETASYM
+        statement: >
+          用 impulse strong/weak 調變 contract/dry 的雙邊掛距寬度（quiet_tier_asym），
+          預期能減少安靜區的無謂寬度浪費。
+        status: rejected
+        evidence: >
+          效果在雜訊層級（IS -4~-62pt、OOS +14~+32pt，交易數幾乎不變）——因
+          skip_quiet_regime=True 已擋掉空手時新掛，此介入點只在已有倉位時才生效，
+          樣本太稀。reject / 需換介入點才值得重測。
+      - id: H-PV16-COMBO-STRONGGATE
+        statement: >
+          合併 confirm/diverge 與 impulse 強弱兩軸：diverge_reversal（H2）只在
+          該 climax/expand 根同時是 impulse _strong 時才觸發反手（confirm 側同理
+          只在 confirm∧strong 才 dampen）。預期真正「爆量且動能夠大、但沒創極值」
+          的 exhaustion 訊號比單看 diverge 更純，interaction 可能優於任一單軸。
+        status: pending
+        evidence: >
+          2026-08-05：新 fork jack_channel_v6_pv16_combo.py，collapsed 與兩個單軸
+          fork 各自的 standalone 數字皆位元級重現（含 baseline，兩摺皆重驗）。
+          IS +12,485（低於 H2 單軸 +13,980）、OOS(peek) +3,966（低於 H2 單軸 +4,993）
+          ——在已看過的資料上合併反而較弱。blind fold #1（Jan–Mar 55天）net +4,671
+          （baseline 27,099→31,770，n=1855，wr 49%）——三個變體中唯一在 fold #1 贏過
+          兩個單軸。**blind fold #2（Oct–Dec 62天）net −121（baseline 4,811→4,690，
+          n=693，wr 42%）——反轉，介於 H2 單軸(−118) 與 impulse 單軸(−405) 之間
+          （combo_between_singles，非 combo_beats_both_single_axes）**。fold #1 的
+          「combo 贏兩個單軸」現象沒能在 fold #2 重現，兩摺合計證據不足以支持採納；
+          fold #2 拆開來看也是日盤 +1,141／夜盤 −1,262，夜盤是主要拖累來源，
+          值得後續針對夜盤單獨檢視，但目前不建議寫入 frozen spec。
+      - id: H-PV16-FOLD2-NIGHT-BLINDSPOT
+        statement: >
+          fold #2（Oct–Dec）夜盤反轉是可修的實作／資料盲點（例如稀疏tick造成假
+          regime訊號、同根K棒內TP/SL觸發順序假設與真實tick不符），修掉後應該
+          能讓 confirm-H2／combo 兩摺一致轉正。
+        status: rejected
+        evidence: >
+          2026-08-05 逐筆比對 baseline vs H2/combo 在 fold2 夜盤新增／變動的交易
+          （439／493 筆，56–58/62 天分散），機制本身交易並非虧錢（+2,267／+2,097），
+          差額是「baseline 在同一時段本來就做得更好」的機會成本讓渡，不是虧損。
+          對 12 筆最差交易逐 tick 覆核：進出場那一分鐘 tick 數 65–905（遠高於夜盤均值
+          ~55/min），無稀疏資料假訊號；同根K棒 TP/SL 觸發順序與真實 tick 序列一致，
+          無假設誤判。夜盤/日盤 tick 密度比在兩摺幾乎相同（fold2 0.36、fold1 0.36），
+          不是 Oct–Dec 特有的流動性問題。虧損分散在所有 9 個夜盤時段、換月日與否
+          比例相當、struct_break 出場型態分散在 241–266 筆不同交易——沒有可圈出來
+          關掉的共同盲點。結論：這是機制在夜盤缺乏穩定 edge 的真實特性，不是可修的
+          bug；不支持「再拆解一定會更好」的假設。見
+          tmf_pv16_fold2_night_blindspot_diag.json。
+      - id: H-PV16-FOLD1-REALRECIPE-BLINDSPOT
+        statement: >
+          在真實 recipe（hang_hi=38）下 fold1（2026-01-02～03-31）日盤轉負
+          （confirm-H2 all-scope day_Δ≈−1,708~−2,103）是可歸納的實作／資料盲點
+          或 fold1 特有的市場特性，找到後應該能設計出一條新的、能泛化到其他窗口
+          （不只 fold1）的細分軸。
+        status: rejected
+        evidence: >
+          2026-08-05：逐筆比對 fold1 日盤 baseline vs confirm-H2（REAL_RECIPE），
+          384 筆變動交易分散在 55 天中的 49 天（89%）——最差單日僅 −258，
+          遠不足以解釋 −1,708 總額，是長尾式小額負漂移，不是集中虧損。成因是
+          sticky hang 跨根延續：當天早盤一次 diverge 反手會改變當天後續掛單狀態，
+          連带影響後面判定為 confirm（本應與 baseline 一致）的交易也跟著不同——
+          這是路徑相依的雜訊擴散，不是 regime 判斷本身錯。換月日（3天，21筆）
+          淨值 +510，不是禍首；gap_bias 在 2026年1–3月無資料可用，非影響因子。
+          市場特性比較（bar range／climax+expand佔比／regime轉換率／struct_break
+          出場佔比）：fold1 完美落在「由近到遠 5 個窗口」的平滑趨勢線上（IS→peek→
+          fold1→fold2→fold3 各指標單調變化），沒有任何一項在 fold1 出現異常突起。
+          結論：fold1 這次的表現是正常變異，不是可歸納、可修的盲點；沒有找到
+          可以泛化到其他窗口的新分類軸，未進入 Phase 2（未再造新 fork）。
+          過程中也發現 PAPER_RECIPE.max_lots 在同一天內從 2 又被外部改成 1
+          （非本研究所為），提醒：每次重跑都直接 import 現有 PAPER_RECIPE，
+          不要快取任何一次的參數快照當「現在的真實值」。見
+          tmf_pv16_fold1_realrecipe_diag.json。
+      - id: H-PV16-DAYONLY-GATE
+        statement: >
+          回應 H-PV16-FOLD2-NIGHT-BLINDSPOT 的結論（夜盤沒有可修的 bug、只是機制
+          缺乏穩定 edge）：confirm-H2／combo 只在日盤（08:45–13:45）啟用，夜盤強制
+          走原本 8 分類的 collapsed 規則（新增 pv16_session_scope="day_only" 參數，
+          兩個 fork 皆已加）。預期四個窗口（IS／peek／fold1／fold2）net delta 同時
+          轉正，不再像 all-scope 版本那樣兩折互相反轉。
+        status: rejected  # 2026-08-05 二次更正：真實 recipe 重跑後 5/5→3/5，見下方
+          # ⚠️REAL_RECIPE_CORRECTION 段落。以下「status: passed」時期的 evidence
+          # 原樣保留當歷史記錄（曾經以為過關的推導過程），但結論已被推翻，不可引用。
+        evidence: >
+          [以下是 2026-08-05 對著錯誤基準 V11（hang_hi=60，非真正 live）測出來的
+          原始記錄，結論已被推翻，僅保留供追溯，見本欄位最後的 REAL_RECIPE 更正]
+          sanity 確認 day_only 的夜盤結果跟純 collapsed 夜盤僅有小額殘差（90–405 點，
+          來自日盤決策改變導致當日尾盤起始倉位不同的路徑相依，非 gate 失效）。
+          四窗口結果：confirm-H2 day-only：IS +8,025、peek +3,778、fold1 +344、
+          fold2 +1,207——四個窗口全部同向。combo day-only：IS +5,338、peek +4,306、
+          fold1 +880、fold2 +1,194——同樣全正。另抓 fold #3（2025-07-01～09-30，
+          65天）做獨立驗證：confirm-H2 day-only Δ+90、combo day-only Δ+363——
+          當時判定 5/5 窗口全部同向轉正。
+          ⚠️REAL_RECIPE_CORRECTION（2026-08-05 同日稍晚）：改用真正 live 的
+          PAPER_RECIPE（src/order/tmf_channel_config.py 直接 import，hang_hi=38、
+          night_hang_lo=15/hi=30，對應 Final v1.1.2，取代錯誤的 V11/hang_hi=60）
+          重跑同樣 5 個窗口（tmf_pv16_realrecipe_revalidate_lab.json）：
+          confirm-H2 day-only 只剩 **3/5**（IS +2,224、fold2 +1,017、fold3 +466
+          仍正；**peek −88、fold1 −2,221 由正轉負**，fold1 這個負值不是雜訊——
+          日盤那段本身也從 +447 掉到 −2,103）。combo day-only 同樣 **3/5**
+          （peek −523、fold1 −437 由正轉負）。all-scope 版本也退步（combo
+          all-scope 從 4/5 掉到 3/5）。結論：hang_hi 從 60 收緊到 38 之後，
+          confirm/diverge、impulse 強弱這些機制跟「更窄軌道寬度」的交互作用
+          完全不同，先前「5/5 一致」是對著已經過時的基準測出來的假象，不能
+          當採納依據。**status 改判 rejected**——要重新來，得先用真正 hang_hi=38
+          的 recipe 重新設計/調參，不是重跑既有參數這麼簡單。
+      - id: H-PV16-FRESH-ENTRYGRACE
+        statement: >
+          regime 加「剛轉入(entry) vs 延續(continue)」子軸（用 run_len 追蹤），
+          §3.4 dampen 只在剛轉入後 grace 根內生效，delta 根數後視為「已price in」還原
+          不 dampen，預期長黑/長紅 regime 尾段的過度壓制被移除後 net 提升。
+        status: pending
+        evidence: >
+          collapsed baseline 位元級重現。grace=1：IS +2,384(+3%) OOS +1,817(+5.4%) 日夜皆漲；
+          但 grace=3/5 不是單調過渡（grace=3 反而 IS -887，grace=5 又回到接近0），
+          在 43 天／~2850 筆樣本下判斷為雜訊而非訊號。不建議採納，需更細網格＋更多 OOS
+          天數才能分辨。
+      - id: H-PV16-FRESH-PERSISTK
+        statement: >
+          反向假設：要求 regime 連續 K 根（K∈{2,3,4}）才信任並觸發 dampen，
+          預期能濾掉單根爆量的假訊號、降低被反打的 whipsaw。
+        status: rejected
+        evidence: >
+          IS 隨 K 單調上升（+570→+2075→+5627）OOS 卻單調下降（+60→-3379→-3134），
+          勝率同步下滑 48.6%→47.0%——與 tmf-hang-band-realtime-range 的 H-DRY-HANG
+          同款教科書級過擬合曲線。reject。
+    do_not:
+      - ⚠️ 引用本主題任何一條「passed」或百分比改善數字時，先確認它是不是對著
+        真正 live 的 PAPER_RECIPE（src/order/tmf_channel_config.py，hang_hi=38、
+        night_hang_lo=15/hi=30）測的——本主題絕大多數既有結果（包含一度判
+        passed 的 H-PV16-DAYONLY-GATE）都是對著已經過時的 V11（hang_hi=60）
+        測出來的，2026-08-05 用真實 recipe 重跑後 5/5 掉到 3/5、fold1 由正轉負
+        （見 H-PV16-DAYONLY-GATE evidence 的 REAL_RECIPE_CORRECTION 段落）
+      - 拿任何新研究的「基準參數」時，手抄別支 lab script 的 dict 之前，先去
+        src/order/tmf_channel_config.py 核對一次是不是還跟目前 live 的
+        PAPER_RECIPE 一致——這次的教訓就是手抄了一份已經被同一天另一個主題
+        （tmf-hang-hi-day-tighten）取代掉的舊版本，做了一整天研究才發現
+      - 目前沒有任何 pv16 機制（all-scope 或 day-only）在真實 recipe 下達到
+        跨窗口一致——都不夠格寫入 strategy.yaml／order.yaml／碰
+        src/order/tmf_channel_order.py 或 live poll
+      - 只看單一或少數 blind holdout 就下結論——本主題已示範三次教訓：
+        只看 fold1 差點誤判 all-scope 已過關（fold2 反轉）；用錯基準測出
+        day-only 5/5 全過（換真實 recipe 後掉到 3/5）；每次都是靠多抓一段
+        資料或核對一次真實參數才發現，不是靠推論
+      - 把任何一折 baseline 淨利偏薄當作可以無視該折訊號的理由——樣本量小是
+        估計值雜訊大的理由，不是「這段不算數」的理由
+      - 混用四個 fork engine（jack_channel_v6_pv16_confirm.py／_impulse.py／_fresh.py／
+        _combo.py）彼此的參數；combo 已測過 confirm×impulse 交互，但 fresh 軸
+        （已 reject）沒有也不需要併入 combo
+      - 誤把 jack_channel_v6_pv.py 本體當研究檔案編輯——它是
+        src/order/tmf_channel_order.py 實際 import 的 live 引擎
+      - 把 PAPER_RECIPE 的某次快照當成「現在的真實值」快取著用——2026-08-05
+        當天 max_lots 就在研究過程中被外部從 2 改成 1；每次重跑都要重新
+        import，不要沿用前一輪跑出來的 dict 字面值
+      - fold1 在真實 recipe 下的日盤負值已查過（H-PV16-FOLD1-REALRECIPE-BLINDSPOT）：
+        分散在 89% 交易日、非換月日、非 gap 日、市場特性跟其他窗口的趨勢線吻合，
+        判定為正常變異——不要再對著 fold1 這一折反覆挖，除非有新的、真正
+        獨立的資料或全新角度，同一份資料挖第二次不會挖出不同答案
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending  # 2026-08-05 二次更正：H-PV16-DAYONLY-GATE 原本
+          # 因 fold1/2/3 對舊 V11(hang_hi=60) 基準 5/5 同向而判 passed；改用真正
+          # live PAPER_RECIPE(hang_hi=38) 重跑後只剩 3/5（peek/fold1 由正轉負，
+          # fold1 非雜訊層級的 −2,221）——retract 回 pending。目前沒有任何 pv16
+          # 機制在真實 recipe 下通過 G2
+        G3_regime_stratification: pending  # 原本因 fold2 日夜分層不全敗判 passed；
+          # 該判斷同樣是對著舊基準做的，real-recipe 下的日夜分層尚未系統性重新
+          # 檢視，retract 回 pending 待補
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-05 開題＋三軸並行首輪（3 個獨立 agent，各自 fork jack_channel_v6_pv.py
+      為 jack_channel_v6_pv16_{confirm,impulse,fresh}.py，均以位元級重現 baseline
+      驗證 fork 忠實後才跑變體）。同日第二輪：建 2026-01-02～03-31 blind holdout
+      fold #1（55天，FinMind TaiwanFuturesTick 回補，經 assert 驗證與 IS/OOS 完全
+      不重疊）——H-PV16-CONFIRM-REVERSAL 與新增的 H-PV16-COMBO-STRONGGATE
+      （diverge_reversal 只在 impulse _strong 時觸發）雙雙未反轉，combo 甚至
+      唯一在 fold1 贏過兩個單軸。第三輪：建 fold #2（2025-10-01～12-31，62天，
+      同樣經 assert 驗證與 fold1/IS/OOS 皆不重疊）——**四個變體（confirm H2 −118、
+      impulse z1.0 −405、impulse z1.5 −1,224、combo −121）在 fold2 全部反轉**，
+      跟 fold1 的正向結果不一致。fold2 資料建置過程中發現並人工修復了 3 天
+      （10-15／11-24／11-25）pick_contract 誤選遠期合約導致的稀疏 bar 缺陷
+      （從已快取的原始 tick 用該日實際主力合約重建，未重新呼叫 FinMind），修復後
+      62 天全數 823–841 根、無稀疏日。fold2 拆開日夜：confirm H2／combo 日盤其實
+      是正的（+1,011／+1,141），是夜盤（−1,129／−1,262）把總數拉負；impulse z1.5
+      則日夜皆負。結論：兩摺 walk-forward 不一致，G2 判 pending（流程已跑但不算
+      passed）；H-PV16-CONFIRM-REVERSAL／H-PV16-COMBO-STRONGGATE 退回 pending，
+      H-PV16-IMPULSE-STRONG 維持 pending 但證據轉更弱。regime 新舊軸兩個假設
+      維持原判：一雜訊一過擬合，未併入 combo。第四輪：逐 tick 診斷 fold2 夜盤
+      虧損（見 H-PV16-FOLD2-NIGHT-BLINDSPOT），結論是機制在夜盤缺乏穩定 edge、
+      非可修的資料/實作 bug。第五輪：加 pv16_session_scope="day_only"（夜盤強制
+      走原本 8 分類），四窗口（IS/peek/fold1/fold2）全轉正；第六輪：抓真正獨立
+      的 fold #3（2025-07-01～09-30，65天）覆核，5/5 窗口同向，一度判定
+      H-PV16-DAYONLY-GATE 的 G2 通過。
+
+      **第七輪、也是最關鍵的一輪（2026-08-05 同日稍晚）**：使用者要求往 G5/G6/
+      order 層推進前，檢查 src/order/tmf_channel_config.py 才發現，前六輪全程
+      用的「V11」基準（hang_hi=60、night_hang_scale=0.5，對應 Final v1.1.1）
+      早就不是真正 live 的 recipe——同一天另一主題 tmf-hang-hi-day-tighten 已把
+      hang_hi=38＋夜盤絕對15–30（Final v1.1.2）採納進 PAPER_RECIPE，只是沒人在
+      派 pv16 這輪研究前去核對過。改用真正 import 的 PAPER_RECIPE 重跑同樣 5
+      個窗口（tmf_pv16_realrecipe_revalidate_lab.json）：H-PV16-DAYONLY-GATE
+      的 5/5 掉到 3/5，OOS peek 與 fold1 由正轉負（fold1 −2,221，非雜訊）；
+      all-scope 版本也退步。**結論：hang_hi 從 60 收緊到 38 之後，這些機制的
+      交互作用完全不同，先前判 passed 是對著過時基準測出來的假象，已 retract
+      回 pending／rejected（見主題頂部 ⚠️_STALE_BASELINE_WARNING 與
+      H-PV16-DAYONLY-GATE 的 REAL_RECIPE_CORRECTION）。**
+
+      現況：**沒有任何一條 pv16 機制在真實 recipe 下通過 G2**，G5/G6/order 層
+      全部未動。下一步如果要推進，必須是針對 hang_hi=38＋絕對夜盤 15–30 這組
+      真實參數重新設計/調參（門檻、confirm/diverge 定義、day_only 切點等都可能
+      要重新掃），不是沿用今天對著舊基準調出來的任何一組參數。這次事故也留下
+      一個通用教訓寫進 do_not：往後任何新研究要用「基準參數」時，先去對應的
+      src/order/*_config.py 核對一次，不要手抄別支 lab script 的 dict。
+
+      第八輪：fold1 real-recipe 日盤負值逐筆＋市場特性診斷（見
+      H-PV16-FOLD1-REALRECIPE-BLINDSPOT），確認是分散在89%交易日的路徑相依
+      雜訊擴散（sticky hang 跨根延續造成早盤一次反手影響全天），非可歸納盲點，
+      未強行造 Phase 2 新分類。
+
+      第九輪、也是本主題目前最重要的參照數字：**8 分類 classify_pv 本身
+      （trend_hang_dampen="regime" 開 vs "none" 關）在真實 recipe 下的 ablation**
+      ——IS +7,699／peek +11,731／fold1 +2,329／fold2 +5,880／fold3 +2,805，
+      **5/5 窗口一致為正，合計 +30,444（+26.0% pooled）**。fold2／fold3 這兩折
+      關掉後直接由正轉負（fold2 +4,318→−1,562、fold3 +2,644→−161）——8 分類
+      本身是「賺錢 vs 賠錢」的關鍵，效果比本主題今天測的任何一條細分軸都大
+      一個量級，也是唯一達到 5/5 窗口一致的機制。這解釋了為什麼在它之上疊加
+      更細的子分類（confirm/diverge、impulse強弱、combo、day-only）一直很難
+      站穩：大部分容易拿的價值已經被原始 8 分類拿走了，繼續往下切是在啃
+      邊際報酬遞減、雜訊佔比升高的部分。本主題結論：**8 分類 classify_pv
+      本身已經是穩固、驗證過的機制，維持現狀（不動它）；細分到 15/16/32 類
+      的所有嘗試截至目前皆未能穩定超越它，暫停繼續往更細分推進，除非有全新
+      角度而非同一份資料反覆挖。**
+
+  tmf-exit-farcover-retune:
+    title: TMF 通道 · far_cover 出場帶隨 hang_hi=38 收緊重新校準
+    status: graduated
+    phase: oos_holdout
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_realrecipe_exit_sweep_lab.py
+      - reports/research/channel_lab/tmf_realrecipe_exit_peek_check_lab.py
+      - reports/research/channel_lab/tmf_realrecipe_exit_5window_lab.py
+    hypotheses:
+      - id: H-EXIT-FARCOVER-TIGHTEN
+        statement: >
+          PAPER_RECIPE 的出場相關參數（stop_pts／trail_arm_pts／trail_giveback_pts／
+          struct_exit_look／far_cover_lo,hi／improv_struct_grace_bars）全部繼承自
+          hang_hi=60（Final v1.1.1）時代的調校，從未針對今天才採納的 hang_hi=38
+          （tmf-hang-hi-day-tighten）重新驗證過。far_cover_lo/hi（exit_mode=
+          hybrid_trail 的對向掛單出場帶，baseline 80/120）在更窄的入場帶下可能
+          過寬、鮮少按原意觸發；收緊應能在不傷害其他窗口的前提下提升淨利。
+        status: passed
+        evidence: >
+          2026-08-05：全程直接 import PAPER_RECIPE（非手抄）＋eod_flatten=True
+          override，三階段流程：①IS 單變量掃描 6 個出場參數；②通過 IS 的候選立刻
+          比對 OOS peek，濾掉 IS 贏但 peek 反轉的（trail_giveback_pts 兩個候選皆
+          在 peek 反轉，IS 單調遞增的曲線形狀正是典型過擬合，即時抓到）；③通過
+          IS+peek 的候選再上今天稍早建好的 3 個真 blind fold（fold1 JanMar／fold2
+          OctDec／fold3 JulSep）覆核。結果：far_cover 65/105（保守版）與 50/90
+          （激進版）**5 個窗口全部不轉負**——65/105：IS +5,175／peek +888／
+          fold1 +965／fold2 0／fold3 0；50/90：IS +13,486／peek +993／fold1 +789／
+          fold2 +139／fold3 0（fold2/fold3 常為 0 是因為緊帶下這條出場路徑本來就
+          少觸發，不是負值）。65/105 的 IS→OOS 衰減比例（6.5%→2.5–3.9%）明顯比
+          50/90（16.9%→2.8–3.2%）溫和，過擬合痕跡較少，傾向優先採 65/105。
+          其餘 5 個參數皆未通過：struct_exit_look=6 在 fold3 反轉（−427，約−16%，
+          非雜訊）；trail_arm_pts=35 在 fold1 與 fold3 都反轉；trail_giveback_pts
+          在 peek 就反轉；stop_pts／improv_struct_grace_bars 全程未見真訊號，
+          baseline 值已經夠好。combo（far_cover 65/105 ＋ trail_arm 35）不如
+          far_cover 單獨——trail_arm 的 fold3 弱點會拖進來，非可疊加。見
+          tmf_realrecipe_exit_sweep_lab.json／
+          tmf_realrecipe_exit_peek_check_lab.json／
+          tmf_realrecipe_exit_5window_lab.json。
+      - id: H-EXIT-STRUCTLOOK-TIGHTEN
+        statement: struct_exit_look 從 12 收緊到 6，預期減少結構出場延遲提升淨利。
+        status: rejected
+        evidence: IS +3,608(+4.5%)／peek +298（弱）皆通過，但 fold3 −427（約−16%，
+          非雜訊層級）反轉。3/5 未過門檻，不通用。
+      - id: H-EXIT-TRAILARM-TIGHTEN
+        statement: trail_arm_pts 從 50 收緊到 35，預期更快啟動移動停利、提升淨利。
+        status: rejected
+        evidence: IS +2,163／peek +1,206 皆通過，但 fold1 −121、fold3 −236 雙雙
+          反轉。與 far_cover 65/105 疊加測試也證實不可加成，反而拖累。
+      - id: H-EXIT-TRAILGIVEBACK-TIGHTEN
+        statement: trail_giveback_pts 收緊（40→20或30），預期減少回吐提升淨利。
+        status: rejected
+        evidence: IS 呈現嚴格單調遞增曲線（20最佳+10,998/+13.8%），典型過擬合
+          形狀；一上 OOS peek 立刻反轉（20：−467；30：−1,078），未進入 blind
+          fold 階段即淘汰。
+    do_not:
+      - 只憑今天這輪 5 窗口驗證就直接寫入 strategy.yaml／order.yaml／碰
+        src/order/tmf_channel_order.py 或 live poll——雖然這次是本研究線今天
+        唯一一個 5 窗口零負值的乾淨結果，但仍需使用者明確指示才能往 G5/order
+        層推進，不因為「這次比較乾淨」就跳過同一套流程
+      - 把 fold2／fold3 的 0 當成「沒差」去忽略——那是緊帶下該出場路徑本來就少
+        觸發，跟「反轉」不是同一件事，不要混為一談
+      - 手抄 PAPER_RECIPE 而非直接 import——本主題三支腳本都示範了正確做法
+      - 把 50/90（IS 表面數字最亮）誤判為比 65/105 更值得採納——65/105 的
+        樣本外衰減比例更溫和，過擬合痕跡更少，才是較穩的選擇
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed  # 真正 3 個獨立 blind fold + OOS peek 皆不轉負，
+          # 且用的是真實 PAPER_RECIPE（非今天稍早出過包的 V11 stale baseline）
+        G3_regime_stratification: passed  # 2026-08-05 確認：far_cover 65/105
+          # 查 tmf_realrecipe_exit_5window_lab.json 逐窗口日/夜拆分——IS
+          # 日+3,194/夜+1,981、peek 日+451/夜+437、fold1 日+849/夜+116、
+          # fold2/fold3 日夜皆恰好0.0（緊帶下該出場路徑本來就少觸發，非負值，
+          # 非四捨五入假象）。10個「窗口×日夜」格子零負值，比 tmf-pv-regime-16way
+          # 那條線任何一次的日夜結果都乾淨（那邊夜盤幾乎每次都拖累）
+        G4_rejection_registry: passed  # 5 個候選記錄了拒絕理由（struct_look／
+          # trail_arm／trail_giveback／stop_pts／grace_bars）
+        G5_frozen_spec: passed  # config/strategy.yaml · tmf-micro-channel ·
+          # applied_refinements[final_v1_1_3_farcover65_105]，matcher/backtest
+          # 已更新為 final_v1_1_3_day_hi38_farcover65_105。src/order/
+          # tmf_channel_config.py 的 PAPER_RECIPE 已實際套用（使用者明確指示後）
+        G6_adoption_report: passed  # reports/research/channel_lab/
+          # 20260805_tmf_farcover_retune_adoption.md（8章節格式）
+    notes: >
+      2026-08-05 開題，動機來自 tmf-pv-regime-16way 主題最後一輪：發現
+      PAPER_RECIPE 的出場參數全部繼承自 hang_hi=60 時代，從未針對當天才採納的
+      hang_hi=38 重新驗證。三階段流程（IS掃描→peek濾除→3blind fold覆核）比
+      tmf-pv-regime-16way 那條研究線更嚴謹（那條線是先全部測完才發現用錯基準，
+      這條線一開始就用對）。存活候選是 far_cover_lo/hi 收緊（80/120→65/105，
+      優於同樣零反轉但衰減比例較大的 50/90），5 窗口零負值，是今天整條研究
+      脈絡裡證據最乾淨的一個發現。
+
+      **2026-08-05 同日完成 G5/G6 並經使用者明確指示套用 order 層**：
+      `config/strategy.yaml` 的 `tmf-micro-channel` 已更新 matcher／backtest
+      為 `final_v1_1_3_day_hi38_farcover65_105`，`applied_refinements` 記錄
+      套用細節；`src/order/tmf_channel_config.py` 的 `PAPER_RECIPE.far_cover_lo/hi`
+      已從 80.0/120.0 改為 65.0/105.0（僅這兩個數值＋docstring版本號，其餘
+      欄位含 DRY_RUN／AUTO_SUBMIT／MASTER_ENABLED 等安全旗標完全未動，仍由
+      .env 控制）。下次 live poll 起生效。本主題狀態轉 graduated。
+
+  tmf-pv16-specialized:
+    title: TMF Channel · Final v1.2.0 PV16 specialized + causal O-anchor
+    status: graduated
+    phase: adopted
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/r_h2h_v113_vs_specialized.py
+      - reports/research/channel_lab/r_pv16_specialized_strict_reval.py
+    hypotheses:
+      - id: H-PV16-SPECIALIZED-BOOK
+        statement: >
+          session×PV8 16-cell specialized hang/EARLY/hold patches + causal
+          hang_anchor=O outperform Final v1.1.3 PAPER on STRICT_TICK/BAR
+          25d∩83d without C[t] contamination.
+        status: passed
+        evidence: >
+          r_h2h_v113_vs_specialized.json PASS_PROMOTE_CANDIDATE；
+          r_pv16_specialized_strict_reval.json PASS；engine promoted to
+          src/tmf_channel/causal_engine.py (2026-08-06).
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: passed
+        G3_regime_stratification: passed
+        G4_rejection_registry: passed
+        G5_frozen_spec: passed
+        G6_adoption_report: passed
+    notes: >
+      Live Order SSOT: src/tmf_channel + order.tmf_channel_pv16_book.
+      Research harness: tmf_channel.harness (always import PAPER_RECIPE).
+      Do not re-fork jack_channel_v6_pv16_* — archived under archive/engines/.
+
+  tmf-crossmarket-signal-explore:
+    title: TMF 通道 · 跨市場訊號探索（divergence-as-signal · regime-sync-as-signal）
+    status: rejected
+    phase: oos_holdout
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/divergence_signal_design_lab.py
+      - reports/research/channel_lab/divergence_verify_fold1_lab.py
+      - reports/research/channel_lab/divergence_verify_fold2_lab.py
+      - reports/research/channel_lab/divergence_verify_fold3_lab.py
+      - reports/research/channel_lab/regime_sync_signal_design_lab.py
+      - reports/research/channel_lab/regime_sync_verify_fold1_lab.py
+      - reports/research/channel_lab/regime_sync_verify_fold2_lab.py
+      - reports/research/channel_lab/regime_sync_verify_fold3_lab.py
+    hypotheses:
+      - id: H-XMKT-DIVERGENCE
+        statement: >
+          NQ 與 Nikkei225 兩指數方向分歧（causal 24h trailing return，disagree/
+          high_mag 判定），可以當成 TX 特有資訊的訊號，用來過濾／強化既有 8 分類
+          通道機制的交易品質。
+        status: rejected
+        evidence: >
+          2026-08-05：design（IS+peek，166 obs）疊加在 jack_channel_v6_pv V11
+          baseline 交易上完全無分離（high_mag/disagree 均略差於 all，非優於）。
+          三折 held-out 覆核（frozen 門檻 0.00929，未在任何一折重新計算）：
+          fold1／fold2／fold3 皆無可用分離，唯一稍有意思的「分歧→續勢」子指標
+          在 fold2 幾乎消失（相關差距 0.27→0.02）、fold3 move-size 方向直接反轉。
+          結論與既有 us-tw-overnight-research.md 的零時差發現一致：兩個本來就
+          高度連動的指數，分歧本身不會產生新的台股特有資訊。
+      - id: H-XMKT-REGIME-SYNC
+        statement: >
+          用 TX 夜盤報酬與 NQ 同窗報酬的滾動15日因果相關係數，區分「同步」vs
+          「不同步」市場狀態，可用來調整通道行為（寬度／是否交易），而非直接
+          預測方向。
+        status: rejected
+        evidence: >
+          2026-08-05：frozen 門檻（corr≥0.30=sync）在 IS+peek／fold1／fold2
+          三個獨立窗口全部退化——0/68、0/40、0/47 天低於門檻，fold3 僅
+          3/50天，樣本太薄。**核心前提不成立**：過去約一年資料裡，TX 與 NQ
+          的連動性從未真正脫鉤過（滾動相關中位數0.77-0.84，最低觀測0.24僅見於
+          fold3單一稀薄尾端）。退而求其次的中位數切分（非預先凍結門檻）在
+          design 顯示 sync>desync（勝率54%v51%、均利29.1v24.1），但 fold2／
+          fold3 直接反轉；且每個窗口的 sync 桶勝天率都落在92-93%，重複踩中
+          今天稍早發現的同根成交灌水紅旗（house rule #8），效應本身可能是
+          bar-based 同根成交假象而非真實 regime 效果。
+    do_not:
+      - 拿 design 階段（IS+peek）單一窗口的「看起來有意思」數字當結論——本主題
+        兩個假說都示範了同一件事：不經過至少3個獨立held-out窗口覆核，design
+        階段的任何子指標都可能是雜訊
+      - 用中位數切分取代預先凍結的門檻，然後把切分出來的差異當發現——regime-sync
+        假說的中位數切分不是預先承諾的門檻，是看過資料分佈才選的，本身就不該
+        被當驗證，只能當描述性參考（兩個 design agent 都有意識到這點並如實標註）
+      - 忽略同一份 backtest 引擎（simulate() 預設同根成交邏輯）帶來的系統性
+        灌水風險——本主題兩次獨立測試都在同一個桶內看到 90%+ 勝天率，跟今天
+        稍早 C[t] bug 的紅旗同款
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed  # 兩個假說皆在3折獨立held-out驗證中失敗（非
+          # pending——這次是真正走完完整流程後的明確負面結果，不是資料不足）
+        G3_regime_stratification: na
+        G4_rejection_registry: passed
+        G5_frozen_spec: na
+        G6_adoption_report: na
+    notes: >
+      2026-08-05：Workflow round 1（8 agents，design×2 + verify×6，跨 IS+peek
+      +fold1+fold2+fold3 共4個獨立窗口）。動機：在確認機械化通道機制（8分類、
+      confirm/diverge細分、causal anchor修正、coil-and-break動能版）皆無法在
+      真實tick資料上找到穩定edge後，探索跨市場資料（日經/NQ/VIXTWN）能否提供
+      獨立於價量本身的訊號。已知的「追隔夜方向」假說（us-tw-overnight-research.md）
+      早已被排除（zero-lag、Sharpe-0.04~-0.52）；本輪測的是fork-in-the-road上
+      兩個真正沒被測過的角度（分歧當訊號、同步狀態當條件特徵），結果皆為明確
+      拒絕，且是經過design+3折held-out的完整流程，不是單輪臆測。
+      TSMC ADR 資料本地不存在，divergence 假說退而用 NQ vs Nikkei。
+      跨市場資料causal對齊規格見 crossmarket_data_causal_spec.md（同日產出，
+      含美股RTH落在TX夜盤時段內、需用連續期貨而非現貨收盤價、日光節約時間
+      每年造成兩次時差跳動等關鍵風險，皆已在本輪正確處理，未重蹈C[t] bug）。

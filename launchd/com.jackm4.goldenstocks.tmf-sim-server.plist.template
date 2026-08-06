@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.tmf-sim-server</string>
+	<!-- Paper UI（:8770）· 不下單 · KeepAlive 常駐；引擎經 PYTHONPATH=src 解析到 tmf_channel 套件 -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{PROJECT_ROOT}}/.venv-fubon/bin/python</string>
+		<string>{{PROJECT_ROOT}}/reports/research/channel_lab/live_v6_sim_server.py</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{PROJECT_ROOT}}</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>TZ</key>
+		<string>Asia/Taipei</string>
+		<key>PYTHONPATH</key>
+		<string>{{PROJECT_ROOT}}/src</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tmf-sim-server.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tmf-sim-server.err.log</string>
+</dict>
+</plist>

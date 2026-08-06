@@ -214,14 +214,18 @@ strategies:
       - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md
 
   tmf-micro-channel:
-    title: TMF 微型臺指 · Channel Final v1.1.2
+    title: TMF 微型臺指 · Channel Final v1.3.0 PV16 cell-tune v2
     layer: strategy
     kind: research_adopted
     enabled: true
     env_flag: ORDER_TMF_CHANNEL_ENABLED
     description: >
-      微型臺指近月 channel · Order futopt · Final v1.1.2：日 hang 30–38、
-      夜絕對 15–30（D38 day-only）。白皮書 docs/tmf-micro-channel-final-v1-1-prd.md。
+      微型臺指近月 channel · Order futopt · Final v1.3.0：16-cell cell-tune v2
+      （O-anchor · quiet=dry · cell BIAS · night normal/expand_dn/div_hh_weak_vol
+      block_LS）· engine=src/tmf_channel · KeepAlive worker。
+      白皮書 docs/tmf-micro-channel-final-v1-1-prd.md。
     sources:
       - docs/tmf-micro-channel-final-v1-1-prd.md
-      - reports/research/channel_lab/tmf_hang_hi_day_vs_shared_lab.json
+      - reports/research/channel_lab/r_cost_aware_cell_tune_wf.json
+      - src/tmf_channel/causal_engine.py
+      - src/order/tmf_channel_pv16_book.py

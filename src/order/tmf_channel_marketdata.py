@@ -13,6 +13,18 @@ _TZ = ZoneInfo("Asia/Taipei")
 _CACHE: dict[str, Any] = {"sym": None, "ts": 0.0}
 
 
+def _ensure_realtime_once(session: FubonSession) -> None:
+    """Prefer pooled one-shot realtime init; fall back to SDK call."""
+    try:
+        from tmf_channel.session_pool import ensure_realtime
+
+        ensure_realtime(session)
+    except Exception:
+        if not getattr(session, "_tmf_realtime_ok", False):
+            session.init_realtime()
+            setattr(session, "_tmf_realtime_ok", True)
+
+
 def resolve_front_symbol(
     session: FubonSession,
     *,
@@ -22,7 +34,7 @@ def resolve_front_symbol(
     now = time.time()
     if _CACHE["sym"] and now - float(_CACHE["ts"]) < max_age_sec:
         return _CACHE["sym"]
-    session.init_realtime()
+    _ensure_realtime_once(session)
     fut = session.sdk.marketdata.rest_client.futopt
     data = fut.intraday.tickers(type="FUTURE", exchange="TAIFEX", product=product)
     rows = data if isinstance(data, list) else (data.get("data") or data.get("tickers") or [])
@@ -107,7 +119,7 @@ def fetch_1m_bars(session: FubonSession, symbol: str) -> list[dict[str, Any]]:
     HH:MM, so overlapping HH:MM across yesterday-night / today-day /
     tonight never collide or get mislabeled.
     """
-    session.init_realtime()
+    _ensure_realtime_once(session)
     fut = session.sdk.marketdata.rest_client.futopt
     today = datetime.now(tz=_TZ).date()
     day_res = fut.intraday.candles(symbol=symbol, timeframe="1")

@@ -207,6 +207,21 @@ def build_broadcast(
         situation.append("意圖掛單：本輪無雙軌（可能持倉保護／濾網／盤外）")
     if regime:
         situation.append(f"regime={regime}")
+    active_cell = summary.get("active_cell") or last_d.get("active_cell")
+    if isinstance(active_cell, dict) and active_cell.get("cell"):
+        cr = active_cell.get("recipe") or {}
+        blk = cr.get("block") or []
+        situation.append(
+            f"cell={active_cell.get('cell')} · hang {cr.get('hang_lo')}–{cr.get('hang_hi')} · "
+            f"EARLY γ={cr.get('early_fill_gamma')} · hold={cr.get('max_hold_bars')} · "
+            f"quiet={cr.get('skip_quiet_mode')} · bias={cr.get('bias')} · block={blk or '—'}"
+        )
+        nq = active_cell.get("nq_gate") or summary.get("nq_gate")
+        if nq is not None:
+            situation.append(f"NQ gate={nq}（cell.bias 開啟時才套用）")
+    rv = summary.get("recipe_version") or last_d.get("recipe_version")
+    if rv:
+        situation.append(f"recipe_version={rv}")
 
     # --- B narrative ---
     narrative: list[str] = []
@@ -214,6 +229,20 @@ def build_broadcast(
         narrative.append("四鎖未全開或 dry_run=1 → 只對帳預覽，不打券商。")
     else:
         narrative.append("四鎖已開 → 本輪 place/cancel/exit 會打富邦 futopt。")
+    if isinstance(active_cell, dict) and active_cell.get("cell"):
+        cr = active_cell.get("recipe") or {}
+        blk = list(cr.get("block") or [])
+        if blk:
+            narrative.append(
+                f"當前 cell {active_cell.get('cell')} 硬擋 {','.join(blk)} "
+                f"（cancel resting + reject enter）。"
+            )
+        if cr.get("skip_quiet_mode") == "dry" and active_cell.get("pv") == "dry":
+            narrative.append("quiet=dry：本格 dry 空倉不新掛（contract 仍可掛）。")
+        if cr.get("bias") and active_cell.get("nq_gate") in ("L", "S", "none"):
+            narrative.append(
+                f"cell BIAS 開 · NQ gate={active_cell.get('nq_gate')} → 只掛允許邊／none 雙擋。"
+            )
     if flatten_why:
         narrative.append(f"判斷：{flatten_why} → 禁止先掛進場軌，避免疊倉。")
     if broker and open_pos is None and not flatten_why and reason == "reconciled":
@@ -318,6 +347,11 @@ def build_broadcast(
         "broker_live": broker,
         "flatten_why": flatten_why,
         "regime": regime,
+        "active_cell": active_cell if isinstance(active_cell, dict) else None,
+        "recipe_version": rv,
+        "nq_gate": (active_cell or {}).get("nq_gate")
+        if isinstance(active_cell, dict)
+        else summary.get("nq_gate"),
         "api_calls_day": api_day,
         "max_api_per_day": max_api,
         "day_pnl_pts": day_pnl_f,

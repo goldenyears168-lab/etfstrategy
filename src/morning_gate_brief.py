@@ -125,8 +125,39 @@ def predict_gap(value: float | None, a: float = GAP_A, b: float = GAP_B,
     if value is None:
         return None
     p = a + b * value
-    return {"pred": p, "lo": p - sigma, "hi": p + sigma,
+    return {"pred": p, "lo": p - sigma, "hi": p + sigma, "sigma": sigma,
             "dir": "偏多開高" if p > 0.15 else "偏空開低" if p < -0.15 else "約平盤"}
+
+
+def compute_gap_bias(
+    pred: float | None,
+    sigma: float | None,
+    *,
+    nq: float | None = None,
+    asia_nk: float | None = None,
+    z_flat: float = 0.25,
+    z_fire: float = 0.5,
+    abs_flat: float = 0.15,
+) -> str:
+    """Map open-gap prediction → hang side bias ∈ {S, L, flat}.
+
+    Research boundary: only for ~08:45–09:15 hang asymmetry, not first-hour chase.
+    """
+    if pred is None or sigma is None or sigma <= 0:
+        return "flat"
+    if abs(pred) < abs_flat:
+        return "flat"
+    z = pred / sigma
+    if abs(z) < z_flat:
+        return "flat"
+    # Asia vs NQ conflict → damp to flat unless |z|≥1
+    if nq is not None and asia_nk is not None and (nq > 0) != (asia_nk > 0) and abs(z) < 1.0:
+        return "flat"
+    if z >= z_fire:
+        return "L"
+    if z <= -z_fire:
+        return "S"
+    return "flat"  # soft zone: don't force side
 
 
 def _tx_night_gap(session: str) -> float | None:
@@ -161,30 +192,73 @@ def _tx_night_gap(session: str) -> float | None:
         return None
 
 
-def build_brief(conn, session: str) -> tuple[str, str]:
-    """回傳 (subject, markdown/html body)。"""
+def build_payload(conn, session: str) -> dict:
+    """Machine-readable morning-gate snapshot (also feeds hang gap_bias)."""
+    from datetime import datetime as _dt
+
     nq = _preopen_overnight("NQ=F")
     es = _preopen_overnight("ES=F")
-    nk = _asia_early_drift("^N225")   # 日經（主要亞洲確認 · 增量最強）
-    ks = _asia_early_drift("^KS11")   # 韓股（次要 · 日經已大致吸收）
-    txn = _tx_night_gap(session)      # 主預測子：台指期夜盤收缺口（週二～五）
-    # 穩健守衛（2026-08 用 0050 現貨實際缺口驗證後放寬）：
-    #   · 夜盤缺口 >8% 才擋（只攔絕對離譜的資料錯誤；7/31 曾真跳空 +6.95%，真行情不擋）
-    #   · 與 NQ 明顯反向(|txn|>1.5 且反號) → 退回 NQ（處理週一：週末無夜盤、after_market 為 stale 週五資料）
+    nk = _asia_early_drift("^N225")
+    ks = _asia_early_drift("^KS11")
+    txn = _tx_night_gap(session)
     txn_ok = (txn is not None and abs(txn) <= 8.0
               and (nq is None or abs(txn) < 1.5 or (txn > 0) == (nq > 0)))
     if txn_ok:
         g = predict_gap(txn, GAP_TXN_A, GAP_TXN_B, GAP_TXN_SIGMA)
+        source = "txn"
+        sigma = GAP_TXN_SIGMA
         pred_formula = (f"{GAP_TXN_A:+.2f} + {GAP_TXN_B:.2f}×台指期夜盤收缺口({txn:+.2f}%) "
                         f"· σ={GAP_TXN_SIGMA:.2f} · corr 0.88（TW 自身隔夜·最準）")
     else:
         g = predict_gap(nq)
+        source = "nq_fallback"
+        sigma = GAP_SIGMA
         rej = f"；台指期夜盤缺口 {txn:+.2f}% 異常/與美期反向、已略過" if txn is not None else "；週一/夜盤無資料"
         pred_formula = (f"{GAP_A:+.2f} + {GAP_B:.2f}×NQ隔夜({nq:+.2f}%) · σ={GAP_SIGMA:.2f}"
                         f"（NQ fallback{rej}）" if nq is not None else "—")
     reg = _regime(conn)
     vix_d, vix = reg["VIX"]
     vtw_d, vtw = reg["VIXTWN"]
+    pred = g["pred"] if g else None
+    gap_bias = compute_gap_bias(pred, sigma if g else None, nq=nq, asia_nk=nk)
+    return {
+        "session": session,
+        "captured_at": _dt.now(TPE).isoformat(timespec="minutes"),
+        "pred": None if pred is None else round(float(pred), 4),
+        "lo": None if not g else round(float(g["lo"]), 4),
+        "hi": None if not g else round(float(g["hi"]), 4),
+        "sigma": sigma if g else None,
+        "source": source if g else None,
+        "dir": None if not g else g["dir"],
+        "txn": None if txn is None else round(float(txn), 4),
+        "txn_ok": bool(txn_ok),
+        "nq": None if nq is None else round(float(nq), 4),
+        "es": None if es is None else round(float(es), 4),
+        "nq_es": None if (nq is None or es is None) else round(float(nq - es), 4),
+        "asia_nk": None if nk is None else round(float(nk), 4),
+        "asia_ks": None if ks is None else round(float(ks), 4),
+        "vix": vix,
+        "vix_date": vix_d,
+        "vixtwn": vtw,
+        "vixtwn_date": vtw_d,
+        "gap_bias": gap_bias,
+        "pred_formula": pred_formula,
+        "calib": CALIB,
+        "hit_rate": HIT,
+    }
+
+
+def build_brief(conn, session: str) -> tuple[str, str]:
+    """回傳 (subject, markdown/html body)。"""
+    payload = build_payload(conn, session)
+    nq, es, nk, ks = payload["nq"], payload["es"], payload["asia_nk"], payload["asia_ks"]
+    g = None
+    if payload["pred"] is not None:
+        g = {"pred": payload["pred"], "lo": payload["lo"], "hi": payload["hi"], "dir": payload["dir"]}
+    pred_formula = payload["pred_formula"]
+    vix, vix_d = payload["vix"], payload["vix_date"]
+    vtw, vtw_d = payload["vixtwn"], payload["vixtwn_date"]
+    reg = _regime(conn)
     vix_lo = reg["vix_median"]
 
     if g:
@@ -205,6 +279,7 @@ def build_brief(conn, session: str) -> tuple[str, str]:
         "",
         "### ◆ 開盤缺口預測（開盤價 vs 上次收盤）",
         f"   {gapline}",
+        f"   gap_bias={payload['gap_bias']}（僅 08:45–09:15 掛單側偏 · 勿追殺首時）",
         "",
         "### ◆ Live 隔夜（08:30 當下 · 真在動）",
         f"   NQ 那斯達克期  {nq:+.2f}%   ← 科技/台積電軸" if nq is not None else "   NQ 那斯達克期  —（抓取失敗）",
@@ -231,6 +306,8 @@ def build_brief(conn, session: str) -> tuple[str, str]:
     ]
     body = "\n".join(x for x in lines if x is not None)
     subj = f"台股08:30盤前定調 · {session} · " + (f"預測缺口 {g['pred']:+.2f}%" if g else "美期抓取失敗")
+    # stash for main() JSON write without recomputing
+    build_brief.last_payload = payload  # type: ignore[attr-defined]
     return subj, body
 
 
@@ -278,6 +355,16 @@ def main(argv: list[str] | None = None) -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"morning_gate_{session}.md").write_text(body, encoding="utf-8")
     (OUT / "latest.md").write_text(body, encoding="utf-8")
+    payload = getattr(build_brief, "last_payload", None)
+    if payload:
+        import json as _json
+        (OUT / f"morning_gate_{session}.json").write_text(
+            _json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        (OUT / "latest.json").write_text(
+            _json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"✓ wrote morning_gate_{session}.json gap_bias={payload.get('gap_bias')}")
 
     if not args.no_email:
         to = os.environ.get("MORNING_BRIEF_TO") or MORNING_BRIEF_TO
