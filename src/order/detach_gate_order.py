@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from order.abc_v3_f1_lifecycle import build_client_intent_id
+from order.oms_lifecycle import build_client_intent_id
 from order.fubon_orders import order_master_enabled
 from order.intent import ResolvedOrder
+from order.json_state import atomic_write_json, load_json_or_default
 from order.live_submit_guard import assert_live_submit_allowed, live_submit_block_reason
 from stock_db import DATA_DIR
 
@@ -53,12 +54,7 @@ def half_client_intent_id(*, session_date: str, symbol: str, poll_minute: str) -
 
 def load_ledger(path: Path | None = None) -> dict[str, Any]:
     p = path or LEDGER_PATH
-    if not p.is_file():
-        return {"schema": SCHEMA, "sessions": {}}
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema": SCHEMA, "sessions": {}}
+    raw = load_json_or_default(p, {"schema": SCHEMA, "sessions": {}})
     if not isinstance(raw, dict):
         return {"schema": SCHEMA, "sessions": {}}
     raw.setdefault("schema", SCHEMA)
@@ -68,8 +64,7 @@ def load_ledger(path: Path | None = None) -> dict[str, Any]:
 
 def save_ledger(ledger: dict[str, Any], path: Path | None = None) -> None:
     p = path or LEDGER_PATH
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(ledger, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(p, ledger, indent=2, trailing_newline=True)
 
 
 def session_already_flattened(ledger: dict[str, Any], session_date: str) -> bool:
@@ -222,7 +217,7 @@ def run_half_flatten(
     from order.chase_runner import chase_bid_price
     from order.fubon_orders import holdings_shares_by_symbol, place_resolved_order
     from order.fubon_session import connect_fubon
-    from order.abc_v3_f1_lifecycle import (
+    from order.oms_lifecycle import (
         poll_order_lifecycle,
         reconcile_before_submit,
         outer_status_from_lifecycle,
@@ -233,6 +228,18 @@ def run_half_flatten(
     out["holdings"] = dict(holdings)
     poll_minute = datetime.now(tz=_TZ).strftime("%H:%M")
     rows: list[dict[str, Any]] = []
+
+    # ⚠️ 2026-08-08 code review 修正：live 模式下，在真的送出任何一張賣單之前先把
+    # half_flatten_attempted 存檔。原本這個 latch 要整個 for 迴圈跑完才寫——若迴圈跑到
+    # 一半時某檔股票的 broker 呼叫拋例外，整支函式會直接崩潰、attempted/done 都沒寫入，
+    # 已經真的賣掉的持倉完全不會被記錄。下一次觸發（重試、或跟排程重疊）會重新讀到
+    # 縮水後的持倉，對它再賣一次 floor(新股數/2)，等於半倉停損被觸發兩次。提前 latch
+    # 能讓任何後續呼叫立刻被 session_live_attempted() 擋下，不會重跑整批。
+    if not dry and do_submit:
+        sess = ledger.setdefault("sessions", {}).setdefault(day, {})
+        sess["half_flatten_attempted"] = True
+        sess["attempted_at"] = datetime.now(tz=_TZ).isoformat(timespec="seconds")
+        save_ledger(ledger)
 
     for sym, qty in sorted(holdings.items()):
         sell_n = half_qty(int(qty))
@@ -291,40 +298,49 @@ def run_half_flatten(
             rows.append(preview)
             continue
 
-        reconciled = reconcile_before_submit(
-            session,
-            client_intent_id=cid,
-            fallback_ask=bid,
-            fallback_qty=sell_n,
-        )
-        if reconciled is not None:
-            preview.update(reconciled)
-            preview["status"] = "reconciled"
+        try:
+            reconciled = reconcile_before_submit(
+                session,
+                client_intent_id=cid,
+                fallback_ask=bid,
+                fallback_qty=sell_n,
+            )
+            if reconciled is not None:
+                preview.update(reconciled)
+                preview["status"] = "reconciled"
+                rows.append(preview)
+                continue
+
+            submit_result = place_resolved_order(session, resolved)
+            preview["submit_result"] = submit_result
+            if not submit_result.get("is_success"):
+                preview["status"] = "failed"
+                preview["reason"] = str(submit_result.get("message") or "place_order_failed")
+                rows.append(preview)
+                continue
+
+            lifecycle = poll_order_lifecycle(
+                session,
+                client_intent_id=cid,
+                order_no=str(submit_result.get("order_no") or "") or None,
+                fallback_ask=bid,
+                fallback_qty=sell_n,
+                max_attempts=8,
+                interval_sec=0.4,
+            )
+            preview["lifecycle"] = lifecycle
+            preview["status"] = outer_status_from_lifecycle(
+                str(lifecycle.get("lifecycle_status") or "")
+            )
+            rows.append(preview)
+        except Exception as exc:  # noqa: BLE001
+            # 單一標的的 broker 呼叫失敗不該讓整批崩潰、丟失其餘標的的追蹤——記錄成
+            # exception 狀態後繼續處理下一檔。half_flatten_attempted 已經在迴圈開始前
+            # 寫入，就算這裡整支函式意外中斷，下一次呼叫也不會重跑整批。
+            preview["status"] = "exception"
+            preview["error"] = str(exc)
             rows.append(preview)
             continue
-
-        submit_result = place_resolved_order(session, resolved)
-        preview["submit_result"] = submit_result
-        if not submit_result.get("is_success"):
-            preview["status"] = "failed"
-            preview["reason"] = str(submit_result.get("message") or "place_order_failed")
-            rows.append(preview)
-            continue
-
-        lifecycle = poll_order_lifecycle(
-            session,
-            client_intent_id=cid,
-            order_no=str(submit_result.get("order_no") or "") or None,
-            fallback_ask=bid,
-            fallback_qty=sell_n,
-            max_attempts=8,
-            interval_sec=0.4,
-        )
-        preview["lifecycle"] = lifecycle
-        preview["status"] = outer_status_from_lifecycle(
-            str(lifecycle.get("lifecycle_status") or "")
-        )
-        rows.append(preview)
 
     out["orders"] = rows
     submitted_ish = [

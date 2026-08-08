@@ -176,12 +176,173 @@ def test_submit_entry_records_failed_on_subprocess_crash(tmp_path: Path, monkeyp
     assert reloaded.entries_on_day("2026-07-27") == []  # failed does not count as an entry
 
 
+def test_submit_entry_direct_path_calls_poll_order_lifecycle_with_full_args(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """2026-08-08 code review 修正驗證：這是真正走到broker下單那條直接路徑
+    （host_needs_fubon_venv=False，就是這台mini實際會走的路徑，因為.venv原生有
+    fubon_neo），原本 poll_order_lifecycle() 少傳 order_no/fallback_ask/
+    fallback_qty 三個必要參數，每次執行到這裡都會 TypeError，被 except 吃掉變成
+    status=error，成交狀態永遠追蹤不到。這裡mock整條鏈路，驗證修好之後
+    poll_order_lifecycle 真的收到完整的四個關鍵字參數，且status正確從
+    lifecycle_status算出來（不是被例外吃掉的error）。"""
+    import dataclasses
+
+    from order import fubon_subprocess
+    from order.leading_dip_order import _submit_entry
+
+    monkeypatch.setattr(fubon_subprocess, "host_needs_fubon_venv", lambda: False)
+
+    conf = dataclasses.replace(
+        load_leading_dip_order_config(),
+        order_enabled=True,
+        auto_submit=True,
+        dry_run=False,
+    )
+    ledger_path = tmp_path / "ld_direct.json"
+    ledger = LeadingDipLedger()
+
+    import order.oms_lifecycle as oms_lifecycle
+    from unittest.mock import create_autospec
+
+    fake_submit_result = {"is_success": True, "order_no": "E9001"}
+
+    # autospec 會強制執行真實函式簽章——少傳 keyword-only 必要參數會在這裡就
+    # TypeError（跟正式環境一樣），而不是像純 lambda(**kw) 那樣悄悄吃掉任何呼叫方式，
+    # 這正是原本bug（reconcile_before_submit/poll_order_lifecycle少傳必要參數）
+    # 沒被既有測試抓到的原因。
+    fake_reconcile = create_autospec(oms_lifecycle.reconcile_before_submit, return_value=None)
+    fake_poll = create_autospec(
+        oms_lifecycle.poll_order_lifecycle,
+        return_value={"lifecycle_status": "filled", "filled_qty": 100},
+    )
+
+    with (
+        monkeypatch.context() as m,
+    ):
+        m.setattr("order.fubon_session.connect_fubon", lambda **kw: object())
+        m.setattr("order.chase_runner.chase_ask_price", lambda session, sym: 50.0)
+        m.setattr(
+            "order.fubon_account.bank_remain",
+            lambda session: {"available_balance": 10_000_000},
+        )
+        m.setattr(
+            "order.fubon_orders.place_resolved_order",
+            lambda session, resolved: fake_submit_result,
+        )
+        m.setattr("order.oms_lifecycle.reconcile_before_submit", fake_reconcile)
+        m.setattr("order.oms_lifecycle.poll_order_lifecycle", fake_poll)
+
+        ent = _submit_entry(
+            row={"sid": "2330", "minute": "09:10"},
+            conf=conf,
+            session_date="2026-07-27",
+            poll_minute="09:15",
+            trading_dates=["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30"],
+            ledger=ledger,
+            ledger_path=ledger_path,
+            dry=False,
+            strategy_id="leading-dip",
+            user_def=conf.user_def,
+            budget_twd=20000,
+            sleeve="main",
+        )
+
+    # The bug: this used to always be "error" (TypeError swallowed by except).
+    assert ent["status"] != "error", ent
+    fake_poll_kwargs = fake_poll.call_args.kwargs
+    # poll_order_lifecycle must have received all 4 previously-missing/blank args.
+    assert fake_poll_kwargs.get("order_no") == "E9001"
+    assert fake_poll_kwargs.get("fallback_ask") == 50.0
+    assert fake_poll_kwargs.get("fallback_qty", 0) > 0
+    assert fake_reconcile.call_args.kwargs.get("fallback_qty", 0) > 0
+
+
+def test_process_exits_direct_path_calls_poll_order_lifecycle_with_full_args(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """2026-08-08 code review 修正驗證：出場路徑（_process_exits）有跟進場路徑一樣的
+    bug——poll_order_lifecycle() 少傳 order_no/fallback_ask/fallback_qty，且
+    place_resolved_order 回傳值原本被丟棄。這裡驗證出場路徑修好之後參數有正確傳入，
+    且成交狀態不會被 except 吃掉變成 error。"""
+    import dataclasses
+
+    from order import fubon_subprocess
+    from order.leading_dip_ledger import LeadingDipLedger, save_ledger
+    from order.leading_dip_order import _process_exits
+
+    monkeypatch.setattr(fubon_subprocess, "host_needs_fubon_venv", lambda: False)
+
+    conf = dataclasses.replace(
+        load_leading_dip_order_config(),
+        order_enabled=True,
+        auto_submit=True,
+        dry_run=False,
+    )
+    ledger_path = tmp_path / "ld_exits.json"
+    ledger = LeadingDipLedger(
+        positions=[
+            {
+                "symbol": "6505",
+                "side": "buy",
+                "status": "open",
+                "entry_date": "2026-07-24",
+                "exit_date": "2026-07-27",
+                "qty": 1000,
+                "client_intent_id": "leading-dip_20260724_0910_6505",
+                "strategy_id": "leading-dip",
+            }
+        ]
+    )
+    save_ledger(ledger, path=ledger_path)
+
+    import order.oms_lifecycle as oms_lifecycle
+    from unittest.mock import create_autospec
+
+    fake_submit_result = {"is_success": True, "order_no": "X9001"}
+
+    # autospec 強制執行真實簽章，見進場路徑測試的說明。
+    fake_reconcile = create_autospec(oms_lifecycle.reconcile_before_submit, return_value=None)
+    fake_poll = create_autospec(
+        oms_lifecycle.poll_order_lifecycle,
+        return_value={"lifecycle_status": "filled", "filled_qty": 1000},
+    )
+
+    with monkeypatch.context() as m:
+        m.setattr("order.fubon_session.connect_fubon", lambda **kw: object())
+        m.setattr("order.chase_runner.chase_bid_price", lambda session, sym: 48.0)
+        m.setattr(
+            "order.fubon_orders.place_resolved_order",
+            lambda session, resolved: fake_submit_result,
+        )
+        m.setattr("order.oms_lifecycle.reconcile_before_submit", fake_reconcile)
+        m.setattr("order.oms_lifecycle.poll_order_lifecycle", fake_poll)
+
+        rows = _process_exits(
+            ledger=ledger,
+            ledger_path=ledger_path,
+            conf=conf,
+            user_def=conf.user_def,
+            session_date="2026-07-27",
+            poll_minute="09:15",
+            dry=False,
+        )
+
+    assert len(rows) == 1
+    assert rows[0]["status"] != "error", rows
+    fake_poll_kwargs = fake_poll.call_args.kwargs
+    assert fake_poll_kwargs.get("order_no") == "X9001"
+    assert fake_poll_kwargs.get("fallback_ask") == 48.0
+    assert fake_poll_kwargs.get("fallback_qty", 0) > 0
+    assert fake_reconcile.call_args.kwargs.get("fallback_qty", 0) > 0
+
+
 def test_live_submit_path_imports_resolve() -> None:
     # _submit_entry imports these lazily inside the live path, so a missing symbol
     # (the old `fetch_available_balance`, which never existed) only crashed at real
     # submit time -> worker exit 1 -> no ledger -> re-fired every poll. Import them
     # here so the drift is caught by CI, not by a live order attempt.
-    from order.abc_v3_f1_lifecycle import (
+    from order.oms_lifecycle import (
         outer_status_from_lifecycle,
         poll_order_lifecycle,
         reconcile_before_submit,

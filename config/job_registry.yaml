@@ -12,6 +12,8 @@
 # (retired ops-live-ta-poll/live-ta-kbar-sync; winbond→nightly-expert-digest;
 #  added capitulation-oos-accumulate). Verified directly against mini
 # (~/Library/LaunchAgents/*.plist + launchctl print-disabled), not from memory or docs.
+# 2026-08-08: added dayflip-short-poll (order_capable, enabled since 2026-08-07 — was live
+# on mini but missing from this SSOT list; verified against launchctl print-disabled + plist).
 
 version: job-registry-v1
 
@@ -60,7 +62,29 @@ jobs:
     status: enabled
     enabled_since: "2026-08-05"
     schedule: "KeepAlive worker · interval≈20s in-window · day 08:45-13:45 + night 15:00-05:00"
-    description: "TMF Final v1.3.0 PV16 cell-tune v2（O-anchor）· tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
+    description: "TMF Final v1.4.0 PV16 normal/dhwv block（O-anchor）· tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
+
+  - label: dayflip-short-poll
+    category: order
+    order_capable: true
+    status: enabled
+    enabled_since: "2026-08-07"
+    schedule: "KeepAlive worker（2026-08-08 起，取代 StartInterval 60s）· interval≈20s in-window · weekdays 08:44-13:41"
+    description: >
+      個股期貨隔日沖放空 v1（dayflip-futures-short）· 24席分點跳空觸發放空 · 1口/單日單筆/
+      保證金硬上限30萬/無停損（研究證實加停損反而變差）· config/order.yaml dry_run=false，
+      使用者2026-08-07明確授權跳過研究規格G2 OOS holdout驗證直接上線，且指示不比照其餘
+      sleeve的dry-run-first慣例。安全閥：ORDER_MASTER_ENABLED總開關 +
+      ORDER_DAYFLIP_SHORT_AUTO_SUBMIT（plist預設=1）+ 保證金/口數/單日單筆三重硬上限。
+      引擎：src/order/dayflip_short_order.py（reconcile_once狀態機）+
+      dayflip_short_signal.py（候選篩選）。監控：:8770「隔日沖空單」分頁 +
+      dayflip-short-watch（唯讀AI監看，09:10/13:50兩次檢查點）。
+      研究/週度重算見 dayflip-seat-weekly-refresh（另一筆 research entry）。
+      2026-08-08：StartInterval 60s 冷啟動（08:44-13:41 每分鐘全新 Fubon 登入，~297次/日，
+      跟 TMF 舊架構同一個問題）→ KeepAlive 常駐 worker，重用單一 session（見
+      order/dayflip_short_worker_loop.py + dayflip_short_session_pool.py，架構同
+      tmf_channel/worker_loop.py）。切換工具：scripts/order/dayflip_short_cutover.sh。
+      舊 scripts/order/run_dayflip_short_poll.py 保留供手動測試（不再是 launchd 進入點）。
 
   - label: tmf-sim-server
     category: notify
@@ -164,6 +188,20 @@ jobs:
     status: enabled
     schedule: "weekly, Sat 08:00"
     description: "Disposition-stock OOS sample accumulation for expert-pool validation"
+
+  - label: dayflip-seat-weekly-refresh
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekly, Fri 21:30"
+    description: >
+      隔日沖策略（dayflip-futures-short v1，見
+      reports/research/branch-footprint-screen/dayflip_gapup_short/FROZEN_SPEC_V1.json）
+      的24席 flip 分數週度重算 + 近3月/近1月漂移監控 + 週一候選標的清單。
+      唯讀，不下單、不自動修改 FROZEN_SPEC_V1.json；報告寫入
+      reports/research/branch-footprint-screen/dayflip_gapup_short/weekly_reports/。
+      2026-08-07 建立，不透過 install-launchd.sh 陣列（手動 bootstrap，比照
+      second-disp-oos-accumulate 模式）。
 
   - label: capitulation-oos-accumulate
     category: research

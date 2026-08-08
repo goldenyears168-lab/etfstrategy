@@ -113,7 +113,7 @@ strategies:
     entry_until: "09:40"
     price_type: chase_ask
     market_type: intraday_odd  # 預算制預設零股；≥1000 股自動改 common
-    user_def: ss5d
+    user_def: ss5d  # client_intent_id 前綴（非 broker 端實際 user_def；見下方 notes）
     hold_days: 7
     allow_pyramid: false  # 已買過不重複；加碼規格未採納前保持 false
     submit_notify: true
@@ -127,6 +127,73 @@ strategies:
       本袖已 submitted/filled/working 的標的不重複買（allow_pyramid=false）。
       運維 SSOT：config/job_registry.yaml。
       Env: ORDER_SONGSHAN_COPYTRADE_* · RUN_SONGSHAN_COPYTRADE_POLL.
+      2026-08-08 code review：改用 order.oms_lifecycle 的 build_client_intent_id
+      （以 signal_date+entry_after+symbol 組，跨 09:25–09:40 窗口內每個 poll tick
+      不變）+ reconcile_before_submit，補上 broker 端冪等檢查——原本若
+      place_resolved_order 已成功送出真單、但程式在 save_ledger() 之前被中斷，
+      下一 tick 會因為 ledger 沒寫入而重複送單；現在 reconcile 會先問 broker 這個
+      client_intent_id 是否已有訂單，有的話沿用結果不重送。broker 端 user_def
+      因此從固定字串 "ss5d" 改成完整 client_intent_id（例：ss5d_20260721_0925_2492），
+      不影響任何既有 consumer（未見其他程式碼比對這個欄位的固定值）。
+
+  dayflip-futures-short:
+    pool_id: dayflip-futures-short
+    strategy_id: dayflip-futures-short
+    enabled: true
+    dry_run: false  # ⚠️ 2026-08-07 使用者明確指示：不預設 dry-run，見下方 notes
+    auto_submit: true
+    instrument: individual_stock_futures  # 非 TX/TMF，透過同一套 fubon_futopt API
+    lots: 1
+    margin_cap_twd: 300000  # 硬上限；估算保證金超過即跳過該候選
+    signal: reports/research/branch-footprint-screen/dayflip_gapup_short/FROZEN_SPEC_V1.json
+    entry_at: "08:45"
+    entry_window_end: "09:05"
+    cover_target_pct: 0.02  # 進場價 x0.98 限價回補
+    force_close_at: "13:40"
+    stop_loss: none  # 研究已證實加停損反而變差，故意不設
+    fgap_min: 0.06
+    pick_rule: smallest_qualifying_gap  # ⚠️見下方notes：11種排序法研究對照組結果
+    single_trade_per_day: true  # 只做一筆，不分散多檔
+    ledger: data/order/dayflip_short_ledger.json
+    poll_script: scripts/order/run_dayflip_short_worker.py  # 2026-08-08 起；舊 run_dayflip_short_poll.py 只剩手動測試用
+    launchd: com.jackm4.goldenstocks.dayflip-short-poll
+    monitor_ui: reports/research/channel_lab/live_v6_sim_server.py  # :8770「隔日沖空單」分頁
+    notes: >
+      2026-08-07 使用者明確授權跳過研究規格的 G2 OOS holdout 驗證關卡（當時前推僅
+      5/40 訊號日）直接建置真實下單管道，且明確要求「建好就直接能送實單，不要
+      預設 dry-run」——本袖因此不比照本檔其餘 sleeve 的 dry-run-first 慣例。
+      安全閥仍然存在且不可繞過：.env 的 ORDER_MASTER_ENABLED（總開關）、
+      ORDER_DAYFLIP_SHORT_AUTO_SUBMIT（本袖旗標）、保證金硬上限 30 萬、1 口、
+      每交易日僅進場一次。個股期貨代碼經 resolve_futures_symbol() 即時驗證，
+      查無資料一律 fail-closed 跳過該候選，不用未驗證代碼下單。
+
+      ⚠️ 2026-08-08 code review 誠實補充：pick_rule=smallest_qualifying_gap 在
+      single-pick研究裡「勝率最高/MaxDD最小」是真的，但 FROZEN_SPEC_V1.json 自己的
+      rejected_and_do_not_retry 區塊同時記載：全部11種測過的排序法（含這個）表現
+      都打平或輸給「隨機挑股號最小」的對照組——即整套排序邏輯本身未證實有edge，
+      只是在「反正要選一個」的前提下這個選法相對不差。另外 order.yaml 引用的
+      GAPUP_SHORT_SIZING.md 用的門檻其實是7%（非本檔案實際用的6%），且該文件
+      自己§六結論是「不建議現在上線」（no edge in executable 3-7% range、IS弱、
+      未做permutation/DSR校正）——此結論先前未反映在這份notes裡，一併補上。
+
+      研究歷程與已知侷限見 GAPUP_SHORT_SIZING.md；已知問題：真實滑價未實測
+      （估計13~76bps區間）、鎖漲停時能否強制平倉未驗證。
+      stock_futures_universe.json 的157個舊式命名代碼已於2026-08-08清查完畢
+      （23個修正為正確代碼、130個確認在TAIFEX現無活躍合約已移除，非僅runtime
+      fallback）。同日另修：ADV 20日流動性濾網原本 fail-open 靜默失效近3週
+      （快取停在07-20），已改 fail-closed 並補上增量更新腳本
+      （scripts/research/refresh_dayflip_futures_daily_cache.py，已接進週五
+      dayflip-seat-weekly-refresh）；entry/cover 下單例外處理補齊，詳見
+      reports/research/creative_combo_2026-08-07/order_layer_health_review_20260808.md。
+
+      2026-08-08：launchd 架構改 KeepAlive 常駐 worker（order.dayflip_short_worker_loop +
+      dayflip_short_session_pool），取代原本 StartInterval 60s、08:44-13:41 每分鐘全新
+      Fubon 登入（~297次/日，未驗證是否觸發券商 API 頻率限制）——跟 TMF 的
+      tmf-channel-poll 同一套手法。in_dayflip_short_trade_window() 內建查星期幾
+      （不只 HH:MM），避免重蹈 TMF 同日發現的週六 login-thrash bug。切換用
+      scripts/order/dayflip_short_cutover.sh；寄信告警邏輯搬進 worker 內
+      _maybe_alert()（原本 shell launcher 逐 tick grep stdout 的做法在常駐 process
+      下不再適用）。
 
   rrg-mono-swap-accel:
     pool_id: rrg-mono-swap-accel
@@ -363,7 +430,12 @@ lifecycle:
   notional_basis: filled   # submitted | filled · default filled（P1：未成交不計曝險）
   submit_notify: true
 
-# 帳戶級風控 · 雙袖共用 · 換倉衝突賣優先
+# 帳戶級風控 · 換倉衝突賣優先
+# 2026-08-08 code review 修正：「雙袖共用」原本不準確——實際只有 c18acc/leading-dip
+# 真的接了 order.account_cap_gate.can_afford_buy（見該檔 consumer 清單）；songshan-
+# copytrade 原本完全沒查現金，已於同日補上同一套 pre-flight 檢查，現在是三袖共用。
+# dayflip-futures-short 走期貨保證金（不同資金池），detach-gate 只賣不買，兩者本來
+# 就不適用這個現金緩衝，非漏接。
 account_risk:
   reserved_cash_twd: 50000
   priority_on_conflict: sell_first

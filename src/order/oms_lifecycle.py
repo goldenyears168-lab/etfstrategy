@@ -1,4 +1,12 @@
-"""ABC v3+f1 order lifecycle · poll · reconcile · client_intent_id."""
+"""共用 order lifecycle · poll · reconcile · client_intent_id.
+
+2026-08-08 由 abc_v3_f1_lifecycle.py 改名而來（git mv 保留history）：這支模組
+本來就跟 ABC 策略無關，是 leading-dip / detach-gate / c18acc 共用的下單
+lifecycle核心（reconcile_before_submit/poll_order_lifecycle/
+build_client_intent_id等），ABC策略本身已於2026-07-16從Order層移除，舊檔名
+容易讓人誤判成死代碼、是可以刪的東西——這正是2026-08-08 code review裡明講的
+一個具體風險。改名成中性的oms_lifecycle.py消除這個陷阱，純改名不動邏輯。
+"""
 
 from __future__ import annotations
 

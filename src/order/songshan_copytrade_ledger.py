@@ -2,27 +2,20 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from order.json_state import atomic_write_json, load_json_or_default
+
 
 def load_ledger(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {"entries": [], "updated_at": None}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"entries": [], "updated_at": None}
+    return load_json_or_default(path, {"entries": [], "updated_at": None})
 
 
 def save_ledger(path: Path, state: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    atomic_write_json(path, state, indent=2, trailing_newline=True)
 
 
 # Terminal statuses burn the (signal_date, symbol) T+1 slot.

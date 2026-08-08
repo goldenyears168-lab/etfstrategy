@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from order.oms_lifecycle import build_client_intent_id, reconcile_before_submit
 from order.songshan_copytrade_config import (
     SongshanCopytradeOrderConfig,
     load_songshan_copytrade_order_config,
@@ -259,6 +260,18 @@ def process_songshan_copytrade_poll(
         payload["error"] = "Neither budget_twd nor quantity_shares configured"
         return payload
 
+    # cid 用 (signal_date, symbol) + cfg.entry_after 組（不是實際 poll_minute）：
+    # 同一訊號在 09:25–09:40 窗口內每 ~5 分鐘會被重新 poll 到，若用當下真實
+    # poll_minute 組 cid，每個 tick 產生不同 cid，reconcile_before_submit 就永遠
+    # 找不到前一 tick 送出的訂單，等於冪等檢查失效。cfg.entry_after 是固定 config
+    # 值，整個窗口內 cid 不變，跟 leading-dip 用候選列固定的目標 minute 是同一精神。
+    cid = build_client_intent_id(
+        strategy_id=cfg.user_def,
+        session_date=signal_date,
+        poll_minute=cfg.entry_after,
+        symbol=symbol,
+    )
+
     resolved = ResolvedOrder(
         symbol=symbol,
         side="buy",
@@ -268,7 +281,7 @@ def process_songshan_copytrade_poll(
         market_type=market,  # type: ignore[arg-type]
         time_in_force="rod",
         order_type="stock",
-        user_def=cfg.user_def,
+        user_def=cid,
         note=f"songshan_5d_net95_nonfail|{signal_date}",
         source="delta",
     )
@@ -283,6 +296,7 @@ def process_songshan_copytrade_poll(
         "market_type": market,
         "gate": gate,
         "schema_hint": SCHEMA_VERSION,
+        "client_intent_id": cid,
         "at": datetime.now(tz=_TZ).isoformat(timespec="seconds"),
     }
 
@@ -296,7 +310,60 @@ def process_songshan_copytrade_poll(
         payload["status"] = entry["status"]
         return payload
 
-    broker = place_resolved_order(session, resolved)
+    # 2026-08-08 code review 修正：songshan 原本完全沒查帳戶可用現金，config/order.yaml
+    # 的 account_risk.reserved_cash_twd（帳戶級最低現金緩衝）只有 c18acc/leading-dip
+    # 兩袖真的有接（見 order/account_cap_gate.py 的 consumer 清單），songshan 這裡沒有
+    # ——現金不足時完全依賴 broker 端拒單，且可能把帳戶現金打到低於其他袖預期的緩衝
+    # 之下。這裡補上跟 leading-dip 一致的 pre-flight 檢查。
+    from order.account_cap_gate import can_afford_buy, load_account_risk_config
+    from order.fubon_account import bank_remain
+
+    try:
+        cash = int(bank_remain(session).get("available_balance", 0) or 0)
+    except Exception:  # noqa: BLE001
+        cash = 0
+    ok, reason = can_afford_buy(
+        notional_twd=qty * ask, available_balance=cash, cfg=load_account_risk_config(),
+    )
+    if not ok:
+        entry["status"] = "skipped_cash"
+        entry["reason"] = reason
+        append_entry(ledger, entry)
+        save_ledger(cfg.ledger_path, ledger)
+        payload["entries"].append(entry)
+        payload["status"] = "skipped_cash"
+        return payload
+
+    # 2026-08-08 code review 修正：place_resolved_order 若拋例外（不是回傳
+    # is_success=False，是真的raise——網路中斷、回應解析錯誤等），原本沒有
+    # try/except，整支函式會直接崩潰，append_entry/save_ledger 都不會執行，
+    # (signal_date, symbol) 永遠不會被 already_handled() 認得。同一個
+    # 09:25-09:40 窗口內(最多4次poll)下一次 tick 會重新掃到同一個訊號、
+    # 判定成「還沒處理過」，可能對同一檔標的重複送出真實買單。捕捉例外後
+    # 比照 broker 回傳 is_success=False 的既有處理路徑（status=submit_failed，
+    # 已經在 _HANDLED_STATUSES 裡會正確燒掉這個 slot），不新增狀態值。
+    #
+    # 加 reconcile_before_submit：above 那層防的是「place_resolved_order 拋例外」，
+    # 但還有一個更窄的視窗——place_resolved_order 已經成功送出真實訂單，broker 端
+    # 已經接單，但程式在下面 save_ledger() 之前被 kill（斷線/OOM/重開機）。ledger
+    # 沒寫入，下一個 poll tick 看不到 already_handled，會對同一訊號再送一次真實買單。
+    # reconcile_before_submit 用穩定的 cid 先問 broker「這個 client_intent_id 是否
+    # 已經有訂單」，若有就直接沿用該筆結果、不重送，補上 broker 端冪等檢查（跟
+    # leading-dip/detach-gate 同一套 shared OMS lifecycle 手法）。
+    try:
+        reconciled = reconcile_before_submit(
+            session, client_intent_id=cid, fallback_ask=ask, fallback_qty=qty,
+        )
+        if reconciled is not None:
+            broker = {
+                "is_success": reconciled.get("lifecycle_status") != "cancelled",
+                "reconciled": True,
+                **reconciled,
+            }
+        else:
+            broker = place_resolved_order(session, resolved)
+    except Exception as exc:  # noqa: BLE001
+        broker = {"is_success": False, "message": str(exc), "exception": True}
     entry["status"] = "submitted" if broker.get("is_success") else "submit_failed"
     entry["broker"] = broker
     append_entry(ledger, entry)

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.dayflip-short-poll</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{DAYFLIP_SHORT_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>GOLDENSTOCKS_DATA_DIR</key>
+		<string>/Users/jackm4/goldenstocks-data</string>
+		<key>TZ</key>
+		<string>Asia/Taipei</string>
+		<!-- 2026-08-07 使用者明確授權：本 sleeve 不比照其餘 sleeve 的 dry-run-first
+		     慣例，預設即可送真單。仍受 ORDER_MASTER_ENABLED（.env）與本旗標雙重把關。 -->
+		<key>ORDER_DAYFLIP_SHORT_AUTO_SUBMIT</key>
+		<string>1</string>
+		<key>ORDER_DAYFLIP_SHORT_WORKER_INTERVAL</key>
+		<string>20</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<!-- 2026-08-08 code review：改長駐 worker（KeepAlive · 重用 Fubon session），取代
+	     原本 StartInterval 60s 每分鐘全新登入（08:44-13:41 ≈297次/日）。跟 TMF 的
+	     tmf-channel-poll 同一套手法，見 order.dayflip_short_worker_loop。窗外由 python
+	     內部 sleep，不再靠 plist 鐘面把關；勿再改回 StartInterval。 -->
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>15</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ExitTimeOut</key>
+	<integer>60</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/dayflip-short-poll.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/dayflip-short-poll.launchd.err.log</string>
+</dict>
+</plist>

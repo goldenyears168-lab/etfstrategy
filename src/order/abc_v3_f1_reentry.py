@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from order.abc_v3_f1_config import AbcV3F1OrderConfig
-from order.abc_v3_f1_lifecycle import entry_blocks_retry, entry_notional
+from order.oms_lifecycle import entry_blocks_retry, entry_notional
 from stock_db import DATA_DIR, DEFAULT_DB_PATH, connect
 
 LEDGER_PATH = DATA_DIR / "order" / "abc_v3_f1_ledger.json"

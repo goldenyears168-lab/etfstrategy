@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
-from order.abc_v3_f1_lifecycle import LIFECYCLE_FILLED, LIFECYCLE_PARTIAL, entry_blocks_retry
+from order.oms_lifecycle import LIFECYCLE_FILLED, LIFECYCLE_PARTIAL, entry_blocks_retry
 from order.abc_v3_f1_monitor_config import (
     ChampionTpMonitorConfig,
     PyramidAddMonitorConfig,

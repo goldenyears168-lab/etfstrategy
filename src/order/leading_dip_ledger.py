@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from order.json_state import atomic_write_json, load_json_or_default
 from stock_db import DATA_DIR
 
 LEDGER_PATH = DATA_DIR / "order" / "leading_dip_ledger.json"
@@ -73,12 +73,7 @@ class LeadingDipLedger:
 
 def load_ledger(path: Path | None = None) -> LeadingDipLedger:
     p = path or LEDGER_PATH
-    if not p.is_file():
-        return LeadingDipLedger()
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return LeadingDipLedger()
+    raw = load_json_or_default(p, {})
     if not isinstance(raw, dict):
         return LeadingDipLedger()
     positions = raw.get("positions")
@@ -93,13 +88,12 @@ def load_ledger(path: Path | None = None) -> LeadingDipLedger:
 
 def save_ledger(ledger: LeadingDipLedger, path: Path | None = None) -> None:
     p = path or LEDGER_PATH
-    p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema": ledger.schema,
         "strategy_id": ledger.strategy_id,
         "positions": ledger.positions,
     }
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(p, payload, indent=2, trailing_newline=True)
 
 
 def append_position(

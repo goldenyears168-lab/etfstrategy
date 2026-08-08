@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from order.json_state import atomic_write_json, load_json_or_default
 from stock_db import DATA_DIR
 
 LEDGER_PATH = DATA_DIR / "order" / "c18acc_order_ledger.json"
@@ -28,9 +28,7 @@ class C18accOrderLedger:
 
 def load_c18acc_order_ledger(path: Path | None = None) -> C18accOrderLedger:
     p = path or LEDGER_PATH
-    if not p.is_file():
-        return C18accOrderLedger()
-    raw = json.loads(p.read_text(encoding="utf-8"))
+    raw = load_json_or_default(p, {})
     if not isinstance(raw, dict):
         return C18accOrderLedger()
     entries = raw.get("entries")
@@ -43,10 +41,9 @@ def load_c18acc_order_ledger(path: Path | None = None) -> C18accOrderLedger:
 
 def save_c18acc_order_ledger(ledger: C18accOrderLedger, path: Path | None = None) -> None:
     p = path or LEDGER_PATH
-    p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema": LEDGER_SCHEMA,
         "entries": ledger.entries,
         "pending_buys": ledger.pending_buys,
     }
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(p, payload, indent=2, trailing_newline=True)

@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from order.abc_v3_f1_lifecycle import build_client_intent_id
+from order.oms_lifecycle import build_client_intent_id
 from order.account_cap_gate import can_afford_buy
 from order.chase import shares_for_budget
 from order.intent import ResolvedOrder
@@ -577,7 +577,7 @@ def _process_exits(
     from order.chase_runner import chase_bid_price
     from order.fubon_orders import place_resolved_order
     from order.fubon_session import connect_fubon
-    from order.abc_v3_f1_lifecycle import (
+    from order.oms_lifecycle import (
         outer_status_from_lifecycle,
         poll_order_lifecycle,
         reconcile_before_submit,
@@ -616,15 +616,29 @@ def _process_exits(
             source="delta",
         )
         try:
-            reconcile_before_submit(session, client_intent_id=cid)
-            place_resolved_order(session, resolved)
-            lc = poll_order_lifecycle(
-                session,
-                client_intent_id=cid,
-                max_attempts=conf.poll_max_attempts,
-                interval_sec=conf.poll_interval_sec,
+            # 2026-08-08 code review 修正：原本這裡兩個問題——(1) reconcile_before_submit()
+            # 少傳 fallback_ask/fallback_qty 兩個必要 keyword-only 參數，poll_order_lifecycle()
+            # 少傳 order_no/fallback_ask/fallback_qty 三個，函式定義都沒有預設值，每次真的
+            # 執行到這裡都會 TypeError，被下面的 except 吃掉變成 status="error"，出場單
+            # 永遠無法正確追蹤成交狀態；(2) reconcile 的回傳值原本被完全丟棄，等於沒有
+            # broker 端冪等檢查——同一 client_intent_id 若已有訂單，仍會嘗試重複下單。
+            reconciled = reconcile_before_submit(
+                session, client_intent_id=cid, fallback_ask=bid, fallback_qty=qty,
             )
-            status = outer_status_from_lifecycle(lc)
+            if reconciled is not None:
+                status = outer_status_from_lifecycle(str(reconciled.get("lifecycle_status") or ""))
+            else:
+                submit_result = place_resolved_order(session, resolved)
+                lc = poll_order_lifecycle(
+                    session,
+                    client_intent_id=cid,
+                    order_no=str(submit_result.get("order_no") or "") or None,
+                    fallback_ask=bid,
+                    fallback_qty=qty,
+                    max_attempts=conf.poll_max_attempts,
+                    interval_sec=conf.poll_interval_sec,
+                )
+                status = outer_status_from_lifecycle(str(lc.get("lifecycle_status") or ""))
         except Exception as exc:  # noqa: BLE001
             rows.append({"symbol": sym, "status": "error", "error": str(exc)})
             continue
@@ -735,7 +749,7 @@ def _submit_entry(
     from order.fubon_account import bank_remain
     from order.fubon_orders import place_resolved_order
     from order.fubon_session import connect_fubon
-    from order.abc_v3_f1_lifecycle import (
+    from order.oms_lifecycle import (
         outer_status_from_lifecycle,
         poll_order_lifecycle,
         reconcile_before_submit,
@@ -778,15 +792,27 @@ def _submit_entry(
         source="delta",
     )
     try:
-        reconcile_before_submit(session, client_intent_id=cid)
-        place_resolved_order(session, resolved)
-        lc = poll_order_lifecycle(
-            session,
-            client_intent_id=cid,
-            max_attempts=conf.poll_max_attempts,
-            interval_sec=conf.poll_interval_sec,
+        # 2026-08-08 code review 修正：同一個bug在進場路徑也有一份，見exit路徑的
+        # 註解——reconcile_before_submit()少傳fallback_ask/fallback_qty、回傳值被丟棄
+        # （沒有broker端冪等檢查），poll_order_lifecycle()少傳order_no/fallback_ask/
+        # fallback_qty，每次真的執行都會TypeError。
+        reconciled = reconcile_before_submit(
+            session, client_intent_id=cid, fallback_ask=ask, fallback_qty=qty,
         )
-        status = outer_status_from_lifecycle(lc)
+        if reconciled is not None:
+            status = outer_status_from_lifecycle(str(reconciled.get("lifecycle_status") or ""))
+        else:
+            submit_result = place_resolved_order(session, resolved)
+            lc = poll_order_lifecycle(
+                session,
+                client_intent_id=cid,
+                order_no=str(submit_result.get("order_no") or "") or None,
+                fallback_ask=ask,
+                fallback_qty=qty,
+                max_attempts=conf.poll_max_attempts,
+                interval_sec=conf.poll_interval_sec,
+            )
+            status = outer_status_from_lifecycle(str(lc.get("lifecycle_status") or ""))
     except Exception as exc:  # noqa: BLE001
         append_position(
             ledger,

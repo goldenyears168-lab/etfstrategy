@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from order.fubon_orders import order_master_enabled
+from order.json_state import atomic_write_json, load_json_or_default
 from order.songshan_copytrade_order import evaluate_25m_nonfail
 from stock_db import DATA_DIR
 
@@ -45,20 +46,12 @@ def load_gate_config() -> dict[str, Any]:
 
 
 def _load_state() -> dict[str, Any]:
-    if not STATE_PATH.is_file():
-        return {"jobs": {}}
-    try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"jobs": {}}
+    return load_json_or_default(STATE_PATH, {"jobs": {}})
 
 
 def _save_state(state: dict[str, Any]) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = datetime.now(tz=_TZ).isoformat(timespec="seconds")
-    STATE_PATH.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    atomic_write_json(STATE_PATH, state, indent=2, trailing_newline=True)
 
 
 def _job_key(job_id: str, session_date: str) -> str:

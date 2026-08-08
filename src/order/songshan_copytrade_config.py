@@ -18,6 +18,16 @@ def _env_flag(name: str, default: str = "0") -> bool:
     return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class SongshanCopytradeOrderConfig:
     enabled: bool
@@ -38,6 +48,8 @@ class SongshanCopytradeOrderConfig:
     hold_days: int
     submit_notify: bool
     allow_pyramid: bool  # False = never rebuy symbol already submitted/filled/working
+    poll_max_attempts: int
+    poll_interval_sec: float
 
 
 def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
@@ -45,6 +57,7 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
     if ORDER_YAML.is_file():
         data = yaml.safe_load(ORDER_YAML.read_text(encoding="utf-8")) or {}
         raw = dict((data.get("strategies") or {}).get("songshan-copytrade") or {})
+    lifecycle = raw.get("lifecycle") if isinstance(raw.get("lifecycle"), dict) else {}
     enabled = _env_flag(
         "ORDER_SONGSHAN_COPYTRADE_ENABLED",
         "1" if raw.get("enabled", False) else "0",
@@ -124,4 +137,9 @@ def load_songshan_copytrade_order_config() -> SongshanCopytradeOrderConfig:
             "ORDER_SONGSHAN_COPYTRADE_ALLOW_PYRAMID",
             "1" if raw.get("allow_pyramid", False) else "0",
         ),
+        poll_max_attempts=_env_int(
+            "ORDER_SONGSHAN_COPYTRADE_POLL_MAX_ATTEMPTS",
+            int(lifecycle.get("poll_max_attempts") or 3),
+        ),
+        poll_interval_sec=float(lifecycle.get("poll_interval_sec") or 2.0),
     )

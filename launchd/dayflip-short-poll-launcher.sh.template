@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# dayflip-futures-short v1 Order · long-lived worker（KeepAlive）· 重用 Fubon session
+# 日盤 08:44-13:41（窗外 worker 內部 sleep，不重登入；跟 TMF 的
+# tmf-channel-poll-launcher.sh.template 同一套手法）。
+#
+# ⚠️ 2026-08-07 使用者明確授權：跳過研究規格 G2 OOS holdout（前推僅5/40訊號日）
+#    直接建置真實下單管道，且明確要求不預設 dry-run。安全閥仍是：
+#      1) .env 的 ORDER_MASTER_ENABLED（總開關，這支 launcher 不會改它）
+#      2) ORDER_DAYFLIP_SHORT_AUTO_SUBMIT（本 sleeve 旗標，plist 預設=1）
+#      3) 保證金硬上限 30 萬、1 口、每日僅進場一次（寫死在 dayflip_short_order.py）
+# 2026-08-08：StartInterval 60s 冷啟動（~297次/日全新登入）→ KeepAlive 常駐 worker。
+# 週末/非交易日的把關現在在 python 內（order.dayflip_short_order.in_dayflip_short_trade_window，
+# 有查星期幾，不只 HH:MM），不再依賴這支 shell 每次被喚醒時的 `date '+%u'` 判斷。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday" "${APP_SUPPORT}"
+mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
+
+export TZ="${TZ:-Asia/Taipei}"
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
+
+LOCKDIR="${APP_SUPPORT}/dayflip-short-poll.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 120 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: dayflip-short worker already holding lock"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+STAMP="$(date '+%Y%m%d')"
+TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/dayflip_short_${STAMP}.log"
+
+_load_env_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "WARN: cannot source ${label} (${path}) rc=${rc} · continue with defaults"
+  fi
+}
+
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
+
+export ORDER_DAYFLIP_SHORT_AUTO_SUBMIT="${ORDER_DAYFLIP_SHORT_AUTO_SUBMIT:-1}"
+export ORDER_DAYFLIP_SHORT_WORKER_INTERVAL="${ORDER_DAYFLIP_SHORT_WORKER_INTERVAL:-20}"
+export ORDER_DAYFLIP_SHORT_WORKER_IDLE="${ORDER_DAYFLIP_SHORT_WORKER_IDLE:-60}"
+
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}" | tee -a "${TICK_LOG}"
+  exit 1
+fi
+
+echo "=== launchd dayflip-short-poll WORKER start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${TICK_LOG}"
+
+set +e
+"${PYTHON}" "${ROOT}/scripts/order/run_dayflip_short_worker.py" 2>&1 | tee -a "${TICK_LOG}"
+EXIT=${PIPESTATUS[0]}
+set -e
+
+echo "=== launchd dayflip-short-poll WORKER end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${TICK_LOG}"
+exit "${EXIT}"

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from order.abc_v3_f1_lifecycle import (
+from order.oms_lifecycle import (
     entry_counts_toward_cash,
     outer_status_from_lifecycle,
     poll_order_lifecycle,
@@ -28,7 +28,7 @@ class TestLifecycleHardening(unittest.TestCase):
         self.assertTrue(entry_counts_toward_cash({"lifecycle_status": "partial"}))
 
     def test_poll_ambiguous_when_no_row(self) -> None:
-        with patch("order.abc_v3_f1_lifecycle.find_order_row", return_value=None):
+        with patch("order.oms_lifecycle.find_order_row", return_value=None):
             fields = poll_order_lifecycle(
                 object(),
                 client_intent_id="x",

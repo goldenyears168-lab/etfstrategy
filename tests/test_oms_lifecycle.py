@@ -1,14 +1,15 @@
-"""Tests for shared order lifecycle helpers (order/abc_v3_f1_lifecycle.py).
+"""Tests for shared order lifecycle helpers (order/oms_lifecycle.py).
 
-Despite the module name, these helpers are used by the live c18acc/detach-gate/
-leading-dip sleeves, not just the retired ABC v3+f1 strategy.
+2026-08-08: module renamed from abc_v3_f1_lifecycle.py -- despite the old name,
+these helpers were always used by the live c18acc/detach-gate/leading-dip
+sleeves, not just the retired ABC v3+f1 strategy; the name now matches that.
 """
 
 from __future__ import annotations
 
 import unittest
 
-from order.abc_v3_f1_lifecycle import (
+from order.oms_lifecycle import (
     build_client_intent_id as order_cid,
     entry_blocks_retry,
     entry_notional,

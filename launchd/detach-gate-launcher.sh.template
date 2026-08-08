@@ -30,6 +30,23 @@ fi
 STAMP="$(date '+%Y%m%d')"
 TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/detach_gate_${STAMP}.log"
 
+# 2026-08-08 code review 發現：跟其餘 order launcher（dayflip-short-poll、
+# songshan-copytrade-poll、leading-dip-poll）不同，這支原本沒有 lockdir 防重疊鎖。
+# detach-gate 作用範圍是全帳戶持倉（非單一 sleeve），是這批裡影響範圍最大的模組，
+# 補上同款保護。
+LOCKDIR="${APP_SUPPORT}/detach-gate.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
+  if [[ "${age}" -gt 120 ]]; then
+    rm -rf "${LOCKDIR}"
+  fi
+  if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+    echo "skip: previous detach-gate still running"
+    exit 0
+  fi
+fi
+trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+
 echo ""
 echo "=== launchd detach-gate tick $(date '+%Y-%m-%d %H:%M:%S') ==="
 
