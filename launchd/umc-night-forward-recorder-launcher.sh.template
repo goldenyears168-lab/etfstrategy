@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 08:47 / 16:47 · 聯電夜盤決策前推紀錄 · **只寫 ledger，永不下單**
+#
+# 為什麼：規則仍是假說（單股單路徑／逐月符號翻轉／勝率 43-46% 靠尾部），而且先前
+# 所有回測都用 2303 現股代理 CCF，失真點正好在 16:45 進場與 08:45 出場這兩點上。
+# 16:45 與 08:45 事後補不回來，所以前推累積是唯一驗證路徑。
+# 08:47 結算前一日部位（用 08:45 CCF 日盤開盤價）；16:47 記錄當日決策。
+# 兩個時刻都跑 --settle --record，兩者皆冪等。
+# 累積 >= 40 個訊號日之前不對這條規則做論斷；此 job 不具下單能力。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/umc_night_forward_${STAMP}.log"
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
+echo ""
+echo "=== launchd umc-night-forward-recorder 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then return 0; fi
+  set +e; set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a; set -e
+}
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
+
+PYTHON="${ROOT}/.venv/bin/python"
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"; EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/umc_night_forward_recorder.py" --settle --record 2>&1 | tee -a "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+echo "=== launchd umc-night-forward-recorder 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="聯電夜盤前推紀錄" --exit-code="${EXIT}" --log-path="${RUN_LOG}" \
+    --extra="umc_night_forward_ledger 記錄失敗，詳見 log" \
+    --env-flag="RUN_UMC_NIGHT_FORWARD_EMAIL"
+  set -e
+fi
+exit "${EXIT}"
