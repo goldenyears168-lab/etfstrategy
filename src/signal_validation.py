@@ -163,9 +163,14 @@ def validate_selection(cur, signal_dates, universe_fn, pick_key="rs_momentum",
 
     def load_px(sid):
         if sid not in px_cache:
-            px_cache[sid] = dict(cur.execute(
-                "SELECT trade_date, COALESCE(adj_close, close) FROM stock_daily_bars "
-                "WHERE stock_id=? AND COALESCE(adj_close, close) > 0", (sid,)).fetchall())
+            # finmind（原始價）/ yfinance（還原價）同日雙列，混用會造出假跳空；finmind 優先
+            px = {}
+            for d, v, src in cur.execute(
+                "SELECT trade_date, COALESCE(adj_close, close), source FROM stock_daily_bars "
+                "WHERE stock_id=? AND COALESCE(adj_close, close) > 0", (sid,)).fetchall():
+                if src == "finmind" or d not in px:
+                    px[d] = v
+            px_cache[sid] = px
         return px_cache[sid]
 
     def sfwd(sid, day, h):

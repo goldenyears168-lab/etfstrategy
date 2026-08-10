@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 14:10 · ES/NQ 隔夜快照同步（Yahoo ES=F / NQ=F）· 不下單
+#
+# 目的：us_futures_overnight_snapshot 過去無任何排程，2026-07-13 之後停更。
+# 該表是 16:25 決策面板與 us_tw_* 研究線的輸入（capture_label 09:30~13:30，
+# 皆為台股日盤時段，故 13:30 收盤後即可補齊當日）。
+# --tail-days 5 為滾動補檔，順便修補前幾日缺漏。
+# 純 Yahoo 抓取，不建立 Fubon session（避免與常駐 TMF worker 搶 token）。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/us_overnight_futures_sync_${STAMP}.log"
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
+
+echo ""
+echo "=== launchd us-overnight-futures-sync 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
+
+PYTHON="${ROOT}/.venv/bin/python"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/tools/sync_us_overnight_futures.py" \
+    --tail-days 5 \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd us-overnight-futures-sync 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="ES/NQ 隔夜快照" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="us_futures_overnight_snapshot 同步失敗，詳見 log" \
+    --env-flag="RUN_US_OVERNIGHT_FUTURES_SYNC_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

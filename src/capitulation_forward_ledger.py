@@ -59,9 +59,16 @@ def ensure_table(cur):
 
 def stock_px(cur, sid, _cache={}):
     if (cur, sid) not in _cache:
-        _cache[(cur, sid)] = dict(cur.execute(
-            "SELECT trade_date, COALESCE(adj_close, close) FROM stock_daily_bars "
-            "WHERE stock_id=? AND COALESCE(adj_close, close) > 0", (sid,)))
+        # 同一 (stock_id, trade_date) 可能同時有 finmind（原始收盤價）與 yfinance（還原收盤價）
+        # 兩列，語意不同（比值跳階日 = 除權息日），混用會產生不存在的 ±5% 假跳空。
+        # 依 price_panels.load_price_panels 既有慣例：finmind 優先，該日無 finmind 才 fallback。
+        px = {}
+        for d, v, src in cur.execute(
+            "SELECT trade_date, COALESCE(adj_close, close), source FROM stock_daily_bars "
+            "WHERE stock_id=? AND COALESCE(adj_close, close) > 0", (sid,)):
+            if src == "finmind" or d not in px:
+                px[d] = v
+        _cache[(cur, sid)] = px
     return _cache[(cur, sid)]
 
 

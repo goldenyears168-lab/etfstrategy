@@ -1468,7 +1468,10 @@ def fetch_prev_close_db(conn: sqlite3.Connection | None, stock_id: str) -> float
             """
             SELECT close FROM stock_daily_bars
             WHERE stock_id = ? AND close IS NOT NULL AND close > 0
-            ORDER BY trade_date DESC LIMIT 1
+            -- finmind（原始價）/ yfinance（還原價）同日可能雙列，固定取 finmind 以免語意跳動
+            ORDER BY trade_date DESC,
+                CASE source WHEN 'finmind' THEN 0 WHEN 'yfinance' THEN 1 ELSE 2 END
+            LIMIT 1
             """,
             (stock_id,),
         ).fetchone()

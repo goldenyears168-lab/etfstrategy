@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 08:46 / 13:46 / 15:01 / 16:46 · 期交所 MIS 盤中+夜盤報價快照 · 不下單
+#
+# 為什麼：決策規則需要「16:45 當下的聯電個股期(CCF)報價」與「隔日 08:45 日盤開盤價」。
+#   FinMind 快照不涵蓋 CCF；FinMind tick 只有日盤；FinMind daily 只有整場 OHLC。
+#   Fubon 可以但 16:45 在常駐 tmf-channel-poll worker 的窗內（>=15:00），另建 session
+#   可能踢掉它。期交所 MIS 是純 HTTP、無 session，日夜盤都有 —— 唯一無衝突的解。
+# Symbol 後綴：-F 日盤、-M 盤後(夜盤)；前月合約以 CTotalVolume 最大者自動推導。
+# 這些時點只能當下捕捉、事後補不回來，所以排程是唯一途徑。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+RUN_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/taifex_intraday_snapshot_${STAMP}.log"
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
+echo ""
+echo "=== launchd taifex-intraday-snapshot 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then return 0; fi
+  set +e; set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a; set -e
+}
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env"
+
+PYTHON="${ROOT}/.venv/bin/python"
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"; EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/tools/sync_taifex_intraday_snapshot.py" 2>&1 | tee -a "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+echo "=== launchd taifex-intraday-snapshot 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="期交所報價快照" --exit-code="${EXIT}" --log-path="${RUN_LOG}" \
+    --extra="futures_intraday_snapshot 同步失敗，詳見 log" \
+    --env-flag="RUN_TAIFEX_INTRADAY_SNAPSHOT_EMAIL"
+  set -e
+fi
+exit "${EXIT}"

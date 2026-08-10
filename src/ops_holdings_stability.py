@@ -38,8 +38,12 @@ def _load_prices(sid: str, pd):
         try:
             con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
             df = pd.read_sql_query(
-                "select trade_date as date, close from stock_daily_bars "
-                "where stock_id=? and close>0 order by trade_date", con, params=(sid,))
+                "select trade_date as date, close, source from stock_daily_bars "
+                "where stock_id=? and close>0 order by trade_date, "
+                "case source when 'finmind' then 0 when 'yfinance' then 1 else 2 end",
+                con, params=(sid,))
+            # finmind（原始價）/ yfinance（還原價）同日雙列語意不同，只留 finmind 那列
+            df = df.drop_duplicates(subset=["date"], keep="first").drop(columns=["source"])
             con.close()
         except Exception:
             continue

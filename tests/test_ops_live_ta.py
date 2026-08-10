@@ -276,8 +276,8 @@ class TestOpsLiveTa(unittest.TestCase):
         conn = sqlite3.connect(":memory:")
         conn.executescript(
             """
-            CREATE TABLE stock_daily_bars (stock_id TEXT, trade_date TEXT, close REAL);
-            INSERT INTO stock_daily_bars VALUES ('6505', '2026-07-17', 81.3);
+            CREATE TABLE stock_daily_bars (stock_id TEXT, trade_date TEXT, close REAL, source TEXT);
+            INSERT INTO stock_daily_bars VALUES ('6505', '2026-07-17', 81.3, 'finmind');
             CREATE TABLE rrg_universe_scores (
                 stock_id TEXT, stock_name TEXT, session_date TEXT
             );

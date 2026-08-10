@@ -924,6 +924,34 @@ CREATE TABLE IF NOT EXISTS us_futures_overnight_snapshot (
 CREATE INDEX IF NOT EXISTS idx_us_futures_overnight_tw_date
     ON us_futures_overnight_snapshot (tw_session_date DESC, capture_label);
 
+-- 期交所盤中／夜盤即時報價快照（TAIFEX MIS；純 HTTP、無 session，不與常駐 TMF worker 搶 Fubon）
+-- 2026-08-10 新增：決策規則需要「16:45 當下 CCF 夜盤價」與「隔日 08:45 日盤開盤價」，
+-- 這兩個時點只能當下捕捉。FinMind 快照不涵蓋 CCF、tick 只有日盤、daily 只有整場 OHLC。
+-- symbol 後綴 -F 日盤 / -M 盤後；前月合約由 CTotalVolume 最大者推導。
+-- 由 scripts/tools/sync_taifex_intraday_snapshot.py 自建（未 bump SCHEMA_VERSION），DDL 需一致。
+CREATE TABLE IF NOT EXISTS futures_intraday_snapshot (
+    tw_session_date TEXT NOT NULL,
+    capture_label TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    product TEXT NOT NULL,
+    contract TEXT NOT NULL,
+    session TEXT NOT NULL,
+    spot_id TEXT,
+    last_price REAL,
+    open_price REAL,
+    high_price REAL,
+    low_price REAL,
+    ref_price REAL,
+    total_volume REAL,
+    quote_time TEXT,
+    source TEXT NOT NULL DEFAULT 'taifex_mis',
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (tw_session_date, capture_label, product, session, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_futures_intraday_date
+    ON futures_intraday_snapshot (tw_session_date DESC, capture_label, product);
+
 CREATE INDEX IF NOT EXISTS idx_mutual_fund_meta_date
     ON mutual_fund_holdings_meta (fund_code, snapshot_date DESC);
 

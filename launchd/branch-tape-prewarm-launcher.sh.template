@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
-# 週一至五 18:30 · 分點 tape 補檔（POOLS ∪ 富邦持倉）· 不下單
+# 週一至五 16:30（主）+ 18:30（安全網）· 分點 tape 補檔（POOLS ∪ 富邦持倉）· 不下單
+# 2026-08-10 實測 FinMind TaiwanStockTradingDailyReport 於 T 日 16:25 發布（15:00 起
+# 每 5 分鐘探測，16:20 尚無、16:25 found），故主排程提前到 16:30；18:30 保留為安全網，
+# 因 16:25 只是單日單檔觀測，若 FinMind 偶爾延後，16:30 那輪會撲空。--refresh-days 2
+# 讓兩輪皆為冪等 upsert，重複執行無副作用。
 #
 # 目的：讓 20:00 起的專家池／持倉賣方監控排程改用 --no-refresh 純讀 DB，
 # 不用各自重複打 FinMind。補檔異常（真的出錯，或當日 0 筆股票過半）
