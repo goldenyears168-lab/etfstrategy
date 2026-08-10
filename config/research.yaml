@@ -109,7 +109,11 @@ topics:
         statement: >
           固定槽 Copytrade 跟單元大-松江（門檻+Top-N）在 L∈{1,2,3} 網格上
           存在 period_return% 優於單槽基準的可執行參數組
-        status: passed  # L3H18 1槽 ret%≈350 · L1H18 1槽≈337 · 20260717 sweep
+        status: pending  # 2026-08-08 降級：從未做過正式顯著性檢定（純 period_return% 點估計），
+          # 違反 docs/research-integrity-checklist.md BUG-4；且已被 H-SJ-AMOUNT-FRESH-HAND
+          # 取代（見 notes）。do_not：不要引用 ret%≈350/337 當作已驗證 edge。
+          # next_step：若要重啟，須用 src/research/branch_signal_validation.py 的
+          # permutation_test 對 L3H18/L1H18 該格重跑，比照 H-SJ-AMOUNT-FRESH-HAND retest。
       - id: H-SJ-SWAP
         statement: >
           對 period_return 冠軍參數，槽滿置換（新籃 mean_net > 最弱槽）優於 skip-when-full
@@ -123,7 +127,20 @@ topics:
         statement: >
           全面使用金額口徑：松江當日淨買金額≥5M，且近20日同分點同股
           累計淨買金額≤25M，Top1 L3H18 可通過同門檻 OOS gate
-        status: passed  # IS compound145%；OOS302%；overlap576%；全期992%
+        status: rejected  # 2026-08-08 降級（原 passed 是 BUG-4：zero-cost、無顯著性檢定的
+          # compound-return 點估計）。用 known-whale-branch-live-signal-validation 同一套
+          # permutation 方法論（src/research/branch_signal_validation.py）對本假說「自己的」
+          # champion 參數（5M門檻+prior20≤25M+Top1+L3H18）重建訊號＋1槽skip-when-full執行
+          # 序列後重跑：n=23完整交易（含prior20新鮮度過濾+單槽gating，與原報告n=26量級相符），
+          # mean r_adj=+2.56%（30bps）但 median r_adj=−1.76%（負！）、win_rate=43.5%（低於銅板），
+          # permutation p_mean=0.283、p_median=0.574，兩者皆不顯著——比
+          # known-whale-branch-live-signal-validation 的 H2-9801-SONGJIANG-EDGE
+          # （p_mean=0.006顯著但p_median=0.083不顯著，至少mean那側壓線）還要更弱、更不具
+          # edge。992%/576%等複利頭條數字是少數極端交易撐起的均值假象，中位數與勝率都不支持。
+          # do_not：不要引用 IS145%/OOS302%/overlap576%/全期992% 當作已驗證 edge；不要用
+          # zero-cost 假設。next_step：若要重啟需先解決 n=23-26 樣本量過小、2026年樣本集中
+          # 問題（見 known-whale-branch-live-signal-validation notes 對照表），且比照該
+          # topic 補齊 IS/OOS walk-forward + 去極值敏感度後才可能重新考慮 passed。
     context: >
       Signal: 元大-松江 (FinMind id 9801) net≥threshold then Top-N equal-weight.
       Phase A: reuse copytrade_backtest fixed slots (skip when full).
@@ -140,6 +157,26 @@ topics:
       20260718 金額版高手指紋取代先前張數版：signal threshold／Top1／prior20
       一律 NTD。IS 選 5M + prior20 signed net amount≤25M + L3H18 + 1槽；
       OOS 已查看，僅 robustness observe，不進 Strategy／Order。
+
+      2026-08-08 status 對帳修正：本 topic 的 H-SJ-RETURN／H-SJ-AMOUNT-FRESH-HAND
+      先前的 `passed` 完全基於 naive period_return%／compound-return 點估計，從未做過
+      正式顯著性檢定，違反 docs/research-integrity-checklist.md BUG-4。同一個分點
+      （9801 元大-松江）在 known-whale-branch-live-signal-validation topic 用更嚴謹的
+      live-faithful scan_5d_net95 + permutation 方法論測出 H2-9801-SONGJIANG-EDGE
+      `rejected`（p_mean=0.006但p_median=0.083、74%樣本集中在2026年、去極值後mean翻負）。
+      為釐清兩者是否只是參數不同（不能直接比較），本次額外用同一套 permutation_test
+      直接對 H-SJ-AMOUNT-FRESH-HAND 自己宣稱的 champion 參數（5M門檻＋prior20≤25M
+      新鮮度過濾＋Top1＋L3H18＋1槽skip-when-full執行序列，讀資料庫、唯讀）重跑：
+      n=23完整交易、mean r_adj+2.56%但median r_adj−1.76%（負）、win_rate 43.5%
+      （低於銅板）、permutation p_mean=0.283／p_median=0.574（皆不顯著）——比
+      known-whale 對9801測出的結果更弱，兩條研究線在「9801無可信edge」這件事上其實
+      是一致的，先前的 passed 是方法論缺口（沒做顯著性檢定）造成的假象，不是
+      「這個topic測的是不同東西所以能同時passed」。9801未接任何 order-layer job
+      （config/order.yaml 的 songshan-copytrade 用的是 9217 凱基-松山，非本分點），
+      故此次降級無 live/dry-run 下單風險。驗證腳本見本次 session scratchpad
+      （未入庫；如需重跑請比照 study_whale_branch_5d_net95_live_signal_validation.py
+      的 build_signal_dict/permutation_test 呼叫方式，加上 prior20 新鮮度過濾與
+      1槽skip-when-full gating）。
 
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
@@ -984,7 +1021,7 @@ topics:
         statement: >
           固定槽 Copytrade 跟單富邦-新店（門檻+Top-N）在 L∈{1,2,3} 網格上
           存在 period_return% 優於單槽基準的可執行參數組
-        status: passed  # L2H9 1槽 · 500張 · Top1 · ret%≈358 · 20260717 sweep
+        status: contested  # 原判passed（L2H9 1槽·500張·Top1·ret%≈358·20260717 sweep，僅點估計比較，無顯著性檢定/OOS holdout）。2026-08-08：whale-branch-position-momentum-2m topic用4種獨立方法（月度panel regression、conviction tail延伸、因果持倉動能+安慰劑對照、分點=全客戶流量聚合結構性論證）一致判定9661（富邦-新店）無穩健edge；known-whale-branch-live-signal-validation另以live-faithful scan_5d_net95+permutation檢定測9661同樣是乾淨null（p_mean=0.274/p_median=0.755）。本假說是「9661單獨跟單」的period_return% sweep冠軍，未做過任何顯著性檢定，與上述5種獨立方法的一致null result直接矛盾，故降級contested而非維持passed——不逕自flip為rejected，因為sweep本身的相對排序（優於單槽基準）技術上未被重跑證偽，只是其「9661具備可跟單edge」的前提已被更嚴謹方法動搖
       - id: H-FX-SWAP
         statement: >
           對 period_return 冠軍參數，槽滿置換優於 skip-when-full
@@ -998,7 +1035,7 @@ topics:
         statement: >
           固定 W20 Momentum≥101 後，IS-only 流量門檻調參可在 OOS
           保留至少 70% 筆數並提升總 α 或 α/筆
-        status: passed  # 650張；OOS 35筆 · α/筆≈728 · 正月率70%
+        status: contested  # 原判passed（650張；OOS 35筆·α/筆≈728·正月率70%，同樣無顯著性檢定）。2026-08-08：同H-FX-RETURN，本假說前提是「9661跟單訊號本身有效」，已被whale-branch-position-momentum-2m 4方法一致null result（見H-FX-RETURN comment）動搖，降級contested待複驗
       - id: H-FX-LIQUIDITY
         statement: >
           20 日均量門檻在 650 張與 W20 gate 之後仍提供正交加值
@@ -1010,7 +1047,7 @@ topics:
       - id: H-FX-TIMING
         statement: >
           650 張 × W20 Momentum≥101 × Top1 三槽的 L/H 調參可通過 OOS gate
-        status: passed  # IS選 L1H12；OOS 31筆 · α/筆≈806 · win≈74.2%
+        status: contested  # 原判passed（IS選 L1H12；OOS 31筆·α/筆≈806·win≈74.2%）。2026-08-08：同H-FX-RETURN，前提同樣被whale-branch-position-momentum-2m 4方法一致null result動搖，降級contested待複驗
       - id: H-FX-FINAL-REPLACE
         statement: >
           原始過濾器調參後可取代未加 W20 的 500 張 Top1 L2H9 三槽基準
@@ -1034,6 +1071,18 @@ topics:
       IS/OOS follow-up applies flow → liquidity → W20 → Top-N before fixed slots;
       original-filter winner 650張 × W20≥101 × Top1 × L1H12 × 3槽 improves
       per-cycle quality but does not replace the original or the 80M amount reference.
+
+      2026-08-08 cross-reference：whale-branch-position-momentum-2m 用4種獨立
+      方法（月度panel regression、conviction tail延伸、因果持倉動能+安慰劑
+      對照、分點=全客戶流量聚合結構性論證）一致判定9661（富邦-新店）本身
+      無穩健預測edge；known-whale-branch-live-signal-validation另用live-
+      faithful scan_5d_net95+permutation對9661測出同樣乾淨null（p_mean=
+      0.274/p_median=0.755）。本topic所有「9661單獨跟單」正向假說
+      （H-FX-RETURN/H-FX-FLOW/H-FX-TIMING）都只做過period_return%/α點估計
+      比較，從未做顯著性檢定，已降級為status: contested；本topic既有
+      order-layer風險已核實為低（config/order.yaml、config/job_registry.yaml
+      grep 9661/xindian 均無直接命中，唯一相關的expert-pool-staged-gate
+      order-capable job status: disabled since 2026-07-27）。
 
   kgi-chengzhong-copytrade:
     title: 凱基-城中分點 Copytrade · 門檻×Top-N × L×H×槽位 + swap 對照
@@ -1243,6 +1292,16 @@ topics:
         statement: >
           and 或 sum 模式的 α/日優於較佳單一分點袖（sj 或 xd）
         status: passed  # and/lots ≥500張 L2H12 top3 1槽 α/日≈73.5 > xd≈72.4
+          # 2026-08-08 CAUTION（未降級，僅提醒）：whale-branch-position-momentum-2m
+          # 用4種獨立方法一致判定xd（9661富邦-新店）單獨無穩健edge（詳見
+          # fubon-xindian-copytrade topic notes 的同日cross-reference）。本假說是
+          # and/sum組合（9801+9661聯集/交集訊號）優於「較佳單一分點袖」的比較，
+          # 不是「9661單獨有edge」的宣稱——若組合的α/日優勢主要來自sj(9801)那一側、
+          # xd只是共識過濾器角色，此判定可能仍站得住；但也可能組合優勢部分是靠
+          # xd稀釋/平滑貢獻的統計假象。本輪未拆解and/sum事件裡xd的邊際貢獻，未足以
+          # 判定H2-COMBO是否連帶受影響，故不比照H-FX-*直接降級，僅留此提醒待未來
+          # 拆解verification（例如比較「僅sj」vs「and(sj,xd)」在同一組共同觸發日的
+          # 差異，隔離出xd的邊際效果）
       - id: H3-OR
         statement: >
           or 模式若 α/日劣於最佳單一分點則視為稀釋、不採納為主袖
@@ -1546,7 +1605,11 @@ topics:
       - scripts/research/scan_whale_branch_pairs_step2_forward_returns.py
       - scripts/research/scan_whale_branch_pairs_step3_compare.py
       - scripts/research/whale_branch_round3_perstock_top_branch.py
+      - scripts/research/branch_firepower_concentration_mm_recheck.py
     report_dir: reports/research/branch-footprint-screen
+    artifacts:
+      mm_exclusion_list: reports/research/branch-footprint-screen/market_maker_branch_exclusion_v1.json
+      firepower_concentration: reports/research/branch-footprint-screen/branch_firepower_concentration_v1.csv
     hypotheses:
       - id: H1-BRANCH-CONSISTENCY
         statement: >
@@ -1566,7 +1629,7 @@ topics:
           BH-FDR 顯著負向的分點，若在其最活躍股票上呈現「近乎每日交易＋買賣
           金額比例接近50/50」，代表其為造市/避險/綜合客戶流通道而非方向性
           大戶，訊號本身不具方向意義、應從候選宇宙排除而非當作反向訊號
-        status: contested  # 原判passed（11個顯著負向分點10個平均交易日數佔比93~100%、買賣平衡44.9~51.7%，與980T已知造市簽名一致）。但H12發現：同樣的「全勤率高+買賣比接近50/50」檢查套用在已知好分點9217自己的核心持股上，7檔裡有4檔買賣比也落在50±3個百分點內、全勤率61~99%（部分甚至更高）——說明這個判準本身無法區分「造市分點」與「已知有效的方向性大戶」，用它來確認負向分點是造市帳戶的部分論證需要更嚴謹的對照組驗證才能維持；黑名單 market_maker_branch_exclusion_v1.json 裡靠這個判準支持的分點都應視為「暫時可信但論證基礎不夠強」而非「確定」
+        status: contested  # 原判passed（11個顯著負向分點10個平均交易日數佔比93~100%、買賣平衡44.9~51.7%，與980T已知造市簽名一致）。但H12發現：同樣的「全勤率高+買賣比接近50/50」檢查套用在已知好分點9217自己的核心持股上，7檔裡有4檔買賣比也落在50±3個百分點內、全勤率61~99%（部分甚至更高）——說明這個判準本身無法區分「造市分點」與「已知有效的方向性大戶」，用它來確認負向分點是造市帳戶的部分論證需要更嚴謹的對照組驗證才能維持；黑名單 market_maker_branch_exclusion_v1.json 裡靠這個判準支持的分點都應視為「暫時可信但論證基礎不夠強」而非「確定」｜【H13 補充 2026-08-09】此判準的「名目廣度」版本維持被 H12 打掉的判定，**不予恢復**；但改用金額口徑集中度（hhi_res，見 H13）後，17 家中 14 家能在不誤殺 9217 的門檻下被重新識別，排除名單本身的操作性結論獲得一個獨立於名目廣度的支持。狀態仍維持 contested 而非 passed，因為 (a) 門檻用 n=1 正例校準，不構成驗證 (b) 新判準也無法區分有無 edge（9661/9227 兩個乾淨 null 與 9217 同位，見 H14）(c) 980C/5852/9B2a 三家新判準明確不支持。名單成員未變更，但每家的證據強度已分層標註於 JSON 的 criterion_v2_flag 欄位。
       - id: H4-NEW-CANDIDATE-9239
         statement: >
           全分點宇宙 L1H7 篩選能找到新的、統計輪廓優於既有候選 9217 的正向分點
@@ -1591,14 +1654,14 @@ topics:
         statement: >
           Top1-3+多天期篩選裡效果隨天期增強的三個新候選（9216凱基信義/9B2a
           台新松德/5852統一敦南）為真實方向性大戶訊號
-        status: rejected  # 三者交易剖面(100%交易日全勤、買賣金額比44.9~51.7%接近50/50、觸及全市場2100+檔個股)與既有12分點造市簽名完全一致；5852另有Wilcoxon不顯著+中位數為負+去極端值後消失+67%事件集中重複同股四項獨立瑕疵；9B2a另有112天內3個不同登記名稱橫跨2券商品牌的身分不穩定問題。三者均併入 market_maker_branch_exclusion_v1.json ｜【H12補充】9216(leg分解自證H15-20不顯著+中位數負)與5852(Wilcoxon不顯著+中位數負+去極端後消失)的reject理由是各自獨立的統計瑕疵，不依賴entity-level造市檢查，H12不影響這兩者結論；但9B2a統計面是四者最乾淨的，reject主要靠entity-level造市簽名+身分不穩定，而entity-level造市簽名這部分論證已被H12動搖，9B2a的reject應視為主要靠「身分不穩定(3個登記名稱橫跨2券商)」這個獨立證據撐住，而非造市簽名本身
+        status: rejected  # 三者交易剖面(100%交易日全勤、買賣金額比44.9~51.7%接近50/50、觸及全市場2100+檔個股)與既有12分點造市簽名完全一致；5852另有Wilcoxon不顯著+中位數為負+去極端值後消失+67%事件集中重複同股四項獨立瑕疵；9B2a另有112天內3個不同登記名稱橫跨2券商品牌的身分不穩定問題。三者均併入 market_maker_branch_exclusion_v1.json ｜【H12補充】9216(leg分解自證H15-20不顯著+中位數負)與5852(Wilcoxon不顯著+中位數負+去極端後消失)的reject理由是各自獨立的統計瑕疵，不依賴entity-level造市檢查，H12不影響這兩者結論；但9B2a統計面是四者最乾淨的，reject主要靠entity-level造市簽名+身分不穩定，而entity-level造市簽名這部分論證已被H12動搖，9B2a的reject應視為主要靠「身分不穩定(3個登記名稱橫跨2券商)」這個獨立證據撐住，而非造市簽名本身 ｜【H13 補充】三者在新的金額口徑判準下**結論分歧，必須分開講**：9216 hhi_res=+0.0718（抓到；且其 hhi=0.0719 > 9217 的 0.0578，原 note 說它「117檔股票高度分散」是錯的，它比 9217 集中）；9B2a hhi_res=+0.0440 僅差門檻 0.0005 且樣本只有 122 交易日、值不穩定；5852 hhi_res=+0.0096 明確不符。5852 與 9B2a 的排除因此**完全**依賴各自的獨立證據（5852：Wilcoxon不顯著/中位數負/去極端後消失/67%事件集中同批股票；9B2a：112天內3個登記名稱橫跨2券商品牌），不再有任何「造市簽名」證據支撐
       - id: H9-LARGEST-SAMPLE-9268-9800
         statement: >
           9268(凱基-台北)/9800(元大HQ代碼)這兩個樣本量遠超既有造市黑名單
           （n=17,759/12,824，最大既有分點8440僅n=4,308）的顯著負向分點，
           代表大型券商總公司具備系統性但微弱的負向選股能力，而非純粹造市/
           綜合流量帳戶
-        status: rejected  # 兩者100%交易日活躍、平均每天觸及1,803/1,412檔股票(近乎全市場，觸及總數2,347/2,019檔)、最活躍股票買賣金額比46.2~51.6%；三年(2024/25/26)×三天期(H7/H14/H20)共48格中位數與勝率全部為負/低於50%，僅mean在長天期因離群值轉正——本質是既有12分點造市簽名的「廣度」極端版本(既有12個是「深度」——集中在少數個股天天出現)，非新現象。建議併入排除清單(agent回傳的recommendation欄位誤標「worth_tracking」，但reasoning本身完整支持exclude，已依內容而非欄位標籤採用reject結論，詳見notes) ｜【H12補充】「觸及近乎全市場=造市簽名」這個論證前提已被H12推翻(9217自己也觸及2,239檔，比9800的2,019檔還多)，不能再當作reject的獨立證據；但reject最終結論本身不受影響——因為48格年度×天期分格中位數/勝率全數為負，這是直接的報酬統計證據，不依賴「是不是造市帳戶」的敘事，兩者維持排除
+        status: rejected  # 兩者100%交易日活躍、平均每天觸及1,803/1,412檔股票(近乎全市場，觸及總數2,347/2,019檔)、最活躍股票買賣金額比46.2~51.6%；三年(2024/25/26)×三天期(H7/H14/H20)共48格中位數與勝率全部為負/低於50%，僅mean在長天期因離群值轉正——本質是既有12分點造市簽名的「廣度」極端版本(既有12個是「深度」——集中在少數個股天天出現)，非新現象。建議併入排除清單(agent回傳的recommendation欄位誤標「worth_tracking」，但reasoning本身完整支持exclude，已依內容而非欄位標籤採用reject結論，詳見notes) ｜【H12補充】「觸及近乎全市場=造市簽名」這個論證前提已被H12推翻(9217自己也觸及2,239檔，比9800的2,019檔還多)，不能再當作reject的獨立證據；但reject最終結論本身不受影響——因為48格年度×天期分格中位數/勝率全數為負，這是直接的報酬統計證據，不依賴「是不是造市帳戶」的敘事，兩者維持排除 ｜【H13 補充】新增一項獨立於報酬統計、也獨立於已撤回的「觸及近乎全市場」論證的證據：兩者規模調整後金額集中度 hhi_res=+0.1849/+0.1868（vs 9217 的 0.0445；全體 830 家中分別排第 23/22，第 97.3/97.5 百分位），是名單內第 7/6 高——它們**不是**分散型帳戶，而是「名目上碰很多檔、錢仍高度壓在權值股上」的大型券商聚合碼。原 note 把它們形容成「廣度極端版本（錢攤很開）」在名目層面正確、在金額層面錯誤
       - id: H10-BRANCH-PAIR-CONSENSUS
         statement: >
           仿照既有 expert_pool 系統的「同股多分點共識」邏輯，用資料驅動方式
@@ -1610,7 +1673,7 @@ topics:
           反過來以「個股優先」切角（對特定股票找歷史戰績最好的分點，而非
           跨股票彙總找哪個分點整體最好）能發現分點整體樣本不夠大、但在
           特定1-2檔股票上有扎實重複優勢的「分點×個股」專屬配對
-        status: contested  # 原判reject（理由見下）；但H12發現用來支持這個reject的entity-level造市檢查，在已知好分點9217自己身上同樣不成立——9699×7769的reject理由可信度需重新評估，見H12
+        status: contested  # 原判reject（理由見下）；但H12發現用來支持這個reject的entity-level造市檢查，在已知好分點9217自己身上同樣不成立——9699×7769的reject理由可信度需重新評估，見H12 ｜【H13 補充】9699 的 hhi_res=0.7398（全體 830 家中排第 3、第 99.8 百分位，僅低於 980T 的 0.7983 一個量級同級者），ns 中位僅 2 檔、日成交金額中位僅 0.04 億——這是未參與門檻校準的獨立一致點，用新的金額口徑判準同樣強烈指向「非一般方向性大戶」。原 reject 靠的 entity-level 名目廣度論證仍維持被 H12 撤回，但 reject 結論本身現在有了一個不依賴該論證的支持。H11 狀態維持 contested（因為 7769 那組 n=9 的報酬統計本身未被證偽），但可信度上調
         # 20檔股票池、17組候選裡僅2組p<0.05，其中9699(富邦經紀)×7769(展宏) n=9 H20 median+13.75%/勝率88.9%/p=0.024曾被列為pending新線索。第四輪深挖用不設門檻的原始stock_broker_branch_daily查證推翻其「僅交易5檔股票、極窄專精」的核心前提：9699實際上觸及416檔股票、12,594筆交易(2024-07~2026-07)。深挖agent依entity-level造市檢查（全勤率74-84%、事件日買方佔比3.7-19.2%、五檔重倉股買賣方向混雜）判定reject，即使7769的n=9統計通過t/Wilcoxon/bootstrap/leave-k-out交叉驗證且leg分解排除「越晚越顯著」假象。但H12（見下）證明同一套entity-level檢查標準套用在9217自己的核心股票上同樣會觸發「造市簽名」（4/7檔買賣比在50/50±3pp內、attendance達61-99%，比9699的4.6-46.1%更高）——這代表這次reject可能是用一個對已知好分點也會誤判的判準做出的，需要重新評估，不能直接視為確定結論。次要候選6696 campaign去重疊後n=4→2方向不一致，維持reject。9875×8358(n=4)與既有負樣本判定矛盾，維持reject。詳見 whale_9699_7769_VERDICT.json
       - id: H12-MARKETMAKER-HEURISTIC-FAILS-ON-CONTROL
         statement: >
@@ -1642,6 +1705,24 @@ topics:
         # 與round3 whale_9699_7769_VERDICT.json報告的74.7%/83.9%等數字不一致——兩次計算
         # 用了不同的分母定義（可能是限定在特定時間窗vs全窗口），代表過去幾輪深挖agent之間
         # entity-level指標的計算口徑並未統一，跨候選比較的可信度也要打折扣。
+      - id: H13-FIREPOWER-CONCENTRATION-REPAIRS-EXCLUSION
+        statement: >
+          H12 打掉的是「名目廣度」判準（全勤率、觸及檔數、買賣比 50/50）。
+          改用「金額口徑集中度」——hhi = Σ(該分點當日各股成交金額²)/(當日
+          總成交金額)²，並對 log(分點規模) 迴歸取殘差 hhi_res——能在不誤殺
+          已知好分點 9217 的前提下，把 market_maker_branch_exclusion_v1.json
+          的 17 家重新識別出來，且誤殺率遠低於名目廣度判準
+        status: passed  # 門檻設在 9217 自身 hhi_res=0.0445（全體第90百分位，即「剛好不誤殺正例」的最鬆位置）時：抓到名單 14/17，全體 830 家中命中 80 家、名單外誤殺 66 家(7.9%)；對照舊的名目廣度判準（ns>9217 的 293 檔）只抓 11/17、誤殺 286 家(34.4%)。三個未參與門檻校準的獨立一致點：9239(高週轉當沖疑慮) 0.1144 抓✓、9699(已reject) 0.7398 抓✓、9801(脆弱但非造市) 0.0086 保留✓。**方向與原假設相反**：排除名單的金額集中度比 9217 高（hhi_res 中位 0.1569 vs 0.0445，17 家有 14 家高於 9217），「造市=分散」的直覺是錯的——外資避險集中在權值股、自營台集中在少數避險標的。規模調整是必要非可選（corr(log規模, hhi) = -0.491）。**passed 的範圍嚴格限定在「判準對名單的 recall 與誤殺率優於舊判準」這件事**，不延伸到「判準經過驗證」——見 H14。全表：reports/research/branch-footprint-screen/branch_firepower_concentration_v1.csv
+      - id: H14-CONCENTRATION-CANNOT-SELECT
+        statement: >
+          金額集中度判準除了能排除機構流量之外，還能正向指認「有 edge 的
+          方向性大戶」（即 hhi_res 低 ⇒ 可能有 edge）
+        status: rejected  # 9661(hhi_res=0.0501, 第91百分位) 與 9227(0.0487, 第91百分位) 兩個已用 live-faithful 訊號+permutation 檢定證實為**乾淨 null** 的分點，與唯一正例 9217(0.0445, 第90百分位) 三者在此指標上完全擠在一起，無法區分。判準只分「機構避險/自營流量 vs 一般經紀流量」，不分「有沒有 edge」。**結論：criterion_v2 只能當 exclusion layer（建候選宇宙前先排掉），絕不可當 selection layer**。另需誠實記錄的校準缺口：門檻是用 n=1（僅 9217 一個已知正例）設定的，「不誤殺已知正例的最鬆門檻」不等於「經驗證的分界」，未來若出現第二個決定性正例應立即重設門檻
+      - id: H15-EXCLUSION-LIST-NOT-ONE-SIGNATURE
+        statement: >
+          market_maker_branch_exclusion_v1.json 的 methodology_note 宣稱
+          「這17個分點都呈現同一種簽名」，此宣稱成立
+        status: rejected  # 資料直接反證：名單內每日觸及檔數跨度 3~544 檔、金額 HHI 跨度 0.0135~0.8845。980T(元大自營：ns=3、hhi=0.8845、規模僅 1.91 億) 與 9268(凱基-台北：ns=544、hhi=0.0143、規模 568.87 億) 在結構上毫無共同點，把兩者描述成同一種現象是錯的。應至少拆成三類（JSON 新增 branch_type 欄位）：concentrated_prop_hedge 自營/避險台（980T/8890/8900/9216，ns≤200 且 hhi≥0.07，共4家）、mixed_foreign_desk 外資desk（1590，ns≥250 但 hhi≥0.07，共1家）、broad_omnibus_brokerage 綜合經紀流（其餘12家，ns≥250 且 hhi≤0.05）。此三類的共同點只有「排除它們對候選篩選有益」這個操作性結論，不是同一種統計簽名。**「同一種簽名」的敘述已從 methodology_note 撤回**
     methodology: >
       L1H7 協議（SSOT：scripts/research/build_expert_pool_trade_knowledge.py）：
       進場＝訊號日次一交易日開盤；出場＝進場起算第7個交易日收盤；成本30bps；
@@ -1908,12 +1989,59 @@ topics:
       配置前累積更多樣本外交易以防範small-n的結構性風險（例如整個
       2024-2026窗口剛好處於某個特定市場regime），但目前證據已經比先前
       任一輪都更支持「9217具備真實可跟單edge」這個假說。
+
+      【第九輪：金額口徑火力集中度重檢排除名單（2026-08-09）】背景：H12 打掉
+      market_maker_branch_exclusion_v1.json 所倚賴的三個名目廣度判準後，這份
+      名單處於「暫時可信但論證基礎不夠強」的懸置狀態，需要一個獨立判準來決定
+      是留、是拆、還是重建。新增 scripts/research/branch_firepower_concentration_
+      mm_recheck.py：對 830 家 ≥60 交易日的分點、511 個交易日窗口，算每日
+      hhi（金額赫芬達指數）、top1_share、net_ratio，取分點中位數，再對
+      log10(日成交金額中位數) 線性迴歸取殘差（corr(log規模, hhi) = -0.491，
+      不調整規模會系統性把大分點誤判成分散）。全表輸出
+      reports/research/branch-footprint-screen/branch_firepower_concentration_v1.csv。
+
+      關鍵結果（門檻 = 9217 自身 hhi_res = 0.0445，即「剛好不誤殺唯一已知
+      正例」的最鬆位置，9217 位於全體第 90 百分位）：
+      - 金額 HHI 殘差判準：抓到名單 14/17，全體命中 80 家，名單外誤殺 66 家(7.9%)
+      - 舊的名目廣度判準（每日觸及檔數 ns > 293）：只抓 11/17，誤殺 286 家(34.4%)
+      - **方向與原假設相反**：名單 hhi_res 中位 0.1569 遠高於 9217 的 0.0445，
+        17 家有 14 家高於 9217。「造市/綜合流量 = 錢攤得很分散」這個直覺是錯的
+        ——外資避險集中在少數權值股、自營台集中在少數避險標的，反而是 9217
+        這種方向性大戶的錢攤得比它們平均。
+      - 三個未參與門檻校準的獨立一致點：9239(高週轉當沖疑慮)0.1144 抓✓、
+        9699(已reject)0.7398 抓✓、9801(脆弱但非造市)0.0086 保留✓。
+
+      **必須誠實記錄的兩個限制**（見 H14）：(1) 只有 1 個已知正例，用 n=1
+      校準門檻不算驗證，正確描述是「對已知正例不誤殺的最鬆門檻」；(2) 此判準
+      只分「機構避險/自營流量 vs 一般經紀流量」，**不分有沒有 edge**——9661
+      (0.0501) 與 9227 (0.0487) 兩個已用 permutation 檢定證實的乾淨 null 跟
+      9217 (0.0445) 三者擠在同一位置。**結論：它是 exclusion layer，不是
+      selection layer**；hhi_res 高可以排除，hhi_res 低不能拿來選分點。
+
+      **同時撤回一項既有敘述**（見 H15）：原判 JSON methodology_note 稱
+      「這17個分點都呈現同一種簽名」；本次發現名單內 ns 跨度 3~544、hhi 跨度
+      0.0135~0.8845，980T(ns=3/hhi=0.8845/規模1.91億) 與 9268(ns=544/
+      hhi=0.0143/規模568.87億) 結構上毫無共同點；結論修正為「至少三種機構
+      型態，共同點只有排除有益這個操作性結論」。已在 JSON 加 branch_type
+      分類（concentrated_prop_hedge 4 家 / mixed_foreign_desk 1 家 /
+      broad_omnibus_brokerage 12 家）。連帶降級的既有敘述：9216 note 的
+      「117檔股票高度分散」（實際 hhi=0.0719 > 9217 的 0.0578，比 9217 集中）、
+      9268/9800 的「廣度極端版本、錢攤很開」（實際 hhi_res 第 97 百分位）、
+      9B2a/5852 的「觸及近乎全市場」作為排除理由——四者均撤回為描述性事實，
+      排除結論本身改掛各自的報酬統計證據與 hhi_res。
+
+      **名單成員本輪不變更**（仍 17 家），但證據強度分層：980C(-0.0145，第 51
+      百分位)、5852(+0.0096，第 76 百分位)、9B2a(+0.0440，near-miss 差 0.0005
+      且樣本僅 122 日) 三家新判準不支持，其留名單完全靠各自獨立的報酬統計
+      瑕疵；建議 980C 下一輪重測後考慮降級為 watch。JSON 已 bump 至 v1.1 並加
+      criterion_v2 區塊。**不建議**用 hhi_res 新增/刪除名單成員：66 家名單外
+      命中者未經逐一深挖，直接擴充等於用 n=1 校準的門檻做批量判決。
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
         G2_oos_holdout: weak_pass  # 第五輪月度panel regression結論(無edge)已被證實用錯訊號定義；第六輪t-test/Wilcoxon為weak_pass等級；第七輪permutation檢定(median p<0.0001, mean p≈0.005-0.008, 20000次×3 seed皆穩定)證據強度明顯更高，但仍維持weak_pass而非passed，因n=36本身樣本量偏小、OOS期與分點自身交易量成長仍有confound，需要更多樣本外時間驗證才升級
         G3_regime_stratification: na
-        G4_rejection_registry: passed  # 779Z/920F/9239/9216/9B2a/5852/9268/9800/consensus_pairs/9699x7769/6696/6831 均明確拒絕並記錄理由
+        G4_rejection_registry: passed  # 779Z/920F/9239/9216/9B2a/5852/9268/9800/consensus_pairs/9699x7769/6696/6831 均明確拒絕並記錄理由 ｜第九輪追加：H14（集中度不能當 selection layer）、H15（「同一種簽名」宣稱）兩項明確 reject 並記錄理由
         G5_frozen_spec: na
         G6_adoption_report: na
       action: >
@@ -1966,7 +2094,7 @@ topics:
           sector_return + market_return，cluster-robust SE，walk-forward
           IS/OOS）控制產業與大盤共同因子後，仍具統計顯著且經濟顯著的
           正向 forward excess return
-        status: contested  # 【已於下方H2查證完live-faithful訊號後，此H1改為聚焦9217本身】原判rejected（月度panel regression：signal係數控制產業/大盤後不顯著）。但2026-07-28於whale-branch-l1h7-discovery topic發現：該月度panel regression的`monthly_net_signal()`訊號定義是「整月無條件加總淨買賣股數」（股票篩選僅「總買進交易日≥20天」流動性門檻，無集中度/金額門檻），跟songshan-copytrade實際live交易的訊號（scan_5d_net95：滾動5交易日buy_5d≥5000萬且net_ratio≥0.95）完全是兩回事，會被同月其他客戶零散流量稀釋掉。用真正live訊號定義重測（n=36, 2024-07~2026-07）：全樣本mean+5.66%/median+6.28%/勝率66.7%/t_p=0.0426但Wilcoxon p=0.0668不顯著、去除前3大極端值後t_p升至0.239顯著性消失、OOS(n=31)t_p=0.037但IS(n=5)樣本太薄且IS/OOS切分被9217自身交易量2024→2026成長4倍混淆。**2026-07-28再更新**：用permutation/placebo檢定（src/research/branch_signal_validation.py，控制同股票隨機時機的null分布，不依賴t分布假設）重新評估，單尾經驗p值 mean≈0.005-0.008、median≈0.00000-0.00005（3個seed×20000次置換皆穩定）——比t-test更決定性支持9217有真實時機選擇能力。狀態維持contested非passed（n=36仍偏小），但證據強度已比先前任一輪都更支持這個假說成立。詳見whale_9217_5dnet95_summary.json、whale_9217_permutation_test_result.json
+        status: contested  # 【已於下方H2查證完live-faithful訊號後，此H1改為聚焦9217本身】原判rejected（月度panel regression：signal係數控制產業/大盤後不顯著）。但2026-07-28於whale-branch-l1h7-discovery topic發現：該月度panel regression的`monthly_net_signal()`訊號定義是「整月無條件加總淨買賣股數」（股票篩選僅「總買進交易日≥20天」流動性門檻，無集中度/金額門檻），跟songshan-copytrade實際live交易的訊號（scan_5d_net95：滾動5交易日buy_5d≥5000萬且net_ratio≥0.95）完全是兩回事，會被同月其他客戶零散流量稀釋掉。用真正live訊號定義重測（n=36, 2024-07~2026-07）：全樣本mean+5.66%/median+6.28%/勝率66.7%/t_p=0.0426但Wilcoxon p=0.0668不顯著、去除前3大極端值後t_p升至0.239顯著性消失、OOS(n=31)t_p=0.037但IS(n=5)樣本太薄且IS/OOS切分被9217自身交易量2024→2026成長4倍混淆。**2026-07-28再更新**：用permutation/placebo檢定（src/research/branch_signal_validation.py，控制同股票隨機時機的null分布，不依賴t分布假設）重新評估，單尾經驗p值 mean≈0.005-0.008、median≈0.00000-0.00005（3個seed×20000次置換皆穩定）——比t-test更決定性支持9217有真實時機選擇能力。狀態維持contested非passed（n=36仍偏小），但證據強度已比先前任一輪都更支持這個假說成立。詳見whale_9217_5dnet95_summary.json、whale_9217_permutation_test_result.json。**2026-08-08第八輪（A7多重比較校正+BUG-3/A2 volume-confound多fold重測）**：針對「9217是從多分點候選篩出來的最佳者，permutation p值未校正」與「IS/OOS切分被9217自身交易量成長混淆」兩個缺口正式補測，結論對H1皆為淨正面但仍不足以passed——BH-FDR（N=4，即真正用同protocol測過的9217/9661/9227/9801家族）校正後9217是唯一mean(q=0.0121)與median(q=0.0002)雙統計量都通過的候選；把n=36交易改用buy_5d切3個非時序volume tercile（各12筆、日期橫跨全期）測試，方向100%為正、median-based p在3個tercile全部顯著(0.026/0.006/0.023)，證明先前的正向結果不是單純volume-growth confound的假象。但mean統計量在最大成交量tercile及最早兩個時序quartile不顯著，且用N=774（round3全分點宇宙）做的非正式worst-case下界顯示mean-based p禁不起「若真對全宇宙都跑這方法」的最壞情境（corrected≈98.9%），median-based則勉強撐住（≈3.8%）——這個N=774情境從未真正執行，只是敏感度參考非正式校正。完整推導與數字見下方notes【第八輪】段落與whale_9217_volume_stratified_fold_audit.json。 ｜【2026-08-09】9661 hhi_res=0.0501（第 91 百分位）與 9217 的 0.0445（第 90）幾乎相同，佐證兩者是同型態分點、差異在時機選擇能力而非帳戶性質；此觀察不改變本 topic 的任何既有結論（archived 狀態維持）。
       - id: H2-9661-PERSONAL-EDGE
         statement: >
           陳族元（9661富邦新店）比照 H1 同一方法論（身分查證 + 習慣分析 +
@@ -2092,10 +2220,78 @@ topics:
       任何分點層級的統計手法解決，需要個人身分層級的乾淨交易資料才能
       真正驗證。12個月長天期OOS因資料窗口不足是唯一仍待補的角度，需要
       更長的OOS資料窗口（目前僅10個月）才能補測，非本輪方法論能解決。
+
+      【第八輪：A7多重比較校正 + BUG-3/A2 volume-confound多fold重測
+      （2026-08-08）】研究誠信檢查（docs/research-integrity-checklist.md）
+      指出H1-9217-PERSONAL-EDGE的permutation p值（mean≈0.005-0.008、
+      median<0.0001）有兩個未補的缺口：(a) A7多重比較——9217是從多個
+      分點候選裡篩出來的「最後站得住的那一個」，但p值從未針對這個篩選
+      過程做校正；(b) IS(n=5)/OOS(n=31) walk-forward切分被9217自身
+      交易量2024→2026成長約4倍混淆（本輪實測corr(signal_date,buy_5d)=
+      +0.347），先前只承認這個confound存在，從未拆解過。本輪針對兩者
+      分別補測，皆使用src/research/branch_signal_validation.py既有
+      permutation_test()（未新造演算法），對data/stocks.db僅讀取。
+
+      (A) 多重比較校正：真正用「scan_5d_net95 + L1H7 + permutation」
+      同一套protocol正式測試過的候選家族只有4個——9217/9661/9227/9801
+      （見known-whale-branch-live-signal-validation topic）。逐兩兩比對
+      這4個分點的觸發事件(stock_id, signal_date)，**exact key重疊=0**
+      （36/36/114/31筆事件無一天同股同時觸發，僅各自候選股票池有
+      4-11檔重疊），與H10「好分點各自獨立行動」的既有結論一致——候選
+      間統計上近乎獨立，不需要chip-macro那種相關性Monte Carlo模擬；
+      用Benjamini-Hochberg FDR（N=4, α=0.05）做校正，比naive Bonferroni
+      更不會過度保守，也比硬套相關性調整更誠實（因為經驗證相關性本來
+      就趨近0）。結果：mean統計量下9217(q=0.0121)與9801(q=0.0121)都
+      通過BH-FDR；median統計量下**只有9217(q=0.0002)通過，9801
+      (q=0.1665)未通過**——與9801既有「mean/median不一致、去極值後mean
+      翻負」的脆弱標籤完全吻合，9217是4個正式候選裡唯一雙統計量都
+      通過的。另外用一個**明確標註為非正式敏感度參考、不是正式校正**
+      的worst-case下界（假設scan_5d_net95方法真的被套用到round3全
+      分點宇宙774個分點且彼此獨立，用1-(1-p)^N估算）：median-based
+      p_median≈0.00005在N=774下corrected≈3.8%，勉強仍<5%；mean-based
+      p_mean≈0.00585在N=774下corrected≈98.9%，完全無法存活。這個
+      N=774情境從未真正執行（scan_5d_net95從未在774分點全宇宙尺度
+      重跑，屬於明確待補項，不能當作正式校正結果引用），但已足以說明
+      mean統計量的顯著性禁不起「若真對整個分點宇宙都跑這方法」的最壞
+      情境，median統計量相對耐得住。
+
+      (B) volume-confound直接測試：把9217既有n=36筆交易
+      （whale_9217_5dnet95_trades.csv）改用buy_5d（而非signal_date）
+      排序，切成3個「跨時間」的volume tercile（各12筆，日期橫跨
+      2025-02~2026-06，非集中單一時段）；另切4個純時序quartile（各9筆）
+      作對照。兩套fold各自重跑同一套permutation檢定（詳見
+      whale_9217_volume_stratified_fold_audit.json）。結果：3個volume
+      tercile的r_adj_pct**方向全部為正**（mean+6.6%/+7.9%/+2.5%，
+      median+4.5%/+7.3%/+4.8%），median-based permutation p在三個
+      tercile**全部顯著**（0.026/0.006/0.023，皆<0.05）；mean-based
+      僅在最大成交量tercile不顯著（p=0.284，其餘0.037/0.015顯著）。
+      4個時序quartile方向同樣全部為正，但只有較晚兩個quartile
+      （2026-03起）median/mean同時顯著，最早兩個quartile
+      （2025-02~2026-02）皆不顯著——與原始「效果集中在2026年」的
+      觀察一致。**結論**：把成交量與時間解耦後，正向方向在7個獨立
+      fold中100%一致，median-based顯著性在3個volume tercile（而非只
+      集中在高volume/晚期那一段）全部站得住，證明先前的正向結果不是
+      單純「IS/OOS切分剛好被volume成長混淆」的假象；但顯著性本身仍
+      集中在較晚時段與中小成交量區間，最大單筆成交量、最早期交易的
+      證據都偏弱，且每個fold僅n=9~12，不能宣稱「任何時段任何量體都
+      顯著」。
+
+      【本輪誠實結論】兩項先前明確承認但未補測的缺口，本輪都用可重現
+      的正式方法補上，補測結果對H1皆為**淨正面**：BH-FDR校正後9217
+      仍是唯一雙統計量通過的候選；volume去confound後方向100%一致、
+      median顯著性撐過3個獨立volume切法。但**不足以升級為passed**：
+      (1) n=36本身仍偏小，各fold只有9-12筆；(2) mean統計量在「全宇宙
+      暴露」最壞情境假設下無法存活，而這個假設從未被正式排除（待補）；
+      (3) H3（分點=全客戶流量聚合，非單一大戶乾淨代理）這個結構性
+      限制完全未被本輪觸及，依然成立；(4) 顯著性仍集中在較晚時段/
+      中小成交量區間，不是全樣本均勻顯著。**H1維持contested**，但這是
+      第一次針對A7多重比較與volume-confound做過正式、可重現、留有
+      artifact（whale_9217_volume_stratified_fold_audit.json）的補測，
+      而非僅靠敘述帶過；證據方向與可信度較前七輪更穩固。
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: passed  # 月度panel regression + 延伸驗證均walk-forward IS/OOS，OOS只跑一次；12個月天期OOS因窗口不足(僅10個月)為na非passed
+        G2_oos_holdout: passed  # 月度panel regression + 延伸驗證均walk-forward IS/OOS，OOS只跑一次；12個月天期OOS因窗口不足(僅10個月)為na非passed。2026-08-08第八輪補做3個volume tercile+4個時序quartile共7個獨立fold（BUG-3/A2要求的≥3 fold），非單一70/30切分
         G3_regime_stratification: na  # 月度樣本數不足以再切regime
         G4_rejection_registry: passed  # H1/H2/H3/H4 均reject並記錄理由
         G5_frozen_spec: na
@@ -2121,10 +2317,29 @@ topics:
 
         H3（分點=全客戶流量聚合，非單一大戶乾淨代理）不受上述修正影響，
         結構性限制依然成立。H4尚未用live-faithful訊號重跑，同樣待補。
-        songshan-copytrade（9217）已核實目前非live（2026-07-28 SSH確認
-        DRY_RUN=1/AUTO_SUBMIT=0），無資金曝險急迫性，建議維持現狀待
-        更多樣本外交易累積，不建議貿然停用也不建議因訊號轉強就立即加碼。
-        12個月天期OOS驗證因資料窗口不足仍是open item。
+        songshan-copytrade（9217）已核實目前非live（2026-07-27
+        `config/job_registry.yaml`：songshan-copytrade-poll
+        `status: disabled`；`config/order.yaml` songshan-copytrade區塊
+        `dry_run: true`；2026-08-08本輪再次核對job_registry確認同樣
+        disabled），無資金曝險急迫性，建議維持現狀待更多樣本外交易
+        累積，不建議貿然停用也不建議因訊號轉強就立即加碼。12個月天期
+        OOS驗證因資料窗口不足仍是open item。
+
+        **2026-08-08第八輪（A7多重比較+volume-confound補測）更新**：
+        BH-FDR（N=4，9217/9661/9227/9801真正同protocol測試家族）校正
+        後9217仍是唯一mean(q=0.0121)與median(q=0.0002)雙統計量都通過
+        的候選，9801僅mean通過（q=0.0121）但median未過（q=0.1665，
+        與其既有「mean/median不一致」脆弱標籤吻合）。把n=36交易改用
+        buy_5d切3個非時序volume tercile重測，方向100%為正、
+        median-based p在3個tercile全部顯著；4個時序quartile方向也
+        100%為正但只有較晚兩個顯著——確認先前正向結果不是純粹
+        volume-growth confound的假象，但顯著性仍集中在中小成交量/
+        較晚時段，n=9~12/fold仍薄。**證據強度較前七輪更穩固，但H1
+        仍維持contested（非passed）**：sample size與H3結構性限制兩項
+        缺口未解決，且mean統計量在「若對全774分點宇宙都跑此方法」的
+        非正式worst-case情境下無法存活（median可存活但該情境本身
+        從未真正執行）。songshan-copytrade維持現狀建議不變。完整數字
+        見whale_9217_volume_stratified_fold_audit.json。
 
   expert-pool-pools-consensus-reverify:
     title: run_expert_pool_watch.py POOLS（2344/8046/8358三檔股票共識池）方法論體檢
@@ -2148,7 +2363,7 @@ topics:
           （2024-07-01~2026-07-27，比原凍結窗口多10天且用完整歷史重跑
           而非cherry-pick子集）+ permutation/placebo檢定重新驗證後，
           統計顯著性與效果量能維持
-        status: rejected  # 8046池原冠軍IS中位+15.7%(n=8)/OOS中位+32.93%(n=4)；延伸樣本重跑n=13後全樣本mean+4.71%/median+4.88%，t_p=0.224、wilcoxon_p=0.376完全不顯著，去除top5極端值後mean翻負。8358池原冠軍IS+20.6%/OOS+39.99%；延伸後n=13 mean+8.35%/median+10.88%，permutation median p=0.0002顯著但mean p=0.115不顯著、去除top5後mean翻負(-2.37%)。兩者原冠軍數字明顯是網格搜尋+極小OOS樣本(n=2~6)膨脹出來的，未經得起延伸樣本+permutation檢驗；僅2344池相對一致(延伸後median 5.80%仍略升於舊登記3.59%，但同樣對極端值敏感)
+        status: rejected  # 8046池原冠軍IS中位+15.7%(n=8)/OOS中位+32.93%(n=4)；延伸樣本重跑n=13後全樣本mean+4.71%/median+4.88%，t_p=0.224、wilcoxon_p=0.376完全不顯著，去除top5極端值後mean翻負。8358池原冠軍IS+20.6%/OOS+39.99%；延伸後n=13 mean+8.35%/median+10.88%，permutation median p=0.0002顯著但mean p=0.115不顯著、去除top5後mean翻負(-2.37%)。兩者原冠軍數字明顯是網格搜尋+極小OOS樣本(n=2~6)膨脹出來的，未經得起延伸樣本+permutation檢驗；僅2344池相對一致(延伸後median 5.80%仍略升於舊登記3.59%，但同樣對極端值敏感)。MC校正補充(2026-08-08)：原始P6網格搜尋完整記錄已尋回(reports/research/branch-footprint-screen/fubon_xindian_funnel/p6_grid_8046_8358.json，8358池實際30組mode×floor×policy組合而非24組)，但原始網格只存點估計(median/mean/win%)、從未對每格做顯著性檢定，故無法重建完整BH-FDR(需對30格逐一重跑訊號+permutation才有完整p值向量，本輪未做，列為明確待補缺口，非假裝已校正)。改用保守替代法：對8358冠軍格延伸樣本p值套用Bonferroni k=30校正(α/30=0.00167)——p_median=0.0002仍<0.00167(校正後仍顯著)，但p_mean=0.115本來就不顯著、校正後更不用談，且mean去極值後翻負——與known-whale-branch-live-signal-validation的9801(H2-9801-SONGJIANG-EDGE：p_mean=0.006顯著/p_median=0.083不顯著)同一種「mean/median不一致」紅旗，方向相反(此處median撐住、mean撐不住)，同樣不夠格宣稱穩健edge。8046池t/wilcoxon本就雙雙不顯著，加嚴只會更不顯著，未再重算
       - id: H3-9216-9268-CONSENSUS-FILTERS-NOISE
         statement: >
           9216(凱基-信義)/9268(凱基台北)雖然在單獨/全市場層級被判定為造市
@@ -2156,7 +2371,7 @@ topics:
           ≥2核心分點同時出現」共識規則篩選下，觸發日的行為會顯著偏離它們
           自己的日常造市模式（例如share_of_day_buy顯著升高），代表共識
           規則本身具備過濾造市雜訊、留下真正重要重疊日的能力
-        status: passed  # 9216在8046池共識日(n=13) share_of_day_buy mean=2.34%/median=1.01%，遠高於其平常日(n=282) mean=0.24%/median=0%，Mann-Whitney p=0.0057；9268在8358池共識日(n=13) mean=8.37%/median=6.36%，高於平常日(n=483) mean=4.69%/median=1.29%，p=0.011。兩者方向都支持「共識能過濾造市雜訊」；但結構性查證發現保留：9268在8358單獨就有8.3%(41/496天)天數淨買金額≥1億門檻，13次共識事件裡9268全部100%在場(常態性大額，非稀有訊號)；9216則只在7/13次共識事件在場(其在8046自身也僅14.8%~更低天數觸發門檻，較稀有)——真正的判別力量主要來自9875/9227/9216這類「稀有觸發」分點，9268/統一這類「常態活躍」分點在共識裡角色比較像陪襯而非核心判別依據，此細節尚未能完全排除「9268自身稀有大額日是否真攜帶資訊」的疑慮（8046池整體t/wilcoxon本就不顯著）
+        status: passed  # 9216在8046池共識日(n=13) share_of_day_buy mean=2.34%/median=1.01%，遠高於其平常日(n=282) mean=0.24%/median=0%，Mann-Whitney p=0.0057；9268在8358池共識日(n=13) mean=8.37%/median=6.36%，高於平常日(n=483) mean=4.69%/median=1.29%，p=0.011。兩者方向都支持「共識能過濾造市雜訊」；但結構性查證發現保留：9268在8358單獨就有8.3%(41/496天)天數淨買金額≥1億門檻，13次共識事件裡9268全部100%在場(常態性大額，非稀有訊號)；9216則只在7/13次共識事件在場(其在8046自身也僅14.8%~更低天數觸發門檻，較稀有)——真正的判別力量主要來自9875/9227/9216這類「稀有觸發」分點，9268/統一這類「常態活躍」分點在共識裡角色比較像陪襯而非核心判別依據，此細節尚未能完全排除「9268自身稀有大額日是否真攜帶資訊」的疑慮（8046池整體t/wilcoxon本就不顯著） ｜【2026-08-09 火力集中度補充】9216(hhi_res=+0.0718) 與 9268(+0.1849) 在金額口徑集中度判準下**雙雙被指認為機構流量**，且 9268 位於全體第 97 百分位（830 家中第 23）——這對本假說是**雙面**的：一方面支持「9216/9268 的日常流量確實不是方向性大戶」（強化「共識日與平常日有別」的對比基礎），另一方面也提醒 9268 那種「常態性大額 + 錢仍高度集中在權值股」的型態，其共識日的 share_of_day_buy 升高有可能只是避險部位規模波動而非資訊。原本註記的「9268 在 13 次共識事件裡 100% 在場、比較像陪襯」這個保留，在集中度證據下應**加重**而非減輕。判準本身不分有無 edge（見 whale-branch-l1h7-discovery H14），故此處只能當保留理由、不能當否證
     methodology: >
       沿用whale-branch-l1h7-discovery topic確立的L1H7 SSOT（build_expert_pool_
       trade_knowledge.py：T+1開盤進場/H7收盤出場/30bps成本/β=1.15/vs IX0001）
@@ -2201,7 +2416,7 @@ topics:
     graduation:
       gates:
         G1_preregistered_hypothesis: passed
-        G2_oos_holdout: weak_pass  # 延伸樣本非cherry-pick重跑，但n=13-14仍偏小、去極值後不穩健
+        G2_oos_holdout: weak_pass  # 延伸樣本非cherry-pick重跑，n=13-14仍偏小、去極值後不穩健；8358冠軍格另補Bonferroni k=30保守MC校正，median(p=0.0002)仍<α/30=0.00167存活但mean(p=0.115)本就不顯著，完整30格BH-FDR因原始網格無逐格p值而未能重建，維持weak_pass而非upgrade
         G3_regime_stratification: na
         G4_rejection_registry: passed  # H2 reject並記錄理由；H1/H3 passed但均有保留條件
         G5_frozen_spec: na
@@ -2212,6 +2427,12 @@ topics:
         未能在延伸樣本+permutation檢定下複現）、8358池保留觀測降低優先度、
         2344池維持現狀。9216/9268是否適合留在POOLS核心名單，留待更多樣本
         累積後再決定，本輪證據不足以支持立即剔除也不足以完全排除疑慮。
+        2026-08-08更新：已在scripts/research/run_expert_pool_watch.py把8046/
+        8358 PoolSpec playbook與_pool_from_watch_spec fallback裡的「P6冠軍」
+        字樣改為「P6網格候選」並附加未經MC校正警語（純wording、未動選池/
+        門檻邏輯）。完整30格BH-FDR仍是缺口：原始網格
+        （fubon_xindian_funnel/p6_grid_8046_8358.json）只存點估計、無逐格
+        p值，需重跑訊號＋permutation才能真正做BH-FDR，非本輪範圍。
 
   known-whale-branch-live-signal-validation:
     title: 已知社群公認大戶分點（9227/9801）live-faithful訊號決定性驗證
@@ -2228,13 +2449,13 @@ topics:
           DEFAULT_TRADER_ID_KGI_CHENGZHONG常數）用比照9217的live-faithful
           訊號（scan_5d_net95：滾動5日buy_5d≥0.5億且net_ratio≥0.95）+
           permutation檢定驗證後，具備統計上站得住腳的正向edge
-        status: rejected  # n=114（2024-07~2026-07），全樣本mean+0.72%/median-1.62%(負)/勝率42.1%(低於50%)，t_p=0.540、wilcoxon_p=0.438皆不顯著。IS(n=26)一度看似正向(mean+3.98%,t_p=0.062邊緣)，但OOS(n=88)完全反轉(mean-0.25%,勝率36.4%，比隨機更差)——典型「小樣本IS運氣」型態而非真實訊號延續。permutation檢定：p_mean=0.231、p_median=0.677，遠不顯著，且觀察median本身就落在null分布中位數(-1.28%)以下。去除top3/top5極端值後皆維持負向。四項獨立證據(全樣本不顯著/OOS反轉/permutation不顯著/去極值後仍負)一致指向無edge，是繼9661之後第二個乾淨null result，跟9217形成的對比進一步佐證方法論本身沒有系統性偏誤
+        status: rejected  # n=114（2024-07~2026-07），全樣本mean+0.72%/median-1.62%(負)/勝率42.1%(低於50%)，t_p=0.540、wilcoxon_p=0.438皆不顯著。IS(n=26)一度看似正向(mean+3.98%,t_p=0.062邊緣)，但OOS(n=88)完全反轉(mean-0.25%,勝率36.4%，比隨機更差)——典型「小樣本IS運氣」型態而非真實訊號延續。permutation檢定：p_mean=0.231、p_median=0.677，遠不顯著，且觀察median本身就落在null分布中位數(-1.28%)以下。去除top3/top5極端值後皆維持負向。四項獨立證據(全樣本不顯著/OOS反轉/permutation不顯著/去極值後仍負)一致指向無edge，是繼9661之後第二個乾淨null result，跟9217形成的對比進一步佐證方法論本身沒有系統性偏誤 ｜【2026-08-09 火力集中度交叉檢查】9227 hhi_res=0.0487（全體第 91 百分位），與 9217 的 0.0445（第 90）幾乎相同——這是「集中度判準無法區分有無 edge」的直接證據之一（9227 已被本假說判為乾淨 null，卻與唯一正例同位）。反向意義：9227 的 null 結論**不能**用「它其實是機構流量」來解釋，它在結構指標上跟 9217 是同一種分點，差別純粹在時機選擇能力。詳見 whale-branch-l1h7-discovery H14
       - id: H2-9801-SONGJIANG-EDGE
         statement: >
           9801（元大-松江，`branch_signals.py`已引用為
           DEFAULT_TRADER_ID_YUANTA_SONGJIANG常數）用同一套live-faithful
           訊號+permutation檢定驗證後，具備統計上站得住腳的正向edge
-        status: rejected  # n=31，全樣本mean+4.77%/median+0.75%/勝率64.5%，t_p=0.106不顯著。permutation檢定出現mean/median不一致：p_mean=0.006(顯著)但p_median=0.083(不顯著)——這正是「均值被少數極端值撐起、中位數撐不住」的典型紅旗（比照9216/5852等過去round3候選的教訓）。去除top5極端值後mean直接翻負(-1.16%)。時間分布高度集中：2024(n=7)、2025僅n=1(單一事件不可靠)、2026(n=23)佔74%樣本，效果幾乎全部來自2026年少數事件，樣本代表性存疑。跟9217的permutation結果（mean/median雙雙顯著且去極值後仍正向）形成鮮明對比，判定不具備可信edge，僅算「statistically suggestive但不夠格worth_tracking」，非決定性正向候選
+        status: rejected  # n=31，全樣本mean+4.77%/median+0.75%/勝率64.5%，t_p=0.106不顯著。permutation檢定出現mean/median不一致：p_mean=0.006(顯著)但p_median=0.083(不顯著)——這正是「均值被少數極端值撐起、中位數撐不住」的典型紅旗（比照9216/5852等過去round3候選的教訓）。去除top5極端值後mean直接翻負(-1.16%)。時間分布高度集中：2024(n=7)、2025僅n=1(單一事件不可靠)、2026(n=23)佔74%樣本，效果幾乎全部來自2026年少數事件，樣本代表性存疑。跟9217的permutation結果（mean/median雙雙顯著且去極值後仍正向）形成鮮明對比，判定不具備可信edge，僅算「statistically suggestive但不夠格worth_tracking」，非決定性正向候選 ｜【2026-08-09 火力集中度交叉檢查】9801 hhi_res=0.0086（全體第 76 百分位；17 家排除名單中最低者也有 -0.0145~+0.0440），是四個 live/已知分點中金額最分散者——支持既有判定「9801 脆弱但**不是**造市/機構流量帳戶」，其 rejected 是統計面問題（mean/median 不一致、去 top5 後翻負、樣本集中 2026 年），與分點型態無關
     methodology: >
       沿用whale-branch-l1h7-discovery topic的第六/七輪確立的方法：
       scan_5d_net95 live-faithful訊號定義（滾動5交易日buy_5d≥門檻且
@@ -6176,6 +6397,93 @@ topics:
       2026-07-23 開題並掛 mini 20:35 觀測。證據見 LEADERBOARD_whale100_balanced_n /
       LEADERBOARD_w300x_balanced_n / focus7_enriched。未採納。
 
+  dayflip-futures-short:
+    title: 隔日沖倒貨對做 · 個股期貨 08:45 放空 Final v1（凍結待前推）
+    status: frozen
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/branch-footprint-screen/dayflip_gapup_short
+    spec: reports/research/branch-footprint-screen/dayflip_gapup_short/FROZEN_SPEC_V1.json
+    knowledge: reports/research/branch-footprint-screen/dayflip_gapup_short/GAPUP_SHORT_SIZING.md
+    run_scripts:
+      - scripts/research/run_dayflip_gapup_short_sizing.py
+      - scripts/research/run_dayflip_futures_0845_entry.py
+      - scripts/research/run_dayflip_futures_intraday_cover.py
+      - scripts/research/run_dayflip_accumulation_exclusion.py
+      - scripts/research/run_dayflip_forward_test.py
+    frozen_at: 2026-08-07
+    hypotheses:
+      - id: H-DFS-1
+        statement: >
+          隔日沖傾向分點於 T0 大額買進（>=0.3億）後，若該股個股期貨於 T+1 08:45
+          相對 T0 期貨收盤跳空 >=6%，則放空該期貨、掛 −2% 限價回補
+          （未觸價則 13:45 平倉），在「排除建倉中席位（60日 net_ratio>=0.3）
+          且至少 1 席 PIT flip>=0.4」的條件下，日層級中位報酬 > 0 且日勝率 >= 70%。
+        status: proposed
+        adoptable_status: proposed
+        evidence: >
+          IS 2024-07~2026-07-08：62 訊號日 / 165 筆 / 日均 +0.999% / 日中位 +1.95%
+          / 日勝率 80.6% / t=5.03。PIT 版（席位沖分用擴張窗）為 55 天 / 日均 +0.969%
+          / t=4.67。成本 5bps。
+      - id: H-DFS-2
+        statement: >
+          個股腿本身（不含指數對沖腿）在加入「盤中 −2% 限價回補」後即可獨立成立。
+        status: passed
+        evidence: >
+          目標2%：事件中位 +1.95%、日中位 +1.807%、日勝率 80.4%、t=4.92；
+          對照收盤平倉的個股腿中位為 −0.00%。IS 勝率 80.0% vs OOS 80.4%。
+      - id: H-DFS-3
+        statement: 席位的隔日沖傾向可作為訊號信心權重
+        status: passed
+        evidence: >
+          24 席 flip 中位 vs 策略平均報酬 Pearson 0.509、vs 勝率 0.604（n=19 席）。
+          「至少 1 席 PIT flip>=0.4」勝過「席數>=3」（55 天 vs 51 天、t 4.67 vs 4.14）。
+      - id: H-DFS-4
+        statement: 排除建倉中的席位可提高剩餘席位的隔日沖純度並改善績效
+        status: passed
+        evidence: >
+          留下席位平均 flip 0.362→0.376；疊加後席數>=3 的日均 0.912→1.082、
+          勝率 80.8→84.1、t 4.19→5.13。系統性偵測獨立命中使用者手工指定的
+          9217×6147（net_ratio 0.939）與 9217×2337（買進 60.66 億）。
+    do_not:
+      - 凍結後不得再調任何門檻（0.3億／800口／6%／−2%／0.30／0.40）— 要改就是 v2 並重啟前推期
+      - 不得裸空不對沖也不設盤中回補（gap>=7% 日中位 −0.27%、勝率 46%）
+      - 不得設價格停損或時間停損（實測皆使期望值變差）
+      - 不得建個股或席位黑名單（最差者皆為單期樣本內挑選，IS/OOS 不一致）
+      - 不得用 fgap 當過濾（應用於部位大小：headroom=(10−fgap) 反比）
+      - 不得引用美股隔夜訊號（SOX/SMH/TSM_ADR/SPY/NVDA 皆為乾淨 null；ES/NQ 為單月叢集雜訊）
+      - 不得用現股當沖執行（18.5% 鎖漲停無法回補＝違約交割）
+      - 未過 G2 前不得寫入 strategy.yaml / order.yaml，不得裝 launchd
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed   # FROZEN_SPEC_V1.json 2026-08-07
+        G2_oos_holdout: pending               # 前推 >=40 訊號日、日中位>0、日勝率>=70%
+        G3_regime_stratification: pending     # R1/R2 overlay 平行記錄中
+        G4_rejection_registry: passed         # spec 內 rejected_and_do_not_retry 共 10 條
+        G5_frozen_spec: passed
+        G6_adoption_report: pending
+    forward_test:
+      start: 2026-07-09
+      rationale: >
+        events.json 因 IX0001 benchmark 覆蓋止於 2026-07-08，2026-07-09 之後的資料
+        在整個調參過程中完全未被讀取，構成真實 holdout。
+      pass: 訊號日>=40 且 日中位>0 且 日勝率>=70% 且 日均>0.5%
+      fail_action: 降級 rejected，不得再調參搶救
+    notes: >
+      2026-08-07 凍結。同日修訂（未改門檻）：新增 regime_precondition（連續 3 個月
+      訊號=0 即判定 regime 結束、暫停而非調參）；補齊 355 檔期貨標的日線後做宇宙
+      敏感度測試（229→326 檔，62天/日均0.999%/t5.03 → 66天/日均1.005%/t5.32，通過）。
+      ⚠️ 2026-07 候選 130 筆但 >=6% 跳空 0 筆、最大僅 5.04%，波動已在收斂。
+      ⚠️ stock_daily_bars 的 finmind 來源非全市場（補齊前 676 檔／每日 174~375 檔），
+      本線補齊後為 773 檔；此限制影響所有讀該表的研究，見
+      docs/research-integrity-checklist.md A14/A15。2026-08 起 ingest 退化到 116 檔/日未解。
+      研究歷程見 GAPUP_SHORT_SIZING.md（§五-A~五-I）。
+      關鍵轉折：(1) 進場改用個股期貨 08:45 而非現貨 09:00，個股腿中位由 −0.300%
+      轉為 +0.431%；(2) 盤中 −2% 回補取代收盤平倉，個股腿脫離「全靠指數腿」；
+      (3) 席位沖分與建倉排除取代個股/席位黑名單。
+      已知弱點：IS 訊號日僅 62 天且 79% 集中在 2026 上半年；候選標的用 2026-07
+      量能粗篩（倖存者偏誤）；五層過濾的門檻皆在同一份資料上挑選。
+
   tmf-match-price-improvement:
     title: TMF 撮合價優於限價（gap-through price improvement）
     status: graduated
@@ -6441,6 +6749,137 @@ topics:
       本主題「單一即時公式取代 night×0.5 且夜盤不傷」仍未達成；固定 ×0.5
       仍是夜盤口寬的務實 SSOT。獨立日盤調參 hang_hi 下修已另開
       **tmf-hang-hi-day-tighten**（勿再混進本主題）。
+
+  tx-channel-amp-persistence:
+    title: TX 通道 · 振幅延續性診斷 + 用即時振幅縮放通道/buffer 寬度
+    status: rejected
+    phase: closed
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/tmf_newsignal/amplitude_persistence_ic.py
+      - scripts/research/tx_channel_amp_persistence_drivers.py
+      - scripts/research/tx_channel_amp_persistence_drivers2.py
+      - reports/research/channel_lab/struct_atr_buffer_amp_scaled_lab.py
+    hypotheses:
+      - id: H-AMP-PERSIST-RAW
+        statement: >
+          1分K振幅（ATR／RV）在5/30/120分鐘尺度上存在lag-1序列相關性（今天振幅
+          高，下個窗口大機率還是高），日夜盤皆然。
+        status: passed
+        evidence: >
+          750天（2023-07-03～2026-08-06）582日tick重建資料：lag-1 Spearman IC
+          全組合0.49～0.94（ATR普遍比RV更持續，5min尺度最強），5-fold causal IC
+          同號一致（5/5 fold），HAC rank regression全部p<0.05（多數p≈0，t值
+          50～700）。去季節化（扣掉日內U型輪廓）後IC仍0.39～0.93，確認不是純粹
+          時段效應。見
+          reports/research/tmf_newsignal/amplitude_persistence_ic_result.json。
+      - id: H-AMP-PERSIST-DECAY-DRIVERS
+        statement: >
+          若振幅持續性在~90-180分鐘後衰減／反轉，可用時段、方向、趨勢強度等
+          變數解釋衰減原因，作為動態調整通道寬度的依據。
+        status: pending
+        evidence: >
+          drivers.py／drivers2.py 已跑過（有編譯後的 __pycache__）但沒有留下
+          可引用的結果 json，僅有原始碼——本輪整理歸檔沒有找到可驗證的產物，
+          不採信任何口頭結論，狀態維持 pending。要用的話需重跑並落地結果檔。
+      - id: H-AMP-WIDTH-SCALE
+        statement: >
+          用即時（causal）振幅分數縮放 struct_break 的 ATR buffer／通道寬度，
+          OOS 應優於固定倍數。
+        status: rejected
+        evidence: >
+          2個獨立OOS折：fold2(octdec25,62天) amp−fixed mean=+16.0pt/日
+          (t=1.17,不顯著)，amp−struct_disabled mean=−35.5pt/日(t=−1.72)；
+          fold3(julsep25,65天) amp−fixed mean=+0.2pt/日(t=0.04,不顯著)，
+          amp−struct_disabled mean=−25.1pt/日(t=−1.48)。即時振幅縮放跟固定
+          倍數統計上無差異，兩者都輸給「乾脆不用這個機制」。與已關閉的
+          tmf-hang-band-realtime-range（即時振幅取代 night×0.5 固定通道寬度，
+          五個假說全rejected）方向完全一致，屬第二次獨立驗證同一結論。見
+          reports/research/channel_lab/struct_atr_buffer_amp_scaled_significance_result.json。
+    do_not:
+      - 拿 H-AMP-PERSIST-RAW 的高IC當成「所以可以拿振幅做通道寬度公式」的
+        證據——序列相關性存在跟「拿來調寬度會贏」是兩件事，H-AMP-WIDTH-SCALE
+        已經直接測過且失敗
+      - 引用 drivers.py/drivers2.py 任何具體結論——沒有留下可驗證的產物
+      - 跟 tmf-hang-band-realtime-range 重複開一次即時振幅通道寬度研究——這條
+        路已經兩次獨立證據都指向「固定倍數贏」
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-06～09 產物，事後補登記（原本散在 scripts/research/ 沒有寫進
+      research.yaml，本次整理歸檔＋補齊 hypothesis 結構）。振幅本身的序列
+      相關性是真的、證據扎實，但「拿振幅即時調通道/buffer寬度」這條應用路徑
+      連續兩次被獨立驗證打回票（本主題 + tmf-hang-band-realtime-range）。
+      唯一還有實質意義的延伸是把振幅／成交量異常度當「進場品質濾網」，另開
+      **tx-channel-amp-uncertainty-gate** 追蹤（不是寬度公式，是要不要進場
+      的濾網）。
+
+  tx-channel-amp-uncertainty-gate:
+    title: TX 通道 · struct_break 進場用振幅／成交量異常度（Mahalanobis）濾網
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - scripts/research/tx_channel_amp_vol_uncertainty_struct_gate.py
+    hypotheses:
+      - id: H-AMP-UNC-GATE
+        statement: >
+          用（振幅30、成交量30）配對相對近期trailing分布的Mahalanobis「反常度」
+          分數，過濾struct_break進場——低反常度（貼近近期常態）的進場應優於
+          高反常度的進場。
+        status: passed
+        evidence: >
+          79個交易日、三組trail/percentile設定（30d/50百分位、30d/75百分位、
+          50d/75百分位），低反常組 vs 高反常組日均pnl差距分別為+37.8／
+          +38.7／+43.2pt/日，日聚類t=5.87～7.22，p<0.0001。per-day
+          IC(反常度,pnl)穩定負相關（≈−0.36～−0.37，p≈0）。⚠️關鍵、容易被
+          忽略的一點：兩組（低/高反常度）本身的日均pnl**都是負的**（例如
+          50d/75百分位組：低反常−51.7pt/日、高反常−94.8pt/日）——濾網只是
+          「讓一個本來就在虧錢的struct_break機制少虧一點」，不是把它變成
+          賺錢策略。見
+          reports/research/channel_lab/tx_channel_amp_vol_uncertainty_struct_gate_rerun_20260808.json。
+      - id: H-AMP-UNC-FORECAST-MEDIATION
+        statement: >
+          反常度分數的預測力來自它真的能預測「振幅/成交量預測誤差變大」
+          （即典型的波動率預測不確定性）。
+        status: rejected
+        evidence: >
+          Step1 IC(Mahalanobis, 未來預測殘差)僅0.023，n=235天，t=1.42，
+          p=0.156，不顯著——反常度分數對pnl的預測力不是透過「預測較不準」
+          這條機制傳導，是抓到別的東西（跟近期典型振幅/成交量狀態的距離
+          本身）。
+    do_not:
+      - 拿「低反常組贏高反常組」宣稱找到新的獲利來源——兩組本身都虧錢，這是
+        濾網不是alpha
+      - 跳過G2/G3直接接進 order 層——目前只有IS診斷+一次bug修復後的重跑，
+        沒有真正的walk-forward/獨立OOS
+      - 忽略 tx_channel_amp_vol_uncertainty_struct_gate.py import
+        order.tmf_channel_config 這件事——research 腳本 import src/order/
+        違反 CLAUDE.md import 規則第1條，要接下去做之前必須先解掉這個依賴
+        （複製需要的 recipe 常數，不要 import order 模組）
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+    notes: >
+      2026-08-08 產物，事後補登記。誠實框架：這是「讓已知虧錢的struct_break
+      機制少虧一點」的濾網候選，不是新edge；struct_break本身已被
+      tmf-structbreak-campaign圍剿~120個變體全滅（見同名memory）。若要繼續，
+      下一步是（1）解掉src/order/ import違規、（2）真正的walk-forward OOS、
+      （3）想清楚「讓一個負期望值機制虧少一點」對整體策略組合有沒有實質
+      意義——現在還早，不建議投入更多資源除非有更強的理由。
 
   tmf-hang-hi-day-tighten:
     title: TMF 通道 · 日盤 hang_hi 收緊（35／40）graduation
@@ -7056,3 +7495,2771 @@ topics:
       跨市場資料causal對齊規格見 crossmarket_data_causal_spec.md（同日產出，
       含美股RTH落在TX夜盤時段內、需用連續期貨而非現貨收盤價、日光節約時間
       每年造成兩次時差跳動等關鍵風險，皆已在本輪正確處理，未重蹈C[t] bug）。
+
+  tmf-post-channel-signal-sources:
+    title: TMF 跳出通道框架 — 全新訊號來源探索
+    status: active  # 2026-08-07 開線；tmf-slow-pattern-cell(ZigZag+通道)與tx-donchian-multiwindow-channel(Donchian/LRC)兩個通道框架皆已窮盡rejected後，改找完全不同的訊號來源
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/tmf_newsignal
+    run_scripts:
+      - reports/research/tmf_newsignal/foreign_oi_z60_next_day_direction.py
+      - reports/research/tmf_newsignal/day_close_to_night_session_effect.py
+      - scripts/research/tmf_newsignal/study_night_vixtwn_dayahead.py
+      - reports/research/tmf_newsignal/build_orderflow_panel.py
+      - reports/research/tmf_newsignal/orderflow_ic_backtest.py
+    hypotheses:
+      - id: H-NS-FOREIGN-OI-GATE
+        statement: >
+          前一交易日收盤後可得的外資期貨未平倉部位60日z-score
+          （fut_foreign_oi_z60，champion因子），能不能當方向性條件，
+          預測隔日台指(TX/TMF)日盤(08:45-13:45)open-to-close走勢方向。
+        status: rejected  # 2/2審查通過；5摺IC僅3/5同號、HAC全不顯著、shuffle placebo證實與隨機無異
+        evidence: >
+          先查證這是全新測試、非重複造輪子：fut_foreign_oi_z60 既有主線
+          出處是 reports/research/chip-macro/RESEARCH_LOG.md（面板
+          2018-06~2026-07，1,986天），既有應用是**多日持有型 L/F 擇時
+          overlay**（標的 TAIEX 現貨、h=10/20 最強、OOS Sharpe+1.12但
+          DSR 0.68 未過 0.95 門檻），h=1 單日 IC_OOS=+0.070 有記錄但從未
+          針對 TX/TMF 期貨、484 天近 2 年 cache、完整誠實回測+HAC 顯著性
+          跑過。確認 fut_foreign_oi_z60 是 EOD 收盤後才公布（一天一筆，
+          盤中/夜盤看不到），符合「前一日收盤後已知」的條件設定。
+
+          484 天（2023-07-03~2025-06-30）：causal PIT merge_asof
+          (direction=backward, allow_exact_matches=False) 取得 D 日開盤前
+          已知的 z60，沿用既有 champion 的 >0/<0 sign 規則（**未在本樣本
+          上做任何參數搜尋**，避免過擬合），next_open literal 進場、
+          day-session literal close 出場，COST=2.0pt/round-trip。
+
+          **5摺 causal Spearman IC**：3/5 同號（未過 4/5 門檻），full-
+          sample rho=+0.0062（p=0.89，近乎零）。**回測**：n_signals=
+          n_fills=n_closed=484（記帳恆等式成立），名目 mean net pts/trade
+          =+5.37（sum+2,601pt，勝率48.6%）但 std=166.7 遠大於均值。
+          **顯著性**：naive t p=0.478，Newey-West HAC（maxlags 1/5/10）
+          p=0.479/0.414/0.375，全不顯著。**shuffle placebo**（1000次隨機
+          打亂配對）：observed mean net_pts 的經驗 p=0.476、observed IC
+          的經驗 p=0.902——效果與隨機噴出的分布幾乎重疊。同日
+          contemporaneous（非因果，模擬誤用未來資訊）leakage 自檢
+          rho=0.096(p=0.034) 仍很弱，證實不是 PIT bug 造成假陰性，是這個
+          特徵在單日 horizon 上本來就沒有資訊量。
+
+          2/2 審查通過（claim_survives=true）：獨立重跑腳本數字逐位元
+          相同，手動抽查 PIT（2023-06-30 z60=-1.6845 手算吻合）、
+          target cache 首末 bar 核對無誤，HAC 用獨立 Bartlett-kernel 公式
+          交叉驗證一致，shuffle placebo 用 5 個不同種子重跑 p 值穩定在
+          0.469~0.481／0.887~0.899，非挑種子取巧。
+        do_not:
+          - 把「champion 因子本身無效」讀成這輪的結論——champion 的 edge
+            集中在多日持有、regime 條件化用法（即使那個用法的 DSR 也未過
+            0.95 門檻），本輪只否證了「同一個特徵套用到單日台指期方向」
+            這個不同的具體應用；兩者是獨立的統計宣稱
+          - 引用「mean net pts/trade=+5.37、sum+2,601pt」這個名目正數當
+            證據——這正是被 HAC 不顯著＋shuffle placebo 判定為與雜訊無異
+            的那個數字，std=166.7 遠大於均值，是少數厚尾日（2024-08-05
+            全球股災+1336、2025-04-09關稅崩盤-644）主導的假象
+          - 認為「加個 |z60| 門檻做 conviction 濾網」能救回這個訊號就
+            直接去測——本輪刻意不做，因為在 484 天小樣本上事後挑門檻
+            等於新的參數搜尋，若要做需先設計獨立 IS/OOS 切分並凍結門檻
+      - id: H-NS-DAYCLOSE-NIGHT-MOMENTUM
+        statement: >
+          日盤收盤前 N 分鐘（13:15–13:45）的收盤動能，能不能預測「跨
+          session 單邊持有」的夜盤整段（night_open→night_close）方向——
+          機制上明確跟已死路徑（開盤±X雙邊掛單、開盤前15分固定窗+通道
+          出場）不同：決策時點在日盤收盤而非開盤、機制是跨session單邊
+          持有到夜盤結束而非同session內雙邊/通道出場、不依賴ZigZag/通道。
+        status: rejected  # 2/2審查通過（含次要瑕疵但不影響結論）；IC 3/5同號未過門檻、OOS全轉負但HAC不顯著、滯後擾動測試顯示效應可能非交接特有
+        evidence: >
+          去重複確認：讀過 tmf-slow-pattern-cell 全部10個假說（純ZigZag+
+          通道逐bar機制，跟本假說「跨session單邊持有」不同）、memory
+          tmf-open-straddle-no-edge.md（開盤±X雙邊掛單，時間點與機制皆
+          不同）、us-tw-overnight-no-night-alpha.md（死的是「追隨美股
+          隔夜方向」，本假說刻意不引用任何美股/VIX資料，純用TX/TMF自身
+          日盤收盤動能，避免撞上同一條死路的陰影）、tx-donchian線
+          H-TXD-SESSION-CONTINUITY-BUG（那是通道計算的方法論修正，不是
+          「交接時點本身的預測力」這個交易假說）——確認無重疊。
+
+          484天cache（此快取夜盤僅到23:59，未含00:00-05:00延伸段，已誠實
+          揭露），過濾薄資料後454天有效。feat_last30=day_close(13:44/45)
+          −price@13:15（僅用t≤13:45已知資料），進場night session第一根
+          bar的literal open，出場最後一根bar的literal close（天生就是
+          session-end force-close，非自選停利停損）。方向凍結只用IS段
+          （227天）Spearman IC正負號決定，OOS（227天）原封不動套用。
+
+          **5摺causal Spearman IC（3個lookback：15/30/60分鐘）全數僅
+          3/5摺同號，未過4/5門檻**——特徵預測力在事前門檻就不合格。
+          **回測**（仍誠實跑完揭露）：三個lookback在OOS段一致轉負
+          （last30 OOS mean=−16.17pt/day），但**HAC顯著性檢定
+          （maxlags 1/5/10）沒有一個lookback×lag組合達到p<0.05**（正負向
+          皆然，last30 OOS三個lag p=0.147/0.167/0.160）；逐日序列本身
+          自相關低（≈−0.08），不是被自相關灌水又打回原形，是單純測不出
+          效應。**兩個擾動測試**：打散配對→均值趨近0（機制無結構性
+          偏誤）；滯後一天配對（破壞「同一次日→夜交接」的因果連結）→
+          均值−10.3pt/day，量級與方向都接近真實OOS的−16.2pt/day——這是
+          報告主動揭露的自我懷疑發現：若交接時點真有特殊因果機制，滯後
+          後訊號該消失，但沒有，暗示觀察到的微弱關聯更像一般性短期序列
+          雜訊，不是「交接」本身的結構效應，削弱而非加強本假說。
+
+          2/2審查通過（claim_survives=true）：獨立重跑逐位元一致，
+          手算單日特徵/進出場核對無誤。統計審查抓到一個真實但無害的
+          方法論瑕疵：5摺IC實際上是對全部454天（含OOS）算的，不是純粹
+          只用IS段的pre-registered screen，但因為這個IC只當揭露診斷用、
+          沒有拿來決定要不要繼續回測或挑方向，不影響「無顯著效應」的
+          最終結論。
+        do_not:
+          - 引用「last30 OOS mean=−16.17pt/day」這個負向數字當「證明
+            這個機制顯著虧錢」——HAC三個maxlags下p值都在0.147~0.208，
+            遠高於0.05門檻，正確定性是「未偵測到顯著效應」，不是「顯著
+            虧錢」，跟正向結果一樣要用同一套HAC<0.05標準，不能因為方向
+            是負的就放寬判定成「顯著」
+          - 忽略滯後擾動測試這個誠實的自我懷疑訊號——它是本輪除了IC/HAC
+            之外最重要的證據，直接削弱「日盤收盤動能是交接時點特有效應」
+            這個敘事，不要在複述結論時省略
+          - 把「5摺IC其實含OOS天數」這個小瑕疵放大成整個結果不可信——
+            審查已確認這個IC gate只是揭露診斷、未拿來做任何選擇，方向
+            凍結本身確實只用IS，不影響最終判定
+      - id: H-NS-NIGHT-VIXTWN-DAYAHEAD
+        statement: >
+          夜盤（15:00–23:59，反映美股隔夜走勢）淨位移方向/幅度，加上前
+          一日VIXTWN收盤水準/變化，能不能預測隔日台指日盤(08:45-13:45)
+          open-to-close走勢，形成可交易的方向性訊號。
+        status: rejected  # 2/2審查通過；唯一過IC篩選的night_sign_D在IS/OOS方向反轉、HAC全不顯著
+        evidence: >
+          Scout 先確認兩件事並發現一個過時文件糾正：(1) tx_1m_2yr_
+          extension_cache.json 的夜盤確實只到23:59、無00:00-05:00（已知
+          缺口，config/research.yaml topic tmf-fullnight-eod-gap 已驗證
+          記錄，非新發現）；(2) VIXTWN(source='computed')實際涵蓋
+          2003-01-02~2026-07-31共5798筆逐日資料，doc記錄的「只有62天」
+          已過時（mini自算VIXTWN上線commit 92ae3cb前的舊觀察）。同時
+          查到既有結論可直接引用：docs/us-tw-overnight-research.md——
+          美股隔夜→台股開盤缺口是11年穩健真關係但「公開、效率、不可
+          套利」，依隔夜方向追盤中策略Sharpe−0.52(24年18年負)；
+          tmf-vix-crash-rally-short-bias／H-XMKT-REGIME-SYNC等VIXTWN
+          條件濾網研究皆已rejected。本輪是全新測試「淨位移方向」這個
+          不同於「條件濾網」的具體形式，非重複。
+
+          484天中11天缺夜盤，有效472組(D夜盤+VIXTWN)→(D+1日盤)因果配對
+          （2023-07-03~2025-06-27）。3項擾動測試(整段位移/單棒改值/
+          未來VIX改值)全通過，因果性無誤。
+
+          **5摺causal Spearman IC篩選**：11個特徵×窗口組合中，只有
+          night_sign_D（夜盤方向±1，對隔日日盤open-to-close）4/5摺同號
+          過關；night_ret_D(連續值)、vix_level_D、vix_chg_D、interaction
+          項、波動外溢、first-60min窗口版本全數未過4/5門檻（IC絕對值
+          0.002~0.20，雜訊等級）。唯一額外的5/5（vix_level_D→first-
+          60min窗口）屬次要探索、未列入正式回測範圍，11個平行測試中
+          出現一次5/5不意外(multiple comparisons)，不予採信。
+
+          **回測（night_sign_D，方向只用IS段330筆決定，OOS 142筆原封
+          不動套用）**：IS段+4.07pt/trade(勝率50.3%)、OOS段**−15.06pt/
+          trade**(勝率43.0%，方向反轉)、COMBINED−1.69pt/trade。IS段
+          內部再拆5摺其實3正2負（未達4/5門檻，是退化用多數決才選出
+          +1方向），提示「全樣本層級湊巧通過4/5門檻」很可能就是雜訊。
+          **HAC顯著性檢定**：IS/OOS/COMBINED三段在maxlags 1/5/10全部
+          p>0.34，無一達0.05門檻，正負向同一標準判定皆不顯著。
+
+          2/2審查通過（claim_survives=true）：獨立重跑腳本，coverage/
+          IC/回測/HAC數字逐一核對一致；VIXTWN因果性確認來自TXO日盤
+          13:45左右結算，遠早於D+1開盤，無未來洩漏；HAC用獨立Bartlett
+          kernel手算交叉驗證誤差<1e-5。
+        do_not:
+          - 引用「night_sign_D IS段+4.07pt/trade」這個正數當這輪找到
+            edge的證據——IS段內部5摺本身3正2負未過門檻、是退化多數決
+            才選出正方向，且OOS直接反轉為−15.06pt/trade，HAC全不顯著，
+            正確定性是雜訊，不是「快要顯著的正edge」
+          - 把「VIXTWN只有62天」這個過時說法帶進未來的討論——mini自算
+            VIXTWN(source='computed')實際涵蓋2003~2026共5798筆逐日
+            資料，62天是mini自算上線前的舊觀察，任何未來要用VIXTWN
+            歷史長度的討論都要用這次糾正後的數字
+          - 認為這條路已經徹底窮盡——本輪與所有既有VIXTWN/隔夜研究都
+            受限於同一個缺口：夜盤cache止於23:59，若edge集中在
+            00:00-05:00(真正的美股尾盤/歐股時段)，現有資料看不到，
+            這是尚未排除的可能性，不是「證明了整個方向沒用」
+      - id: H-NS-TICK-ORDERFLOW-OPEN-WINDOW
+        statement: >
+          開盤窗口(08:45-09:00)的tick級成交方向淨額(uptick/downtick比、
+          淨成交量方向等委託流代理)，能不能預測窗口結束到日盤收盤
+          (13:45)剩餘時段的走勢方向——微結構/委託流角度，不是價格形狀。
+        status: rejected  # 2/2審查完成（2026-08-07補做verify_causality：機制乾淨，但發現OOS「反轉」是10天極端值造成的假象，見下）；2026-08-08 sort-instability bug已修復並寫回build_orderflow_panel.py本體、兩次獨立重跑821天bit-for-bit相同，重跑IC篩選+回測+HAC後最終結論=乾淨無訊號拒絕，見sort_bug_fixed_and_reverified_2026_08_08
+        evidence: >
+          finmind_tx_tick_by_day/ 逐日tick快取（820天，僅price/volume/
+          contract_date/date到秒/futures_id="TX"，**無買賣方向flag、
+          無委託簿深度**，只能用tick rule(價格較前一筆漲跌平)當uptick/
+          downtick的次佳proxy，資料源頭限制非本輪可修正）。750個有效
+          交易日(70天因無成交紀錄剔除)，IS/OOS依時間切70/30(IS 525天
+          2023-07-03~2025-08-26，OOS 225天)。
+
+          10個特徵中8個是真正方向性proxy，僅`n_tick_ratio`通過5摺
+          causal Spearman IC的4/5門檻(IS overall IC=-0.0708)；
+          `n_ticks_window`(恆正值)也通過但屬退化案例——sign()套用在
+          恆正特徵上等於「日盤永遠做多」的靜態基準，不構成真實檢定，
+          是本輪一個值得記住的方法論教訓(量能類特徵要用「高於中位數」
+          規則，不能用sign())。
+
+          **關鍵發現**：`n_tick_ratio`在IS段+4.74pt/trade(t p=0.495)，
+          但**OOS段方向反轉為−57.41pt/trade**(225筆，t p=0.029、
+          HAC(1)=0.033、HAC(5)=0.043、**HAC(10)=0.052**)——按「全部
+          maxlags都要<0.05」的嚴格標準，HAC(10)以0.0015之差沒過，
+          正式判定不顯著；但這不是「沒訊號」的中性null，是「IS方向在
+          OOS系統性地錯」的警訊，比隨機雜訊更值得警惕，不要跟其他訊號
+          來源假說的乾淨negative同等看待。窗口長度穩健性檢查（描述性）
+          也顯示`net_vol_ratio_zero`在5/15/20分鐘窗口下IC正負號不穩定
+          (-0.0109/-0.0211/+0.0833)，符合雜訊訊號的典型特徵。
+
+          擾動測試：leak-check(把未來報酬當特徵，IC=1.000完美)證實
+          pipeline本身對「真的有資訊」會正確反映；shuffle-check(特徵
+          跨日期打亂)讓IC崩回接近零，證實測得的微弱IC不是fold切法或
+          pipeline本身的人工產物——是乾淨的陰性結果，不是工具失效。
+
+          **審查狀態**：verify_stats通過(claim_survives=true，獨立重跑
+          數字逐位元相符，抓到2個非致命的報告瑕疵——「70天剔除全為
+          國定假日」不實，其中14天是普通週六；shuffle-check敘事拿
+          IS-only headline IC跟FULL panel的shuffle IC比較有蘋果比橘子
+          的量級誇大，但都不影響「不成立」這個核心結論)。
+
+          **verify_causality（2026-08-07補做，2/2完成）**：因果機制乾淨。
+          (1) tick rule uptick/downtick分類正確用`price[i]`vs`price[i-1]`配對
+          （`build_orderflow_panel.py:81-109`），無偷看未來tick；(2) entry
+          嚴格`>09:00:00`、exit為`<=13:45:00`的最後一筆，獨立重算750列的
+          entry/exit時間戳，`entry>window_end`與`exit<=entry`違規0/750；
+          (3) IS/OOS純時間切分(`panel.iloc[:n_is]`/`iloc[n_is:]`)，無跨日
+          全域常態化造成的洩漏；(4) 獨立手刻Newey-West(Bartlett kernel，
+          不用statsmodels)重算HAC(10)：t=-1.9472、p=0.0515/0.0528(常態/
+          t分布)，跟原始數字一致，「差一點沒過0.05」的描述屬實不是四捨
+          五入假象。**新發現，原記錄未揭露**：OOS「反轉」本質是10天極端值
+          造成的假象——225筆OOS交易中最差的10天(4.5%)貢獻了整個
+          −12,746pt OOS虧損的93.7%；拿掉這10天後，均值從−57.41pt/trade
+          變−3.78pt/trade、naive t從−2.20變−0.18、HAC(10) p從0.052跳到
+          **0.826**——「系統性反轉」的敘事整個消失。這10天全部集中在
+          2026年4-7月（OOS期最後、最少被驗證過的區間），逐月拆解顯示
+          2025-08~2026-01（6個月116筆）大致持平無方向，2026-02起才開始
+          持續轉負、7月惡化到單月均−289.7pt/日。
+
+          **2026-08-07後續查證（使用者要求「繼續」追這10天）**：逐日核對
+          `bars.sqlite`（`tx_1m_tick_built_582d`，本輪已獨立驗證過的正式
+          資料集）的1分K路徑——10天bar數全部284/284（無缺漏），抽查6天
+          （2026-07-17、07-29、05-15、06-26、05-28、04-02、06-23）的
+          09:00→10:00→11:00→12:00→13:00→13:44逐小時價格，全部呈現平滑、
+          持續數小時的單向下跌（例：07-17從44,200跌到42,704，07-29從
+          41,828跌到40,369），不是單一bad tick造成的跳空或不連續斷點。
+          **未發現資料異常**——這10天是真實的劇烈盤中走勢，跟本session已
+          知2026上半年TX指數快速上漲(32k→49k)伴隨劇烈修正的總體背景一致
+          （回顧`tx-donchian-flat-default-bracket`topic的Fold5同樣涵蓋
+          這段期間、同樣呈現高波動特徵）。因此這10天更可能反映真實的
+          2026 H1極端波動regime，不是資料品質問題。
+        do_not:
+          - 把「HAC(10)=0.052沒過0.05門檻」讀成跟其他rejected假說一樣
+            的「乾淨無訊號」——見下方2026-08-07第二次補做的發現，這個
+            定性本身已被更根本的bug取代，不要再引用「10天極端值撐起的
+            邊緣顯著」這個說法當最終定論
+          - 不要再把n_tick_ratio列為『若重啟優先檢視』的候選——理由已
+            從「10天極端值」升級成下方的sort-instability bug，兩種說法
+            不要混用
+          - 把`n_ticks_window`「通過IC篩選」讀成有意義的發現——它是
+            恆正特徵套sign()的退化案例，回測結果只是「日盤永遠做多」
+            的靜態基準，不是真實檢定，不要拿來當佐證
+          - 【2026-08-07第二次獨立審查後新增】引用上面「10天極端值撐起
+            的邊緣顯著、拿掉後p:0.052→0.826」這段——這是同一天稍早的
+            分析，後來被下方更根本的sort-instability bug發現部分推翻：
+            那個分析建立在`build_orderflow_panel.py`算出來的entry/exit
+            /feature數字上，而這批數字本身在多數交易日並非可重現的（見
+            下），所以「哪10天是極端值」這個判斷本身的可信度也要打折扣
+        second_reverify_2026_08_07: >
+          使用者要求對這個假說（先前因session額度限制只做過1/2審查）
+          再做一次獨立因果性複查，這次跑出完全不同、更根本的問題，跟
+          上面已記錄的「10天極端值」發現不衝突但更嚴重：`load_front_
+          month_day_ticks()`用`df.sort_values("dt")`排序tick，tick快取
+          時間戳只到秒，同秒常有大量並列成交(開盤附近常見200-300+筆
+          共用同一個HH:MM:SS)，pandas預設`kind='quicksort'`**不是穩定
+          排序**，導致entry/exit價格與feature本身在多數交易日並非
+          可重現的——用穩定排序(`kind='stable'`，還原成原始JSON順序)
+          重算750天：entry價格差異503/750天(67%)、exit差異391/750天
+          (52%)、`n_tick_ratio`正負號翻轉181/750天(24%)、`return_pts`
+          差異601/750天(80%)。
+
+          用穩定排序重跑整條pipeline：IS overall Spearman IC從−0.0708
+          (p=0.106)弱化到−0.0342(p=0.435)，**5摺同號一致性只剩3/5，
+          n_tick_ratio連自己的4/5門檻篩選都過不了**——原本「唯一通過
+          篩選的特徵」這個前提本身不成立。硬是照樣跑完回測：IS變成
+          幾乎打平(-2.15pt/trade, p=0.76，原記錄+4.74pt/p=0.49)，
+          OOS**變得更負、且三個maxlags全部HAC顯著**(mean−74.72pt；
+          HAC(1)/(5)/(10) p=0.0015/0.0038/0.0077，全部<0.05)——跟原本
+          「差一點沒過0.05」的邊緣敘事方向相反，這次是穩健顯著虧錢。
+
+          這個sort bug是資料完整性問題，不是時間上的look-ahead——
+          entry/exit的時間因果性(entry嚴格晚於窗口結束、exit≤13:45)
+          本身是乾淨的，問題出在「同一秒內哪一筆算第一筆」這個經濟上
+          不該影響結果的實作細節，卻讓entry/exit價格與核心特徵大幅
+          不可重現，這本身就是訊號被tick同秒雜訊主導、不是真實委託流
+          效應的強證據。
+
+          次要發現：`load_front_month_day_ticks()`的docstring聲稱契約
+          投票只用「≤09:00:00」的tick，但程式碼實際pool到「≤09:05:00」
+          （比宣稱的因果邊界晚5分鐘），驗證後只在751天裡的1天
+          （2026-07-15，落在OOS窗口內）改變了選中的契約，排除後OOS
+          均值從−57.41變−56.10pt/trade，影響輕微但docstring對因果安全
+          的聲稱本身不實，應修正。
+        do_not_second_reverify:
+          - 把這個假說讀成「已經徹底否證，不用再碰」——目前的正確狀態
+            是「原始版本的panel因為排序bug不可信，需要用stable排序
+            重建panel、從IC篩選重新做一輪」，不是「已經測完證明沒用」
+          - 混用兩種「為什麼OOS是負的」的敘事（10天極端值 vs sort
+            bug）——後者更根本，重建panel後「10天極端值」這個框架
+            本身可能也要重新算過，兩者不能並列當作兩個獨立佐證
+          - 引用文中任何一組「原始（未修排序）panel」算出的具體pt數
+            當作可信結論——entry/exit/feature在67-80%的天數上不可
+            重現，原始panel的任何點估計都不能再視為穩定數字
+        sort_bug_fixed_and_reverified_2026_08_08: >
+          2026-08-07 second_reverify只做到「診斷＋用stable排序ad hoc重算」，
+          尚未把修法寫回`build_orderflow_panel.py`本體、也沒有證明修法本身
+          可重現——這輪把兩件事都補齊，並跟前一輪交叉驗證。
+
+          **根因複核（先驗證再修，不假設理論成立）**：抽樣50個交易日（每15
+          天取1天，橫跨全部821天快取）直接量測，entry邊界秒(09:00:xx)有
+          多筆並列成交的比例50/50(100%)、exit邊界秒(13:44:xx/13:45:00)為
+          46/50(92%)——同秒並列是近乎普遍現象。同時對同一份(quicksort、
+          輸入順序不變)資料在同一process內重跑build_day_row() 8次×30天，
+          entry/exit/n_tick_ratio 0/30天出現run-to-run差異——**證實
+          quicksort是確定性演算法，同一輸入不會跨次執行給出不同結果**；
+          原記錄「67-80%不可重現」正確的理解是「quicksort的tie-break順序
+          vs 原始JSON到達順序(=stable排序)不一致」，不是「同一份程式碼跑
+          兩次給不同答案」，這個用詞區別決定了修法方向。JSON原始順序可信度
+          檢查：抽查5組同秒≥8筆並列成交，raw JSON順序下的價格路徑全部呈現
+          小步幅連續走勢(mean|Δprice| 0.0~5.9點、無隨機大跳)，符合交易所
+          序列微結構特徵，支持「raw JSON row順序＝tick到達順序」這個proxy
+          假設成立。
+
+          **修法**（已寫入`build_orderflow_panel.py`本體，非另開檔案）：
+          `load_front_month_day_ticks()`載入JSON後立刻附加`_orig_idx`
+          (=原始JSON row序號)，兩處`sort_values("dt")`都改成
+          `sort_values(["dt", "_orig_idx"])`——`_orig_idx`全域唯一使複合鍵
+          不再有重複，quicksort/stable排出來的結果從此逐位元相同，比單純
+          加`kind="stable"`更穩健（不依賴特定排序演算法的實作細節）。
+
+          **可重現性證明**：用修好的程式碼獨立重跑全部821天兩次(各自重新
+          `json.loads`、reset所有中間狀態)，兩次輸出`orderflow_panel.csv`
+          (751列，750天沿用+2026-08-05新入快取)MD5逐位元相同
+          (`78d7d94c243ed4ec1d37ceb6edccfb46`)，`diff`零差異。
+
+          **與2026-08-07 second_reverify交叉驗證**：修好的panel跟原始
+          (quicksort)panel逐日比對(750天共同交易日)，entry_price差異
+          503/750(67.1%)、exit_price差異391/750(52.1%)、n_tick_ratio正負號
+          翻轉181/750(24.1%)、return_pts差異601/750(80.1%)——跟
+          second_reverify段落獨立算出的數字(67%/52%/24%/80%)逐位元相符，
+          證實兩個獨立實作(這輪`_orig_idx`複合鍵 vs second_reverify的
+          `kind='stable'`)修的是同一個bug、修法等價。
+
+          **用修好的panel重跑完整IC篩選+回測**（未修改`orderflow_ic_
+          backtest.py`任何gate邏輯，嚴格照腳本原生4/5-fold門檻）：n=751天
+          (IS=526天2023-07-03~2025-08-27、OOS=225天2025-08-28~2026-08-06)。
+          `n_tick_ratio`（原始panel裡唯一通過篩選的特徵）IS overall IC=
+          -0.0342（跟second_reverify的-0.0342逐位元相同），5摺僅3/5同號，
+          **未過4/5門檻**，照腳本設計不進入回測。10個特徵中只有
+          `net_vol_ratio_raw`與`large_trade_net_vol_ratio`過4/5門檻(IC分別
+          -0.0040、-0.0130)，但這兩個特徵749天裡100%同號(pearson corr=
+          0.90)——「大單」用該窗口成交量前25%當門檻，跟整體
+          net_vol_ratio_raw高度共線，本質是同一個訊號算了兩次，不是兩個
+          獨立確認。這個訊號的回測：IS mean=-4.28pt/trade(p=0.537)、
+          OOS mean=-1.23pt/trade(p=0.962)、FULL mean=-3.37pt/trade
+          (p=0.714)，HAC(1)/(5)/(10)在IS/OOS/FULL三段全部不顯著(p最小
+          0.502)。leak-check(IC=1.000)、shuffle-check(IC≈0.001~-0.003)
+          兩個擾動測試皆通過，pipeline機制本身健全。
+
+          **結論**：修好、可重現的panel下，這個假說找不到任何統計上站得住
+          腳的訊號——10個特徵裡實質只有1個獨立訊號通過事前篩選門檻，且這個
+          訊號的回測與HAC顯著性檢定全部落在雜訊範圍。對照「5摺至少4摺同號」
+          的雜訊基準機率(~37.5%/特徵、10個特徵預期~3.75個純運氣通過)，
+          實測(扣掉共線重複)僅1個獨立通過，甚至低於雜訊基準——沒有值得
+          繼續追的殘留訊號。
+        do_not_2026_08_08:
+          - 引用2026-08-07 second_reverify段落裡「n_tick_ratio硬是照樣
+            跑完回測」得到的OOS mean-74.72pt、HAC全部<0.05這組數字當作
+            驗證過的發現——那次是在`n_tick_ratio`已經未過自己4/5門檻篩選
+            的前提下，繞過腳本原生gate邏輯強行跑回測，屬於研究誠信檢查
+            清單BUG-4「事後只挑對自己有利的一個特徵深究」的模式；這輪
+            嚴格照腳本原生邏輯(未過篩選=不進回測)重跑，同一份修好的panel
+            上找不到任何通過篩選又通過HAC顯著的特徵，這才是誠實的最終
+            結論
+          - 把`net_vol_ratio_raw`與`large_trade_net_vol_ratio`都通過篩選
+            讀成「兩個獨立訊號互相驗證」——兩者749天100%同號、pearson
+            corr=0.90，本質是同一筆委託流資訊被算兩次，只能算1個獨立
+            通過，不是2個
+          - 把`do_not_second_reverify`裡「原始panel不可信，需要重建」這個
+            待辦讀成尚未完成——這輪已把修法寫回`build_orderflow_panel.py`
+            本體(非另開檔案)、證明兩次獨立重跑821天全部bit-for-bit相同、
+            並完整重跑過IC篩選+回測+HAC+擾動測試，這個待辦到此關閉；repo
+            裡`orderflow_panel.csv`本身也已經是修好版本，不再是原始
+            quicksort版本
+          - 誤讀「H-NS-TICK-ORDERFLOW-OPEN-WINDOW現在有乾淨結論」為「repo
+            其他還用`sort_values`排時間序列的腳本也都沒事」——這輪只驗證
+            並修了這一支`build_orderflow_panel.py`，其他腳本若也用「只到
+            秒的時間戳+預設quicksort」排序同類tick資料，同一個bug pattern
+            理論上可能重現，未逐一稽核
+      - id: H-NS-LRC-CONTINUATION
+        statement: >
+          用回歸線通道(LRC，滾動窗口配適迴歸線，中線±k倍殘差)在
+          34/55/89/233分鐘(約30分鐘~4小時)窗口上，賭「突破後延續」
+          （順著突破方向進場）而非賭反轉——跳出tx-donchian兩條線全部
+          測的都是「fade」（賭反轉）這個共同盲點，是真正沒測過的新方向。
+        status: rejected  # 5摺walk-forward全部四個window OOS皆負、kill criterion 5全數觸發；window=55額外HAC顯著虧錢
+        evidence: >
+          750天資料(2023-07-03~2026-08-06，`bars.sqlite`的
+          `tx_1m_tick_built_582d`)，5摺walk-forward(IS150天+120天/摺，
+          跟`tx_flat_bracket_phase5_walkforward.py`同一套切法)，ATR倍數
+          bracket(k_stop∈{5,8,12,16,20,25}×ratio∈{0.75,1,1.5,2}，24組
+          網格，因750天內TX從~16,500漲到~44,000近3倍，固定點數已知
+          不穩健)。
+
+          **四個window的OOS總損益全部為負**：34→−3,105.2pt、
+          55→−18,331.4pt、89→−15,163.7pt、233→−2,635.0pt，且**每個
+          window都只有1/5摺正報酬**(全部是最新的Fold5，2026-01-29~
+          2026-08-06)，kill criterion 5(fold正負號翻轉)全數觸發。逐
+          fold的失敗模式(Fold1-4輸、只有Fold5贏)跟`tx-donchian-flat-
+          default-bracket`線H-TXFB-OPTION-A/B的fade版本幾乎一模一樣
+          ——不是選錯方向，是這個訊號來源(LRC/Donchian突破+這個window
+          尺度)在2024~2025這段期間本身就沒有可交易的edge，賭哪個方向
+          都一樣。
+
+          **HAC顯著性**(正負向同一套「全部maxlags p<0.05」標準)：
+          window=55**顯著虧錢**(HAC p=0.013/0.020/0.031全過)；
+          window=89差一點(naive p=0.036但HAC maxlags=10時0.057未過，
+          判定不顯著)；window=34/233不顯著。方法論警訊：window=34/55
+          的IS網格搜尋多摺選中`k_stop=25`(網格上限，等於幾乎不設停損、
+          靠session尾強制平倉決定損益)，更像雜訊最小化不是找到真訊號。
+
+          **軌跡品質gating實驗**(迴歸線R²/斜率穩定度，5摺causal
+          Spearman IC，門檻4/5摺同號)：R²在四個window都沒有穩定訊號；
+          斜率穩定度window=34/89是5/5摺一致負號(越穩定越好，符合直覺)
+          但window=233是5/5摺一致正號(方向相反)——不是跨window一致的
+          單一效應，且底層策略本身已是負報酬，這個gate頂多讓虧損變少，
+          不構成獨立訊號。
+        do_not:
+          - 認為換更寬的k_stop網格或更多window就能翻案——OOS全負、
+            kill criterion 5全觸發，且逐fold失敗模式跟fade方向的
+            H-TXFB-OPTION-A/B高度重疊，是訊號本身的問題不是參數精度
+          - 把斜率穩定度的方向不一致(window=34/89負 vs window=233正)
+            讀成「換個window就能用」——這正是它不能當通用gate的證據，
+            跨window不一致代表這不是一個穩定的物理效應
+          - 忽略這輪確立的方法論意義——這是本repo第一次明確測試「賭
+            延續」而非「賭反轉」，結果顯示無論賭哪個方向，這個訊號
+            來源(通道形狀+30分鐘~4小時窗口)在TX/TMF上都沒有edge，
+            往後不用再糾結「是不是選錯了方向」
+      - id: H-NS-TRAJECTORY-SHAPE-FEATURES
+        statement: >
+          （延伸H-SC-ENTRY-FEATURE-SIZING）用迴歸線貼合度(R²)、路徑
+          效率(Kaufman efficiency ratio)、近幾腿斜率穩定度(CV)、突破
+          當下量能比這四個新的「軌跡形狀」因果特徵，能不能預測旗艦
+          配置(Mode B fade+flip, P60/N40)個別交易的表現，是之前6-8個
+          特徵(atr_at_entry/width_pts/...)都沒測過的新角度。
+        status: rejected
+        evidence: >
+          484天cache(2,016筆交易，472天有效，24個薄資料區塊排除)，
+          baseline net_pts=−4,823(跟原H-SC-ENTRY-FEATURE-SIZING輪
+          完全一致，honesty-protocol重新核對：2,016/2,016交易序列
+          逐位元相同、130個session_end尾部位0不符)。
+
+          5摺causal Spearman IC：`reg_r2_30`(-0.023, 4/5摺同號)、
+          `path_efficiency_30`(-0.052, 4/5摺同號)通過4/5門檻；
+          `slope_cv_5leg`(3/5)、`vol_ratio_at_signal`(3/5)未過。
+
+          **關鍵：shuffle-check證偽了這兩個「通過」**——300次特徵值
+          跨交易隨機打亂重跑同一套fold機制，「純雜訊也通過4/5門檻」
+          的經驗機率是35.0%/34.3%/38.7%/38.0%(四特徵)，幾乎等於理論
+          二項機率37.5%——測4個特徵、預期~1.5個純巧合通過，觀察到2個
+          在統計上不意外，4/5門檻在這個樣本量下幾乎沒有鑑別力。
+
+          **sizing harvest驗證(真正的判準，不是IC篩選)**：對兩個
+          「通過」特徵做sizing(路徑不變，0.5x/1.5x依中位數加權，方向
+          固定用全樣本IC符號、不逐摺重估)：`reg_r2_30`讓net_pts從
+          −4,823惡化到−5,427(只1/5摺改善)；`path_efficiency_30`惡化到
+          −5,509(只2/5摺改善)。sizing lift的HAC檢定在任何maxlags下都
+          不顯著。兩者的IC都是負號(路徑越乾淨/效率越高的突破，fade
+          交易表現反而越差——經濟邏輯合理：真趨勢延續風險對逆勢進場
+          不利)，但效應量極小(|IC|≤0.052)，統計上跟雜訊無法區分。
+        do_not:
+          - 把「reg_r2_30/path_efficiency_30通過4/5門檻」當發現——
+            shuffle-check證實這個門檻在此樣本量下鑑別力幾乎等於隨機，
+            且sizing harvest（真正的判準）讓結果變差不是變好
+          - 忽略baseline本身在484天OOS就是虧損的(−4,823pt，勝率
+            23.66%)這個前提——這輪測的是「已經在賠錢的交易裡，能不能
+            排出相對排名」，不是找到能讓策略轉虧為盈的路徑
+    do_not:
+      - 把這個 topic 底下不同訊號來源的假說互相引用當作對方的佐證——
+        夜盤預測/tick委託流/外資OI gating/新時段效應是完全獨立的訊號
+        來源測試，各自成立或失敗互不影響
+      - H-NS-TICK-ORDERFLOW-OPEN-WINDOW已做過兩輪獨立補審（現為3位審查者
+        意見疊加）；不要引用第一輪「10天極端值撐起」這個定性當最終結論——
+        第二輪查出更根本的tick同秒排序不穩定bug(entry/exit/feature在
+        67-80%交易日不可重現)，目前正確狀態是「原始panel不可信、需要
+        用stable排序重建後從IC篩選重新做」，不是任何一輪已經給出的
+        具體點估計；跟其他4個一次性乾淨拒絕的性質不同，這個假說事實上
+        還沒有一個穩定的最終結論
+    strategic_notes_2026_08_07: >
+      跳出通道框架後累計測了7個新訊號來源假說，加上兩套通道框架先前
+      窮盡的~20個機制假說，這輪額外做了三項desk research（非回測）：
+
+      **市場結構可行性分析**（純研究，見對話記錄，未存成獨立檔案）：
+      TAIFEX法人+造市商佔成交量52.71%以上、外資部位每日公開，資訊
+      完全匯聚在單一標的上，跟股票/ETF選股(資訊來源分散、機構覆蓋
+      不均勻)有系統性差異。repo內部四條獨立研究線
+      (tmf-range-reversion-backtest/tmf-open-straddle-no-edge/
+      tmf-structbreak-campaign/tick-minute-perm-no-extra-signal)用
+      不同方法論一致收斂到「毛edge接近零」。判斷：**市場結構大機率
+      決定了沒有日內方向性edge，不是還沒找到方法**，信心程度中高
+      (70-75%)。
+
+      **機會成本評估**：對照 chip-macro 線的champion因子
+      (`fut_foreign_oi_z60`)——OOS Sharpe+2.02但DSR卡在0.64-0.87
+      (門檻0.95)，permutation test p=0.002，是「訊號存在但強度被
+      搜尋灌水，DSR卡在門檻邊緣」的收斂型優化問題，跟TMF線「探索性
+      空間已窮盡、需要遠超現有量級樣本才能繼續」的性質不同。建議：
+      **接下來的multi-agent心力轉去攻champion因子的DSR問題(或vcp/
+      rrg/whale線裡supported-but-DSR-not-passed的假說)，統計期望值
+      高於再開TMF第三個通道框架**。
+
+      **研究誠信檢查清單+lint工具**（實體產出，非desk research）：
+      `docs/research-integrity-checklist.md`（六大bug類型+13項陷阱表，
+      逐一附本repo真實案例ID）與`scripts/research/lint_backtest_
+      engine.py`（正則/關鍵字掃描，能抓session_end處理/HAC字樣等
+      弱訊號，**不能**理解程式語意、抓不到fold-aggregate後見之明這類
+      需要交叉比對數字的深層問題，通過lint不代表回測誠信沒問題，
+      仍需人工/agent review）。
+
+  tmf-slow-pattern-cell:
+    title: TMF 慢尺度型態 cell（取代 PV16 逐 bar 切換）
+    status: active  # 2026-08-08三度開線（窄範圍）：使用者提出16-slope字典之上的7個「換維度分段」候選，經比對後5個（粗斜率/run-dwell/chop密度/通道位置/加減速）皆已對應到H-SC-COARSE-CATALOG-CAUSAL／H-SC-STRAT-DWELL／H-SC-EDGE-REVERT系／H-SC-ADAPTIVE系等rejected假說，使用者選擇只測真正未測過的2個新維度（n-gram序列、擬合品質gate）——見下方H-SC-NGRAM-SEQUENCE／H-SC-FIT-QUALITY-GATE；不重測已rejected的5個維度，其餘結論（do-not-adopt）維持不變。同日稍晚追加5-agent盲點掃描＋foundation-fix輪：修好484天旗艦cache夜盤23:59截斷bug＋顯著性標籤雙重標準code bug，重跑旗艦顯著性檢定＋讀回孤兒粗分類walk-forward產物——見下方H-SC-NIGHT-COVERAGE-484D／H-SC-COARSE-CATALOG-WALKFORWARD；do-not-adopt結論未變（見H-SC-NIGHT-COVERAGE-484D）
+    phase: rejected  # 舊9個交易機制假說的定性不變；本欄要等新2個假說有結論才可能調整
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/tmf_0805_night_16_linear_channels.json  # oracle（既有 · 生成腳本未存檔）
+      - reports/research/channel_lab/r6_near_rail_vol_velocity.py
+      - reports/research/channel_lab/r_c_exante_0805.py
+      - reports/research/channel_lab/slow_cell_phase0_dwell_lab.py
+      - reports/research/channel_lab/slow_cell_stratified_sw_th_sweep.py
+      - reports/research/channel_lab/slow_cell_tick_latency_lab.py
+      - reports/research/channel_lab/slow_cell_coarse_causal_accuracy_lab.py
+      - reports/research/channel_lab/slow_cell_edge_revert_backtest.py
+    hypotheses:
+      - id: H-SC-STAT-SIGNIFICANCE-GAP
+        statement: >
+          （方法論假說，非交易假說）本研究線至今對每個假說的 PnL 判定，都是
+          直接比較點數總和的正負號，從未做過正式統計顯著性檢定；一旦補做，
+          目前的 rejected／passed 判定是否還站得住？
+        status: passed  # 這是本輪唯一被正面確認的發現：檢定力不足是真的
+        evidence: >
+          用 slow_cell_tick_trigger_scaleup.json 的 59 天逐日資料（tick級
+          −bar級 net_pts 配對差異）補做配對檢定：全部51個有紀錄的
+          day-block，mean_delta=−7.5pt、sd=435.9pt、se=61.0pt、t=−0.123、
+          **p=0.90**；95% CI=[−127.1pt, +112.2pt]，舒服地涵蓋 0。拆開看
+          IS 組（n=15）p=0.45、OOS 組（n=36）p=0.29——沒有一組接近任何
+          顯著性門檻。也就是說 H-SC-TICK-TRIGGER 這輪判定的「IS 組
+          −296.6% 大幅劣化」與「OOS 組 +253.8% 改善」，兩者都可能只是
+          日與日之間巨大變異度（單筆交易從 −100+ 到 +2,600pt 都有）裡
+          隨機抽到的樣本，不是真實效應。
+        do_not:
+          - 把這個發現讀成「所以其實有 edge，只是被誤判成 rejected」——
+            統計上正確的結論是「目前樣本量的檢定力不足以區分『真的沒有
+            edge』與『有一個小到目前偵測不到的 edge』，兩者都還是可能」，
+            不是「edge 存在，之前判斷錯了」
+          - 只對 H-SC-TICK-TRIGGER 補這個檢定就滿足——H-SC-SAR-CONVERTER／
+            H-SC-EDGE-REVERT（修復後）／H-SC-WIDTH-PERCENTILE／
+            H-SC-DISTANCE-RATIO 的 rejected 判定，同樣是用點數總和正負號
+            下的，同一個檢定力問題適用於全部，尚未逐一補算
+        next_step: >
+          若要真正回答「TX/TMF 在這個 ZigZag+通道框架下有沒有 edge」，
+          需要的不是再想一個新機制，而是：(1) 大幅擴大樣本量（59天的
+          se=61pt/day，要把95%CI收斂到比如±20pt/day，粗估需要
+          (61/20)^2≈9倍樣本≈530天，遠超過目前83天1分K快取與297天
+          tick語料庫的量級，需要接回FinMind抓更長歷史）；(2) 或改用
+          方差更低的評估單位（例如不看「單日總和」而看「每筆交易的
+          bootstrap信賴區間」，用更多交易筆數換取檢定力，即使天數不變）；
+          (3) 對已經judged rejected的其他假說補做同樣的配對顯著性檢定，
+          確認這些「rejected」判定本身有沒有統計支撐，而不只是點數總和
+          剛好是負的。
+
+          **後續（2026-08-07 第八輪）已執行 (1)**：接回 FinMind
+          TaiwanFuturesTick（Sponsor tier·6000req/hr·資料回溯至少到2018年
+          可用），回補 2023-07-03~2025-06-30（484天，453乾淨+31偏薄）——
+          與過去用過的83天/59天資料程式化驗證零重疊，是真正乾淨的樣本外
+          資料，量級略超過原估的530天門檻。用旗艦配置（Mode B fade+flip,
+          P60/N40，跟過去所有輪次完全同配方以利直接比較）跑出逐日
+          net_pts，做單樣本 t 檢定：mean=−11.07pt/day, se=5.058,
+          t=−2.19, **p=0.029**（初步結論：SIGNIFICANT NEGATIVE，95%
+          CI=[−21.0,−1.1] 全落負值區間，bootstrap CI 吻合）。
+
+          **但第二位審查者（專攻統計方法）沒有停在複算數字，而是主動去
+          檢查腳本自己的 caveats 只用文字警告過、卻從未真的算過的問題**：
+          逐日 net_pts 序列的 lag-1 自相關 ≈ **+0.335**（經濟上合理——
+          2024/8 崩跌事件連續好幾天都是極端虧損日，不是獨立事件）。用
+          Newey-West HAC-robust SE 重新校正（測試 maxlags 1/3/5/10/20
+          全部）：p 值從 0.029 爬升到 **0.058–0.091**——在任何合理的
+          自相關校正下都不再低於傳統 0.05 門檻。簡單 AR(1) 有效樣本數
+          校正也給出同方向結果（n_eff≈225、p≈0.124）。
+
+          **最終結論**：p=0.029 這個「顯著」是在忽略序列自相關下算出來的
+          虛高數字，經校正後不再達到傳統顯著性門檻——這不是「沒有 edge」
+          也不是「有負 edge」，是「就算用了 484 天真正乾淨的樣本，這個
+          旗艦配置的表現仍然無法在統計上被可信地與雜訊區分」。但同時：
+          點估計在每一種穩健性檢查（拿掉最慘1/3/5天）下都維持負號，從未
+          翻正——沒有任何跡象支持存在正面 edge。bootstrap 信賴區間用的是
+          普通 iid 重抽樣，跟 t 檢定共用同一個對自相關視而不見的盲點，
+          兩者一致不能當作「獨立性假設沒問題」的佐證。
+        do_not_v2:
+          - 引用「p=0.029、SIGNIFICANT NEGATIVE」當最終結論——這是自相關
+            校正前的數字，校正後 p=0.058~0.091，不顯著
+          - 反過來把「校正後不顯著」讀成「所以可能有 edge、只是還沒測到」
+            ——點估計在所有穩健性排列下都是負的、從未翻正，證據的方向
+            一致指向「沒有正面 edge 可用」，只是統計上無法用傳統門檻
+            「證明」這個負值本身
+          - 誤以為 bootstrap CI 跟 t 檢定 CI 吻合就代表統計方法沒問題——
+            兩者用的都是普通 iid 重抽樣/獨立假設，共享同一個對序列自相關
+            视而不見的盲點，一致不代表正確
+          - ⚠️ 2026-08-08 更新：上面「p=0.029」「p=0.058~0.091」兩組數字
+            算自有夜盤 23:59 截斷缺陷的 cache（缺 00:00-04:59）。修復後
+            重跑數字是 naive p=0.0504、HAC(maxlags 1/3/5/10/20)=
+            0.049/0.059/0.058/0.062/0.087——結論方向不變（見
+            H-SC-NIGHT-COVERAGE-484D 完整 evidence），但引用時務必註明
+            用的是哪一版數字，不要再把本欄舊數字當作唯一或最終版本
+      - id: H-SC-NIGHT-COVERAGE-484D
+        statement: >
+          H-SC-STAT-SIGNIFICANCE-GAP 第八輪旗艦顯著性檢定所用的
+          tx_1m_2yr_extension_cache.json，夜盤在 23:59 被硬切斷，未涵蓋
+          TAIFEX 實際到隔日 05:00 的夜盤段（00:00-04:59 完全缺失）。把這段
+          缺口用真實 tick 資料補齊後，旗艦配置（Mode B fade+flip, P60/N40）
+          的顯著性檢定結論會不會變？2026-08-08 五 agent 盲點掃描發現此
+          cache bug（build_tx_1m_2yr_extension.py 寫死 NIGHT_HI="24:00"），
+          且波及本研究線 12 個消費此 cache 的檔案，本假說是修復並重跑
+          最關鍵的旗艦檢定本身。
+        status: passed  # bug真實存在且已修復(484天全域驗證，非抽樣)；但旗艦verdict本身materially_changed=false——do-not-adopt維持不變，naive p反而從0.029升到0.050(跨過0.05門檻，方向不變)
+        evidence: >
+          **Cache bug 與修復**：原始 484 天 cache 的夜盤只到 23:59，實際
+          TAIFEX 夜盤到隔日 05:00，00:00-04:59 這段完全缺失。修復版
+          （tx_1m_2yr_extension_cache_nightfix.json）用真實 FinMind tick
+          回補該段（往前找最多 3 個日曆日跳過假日、要求 ≥200 根 bar 才接受，
+          邏輯逐字複用 fullnight_junjul_restatement.py），沿用當天已解出的
+          front-month 合約（前月不會盤中轉倉）。**全域（非抽樣）驗證**：
+          484 天的日盤 bar、午夜前夜盤 bar、每日合約選擇，新舊 cache 三者
+          全部逐位元相同（0 mismatch）——只有新增的 00:00-04:59 尾段是真正
+          新增內容。過程中抓到並修好一個 build-time bug：餵給隔日
+          pick_contract() 的錨定價必須用「午夜前收盤」而非「延伸後的
+          04:59 收盤」，第一版草稿用錯錨定價導致 24/484 天悄悄選到跟原始
+          腳本不同的合約，修好後重新全域驗證 0/484 合約不符。
+
+          **新增段落是否有實質內容**：456/484 天在 00:00-04:59 拿到
+          material volume（≥50 bars 且 ≥1000 口）；全部 00:00-04:59 早段
+          合計成交量 12,439,438 口，占夜盤總量 50,937,998 口的
+          **24.4%**——不是 no-op。28/484 天沒有早段（其中 11 天原本
+          cache 就已經沒有午夜前夜盤，是真的沒有夜盤；其餘為假日前後薄天，
+          FinMind 未來 3 個日曆日 tick 檔都不足 200 bars）。
+
+          **旗艦檢定重跑（修復後 cache，因果引擎完全未改）**：clean 天數從
+          453→454（唯一變化的一天是 2025-04-18，n_night_bars
+          443→693，跨過 THIN_NIGHT_BAR_THRESH=450 門檻——同一個公式套用在
+          變大的合併窗口上的已知副作用，非新 bug）。mean=−11.789pt/day
+          （原 −11.066）、se=6.010、t=−1.9615、**naive p=0.0504**（原
+          0.029——這次 naive 檢定本身就已經過不了 0.05，不用等 HAC 這步）。
+          Newey-West HAC p（maxlags 1/3/5/10/20）= 0.049/0.059/0.058/
+          0.062/0.087（原 0.058–0.091）——maxlags≥3 仍全部 >0.05，HAC
+          結論不變：不顯著。逐日 net_pts 的 lag-1 自相關從 **+0.335 降到
+          −0.0045**（近乎零）——可能的機制：原本 23:59 硬切把跨夜的單一
+          連續走勢切成兩個日曆日 bucket，人為製造了序列相關；延伸到 04:59
+          後這段走勢留在同一天自己的帳裡，相關性隨之消失（合理假說，未
+          獨立證明因果機制本身）。點估計在所有穩健性排列（拿掉最慘/最佳
+          1/3/5天）下都維持負號，−3.5～−16.7pt/day，從未翻正。
+
+          **materially_changed 三項標準逐一檢查，皆未觸發**：(1) 點估計
+          正負號翻轉——否，維持負且略更負；(2) HAC 校正後顯著性結論跨越
+          p<0.05——否，校正前後都停在「不顯著」那側；(3) naive p 數量級
+          變化（>10倍）——否，0.029→0.050 僅約1.7倍。**但這是一個值得
+          大聲標注、不能含糊帶過的邊界案例**：naive p 從低於 0.05（看似
+          顯著）移到剛好高於 0.05——以前要靠 HAC 這一步才能否定 naive
+          顯著性，現在 naive 自己就先過不了；do-not-adopt 背後的故事
+          （「484天仍無法把這個配置跟小負/零edge的雜訊區分開，且點估計
+          從未翻正」）論證鏈反而少一步、更乾淨。
+
+          **BUG-2 擾動測試（2 位獨立審查者各自用不同注入點重做）**：對
+          2024-06-28 新增尾段的某根夜盤 bar 注入合成價格衝擊，重跑全 484
+          天引擎——該日之前所有天、之後所有天 0 mismatch，擾動只往前
+          局限在同一天自己的夜盤 session 內（trade count 2890→2894），
+          不外溢到隔日。兩位審查者各自獨立重現此結果（不同的注入 bar
+          index），確認 cache 替換未引入 look-ahead。
+
+          **2/2 獨立審查通過（claim_survives=true）**，所有頭條數字皆從
+          原始日資料獨立重算到報告精度完全吻合（非只信 JSON）。找到 2 個
+          低嚴重度、不影響任何數字的問題：(a) 輸出 JSON 仍殘留舊 key 名
+          `clean_453_days`／`hac_correction_clean_453`，數值已是 454
+          天口徑，純命名沒同步；(b) 腳本 docstring 宣稱核心引擎「未經修改
+          直接複用 slow_cell_sar_honest_backtest.py」，實際 import 的是
+          slow_cell_width_percentile_rolling.py（已自陳是 sar_honest
+          的 fork、有百分位半寬差異）——沿用自舊腳本的既有措辭誤差，不影響
+          本輪任何比較（新舊兩次都用同一個 wpr 模組）。另確認原始 484 天
+          cache 既有一個跟本次修復無關的 pick_contract() 舊 quirk
+          （2024年3月數天選到遠月合約如202409）——依指示逐字複用、刻意
+          未修，不是 nightfix 引入的問題。
+        do_not:
+          - 引用舊的「p=0.029 SIGNIFICANT NEGATIVE／HAC 0.058–0.091」
+            當作旗艦配置最終定性——這組數字算自有 23:59 截斷缺陷的 cache，
+            已被本假說的 p=0.050／HAC 0.049–0.087（484天修正後 cache，
+            454乾淨天）取代；H-SC-STAT-SIGNIFICANCE-GAP 該段
+            do_not_v2 文字尚未同步更新，交叉引用時務必註明數字來源版本
+          - 把「naive p 從 0.029 升到 0.050、跨過 0.05 門檻」讀成統計結論
+            變弱或有問題——這其實是同一個「無顯著、無法排除小負值或零
+            edge」結論的更乾淨版本，不是結論翻轉
+          - 把 lag-1 自相關從 +0.335 掉到 −0.0045 讀成「當初做 HAC 校正
+            是白費工夫」——原本的自相關是真實現象（23:59 硬切把跨夜走勢
+            切成兩個日曆日 bucket），根因被找到並修掉了，不代表校正步驟
+            當時不必要
+          - 把「clean天數 453→454」讀成資料品質改善或退化——純粹是
+            THIN_NIGHT_BAR_THRESH=450 套用在變大的合併夜盤窗口上的已知
+            副作用（2025-04-18 這天 443→693 根），跟資料本身好壞無關
+          - 以為修好這支 cache 就等於本研究線其餘 rejected 假說
+            （H-SC-COARSE-CATALOG-*／H-SC-SAR-CONVERTER／
+            H-SC-WIDTH-PERCENTILE／H-SC-DISTANCE-RATIO／
+            H-SC-NGRAM-SEQUENCE等）的結論也該重新檢視——本輪只重跑了
+            旗艦這一支腳本，其餘消費舊 cache 的下游腳本尚未逐一重跑
+            （詳見研究線筆記「本輪未處理」清單）
+        next_step: >
+          若要延伸：(1) 把 H-SC-STAT-SIGNIFICANCE-GAP 的 do_not_v2
+          舊數字換成本假說的新數字並標明版本來源；(2) 決定是否值得把
+          修正後 cache 餵給其餘 11 支下游消費腳本重跑——鑑於研究線本身
+          已 archived、do-not-adopt 結論未變且未變得更弱，優先度低，
+          非必要不建議投入。
+      - id: H-SC-DWELL
+        statement: >
+          以型態狀態機（趨勢／盤整／收縮／突破／死寂 + 遲滯 + 進入確認 + 最短停留）
+          取代 PV16 逐 bar 分類，可把切換頻率從現況 median 1 分鐘降到 3–10 次/小時
+          （median dwell ≈ 8–20 分鐘），同一時間尺度下才適合畫「通道」而非逐 bar 噪音。
+        status: passed
+        evidence: >
+          兩個獨立方法收斂：(1) 8/5 夜盤 16-slope oracle 事後分段 55 段 / 14.2hr
+          = 3.8 次/hr，median dwell 9 分（mean 15.5、p90 35、max 54）；
+          (2) 全新 rvol/dirz/bandwidth 狀態機在 83 天 tx_1m cache 上校準
+          （tz=1.8, k_confirm=2, min_dwell=4）獨立算出 3.69 次/hr、median dwell
+          12 分。兩條完全不同方法在同一數量級收斂，非巧合。
+          slow_cell_phase0_dwell_result.json（Phase 0，本輪新增）。
+          追加發現（8/6 日盤全段 + 夜盤前 5hr，slow_cell_0806_day_night_8each.py）：
+          切換頻率由 ZigZag pivot 門檻（SW_TH）決定，跟字典粗細（16 類 vs 8 類）
+          無關——8 類字典只改「每段配到哪個 label」，不改「多久換一段」。
+          8/6 日盤 SW_TH=50 全段 9.96/hr（median 4min，貼近上限）但明顯雙態：
+          08:45–10:00 密集盤整 15–20+/hr、10:45–13:15 轉趨勢後降到 3–5/hr；
+          夜盤前 5hr（未完整）僅 1.83/hr（median 24.5min，比目標慢）——樣本
+          不足 14hr 不能跟 8/5 全夜 3.8/hr 直接比。下一步需分別對日／夜、
+          分盤整／趨勢兩態各自 sweep SW_TH，不能全域共用一個門檻。
+      - id: H-SC-CAUSAL-LAG
+        statement: >
+          就算慢尺度分類的「事後」切換頻率對，也能在盤中即時（causal）正確分類、
+          來得及交易。
+        status: rejected
+        evidence: >
+          r_c_exante_0805.json（8/5 夜盤 real-time 預測 vs oracle 事後標記）：
+          方向命中 100%（side_hit_pct）、但精確 slope class 命中僅 30.8%
+          （soft_hit 50%）；用因果預測取代事後 oracle 一夜損失 469pt
+          （edge_lost_pts.oracle_minus_pred）。**這是本線最大風險**：好看的事後
+          分類不等於能即時判斷，16 個 slope class 太細、confirm 不夠快，
+          大部分 edge 在確認完成前就已走完。
+        do_not:
+          - 只看 oracle 事後分段的 dwell／switches 數字就宣稱「慢尺度可行」——
+            H-SC-CAUSAL-LAG 已示範這是兩件獨立的事，因果分類才是瓶頸
+      - id: H-SC-FILL-INSIDE
+        statement: 真實成交（fills）多數發生在慢尺度通道「內部」而非邊緣突破瞬間。
+        status: pending
+        evidence: >
+          使用者觀察（tmf_0805_night_16_linear_channels.png 疊圖）支持此說，但
+          Aug 5 夜盤原始成交已從 live_v6_sim_state.json 40 筆滾動快取中滾出，
+          本輪未能重新獨立驗證確切比例——需要當晚 fill_legs 原始紀錄才能算
+          「成交價/時間 vs 當時 oracle 通道邊界」的 in/out 分類。
+      - id: H-SC-STRAT-DWELL
+        statement: >
+          分層（日／夜 × 盤整／趨勢）各自 sweep SW_TH，能把 dwell 從 H-SC-DWELL
+          的 3–5 分鐘，推進到目標的 8–20 分鐘（median≈12分）。
+        status: rejected
+        evidence: >
+          slow_cell_stratified_sw_th_sweep.json（83天全量，非抽樣）：4 組
+          （day×range/trend、night×range/trend）switches/hr 都落在目標帶
+          （3.76–5.62/hr，技術上「過關」），但 dwell median 全部卡在 4 分鐘，
+          離 12 分鐘目標仍遠。**根因是方法論本身的結構性上限，不是門檻沒調對**：
+          先把 bar 按 bwp（頻寬百分位）盤整/趨勢標籤切成連續片段，再各自重跑
+          ZigZag——任何一次標籤翻頁都會強制腿歸零重來，就算價格明明還在同一個
+          趨勢裡也一樣。四組的 median run 長度只有 23–29 根 bar，這就是 dwell
+          怎麼調 SW_TH 都衝不出去的天花板。腳本自己的 caveats 誠實列出這點，
+          不是本輪事後才發現。
+        do_not:
+          - 把「switches/hr 落在 3–10 帶內」直接當成「H-SC-DWELL 的短 dwell
+            問題已解決」——這次只是換了個方式把同一個問題壓到 4 分鐘，沒有真的
+            推進到 12 分鐘目標；要修必須讓腿可以跨越 regime 標籤翻頁，不能每次
+            翻頁就重啟 ZigZag 狀態
+      - id: H-SC-COARSE-CATALOG-CAUSAL
+        statement: >
+          8 類粗分（4up+4dn/session）字典，能讓即時（causal）分類準確率比 16 類
+          字典顯著提升（H-SC-CAUSAL-LAG 的解方測試）。
+        status: rejected
+        evidence: >
+          slow_cell_coarse_causal_accuracy_lab.json 表面數字：exact_hit 30.8%→
+          58.25%、edge_lost_pts 469pt→93pt（median），聲稱 n=162。**2/2 獨立
+          審查者判定 claim_survives=false**，挑出同一組未在聲稱文字裡揭露的
+          confound：(1) n=162 不是 162 個獨立樣本——日盤 83 筆與夜盤 79 筆其實
+          來自同一批 ~79–83 個交易日（日期 100% 重疊），日盤場次被算成「夜」
+          是誤標，真正獨立樣本規模只有 ~83 天，不是 162；(2) 8 類字典是用同一批
+          83 天資料做母體分位數校準、再拿同一批 83 天打分（無 walk-forward /
+          held-out），而 16 類基準用的是完全沒 fit 過任何資料的固定字典——這是
+          不公平比較，觀察到的提升有多少來自「粗分類本身」、多少來自「字典配適
+          到考卷」，本輪無法拆解。審查者一致認為：即時分類準確率有改善的方向
+          是可信的（machenical binning effect 本身就該讓命中率翻倍），但目前
+          數字不能當作「8 類粗分解決了 H-SC-CAUSAL-LAG」的證據。
+        do_not:
+          - 引用「58.25% vs 30.8%」這組數字當作 8 類分類已驗證有效——要重測必須
+            做真正的 walk-forward（字典用一段期間校準，準確率在另一段沒看過的
+            期間測），且日夜盤樣本不能混算成同一個 n
+      - id: H-SC-EDGE-REVERT
+        statement: >
+          價格觸碰慢尺度通道外緣時，用逆勢（fade）進場、賺回歸中線的震盪，扣成本
+          後仍有正期望值（使用者原始商業假說：「成交幾乎都在通道裡面進出、賺
+          震盪的 edge」）。
+        status: rejected
+        evidence: >
+          slow_cell_edge_revert_backtest.json 表面數字：83 天、9,954 筆交易，
+          淨賺 146,312.7pt、avg +14.7pt/筆、勝率 53.99%，「同根K入出場」檢查
+          技術上通過（0 same-bar、0 adjacent-1-bar）。**3/3 獨立審查者判定
+          claim_survives=false，且找到具體、可重現的數字**：
+          (1) 決定性發現——進出場成交價不是誠實的 next_open：程式碼會在
+          「實際下一根開盤價」與「訊號當根觸及的邊緣/中線/停損價」兩者間，
+          單方向取對交易方更有利的那個（clamp）。此 clamp 貢獻 128,786.5pt，
+          占宣稱淨利 146,312.7pt 的 **88%**。審查者拿掉 clamp、改用誠實
+          next_open 重新模擬後：淨利崩到 11,022.0pt（跌 92.5%）、
+          avg pts/筆從 14.7 掉到 1.11、勝率掉到 **44.14%（低於銅板）**，
+          停損出場單獨看 avg −17.5pt（n=5,082，勝率 23.5%）。
+          (2) 另一位審查者發現 leg_end 強制平倉（13.8% 交易）是用「這條腿自己
+          的未來終點價格」在 mark——跟作者已自陳的「中心線本身用了未來已確認
+          的 pivot」是同一種 look-ahead，但作者設計的敏感度過濾（排除腿起點
+          5 根內的進場）完全沒篩到它：篩選後的「較誠實」子集裡，leg_end 佔比
+          從 13.8% 升到 14.8%、對「存活利潤」的貢獻卻升到 60.7%——過濾沒有
+          解決問題，反而讓這個 look-ahead 的佔比更集中。
+          (3) 第三位審查者另外抓到一個未揭露的計數 bug：7.3%（786/10,740）的
+          觸價進場因為邊界條件被靜默丟棄、從未被計入任何統計，「同根K檢查通過」
+          這句話因此只檢查了倖存下來的交易，天生看不到被丟掉的那批。
+          結論：宣稱的「震盪 edge」絕大部分是回測機制假象（favorable-price
+          clamp），不是真實市場無效率；誠實成交下這是一個賠錢策略。
+        do_not:
+          - 引用「146,312.7pt / 勝率54%」這組數字做任何後續決策——這個數字
+            88% 是 fill clamp 的產物，不是可交易的 edge
+          - 只信「同根K入出場檢查通過」就放心——本輪示範了 bar-index 分離
+            （house rule 第8條的字面定義）跟「成交價本身是否誠實」是兩件獨立的
+            事，前者過關不代表後者沒問題；以後類似 backtest 要同時驗證兩者
+          - 未修好 fill clamp／leg_end look-ahead／790筆遺失交易 三個問題前，
+            把這條線的任何參數拿去做 16-cell recipe 優化——會是在一個方向錯誤
+            的基礎上調參數，浪費算力
+      - id: H-SC-SAR-CONVERTER
+        statement: >
+          修掉 H-SC-EDGE-REVERT 的三個 bug（誠實 next_open、無 leg_end
+          look-ahead、完整對帳）後，使用者描述的「賠錢就發動轉換器換方向」
+          機制（stop-and-reverse）本身有正期望值。
+        status: rejected
+        evidence: >
+          slow_cell_sar_honest_backtest.json：**3/3 審查者這次判定
+          claim_survives=true**（含一位做 450 組「未來擾動」測試，逐一驗證
+          未來資料改變不影響過去已成交交易，找不到 look-ahead；引擎工程面
+          是誠實的）。但誠實跑出來的三個模式都無正期望：MODE A（純逆勢、
+          停損後空手）net −16,618pt、勝率 41.1%；MODE C（順勢SAR、反手不
+          空手）net −19,636pt（4 組門檻全負）、1 分鐘尺度被 whipsaw 吃死；
+          MODE B（使用者的轉換器：停損即反手＋通道重錨）net −910pt 看似
+          打平，但反手鏈裡 84%（944/1,122 條）連續打臉打到上限、單獨結算
+          −58,508pt，正 PnL 幾乎全靠 142 筆「反手後一路騎到換盤強平」的
+          尾部大趨勢日（+46,938pt，勝率 94%）撐住，扣除這批 session_end
+          後 B 實為 −47,848pt——是尾部事件湊巧抵銷結構虧損，不是穩定 edge。
+        do_not:
+          - 把 MODE B 的「−910pt 接近打平」讀成「轉換器接近可行」——拆開
+            exit_reason 看，−910 是 −58,508（反手鏈結構虧損）與 +46,938
+            （少數尾部日）兩個巨大數字湊巧相消，不是真的薄邊際
+          - 忽略「target 距離＝1.0×half、停損反手距離＝flip_trigger×half」
+            這個比例結構——這是後續 H-SC-WIDTH-PERCENTILE 發現「拉高分位數
+            不會提高回中線比例」的根因，兩個假說共用同一個機制解釋
+      - id: H-SC-WIDTH-PERCENTILE
+        statement: >
+          通道半寬從「全歷史 median」改成「近期滾動視窗的高分位數（p70/80/90）」，
+          能讓「碰到邊緣後真的回中線」的比例往使用者期待的 80% 靠近。
+        status: rejected
+        evidence: >
+          slow_cell_width_percentile_rolling.json：17 格網格（percentile
+          ∈{50,60,70,80,90} × rolling window ∈{10,20,40,全歷史}），**審查
+          claim_survives=true**（因果性逐格查過：rolling window 只取
+          half_hist 尾端切片，append 時機與已驗證過的上一輪相同，P50/ALL
+          與上一輪 median 版本逐位元重現，percentile() 對 numpy 2000 組
+          隨機案例全部吻合）。**核心負面發現**：17 格的 target_pct（回中線
+          比例）全部卡在 7.81%–12.05% 窄帶內，且方向與直覺相反——percentile
+          從 50 拉到 90，target_pct 不升反降（11.89%→7.81%，NALL 系列）。
+          機制解釋：target 距離＝1.0×half（回中線），停損反手距離＝
+          flip_trigger×half＝0.3×half——兩者按同一個 half 等比例縮放，
+          「目標:停損」比例恆為 1:0.3，不管 half 取哪個分位數都不變，這才是
+          決定 target/reversal 比例的真正槓桿，不是 half 的絕對大小。
+          net_pts 部分格子由負轉正（P60/N40=+5,345pt）是進場頻率降低
+          （避開部分淨虧的邊緣觸碰）造成，跟「回中線更常發生」是兩件事，
+          17 格 in-sample 網格搜尋亦有多重比較偏誤、無 walk-forward。
+
+          **2026-08-08 補測：5-fold walk-forward 獨立加固**
+          （slow_cell_width_percentile_5fold_walkforward.py，484天修正後
+          cache，兩個獨立 track 各自跑出同一支腳本、數字互相印證）：5個
+          不重疊 fold，用其餘4個 fold 做 IS 重選（best-by-net 與
+          best-by-target 兩種選法皆試），OOS 過半（≥3/5）kill criterion
+          （同 tx-donchian-flat-default-bracket 的 A5 pattern）**未過**：
+          OOS-positive fold 數 2/5（by net：Fold1 +85pt、Fold2 +336pt，
+          Fold3-5 深負 −2,110/−2,290/−1,142pt）、1/5（by target_pct）。
+          **P60/N40 本身在 5 個 fold 的 IS 重選中 0/5 被選為最優**（無論
+          net 或 target_pct 準則）——直接證實原本 83 天單批 in-sample
+          挑出 P60/N40 純屬多重比較假象。**BUG-7（拆 exit_reason）**：
+          兩個表面轉正的 fold 拿掉 session-end 強制平倉後全部轉負
+          （Fold1 +85pt→−187pt；Fold2 +336pt→−162pt）——跟
+          H-SC-SAR-CONVERTER MODE B／H-SC-COARSE-CATALOG-WALKFORWARD
+          同一種樣態。累計 net_pts（兩種選法）皆為負（約−5,121pt／
+          −4,611pt）。BUG-1 accounting_balanced 全數 True；OOS scoring
+          程式碼確認 `d <= fold_last_day` 無未來 fold 洩漏。
+        do_not:
+          - 引用「P60/N40 net +5,345pt」當作找到可行設定——這是 17 格
+            in-sample 搜出來的、且未解決 target_pct 過低的根本問題，只是
+            湊巧避開部分虧損交易；2026-08-08 5-fold walk-forward 更進一步
+            證實 P60/N40 在任何一個 fold 的 IS 重選中都不曾被選中（0/5）
+          - 再用「調 half 的百分位數/視窗」當下一步槓桿——真正該測的是
+            target/stop 的相對距離比例（例如把目標設在比中心線更近的位置，
+            或把停損距離也獨立 sweep），不是繼續調 half 本身
+          - 引用 slow_cell_width_percentile_5fold_walkforward.py 內建的
+            BUG-2 擾動測試當作有鑑別力的佐證——兩位獨立審查者都指出這個
+            測試是重言式（held-out fold 排除法讓 perturbed cache 必然
+            跟原始 cache 逐位元相同，測試恆為真、無法真的抓到 look-ahead）；
+            底層 run_config() 本身沒有 look-ahead 是靠程式碼直接複查確認
+            的，不是靠這個測試證明的——若未來要重跑或引用本腳本，先修掉
+            這個測試再引用「BUG-2通過」
+      - id: H-SC-TICK-TRIGGER
+        statement: >
+          訊號觸發從「等 1 分鐘 K 收盤才確認」改成「逐 tick 即時確認碰到邊緣/
+          目標/停損」，能實質提升績效（不只是切換確認方式）。
+        status: rejected  # 擴大樣本+IS/OOS walk-forward後翻案：IS期間tick反而大幅劣於bar，兩組總和皆由個位數極端日主導、非穩健訊號
+        evidence: >
+          初測（13天）：bar 級 net +619pt → tick 級 net +2,975pt。4 位
+          審查者 3/4 通過，第 4 位找到 look-ahead（通道剛 lock 那根 bar
+          被拿自己最後一筆 tick 價回頭判定自己開頭是否觸價）。修復輪
+          （加 ch_just_locked guard）額外發現出場側也有同構污染（合計
+          16+8=24 次），修復後方向仍成立但縮水 42%（+1,363pt/+220.2%），
+          2 位審查者過關。
+
+          **擴大樣本輪（59天，IS=15天落在半寬校準期2026-04~07內／
+          OOS=36天落在校準期外的2025-07~2026-03）徹底翻案**：
+          IS 組 bar +684pt → tick **−1,345pt**（delta **−296.6%**，tick
+          大幅劣於 bar，方向與之前所有測試相反）；OOS 組 bar +649pt →
+          tick +2,296pt（delta +253.8%，方向與之前一致）。
+          腳本自動下的 robustness_verdict 標籤
+          "OOS_improvement_holds_up_at_or_above_IS_level" 被審查者判定
+          **是個 bug 產生的誤導性標籤**：其判斷邏輯 `oos_pct < is_pct*0.5`
+          在 is_pct 為負時失效（負數乘 0.5/0.9 只會更負，導致任何正
+          oos_pct 都自動落入最樂觀分類），沒有處理「IS 端根本沒有
+          improvement 可言」這種情境。
+
+          **關鍵：兩組總和都被個位數極端日主導，不是廣泛分佈的優勢**——
+          IS 組扣掉單一天（2026-06-23，delta=−2,186pt）後翻正為 +157pt；
+          OOS 組扣掉 top4 天（合計 +2,418pt，占總 delta 146.8%）後翻負
+          為 −771pt；OOS 36 天裡還有 13 天雙邊 0 筆交易，真正有交易的
+          只有 23 天，樣本比表面數字更薄。
+
+          深入調查 2026-06-23 這天（bar +1,690pt vs tick −496pt）的根因：
+          **不是資料問題、不是程式 bug**——兩個引擎都完全依照各自已審查過
+          的設計正確運作。真正原因是結構性的混沌路徑依賴：MODE B 是一個
+          會用「上次出場的價格/極值」重新錨定通道的 stateful 反手機器，
+          當天第一次通道 lock 時，bar 版在 bar 6 就能進場（bar 級 decide-
+          at-close 本身合法），tick 版因為（上一輪剛修好、確實正確的）
+          ch_just_locked guard 延後到 bar 8、且進場價不同——這個極小、
+          原則上正確的時序差異，經過反手鏈的路徑依賴放大，導致當天下半場
+          兩個引擎走上完全不同的交易序列：bar 版兩筆交易乾淨騎滿一段
+          850~1300pt 的真實趨勢到收盤（+1,685pt）；tick 版同段時間陷入
+          113 筆碎單反覆停損反手（−1,895pt），只吃到趨勢尾巴（+971pt）。
+          這代表 bar 版與 tick 版本質上是同一個雜訊過程的兩條混沌路徑，
+          誰在特定一天「運氣好」進到對的方向，取決於蝴蝶效應級的初始
+          時序差，不是穩定可重複的優勢。
+        do_not:
+          - 引用 13 天樣本的 +1,363pt/+220.2% 當結論——59 天樣本顯示這個
+            方向在 IS 期間完全反轉，13 天很可能只是抽樣運氣站對邊
+          - 相信任何自動產生的「穩健性」標籤而不親自核對逐日明細——本輪
+            robustness_verdict 的判斷邏輯本身有正負號 bug，把「IS大幅
+            劣化、OOS大幅改善、方向相反」這種本應是最可疑的結果，系統性
+            誤分類成最樂觀的標籤
+          - 把 2026-06-23 的巨幅逆轉當成需要再修的 bug 去追——已確認是
+            兩個都正確的引擎在混沌路徑依賴下的必然結果，不是哪邊錯了；
+            這反而是本假說的核心弱點：策略對初始時序極度敏感，不是它的
+            implementation detail
+          - 誤以為「只要再擴大樣本、再修某個bug」就能讓 tick-level 優勢
+            穩定下來——59天已是13天的4.5倍規模，方向就直接反轉，這是
+            path-dependence結構本身的特徵，不是樣本不夠大的問題
+      - id: H-SC-DISTANCE-RATIO
+        statement: >
+          把 target（贏的門檻）與 stop/反手（輸的門檻）從「同綁在 half 上
+          等比例縮放」解耦成獨立參數，能讓「碰邊緣後回中線」的比例大幅提高、
+          趨近使用者期待的 80%。
+        status: rejected  # 機制確認為真正槓桿，但可達成的target_pct上限遠低於80%，且伴隨獲利品質崩壞
+        evidence: >
+          slow_cell_distance_ratio_sweep.json：target_frac(0.2~1.0) ×
+          stop_frac(0.15~0.7) 20 格網格，half 固定用已驗證的 P60/N40。
+          **2/2 審查通過**（因果性：240 組截斷測試 0 個不符，target/stop
+          水位皆用訊號當根之前已 lock 的固定線性參數外插，無未來資訊；
+          對帳與 baseline parity 逐位元核對通過）。
+          **確認 target/stop 比例確實是決定 target_pct 的真正槓桿**（非
+          half 絕對大小，呼應 H-SC-WIDTH-PERCENTILE 的診斷）：target_pct
+          範圍 10.20%~32.52%，比固定 half 用不同分位數時的 7.8%~12% 明顯
+          可調動。**但上限遠低於 80%**：target_pct 最高的格
+          （target_frac=0.2, stop_frac=0.7）net_pts=−1,443（負）；20 格
+          裡淨利為正的只有 7 格，其中維持正報酬前提下 target_pct 最高只到
+          18.03%（target_frac=0.8, stop_frac=0.5, net=+3,159）。機制：
+          target_frac 越小，達標門檻越低、target_pct 隨之單調上升，但
+          「贏了能拿多少」等比例縮小，固定成本(2pt/round-trip)不變，於是
+          「更常達標」被「達標時賺得少」抵銷甚至倒貼。
+        do_not:
+          - 引用「target_pct 最高 32.52%」當可行結論——那一格淨利是負的，
+            不是可交易的設定
+          - 認為調這個比例可以繼續逼近 80%——20 格網格已覆蓋
+            target_frac 到 0.2（門檻已經很低），net-positive 的天花板
+            就在 ~18% 附近，這是這個引擎架構本身的限制，不是還沒找到
+            對的參數
+          - 忽略審查者指出的敘事瑕疵：script 聲稱「target_frac 不影響
+            交易次數」與 JSON 自身數據矛盾（target_frac 變小時 n_trades
+            會因為出場更快、空手掃描機會變多而顯著上升）——20 格比較的
+            不是「同一批交易換出場規則」的乾淨單變量實驗，是連交易母體
+            都不同的比較，方向結論不受影響但解讀要留意
+      - id: H-SC-ADAPTIVE-RECOGNITION-SPEED
+        statement: >
+          通道辨識速度（SW_TH 擺盪門檻、lock_k 斜率鎖定所需 bar 數）不該是
+          全域固定值，應該依「當下市場快慢」動態縮放——快段落更快確認、
+          慢段落等更久才確認——這樣能提高「碰邊緣後回中線」的比例。
+          （使用者觀察 8/6 實測 28 筆僅 3 筆走進通道內後提出的假說）
+        status: rejected  # 3/3審查通過；動態縮放沒解決target_pct問題，且交易量暴增讓net_pts明顯惡化
+        evidence: >
+          slow_cell_adaptive_recognition_speed.json：因果波動量測
+          rvol(t)=ATR_short(t)/ATR_long(t)（皆用嚴格早於 t 的 causal
+          rolling median TR，rvol(t)=1 時逐位元退化回旗艦固定基準，確保
+          對照乾淨）驅動 SW_TH(t)=SW_TH_base/scale(t)、
+          lock_k(t)=round(LOCK_K_base/scale(t))，同方向縮放（快→兩者都
+          縮小）。測 4 組 gamma/窗口組合 + 1 組固定基準，全部跑在
+          484 天乾淨 OOS 資料上（非重蹈 83 天小樣本覆轍）。**3/3 審查
+          通過**（因果性：擾動測試證實 sw_th_arr[t]/lock_k_arr[t] 不受
+          當根 H/L/C 影響，lock_bar 一旦在通道建立當下設定就不會被追溯
+          重定義；統計方法：獨立以 3 種方法重算自相關、獨立重跑 Newey-
+          West HAC 校正，數字吻合；對帳：484 天 × 5 組設定全數通過
+          assert，動態 lock_k 未產生新的靜默遺失路徑）。
+
+          **核心負面結論**：target_pct 只從固定基準 8.43% 微幅升到最高
+          9.39%（4 組動態裡只有 1 組贏過基準、其餘 3 組打平或更差：
+          8.21%/8.6%/7.5%），改善幅度小且不一致；同時 net_pts 因為交易
+          量暴增（+36%~+123%，訊號更頻繁觸發）大幅惡化（−4,823→
+          −7,067~−11,717，4 組動態設定全部比固定基準差）。
+
+          **意外但誠實的附帶發現**：對表現最好的動態設定（ADAPT-B）做
+          正式顯著性檢定——逐日 net_pts mean=−14.58pt/day，naive
+          p=0.0026；**這組的逐日序列自相關只有 0.04（遠低於固定基準的
+          0.335），Newey-West 校正後 p 值幾乎不動（0.003~0.005，maxlags
+          1/5/10 皆同）**——相較之下固定基準的 p=0.029 在同樣校正後退回
+          0.058~0.09（不顯著）。也就是說：這輪意外做出本研究線第一個
+          「經自相關校正後仍然顯著」的結果——但顯著的方向是穩定虧錢，
+          不是本研究線在找的正面 edge。
+        do_not:
+          - 引用「target_pct 9.39%」或任何動態設定的數字當作解決方案——
+            4 組裡 3 組不如固定基準，改善不穩健，且全部伴隨 net_pts
+            明顯惡化
+          - 忽略 TR-based rvol 量測的語意選擇：這個公式量的是「per-bar
+            波動/抖動幅度」，不是「淨移動速度」——一段緩慢但持續的單向
+            趨勢（每根小跳動）在此定義下會被判定為「慢」（SW_TH 升高），
+            即使長期累積位移很大；來回抖動反而被判定為「快」。這可能
+            跟使用者原本「快速噴出段落」的直覺（著重淨位移而非逐根抖動）
+            有落差——如果要繼續這個方向，應該先測「淨位移速度」版本的
+            rvol，而不是假設這次的 TR-based 版本已經窮盡了「動態縮放」
+            這個概念
+          - 把「ADAPT-B 顯著虧錢」讀成「動態縮放完全沒用」的證據——這
+            只證明了 TR-based（choppiness）這個特定量測方式無效，淨位移
+            速度版本已在 H-SC-NET-VELOCITY-RECOGNITION-SPEED 測過，但
+            該輪實作被證實有同根循環 bug，結論同樣未定案
+      - id: H-SC-NET-VELOCITY-RECOGNITION-SPEED
+        statement: >
+          用 Efficiency Ratio（Kaufman ER：淨位移 ÷ 總路徑長度）取代
+          TR-based（per-bar 抖動幅度）驅動 SW_TH/lock_k 動態縮放，能更
+          精確對應「快速噴出段落」的直覺，改善 target_pct 過低的問題。
+        status: rejected  # 修復同根循環bug後重測，2/2審查claim_survives=true；穩健顯著負向結果不是bug產物，是ER動態縮放本身的真實特性
+        evidence: >
+          修復 causal_er_array()：ER(t) 整個窗口往回移一根 bar，改用
+          t-1 當「現在」——ER_causal(t,w)=|C[t-1]-C[t-1-w]|÷
+          Σ_{i=t-w}^{t-1}|C[i]-C[i-1]|，分子分母嚴格只碰 index≤t-1 的
+          收盤價，完全不觸碰 C[t]/H[t]/L[t]，比照 TR-based 版本
+          causal_rolling_median 排除 index t 的寫法。
+
+          **擾動測試（合成序列+真實 2023-07-03 交易日各一組）雙重確認
+          修復生效**：修復前，在 t=100 注入異常值，sw_th_arr[100] 本身
+          當場被影響（20.0→39.036，同根污染）；修復後，sw_th_arr[100]
+          完全不受影響（20.0==20.0），第一個受影響的索引延後到
+          t=101——因果正確性與 TR-based 版本同一等級。
+
+          **edge-case 分母 0-guard 誠實統計**（不重蹈上一輪「誤報未觸發」
+          覆轍）：逐 window（5/10/30/60）× 全部 933 個 (day,session) 區塊
+          掃描，觸發次數分別為 328/183/133/73 次（佔比 0.02%~0.09%），
+          guard 確實會觸發但下游 sw_th_arr/lock_k_arr 全部 finite（assert
+          通過，0 例外）——「guard 有效防住」與「guard 從未觸發」是兩件
+          不同的事，本輪分開誠實報告。
+
+          **修復後 vs 修復前對比（關鍵發現）**：交易量暴增只小幅下降
+          （4%~9%），修復後仍是固定基準的 3.3x~5.0x（修復前 3.5x~5.2x）
+          ——同根循環 bug 從來不是交易量暴增的主因；根本原因是 ER 這個
+          量測對單根反轉的結構性敏感度（短窗內一根逆向 bar 讓 ER 瞬間
+          趨近 0，下一根順勢又彈回高值），造成 SW_TH(t) 鋸齒震盪、頻繁
+          誤觸發，這在修復前後的逐 bar 對比圖中鋸齒形狀幾乎沒變，直接
+          視覺化證實。target_pct 全面小幅上升（EFF-D：9.29%→9.42%，
+          首次超過 TR-based 版本的 9.39%），但 net_pts 仍全面遠遜固定
+          基準（EFF-D：−19,694pt，日均 −39.9pt），「target_pct 略勝
+          TR-based」與「net_pts 問題被解決」是兩件事，後者從未成立。
+
+          **顯著性檢定（EFF-D_w5-30_g1.0，修復後資料，453 個乾淨交易日）**：
+          mean=−39.894pt/day，naive t 檢定 p=1.85e-6；Newey-West HAC
+          校正（maxlags 1/5/10）p 仍在 2.77e-6~2.77e-6 之間，用同一套
+          「HAC 校正後 p<0.05 才算穩健顯著」的統一標準判定（不因結果
+          是負向就放寬）：**穩健顯著為負**。修復前的極端 p=1.66e-7 並未
+          消失，修復後變成 p=1.85e-6（數量級放大約 10 倍但仍遠低於
+          0.05）——這證明「顯著虧錢」這個結論本身是真實的，不是修復前
+          那個同根循環 bug 人為製造出來的假顯著，bug 只是讓 p 值看起來
+          稍微更誇張一點。
+
+          **2/2 審查通過**（claim_survives=true）：獨立重現全部可驗證
+          數字（擾動測試分岔索引、修復前後 trades/net_pts/target_pct、
+          顯著性檢定統計量、edge-case 觸發次數），無發現新瑕疵。
+        do_not:
+          - 把這輪讀成「淨位移速度版本也被排除了，動態縮放這條路整個
+            走不通」——嚴謹地說，這只排除了「用 ER 或 TR 這兩種量測方式
+            驅動 SW_TH/lock_k 逐 bar 動態縮放」這個具體實作；ER 對單根
+            反轉的結構性敏感度是本輪確認的根本問題，不是換個
+            floor/ceil、視窗長度或 gamma 就能解決的（EFF-A~D 在
+            w_long=60 和 w_long=30 都同樣呈現鋸齒）
+          - 引用「target_pct 9.42% 超過 TR-based 的 9.39%」當作 ER-based
+            版本整體更優的證據——net_pts 從未回到固定基準水準，
+            target_pct 的微幅領先在 net_pts 全面惡化 4 倍以上的脈絡下
+            沒有實務意義
+          - 忽略本輪確立的方法論：自動生成的因果性/edge-case 聲稱
+            （尤其是「從未觸發」這類絕對化陳述）需要獨立擾動測試與逐一
+            掃描驗證，不能只憑陳述語氣的自信程度判斷可信度
+      - id: H-SC-ENTRY-FEATURE-SIZING
+        statement: >
+          借用 tx-donchian-regime 研究線第十五、十六輪已驗證的方法論
+          （因果特徵快照 + 5 摺 causal Spearman IC + sizing 收割而非
+          veto），對我們的旗艦引擎（Mode B fade+flip, P60/N40）找出
+          「進場當下可知」的特徵，能不能預測該筆交易表現、進而用部位
+          大小加權提升整體績效。
+        status: rejected  # 2/2審查通過(含1個發現真實方法論瑕疵但不影響結論)；8個特徵全數未通過4/5摺門檻，無可用edge
+        evidence: >
+          tmf_entry_features_instrument.json + testA/B/C.json：在 484 天
+          乾淨 OOS 資料上，先驗證我們引擎本身有沒有 tx-donchian 線第十六
+          輪「盲點4」那種 session 尾端部位被靜默丟棄的記帳缺口——**驗證
+          結果乾淨**：933 個 (day,session) 區塊，130 個區塊在最後一根
+          bar 仍有未平倉部位，trades 裡 exit_reason='session_end' 剛好
+          也是 130 筆，逐區塊 1:1 對應、0 個不符；另外用未修改的原版
+          run_config() 交叉核對，2016 筆交易的完整欄位序列逐筆相同。
+          **2/2 審查通過**（因果性：逐一追蹤 6 個特徵的計算時序，
+          entry_features() 在同一輪迴圈裡嚴格早於 ZigZag/腿完成的判定，
+          width_ratio/confirmed_by_other 用到的 half_hist/ch_ref 皆為
+          「已完成」的過去狀態，無未來洩漏；統計方法：Spearman rank IC
+          計算正確、IS/OOS 無洩漏，但抓到一個真實瑕疵——見 do_not）。
+
+          **核心結論**：測了 8 個特徵（atr_at_entry、width_pts、
+          width_ratio、overext_z、prior_pnl、mins_since_open、
+          mins_to_end、confirmed_by_other 類比），**沒有一個乾淨通過
+          「5 摺 OOS IC 至少 4/5 摺同號」門檻**。width_pts 表現最一致
+          （IS 4/4 同號、OOS 3/4 可比摺同號、sizing 收割 4 摺中 3 摺
+          改善）但可比較摺數因交易在時間軸上高度集中（2024-07~2025-04，
+          尤其 2024-08 佔 385 筆）而先天不足 5 摺，未達嚴格門檻。唯一
+          邊緣通過的 mins_since_open（4/5）被自己主動追查揭穿：剔除
+          session_end 出場交易後同號摺數掉回 3/5，且這批僅佔 6.45% 筆數
+          的 session_end 交易扛住了全部正報酬（+12,096pt vs 其餘 1886
+          筆合計 −16,919pt）——sizing 收割測試也證實這個訊號不可收割
+          （OOS 總損益從 −2,684pt 惡化到 −3,816pt，僅 1/5 摺改善），
+          正確判定不建議採用。confirmed_by_other 類比全樣本 Welch
+          t-test p=0.687、point-biserial r=−0.006 p=0.783，且被審查者
+          指出這個特徵對所有 flip 類交易是「依建構方式必然為 1」，不是
+          獨立訊號。
+
+          **附帶重要發現（非本輪直接要求，但誠實揭露）**：旗艦配置
+          （P60/N40）在原本 83 天樣本上 net_pts=+5,345pt，但在這批 484
+          天更長期的乾淨 OOS 資料上 net_pts=−4,823pt、勝率僅 23.66%——
+          跟 H-SC-STAT-SIGNIFICANCE-GAP／2yr 顯著性檢定輪的結論一致，
+          再次確認底層策略本身在大樣本外站不住腳，不是這批特徵的問題。
+        do_not:
+          - 引用「本研究線 session-end 記帳乾淨」去反推 tx-donchian 線
+            的記帳缺口「不重要」——兩者是不同架構（單部位 vs 3-sleeve
+            並行）踩到同一類坑的不同表現形式，我們這次沒踩到是因為
+            single-position 架構天生上限就是每區塊最多 1 筆 session_end，
+            不是設計得比較好
+          - 忽略審查者抓到的真實方法論瑕疵：testA/B/C 三組實際用了三種
+            不互相可比的摺切法（A 用完整 472 天日曆五等分；B 只用 133
+            個有交易的天數做 30/14/14/14/14% 比例切分；C 用交易筆數
+            索引切分），敘事裡卻說「套用同一套方法論」——三組的通過/
+            不通過比例不能直接互相比較，這點不影響本輪「8 個都沒通過」
+            的結論，但下一輪如果要延伸此方法論要先統一切法
+          - 忽略測了 8 個特徵卻沒有計算多重比較的基準機率（純雜訊下，
+            5 摺獨立丟硬幣「至少 4 摺同號」的機率約 37.5%，測 8 個特徵
+            預期會有 ~3 個純運氣通過）——本輪實際 0 個乾淨通過、只有
+            1 個邊緣通過且被自己抓出來剔除，結果比雜訊基準更保守，這點
+            反而加強了「沒有 edge」的結論可信度，但下次測更多特徵時
+            應該正式算這個基準機率，不能只靠事後運氣好沒有踩到
+          - 把這輪的乾淨陰性結果讀成「特徵研究這條路走不通」——這只
+            證明了這 8 個特徵在我們的旗艦配置上沒有 edge，tx-donchian
+            線驗證過的方法論本身（因果快照/5摺IC/sizing收割）依然是
+            正確、可重用的技術，換一批特徵或換一個底層策略時應該繼續用
+      - id: H-SC-FLIP-STOPLOSS-TAILCUT
+        statement: >
+          幫 flip 倉（賠錢反手後開的新倉）加一個明確的 max-loss 停損
+          距離（現行只有 target，沒有獨立停損，可能一路持有到 session
+          結束），能降低「騎到收盤累積大額損益」的長尾風險。（借用
+          tx-donchian-regime 線第十六輪自己列出、未驗證的救援方向）
+        status: rejected  # 1/2審查通過(另1位抓到敘事誇大但不影響數據)；停損既沒改善net_pts也沒降低長尾風險，worst trade反而惡化
+        evidence: >
+          slow_cell_flip_stoploss_tailcut.json：測 2x/3x/5x half 三組
+          停損倍數 + 無停損基準，全部跑在 484 天乾淨 OOS 資料。**關鍵
+          設計限制（build agent 誠實揭露）**：flip 倉本來就已經有一個
+          很緊的隱性反手觸發器（0.3×half，每根 bar 檢查），任何
+          N≥2×half 的新停損在「漸進走勢累積虧損」情境下，數學上必然
+          晚於既有機制觸發——是結構性 no-op；本輪把新停損設計成優先權
+          最高，只在同一根 bar 內價格跳空/急殺、一次穿越兩個門檻時才
+          搶先生效，代表這輪只測了「跳空保護」，不是「一般漸進虧損
+          保護」（後者已被既有機制排除，無法測）。
+
+          **核心結論**：三組停損的 net_pts 全部比無停損基準更差
+          （−4,823→−5,516/−5,030/−5,233）。**最重要且違反直覺的發現**：
+          加停損並沒有降低長尾風險——最差單筆虧損反而從 −155pt 惡化到
+          −436pt（三組一致）。追查根因：這是 path-dependence（蝴蝶
+          效應）——某一晚（2025-04-07，關稅 crash 期間）停損組在某一
+          刻搶先觸發，後續 15~200+ 根 bar（依配置而異）的反手鏈路徑
+          因此分岔，等到同一晚後段真正出現巨幅跳空時，停損組剛好持有
+          一個逆勢部位而無停損版本剛好不是——不是「停損機制本身比較差」
+          的因果證明，是這種 stateful 反手鏈系統對局部干預極度敏感的
+          已知特性。扣掉這一天單獨看，3x_half 略贏基準（+203pt）、
+          2x/5x 仍輸，顯示效果對倍數選擇高度敏感、不穩定。
+
+          **2 位審查者，1 位通過、1 位不通過**：因果性/對帳審查通過（誠實
+          next_open 成交、對帳平衡、同根K保護皆確認），但**指出 build
+          agent 的「根因追查」敘事有具體錯誤**：把 −436pt 那筆歸咎於
+          「17618→19260(~1642pt)跳空」，但實際上該筆進場價是 18826、
+          出場 19260，真正的移動是 2 根 bar 內約 434pt，17618 是 7 小時
+          前的價位、不是進場價；敘事也誇大成「三組都在 bar217 分岔」，
+          實際上只有 2x_half 在 bar217 分岔，3x/5x 到 bar421 都跟基準
+          逐筆相同。**統計方法審查者判定 claim_survives=false**：抓到
+          一個雙重標準——build agent 把無停損基準標記「SIGNIFICANT
+          NEGATIVE·統計上可信」，但 HAC 校正後的 p 值（maxlags=1/5/10：
+          0.058/0.090/0.075）全部超過 0.05，同一支腳本自己的判定邏輯
+          會把「naive顯著、HAC不顯著」的正報酬結果降級為「僅 naive
+          顯著」，卻沒有對負報酬結果套用同一套降級標準——這其實是
+          H-SC-STAT-SIGNIFICANCE-GAP 已經記錄過的同一個 p=0.029→
+          0.058~0.09 現象（no_stop 基準就是同一組 484 天旗艦資料），
+          這次只是被貼上了過度自信的標籤，不是新發現。
+        do_not:
+          - 引用「無停損基準 SIGNIFICANT NEGATIVE」這句話——HAC 校正後
+            三個 maxlags 的 p 值都超過 0.05，不算穩健顯著，這是舊發現
+            （H-SC-STAT-SIGNIFICANCE-GAP）被重新包裝過度自信的標籤
+          - 引用「−436pt 那筆是 1642pt 大跳空造成」或「三組都在 bar217
+            分岔」——這兩句敘事已被審查者用逐筆交易紀錄比對證偽，真實
+            移動約 434pt／只有 2x_half 在 bar217 分岔，3x/5x 分岔點在
+            bar421 附近
+          - 把「這次沒改善」讀成「幫 always-in 反手系統加風控完全沒用」
+            ——本輪的結構性限制決定了只測到「跳空保護」，真正可能有效
+            的「帳戶層級/跨反手鏈累積虧損上限」尚未測過，且會需要更大幅
+            改動核心邏輯（tx-donchian 線第十六輪也點出了同一個「下一步」
+            方向，兩條線在這裡的處境相同）
+      - id: H-SC-NGRAM-SEQUENCE
+        statement: >
+          同一套 16-class ZigZag 腿(leg)斜率字典（U1-8/D1-8，SW_TH=50pt，
+          與 r_c_exante_0805.py／slow_cell_tick_latency_lab.py 完全相同）
+          下，用最近 2~3 個「已確認腿」的 label 組成 n-gram（bigram/
+          trigram）序列上下文，取代 H-SC-CAUSAL-LAG 既有基準（單腿早期
+          斜率 blend，exact-hit 30.8%／soft-hit 50%／direction-hit
+          100%）當作下一腿方向/斜率類別的因果（causal）預測特徵，能否
+          提升準確率或縮小 edge_lost_pts。日夜分開各自統計；n-gram 頻率
+          表必須真正 walk-forward（校準期／測試期分離，不可像
+          H-SC-COARSE-CATALOG-CAUSAL 犯過的錯誤，同一批資料 fit 完再
+          評分同一批）。2026-08-08 使用者提出的「換維度分段」菜單裡，
+          唯二本研究線從未測過的角度之一（另一個是 H-SC-FIT-QUALITY-
+          GATE）；其餘 5 個候選維度（粗斜率/同向run/轉換密度/通道位置/
+          加減速）皆已對應到既有 rejected 假說，本輪不重測。
+        status: rejected  # 2/2審查通過(claim_survives=true)；bigram/trigram在3語料×2階6組全數輸給H-SC-CAUSAL-LAG基準，根因SW_TH=50pt固定絕對點數門檻使腿極度稀疏(82-86%零腿)、n-gram context table挨餓
+        evidence: >
+          3語料(day / night-truncated / night-full-OOP) × bigram/trigram
+          共 6 組，exact-hit 全數輸給 H-SC-CAUSAL-LAG 基準
+          （predict_class 逐位元 verbatim 重用，非重寫）：day 36.49%
+          vs 23.60%/17.02%（n=100天）；night-truncated 35.30% vs
+          20.15%/17.15%（n=77天）；night-full-OOP 33.43% vs
+          27.81%/24.52%（n=37天，2026-06-01~07-31獨立43天不重疊窗口）。
+          soft-hit同樣輸（基準68-72% vs n-gram 30-50%）；side-hit基準
+          100%（由ZigZag交替性保證），n-gram僅74-98%。根因：SW_TH=50pt
+          固定絕對點數門檻在2023-2025 TX價位下腿極度稀疏（82.3%日盤／
+          85.9%夜盤區塊零已確認腿，mean pivots/session僅2.4-2.5），
+          trigram backoff率23.67%-42.63%（bigram僅1-4%），context table
+          挨餓。逐日配對檢定（day-clustered，A8，legs非獨立試驗，不當
+          樣本數）6組全部強顯著、方向一致（baseline>ngram）：t=4.52-9.08，
+          p=6.5e-5~1.1e-14；lag-1自相關僅0.02-0.20，審查2獨立補跑
+          Newey-West HAC（maxlags 1/5/10）證實全部6組即使校正後仍穩健
+          顯著（最差night-full/bigram maxlags=1: p=2.6e-5）——build agent
+          原本以「BUG-4只強制PnL層級」為由跳過HAC，審查判定此措辭是
+          checklist範圍的自利窄化，但校正結果未推翻結論。BUG-2擾動測試
+          初次因「用pivot index而非真正confirm-time t_decide當因果邊界」
+          誤判失敗，root-cause後修復重測通過（合成序列+真實2024-04-19
+          日盤各一組，分岔點精確落在注入點/confirm-time）。2位審查者
+          各自獨立重跑腳本（輸出與已存檔JSON byte-identical）、獨立重算
+          全部6組headline數字與6組t/p統計量（完全吻合）、逐位元diff
+          predict_class/posthoc_zigzag等函式與r_c_exante_0805.py確認
+          verbatim重用無誤。
+        do_not:
+          - 引用「night-full-OOP語料pivots/session ~65.9」當作「更高
+            價位=更可預測」的證據——這是SW_TH=50絕對點數門檻在~45,000
+            點位下的尺度假象，不是真實regime差異
+          - 引用build agent原始caveat「main語料與night-full語料間有
+            unexplained 2個月資料缺口，無法驗證連續性」——審查2發現這
+            是錯的：同目錄tx_1m_daynight_cache.json/tx_1m_cache.json
+            （83天，2026-04-01~07-31）證實這是真實、連續的多月漲勢
+            （32,926→45,441），不是缺口或拼接假象；方向性結論不受
+            影響，但「不可驗證」的措辭需更正，且一個較不confound的
+            銜接窗口（如2026-04月，價位~33-37k）本可用卻未用
+          - 把「trigram backoff 24-43%」當精確值引用——實際範圍是
+            23.67%-42.63%（下界應為23.7%，非24%），純四捨五入誤差
+          - 把這輪結果讀成對「16-class channel框架整體有無交易edge」
+            的新結論——本輪只回答分類準確率問題，不涉及PnL/可交易性
+            （該問題已由本研究線其他已rejected假說獨立處理）
+      - id: H-SC-FIT-QUALITY-GATE
+        statement: >
+          對每一段已確認腿，用該腿線性擬合（y=m·t+b，OLS）的殘差大小／
+          價格穿出通道半寬帶的次數，分類為 Clean（貼合度高、少穿帶）vs
+          Dirty（常穿帶、擬合差），這個與斜率方向/大小正交的「擬合品質」
+          維度，能否作為獨立的因果 gate——篩選後續轉換為交易訊號時（例如
+          H-SC-DISTANCE-RATIO 的 target/stop 距離、或單純的進場/不進場
+          veto）的 target_pct 或 net_pts 是否有意義提升。日夜分開統計。
+          2026-08-08 使用者「換維度分段」菜單裡唯二未測過的角度之一
+          （另一個是 H-SC-NGRAM-SEQUENCE）。
+        status: pending
+        evidence: TBD
+        next_step: >
+          殘差/穿帶次數必須用嚴格 causal 方式計算（只用該腿 pivot 起點到
+          當下 t 的已知價格擬合，不可用整段腿事後才知道的終點資料，對應
+          BUG-3 fold-aggregate 陷阱的腿級別版本）；先做純描述性/分類層級
+          的統計檢定（Clean vs Dirty 兩組後續行為是否有顯著差異，含
+          HAC 校正的顯著性檢定，比照 BUG-4 標準），確認有訊息量後才進
+          PnL 層級測試；PnL 測試需完整過 BUG-1（session-end force-close）
+          ／BUG-5（誠實 next_open，不可比照 H-SC-EDGE-REVERT 的 clamp
+          錯誤）／BUG-6（自動 verdict 標籤人工複算）。若要疊加在既有
+          H-SC-DISTANCE-RATIO 的 target/stop 架構上測，需先確認兩者
+          交互作用不是又在同一批資料上 in-sample 調兩層參數（A9）。
+      - id: H-SC-COARSE-CATALOG-WALKFORWARD
+        statement: >
+          H-SC-COARSE-CATALOG-CAUSAL 的 8 類粗分因果分類準確率聲稱
+          （58.25%/93pt vs 16 類基準 30.8%）被 2/2 審查者以「n=162 實為
+          ~83 獨立日重複計、字典在同一批 83 天既校準又評分（無 held-
+          out）」推翻為 rejected。2026-08-08 盲點掃描發現：一份修正這
+          兩個瑕疵的 walk-forward 版本（calib 49 天／score 34 天held-out，
+          chronological、不重疊）2026-08-06 深夜已經跑過、產物就在硬碟
+          上（slow_cell_coarse_causal_accuracy_walkforward.py/.json），
+          但從未讀回 research.yaml——本假說是把這份既有產物讀回、獨立
+          複驗，而非重新建置。同批產物還有一份配套：把 walk-forward 字典
+          的 catalog half-width 餵進既有已審查過的 MODE A honest fade
+          引擎（slow_cell_catalog_fade_walkforward.py/.json），測 held-
+          out PnL。
+        status: pending-split  # 分類準確率：pending(2/2審查通過、A8/A9修復屬實，僅單一60/40切分未過A2門檻，不可升passed)；PnL配套：rejected(2026-08-08三度驗證，2/2審查一致認為已達本研究線自己的BUG-4+丟單日紅旗雙重門檻，不應留pending)
+        evidence: >
+          兩份產物皆獨立重跑，輸出與已存檔 JSON 逐位元相同（reproduced，
+          2/2 審查者各自重跑確認）。
+
+          **分類準確率**：held-out（score_dates，34天，2026-06-12~
+          2026-07-31）exact_hit median 48.0%（日，IQR 40.88-58.0）／
+          52.9%（夜，IQR 47.95-61.32），對照原版 in-sample 8類
+          54.5%/61.3% 與 H-SC-CAUSAL-LAG 16類基準 30.8%（n=1夜）。程式碼
+          複查確認 calibrate_catalogs_from_dates() 只吃 calib_dates（49
+          天，2026-04-01~06-11）建字典，score_dates 無法洩漏（修復
+          A9）；paired_day_night_avg 用日夜日期交集算真正獨立 n=34（修復
+          A8 的 n=162 假樣本問題）。2/2 審查通過（claim_survives=true／
+          false 但後者僅針對PnL判定，見下）。**尚未達標**：僅單一 60/40
+          切分，無 k-fold／多視窗驗證（checklist A2，本研究線自己在
+          H-TXD-WINDOW-RECALIBRATION 就示範過單一切分會在多摺驗證下翻
+          號），故維持 pending，不得升級為 passed。
+
+          **PnL 配套（H-SC-SAR-CONVERTER MODE A engine + walk-forward
+          catalog half）**：held-out net +240.0pt／681筆／勝率28.19%（日
+          −2,112pt、夜+2,352pt），對照原版 running-median-half MODE A
+          基準 −16,618pt／41.1%勝率（83天 in-sample）。程式碼複查確認
+          MODE A 引擎（fill/stop/target/session-end force-close 機制）
+          與已審查過的 slow_cell_sar_honest_backtest.py 逐項比對結構相同，
+          唯一改動是把 running-median half 換成 walk-forward catalog
+          half_map，無新增 look-ahead。**但本產物從未做過顯著性檢定**
+          （BUG-4）：補測 naive t=0.077 p=0.939；HAC(maxlags 1/5/10)
+          p=0.937/0.929/0.926，均遠高於0.05，逐日自相關僅−0.035（HAC
+          校正前後幾乎不動）。**丟棄單日穩健性測試**：拿掉單一最大量級的
+          一天（2026-07-30，+1,317pt）整個 34 天總和直接翻負（−1,077pt），
+          丟前2/3/5大日皆維持負值。**審查2（統計方法）進一步拆解
+          by_exit_reason，找到根因**：+240pt headline 94% 交易（571停損
+          +69目標，共640筆）合計結構性虧損 −10,490pt，全靠 41 筆
+          session-end 強制平倉貢獻 +10,730pt 撐住——這正是本研究線已用
+          來判 H-SC-SAR-CONVERTER MODE B rejected 的同一種「尾部事件湊巧
+          抵銷結構虧損」樣態（"−910pt接近打平...是尾部事件湊巧抵銷結構
+          虧損，不是穩定edge"）。審查2據此把build agent原本對PnL部分的
+          「pending」建議下修為「rejected」，本欄採納審查2判定。
+
+          **2026-08-08 三度獨立驗證（第 2/3 位審查者，與主 workflow 重複
+          跑的第二份副本交叉核對）**：兩份產物再次從原始資料重跑，分類
+          準確率／PnL 頭條數字、accounting invariant（682 signals=681
+          fills+1 skip；681 fills=681 closed）、naive/HAC 顯著性
+          （p≈0.937/0.930/0.926 @ maxlags 1/5/10）、丟前1/3/5/10大日結果
+          （−1,077/−2,937/−4,307/−6,224pt）全部逐位元或到報告精度重現。
+          **新發現一個先前兩份產物 caveats 都未揭露、但前身腳本曾明確
+          揭露過的問題**：catalog 校準用的是分層（session×label）SW_TH
+          （實測 day/range=25、day/trend=65、night/range=25、
+          night/trend=25，皆非 50），但分類準確率評分（posthoc_zigzag）
+          hardcode 全域 SW_TH=50（日夜皆同），PnL walk-forward 交易端又
+          用另一組 SW_TH_DAY=50/SW_TH_NIGHT=35——三個 population 互不
+          一致。這個「ZigZag 產生的腿母體跟校準分位數所用的母體不是同一批」
+          的 caveat 在直系前身腳本 slow_cell_coarse_causal_accuracy_lab.py
+          （caveat #2）有明確揭露，但本輪兩份 walk-forward 新產物都靜默
+          漏掉了。不推翻 A8/A9 修復本身、也不改變 PnL「不顯著」的判定，
+          但屬於誠實揭露缺口，應視為兩份產物 caveats 的已知遺漏。
+        do_not:
+          - 把「分類準確率 48.0%/52.9% held-out」直接讀成「粗分類已驗證
+            有效、可推進」——只過了單一切分，未過本研究線自己要求的
+            multi-fold（A2）門檻，仍是 pending
+          - 引用「+240pt held-out PnL」當作「catalog-informed MODE A 現在
+            有 edge」的證據——naive/HAC 檢定均遠不顯著、丟單日即翻負、且
+            94% 交易結構性虧損全靠 41 筆 session-end 強制平倉撐住，是與
+            H-SC-SAR-CONVERTER MODE B 同一種已知偽陽性樣態，應判 rejected
+          - 把「−16,618pt (in-sample 83天) → +240pt (held-out 34天)」讀成
+            「MODE A 現在打平、比原本好」——兩組天數/期間不可比（不是
+            like-for-like 重測），且 +240pt 本身已被拆解證實是假訊號，
+            不能用來佐證 MODE A 有改善
+          - 把兩份 walk-forward 產物的 caveats 清單當作完整揭露——實測
+            catalog 校準用分層 SW_TH（day/range=25、day/trend=65、
+            night/range=25、night/trend=25）跟分類評分（全域SW_TH=50）
+            及 PnL 交易端（day=50/night=35）三個母體互不一致，這個 gap
+            前身腳本有揭露、本輪兩份新產物都漏掉，需補回
+    do_not:
+      - 把 R6（near-rail 微觀 timing overlay）的正向證據當成 slow-cell 本身有效
+        ——R6 evidence n=13、late overlay 明確負（OR 變體 −494pt），證據太薄
+      - 未過 G2（多夜 held-out）就把 16-slope class 或本輪 Phase-0 的 8-state
+        寫入 config/strategy.yaml——目前僅 1 夜 oracle + 83 天特徵校準（非 PnL）
+        兩種證據，尚無跨夜 PnL 驗證
+      - 沿用 16 個精細 slope class 做下一階段因果分類——H-SC-CAUSAL-LAG 顯示
+        class 太細會讓 confirm 太慢；下一階段應先測試粗分（例如方向×3 級強度
+        共 6–8 類）能否在不犧牲 dwell 目標的前提下把 exact_hit_pct 拉高
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: failed  # 8/6 多agent輪：n=162實為~83獨立日、且字典在同批83天做in-sample校準再評分同一批，非真正held-out
+        G3_regime_stratification: pending
+        G4_rejection_registry: passed  # 9/11假說rejected（含H-SC-TICK-TRIGGER擴大樣本後翻案、H-SC-ADAPTIVE-RECOGNITION-SPEED）；H-SC-DWELL(切換頻率存在)+H-SC-TICK-TRIGGER(13天樣本,未大規模驗證)passed，尚無可交易機制
+        G5_frozen_spec: na  # 不會凍結——核心 PnL 假說已被驗證組推翻
+        G6_adoption_report: na
+    notes: >
+      2026-08-06：使用者指出 PV16 現行逐 bar 切換（median 1 分鐘、60% run 只活
+      1 根 K）太頻繁，型態應以數分鐘為單位存在。本輪發現 repo 內已有 8/5 夜盤
+      的 16-slope oracle 分類與兩支下游腳本（R6 近軌 timing、r_c ex-ante 因果
+      預測測試）——並非本輪首創，是延續既有但未登錄 research.yaml 的探索
+      （生成 tmf_0805_night_16_linear_channels.json/png 的腳本本身未存檔於
+      repo，只有輸出留存）。新增 Phase 0（slow_cell_phase0_dwell_lab.py）用
+      獨立方法／83 天資料重新校準 dwell 目標，與既有 oracle 收斂於同一數量級，
+      互相佐證「3–10 次/hr」是 TX/TMF 型態切換的真實自然尺度，但真正的瓶頸是
+      H-SC-CAUSAL-LAG（因果分類太慢），不是切換頻率本身。
+
+      2026-08-06 同日晚間：使用者授權 2 小時、9-agent 多agent研究（校準→測試→
+      對抗驗證三階段）直接測試「有機會就進 16-cell 優化」的 go/no-go gate。
+      三個 gate 全部沒守住：(1) 分層 SW_TH sweep 讓 switches/hr 進帶但 dwell
+      仍卡 4 分鐘（H-SC-STRAT-DWELL rejected，結構性問題非門檻問題）；
+      (2) 8 類粗分類因果準度提升的 58.25%/93pt 數字被 2/2 審查者以「n=162
+      實為~83獨立日重複計、字典 in-sample 配適考卷」推翻（H-SC-COARSE-
+      CATALOG-CAUSAL rejected）；(3) 邊緣回歸 PnL 146,312.7pt/勝率54% 被
+      3/3 審查者推翻——決定性發現是 88% 的宣稱獲利（128,786.5pt）來自一個
+      未揭露的「取較有利成交價」clamp bug，誠實 next_open 成交後淨利崩 92.5%
+      到 11,022pt、勝率跌到 44.14%（低於銅板）（H-SC-EDGE-REVERT rejected）。
+      按 pre-registered gate（三項全過才進 16-agent cell 參數優化），本輪判定
+      no-go，未執行 16-agent 優化階段。
+
+      下一步（若要重啟這條線）：(1) 修 fill clamp bug + leg_end look-ahead
+      + 786筆遺失交易，用誠實 next_open 重新跑 PnL；(2) 8 類字典改真正
+      walk-forward（校準期／測試期分離，日夜盤不可混算成同一個 n）；
+      (3) dwell 分層要讓腿能跨越 regime 標籤翻頁，不能每次翻頁重啟 ZigZag
+      狀態。三者都需要重新驗證，不是調參數就能救。
+
+      2026-08-06 深夜第三輪：修好 H-SC-EDGE-REVERT 的三個 bug 後重測
+      使用者描述的「轉換器」（H-SC-SAR-CONVERTER）——這次 3/3 審查通過
+      （含 450 組未來擾動測試，工程面誠實無虞），但誠實結果三個模式
+      （純逆勢/轉換器反手/順勢SAR）皆無正期望；MODE B 的「−910pt 接近
+      打平」拆開後其實是 −58,508pt 結構虧損被 +46,938pt 少數尾部趨勢日
+      抵銷，rejected。使用者接著指出兩個技術方向：通道寬度該用高分位數
+      （不是中位數）、半寬校準該即時／近期（不是全歷史一鍋煮）、以及訊號
+      該用 tick 級即時確認。第四輪測試：(a) H-SC-WIDTH-PERCENTILE——
+      17 格 percentile×rolling-window 網格，審查通過，但核心發現是
+      「回中線比例」完全不隨分位數變化（卡在 7.8%–12%，甚至方向反過來），
+      根因是 target:stop 距離比例恆定 1:0.3，不是 half 絕對大小的問題；
+      rejected，但留下明確的下一步線索（該 sweep 距離比例本身）。
+      (b) H-SC-TICK-TRIGGER——13 天真實 tick 測試，net +380%、target 比例
+      翻倍，4 位審查者 3/4 通過，但第 4 位抓到具體 look-ahead（通道剛
+      lock 那根 bar 用該 bar 最後一筆 tick 的價格去判定該 bar 開頭的觸價），
+      已量化污染約 11% 淨利／20% target 判定；標記 pending，需修好 lock
+      時序後重測才能定案（不是重新開始，是修一個具體、已定位的 bug）。
+
+      2026-08-06 深夜第五輪：兩個 agent 平行——(a) 修 H-SC-TICK-TRIGGER
+      的 look-ahead：修復過程額外發現出場側（flip 通道重錨）還有另外 8 次
+      同構污染是原始審查沒抓到的，合計 24 次污染全部堵住（2 位審查者各自
+      獨立重建污染前版本重跑，皆精確重現 16+8=24→0）。修復後方向仍成立但
+      幅度縮水 42%（net_pts_delta +2,356→+1,363pt），H-SC-TICK-TRIGGER
+      轉 **passed**——這是本研究線目前唯一通過驗證的正面假說。
+      (b) 新測 H-SC-DISTANCE-RATIO：把 target/stop 從綁在同一個 half 上
+      解耦成獨立參數，20 格網格 2/2 審查通過，確認這確實是決定 target_pct
+      的真正槓桿（可從 10~12% 調到最高 32.52%），但維持淨利為正的前提下
+      天花板只到 ~18%，80% 這個目標在這個引擎架構下不可達，rejected。
+
+      現況小結（第五輪，已過期）：H-SC-TICK-TRIGGER 曾是本研究線唯一存活
+      的正面訊號（bar級13天樣本+1,363pt/220%改善），其餘七個假說皆
+      rejected。當時建議下一步是擴大 tick 樣本＋walk-forward 驗證。
+
+      2026-08-06 深夜第六輪：把 H-SC-TICK-TRIGGER 擴大到 59 天（IS=15天
+      落在半寬校準期 2026-04~07 內／OOS=36天落在校準期外的
+      2025-07~2026-03）+ walk-forward，**結果翻案**：IS 組 tick 級大幅
+      劣於 bar 級（delta −296.6%，方向與之前所有測試相反）、OOS 組雖仍
+      正向（+253.8%）但兩組總和都被個位數極端日主導（IS拿掉1天翻正、
+      OOS拿掉top4天翻負）。深入調查發現最大單日逆轉（2026-06-23，
+      bar+1690pt vs tick−496pt）**不是 bug、不是資料問題**，而是
+      MODE B 反手機器對「通道剛lock那根bar能不能立刻用」這個時序極度
+      敏感的混沌路徑依賴——bar版與tick版是同一個雜訊過程的兩條路徑，
+      誰在特定一天抓對方向是蝴蝶效應級的偶然，不是穩定優勢。另外還抓到
+      腳本自動產生的 robustness_verdict 標籤本身有正負號判斷 bug，把這種
+      「方向相反、雙雙被極端日主導」的結果誤分類成最樂觀的標籤——這是本
+      輪一個重要的方法論教訓：**自動生成的穩健性標籤不能不看逐日明細就
+      採信**。H-SC-TICK-TRIGGER status 由 passed 改回 rejected。
+
+      **研究線總結**：tmf-slow-pattern-cell 測過的九個交易/分類機制假說——
+      H-SC-DWELL（慢尺度切換頻率存在，passed，唯一存活的基礎發現）、
+      H-SC-CAUSAL-LAG／H-SC-STRAT-DWELL／H-SC-COARSE-CATALOG-CAUSAL／
+      H-SC-EDGE-REVERT／H-SC-SAR-CONVERTER／H-SC-WIDTH-PERCENTILE／
+      H-SC-DISTANCE-RATIO／H-SC-TICK-TRIGGER——全部 rejected。
+
+      2026-08-06 深夜第七輪（使用者要求「突破盲點」後）：發現一個貫穿
+      整條研究線的方法論缺口——H-SC-STAT-SIGNIFICANCE-GAP。至今所有
+      rejected／passed 判定都是直接比點數總和正負號，從未做過正式統計
+      顯著性檢定。補做後（用59天逐日tick-vs-bar配對差異）：
+      mean=−7.5pt/day、se=61.0pt、**p=0.90**，95%CI=[−127,+112]舒服地
+      涵蓋0——樣本的檢定力低到連自己觀察到的「巨幅逆轉」都測不出顯著性。
+      **這代表本行前面所有「rejected」的判定，嚴格來說應該重新定性為
+      「效應量小到無法與噪音區分」，不是「證明了沒有 edge」**——兩者在
+      統計上是不同的結論，前者留了一扇門：可能有一個比目前樣本量能偵測
+      到的更小、更穩定的 edge 被淹沒在逐日高變異度裡，也可能真的什麼都
+      沒有，現有樣本量無法區分這兩種情況。
+
+      這不改變短期操作建議（誠實成交下沒有一個機制展現出「大到一眼就能
+      看出、扣成本後仍穩健」的 edge，不該貿然上線），但改變了長期定性：
+      若要真正回答「有沒有 edge」這個問題而非「效應量看起來多大」，需要
+      的不是再想新機制，而是大幅擴大樣本（估計需要接近500+天等級的
+      資料才能把每日估計的95%CI收斂到有意義的寬度）或改用檢定力更高的
+      評估方法（見 H-SC-STAT-SIGNIFICANCE-GAP 的 next_step）。
+
+      **2026-08-07 第八輪（收尾）**：接回 FinMind 回補 484 天全新樣本外
+      資料（2023-07~2025-06，程式化驗證與過去所有樣本零重疊），用旗艦
+      配置正式跑出第一版「p=0.029 顯著負」的結論——但審查者主動補做
+      腳本自己只用文字警告過、卻沒真的算過的自相關檢查，發現逐日序列
+      lag-1 自相關 +0.335，Newey-West 校正後 p 值回升到 0.058~0.091，
+      不再顯著。**最終定性**：就算用了統計檢定力足夠、完全乾淨的樣本外
+      資料，旗艦配置（Mode B fade+flip, P60/N40）的表現仍然無法被嚴謹
+      地判定為「顯著虧錢」或「顯著賺錢」——是統計上的一團模糊帶；但
+      點估計在所有穩健性排列（拿掉最慘1/3/5天）下都維持負號、從未翻正，
+      沒有任何跡象支持存在正面 edge。
+
+      **本研究線正式收尾**：tmf-slow-pattern-cell 從 H-SC-DWELL（型態
+      切換頻率是真實現象）出發，系統性測過逆勢回歸、順勢SAR、轉換器
+      反手、通道寬度百分位、target/stop距離比例、tick級觸發共八種把
+      切換頻率轉成可交易機制的方法，全部 rejected；最後用兩年乾淨樣本
+      外資料＋正式統計檢定＋自相關校正做旗艦配置的終局判定，結果是
+      「證據不足以支持任何方向的結論，但完全沒有正面訊號」。在
+      ZigZag+固定/百分位通道這個框架內，沒有找到、也沒有統計證據支持
+      存在一個可交易的 edge。若要繼續，需要脫離這個框架的全新機制
+      假說（例如另一條已存在的研究線 tx-donchian-multiwindow-channel
+      是不同的通道構造方式，值得評估是否已有更好的進展，而非在本框架
+      內繼續打轉）。status 改為 archived。
+
+      **2026-08-07 二度收尾**：使用者中途又帶了兩個新假說重新打開這條線
+      ——H-SC-ADAPTIVE-RECOGNITION-SPEED（TR-based 動態縮放 SW_TH/lock_k，
+      rejected：顯著虧錢）與 H-SC-NET-VELOCITY-RECOGNITION-SPEED
+      （Efficiency Ratio 動態縮放，第一版有同根循環 bug、修復重測後仍
+      rejected：HAC 校正後穩健顯著虧損 p≈1.85e-6）。兩者都用了跟旗艦
+      配置同一套嚴謹方法論（484 天乾淨 OOS + 擾動測試因果驗證 + Newey-
+      West HAC 顯著性 + 對抗審查），結論跟 8/6 收尾時完全一致：ZigZag+
+      通道框架內，不論固定切換速度還是動態切換速度，都沒有找到可交易
+      edge。使用者決定跳出這個框架找全新機制，status 再次改為 archived，
+      本次為終局收尾。
+    graduation_final: do-not-adopt · 10個交易機制假說皆rejected（8原始+2動態辨識速度）· 統計檢定力已足夠但仍測不出正面方向
+
+  tx-donchian-multiwindow-channel:
+    title: TX/TMF 日內 Donchian 通道 — 忠實移植、通道形狀對照、多 window 併行
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/tx-donchian-regime
+    run_scripts:
+      - scripts/research/tx_donchian_regime_smoketest.py
+      - scripts/research/tx_donchian_intraday_faithful.py
+      - scripts/research/tx_donchian_intraday_ablation.py
+      - scripts/research/tx_channel_geometry_control.py
+      - scripts/research/tx_channel_geometry_realism_check.py
+      - scripts/research/tx_channel_geometry_multiday.py
+      - scripts/research/tx_channel_recalibrate.py
+      - scripts/research/tx_channel_multiwindow_portfolio.py
+      - scripts/research/tx_channel_daynight_split.py
+      - scripts/research/tx_channel_tick_validation.py
+      - scripts/research/tx_channel_tick_pnl_check.py
+    hypotheses:
+      - id: H-TXD-FAITHFUL-HIGHFREQ
+        statement: >
+          忠實移植 GitHub `donchian_strategy`(ikonushok) repo 原作者的高頻
+          intra-channel 邏輯（window=11, rsi_exit=42, cooldown=8），未經
+          任何 TX/TMF 重新校準，直接套用能在 TX/TMF 1分K上做到「每天數十筆
+          交易」且獲利。
+        status: rejected
+        evidence: >
+          單日(8/6) smoke test：29次翻倉、勝率44.8%、-237.0pt。加回原作者
+          自己在 auxiliary/utils.py 明訂的 trade_on_close=False（下一根
+          開盤成交，非同根收盤）+ production TMF 看板實測的 5.9pt/筆成本
+          後，三個變體（baseline/no_rsi_exit）全部翻負。83天全樣本驗證
+          （tmf_channel 離線快取 2026-04-01~07-31）：2,900筆交易、
+          -16,119.0pt、日均-194.2pt、正報酬天數僅34/83(41%)、年化
+          Sharpe-like -4.57。平均每筆虧損(-5.56pt)幾乎完全等於固定成本
+          (5.9pt)，代表訊號本身接近零edge，虧損主要來自交易成本，不是
+          方向判斷錯誤。
+        do_not:
+          - 引用單日 -237.0pt 或任何單日結果下結論——83天全樣本才是可信
+            的判定基礎
+          - 認為調整 RSI/cooldown 能救回這個 window——第七輪頻率-edge
+            對照證實 window<34 這條路在扣除5.9pt/筆成本後結構性轉負，
+            不是參數沒調好
+      - id: H-TXD-LRC-GEOMETRY
+        statement: >
+          斜率型 Linear Regression Channel（跟著局部趨勢角度傾斜、貼近
+          價格）在相同訊號狀態機下大幅優於水平型 Donchian（rolling
+          max/min，固定階梯狀）。
+        status: rejected
+        evidence: >
+          單日對照組（同一套RSI exit+cooldown+ATR濾網，只換通道來源）：
+          lrc_baseline +476.0pt 大幅勝過 donchian_baseline -237.0pt，
+          翻倉頻率也高2.3倍(67 vs 29筆)。**但邏輯稽核發現這是零成本/
+          零延遲執行假設造出的假象**：(1) 獲利集中度極高，最賺的前3筆
+          貢獻97.3%總獲利；(2) 加回原作者自己的 trade_on_close=False +
+          5.9pt/筆成本後，LRC兩個版本反而變成表現最差的（lrc_no_rsi_exit
+          最終-514.3pt，比Donchian的-430.1pt還慘）。83天驗證：LRC虧損
+          速度是Donchian的兩倍以上（日均-447.9pt vs -194.2pt），因為LRC
+          交易頻率高2.3倍，對固定成本的曝險天生更大。
+        do_not:
+          - 引用單日零成本零延遲版本的 +476.0pt 當結論——那是不寫實執行
+            假設放大出來的假象
+          - 認為斜率型通道天生優於水平型——本輪只證明「LRC在這個特定
+            訊號狀態機+這組參數下，扣除真實成本後更差」，不是通道形狀
+            本身的普遍結論
+      - id: H-TXD-WINDOW-RECALIBRATION
+        statement: >
+          針對 TX/TMF（而非原作者的 EURGBP/EURUSD）重新校準 Donchian
+          window，能找到通過樣本外驗證的正報酬設定——即使代價是放棄
+          「日內高頻」（每天數十筆）這個原始頻率目標。
+        status: rejected  # 2026-08-07 盲點輪翻案：session結尾未平倉部位從未結算，誠實force-close後 w233 +19,362.6→-5,417.8pt，全部window翻負（見H-TXD-SESSION-END-ACCOUNTING）
+        evidence: >
+          83天依時間序切70/30 IS/OOS網格搜尋（只在IS排名，OOS不參與選
+          參數），發現window=55一次性OOS驗證正報酬(+3,123.3pt、
+          15/25天正報酬、Sharpe+3.10)，但**3摺滾動驗證推翻了這個發現**
+          ——w55在Fold3轉虧，代表單次70/30切分只是運氣切在它表現好的
+          時段。往外延伸精細網格(180~290)+5摺滾動驗證後收斂：
+          **window=233平均Sharpe最高(15.78)，且是七個候選裡唯一五段
+          獨立測試期全部正報酬的**。修正一個貫穿全系列的look-ahead bug
+          （ATR濾網門檻原本用當天全天含未來K棒的分布算，改成只用IS天
+          池化計算一次固定值）後結論幾乎不變（差異<1%），證實不是bug
+          撐起這個發現。
+        do_not:
+          - 只做一次70/30切分就下結論——w55的教訓證明必須要多摺滾動
+            驗證才能分辨「真穩定」還是「切分運氣」
+          - 忽略頻率代價——window=233只有1.69筆/天，跟「日內高頻」的
+            原始目標方向相反；這是用真實成本結構換來的結果，不是白撿的
+      - id: H-TXD-MULTIWINDOW-PORTFOLIO
+        statement: >
+          不縮小單一window犧牲edge，改成多個已驗證有效的window（34/55/89）
+          各自獨立開倉、損益直接加總，能同時達到「20+筆/天」的高頻目標
+          與正報酬。
+        status: rejected  # 2026-08-07 盲點輪翻案：誠實結算498個被丟棄的session尾部位(-92,174.2pt)後，+79,863.9→-12,310.3pt（見H-TXD-SESSION-END-ACCOUNTING）
+        evidence: >
+          w34+w55+w89併行（各自獨立記帳，訊號/部位完全不共用狀態）：
+          83天trades/day=22.80（達成頻率目標），總損益36,680.2pt，
+          55/83天正報酬，5摺滾動驗證4/5摺正報酬(平均Sharpe 7.09)。
+          **重疊診斷發現關鍵限制**：三個window的持倉時間有72.7%是同
+          方向重疊——「三個獨立分散」的敘事不成立，實際上更接近「同一個
+          趨勢訊號被不同解析度重複確認、用三倍倉位加碼」，不是三個互不
+          相關的機會來源。後續(H-TXD-SESSION-CONTINUITY-BUG)發現日夜盤
+          分開算可以讓總損益提升到79,863.9pt，且day/night各自都是
+          5/5摺正報酬。
+        do_not:
+          - 把「頻率疊加」講成「風險分散」——72.7%同方向重疊代表這本質
+            上是一個放大版部位，保證金該抓3倍沒錯，但風險集中度不是
+            三個獨立部位那樣分散，風控要用「一個大部位」的邏輯看待
+          - 忽略Fold5的負報酬（合併連續版）——這個組合不是全時段穩定，
+            比單一window=233(5/5摺全正)犧牲了一點穩定性換頻率與總報酬
+      - id: H-TXD-SESSION-CONTINUITY-BUG
+        statement: >
+          （方法論假說）先前所有輪次都是day+night合併成一條連續序列跑，
+          rolling window通道會跨過日盤收盤(13:45)→夜盤開盤(15:00)的空檔
+          繼續滾動，把兩個不連續交易時段的價格關係混在一起算，這個污染
+          會壓低策略表現。
+        status: passed
+        evidence: >
+          把day/night改成各自從session第一根bar重新起算（互不污染）後
+          重跑同樣的83天+5摺驗證：w233總損益 18,282→19,362.6pt(小幅
+          改善)，w34+w55+w89組合總損益 36,680.2→79,863.9pt(**幾乎
+          翻倍**)。day/night分開後四個組合×session全部5/5摺正報酬
+          （之前w233合併版本Fold5翻負，拆開後day+night相加=+2,458pt
+          轉正，代表先前Fold5的負報酬有一部分可能正是session污染造成
+          的假訊號）。
+        do_not:
+          - 引用"79,863.9pt"這個數字——2026-08-07盲點輪證實它只計了已翻倉
+            平掉的交易，session尾部位(-92,174.2pt)被靜默丟棄，誠實結算後
+            是-12,310.3pt；「day/night拆開改善方法論」這個結論本身仍成立
+            （拆開前後的相對比較兩邊同樣漏計尾部位，比較基準一致），但
+            絕對數字全部失效
+          - 忽略這個修正對回測基礎設施的通用意義——任何用到跨session
+            rolling window的未來研究都該預設day/night分開算，不是本
+            hypothesis獨有的修正
+      - id: H-TXD-SESSION-END-ACCOUNTING
+        statement: >
+          （方法論假說·盲點輪）simulate_pnl_realistic 只結算「已翻倉平掉」
+          的交易，session結尾仍持有的部位被靜默丟棄——always-in 系統每個
+          (day,sess,sleeve) 區塊必留一個尾部位，這個缺口大到足以翻轉全線
+          損益結論。
+        status: passed  # 2026-08-07 證實，是整條線最重要的單一發現
+        evidence: >
+          tx_channel_session_end_accounting.py：83天×2session×3sleeve=498個
+          被丟尾部位，用session最後一根收盤價force-close誠實結算：尾部位
+          合計-92,174.2pt（勝率24.5%、均-185.1pt），把已計交易的+79,863.9pt
+          翻成真實-12,310.3pt。w233單獨：+19,362.6→-5,417.8pt；
+          w34/w55/w89各自單獨也全部翻負(-7.2k/-1.6k/-3.6k)。機制：fade系統
+          被丟掉的尾部位正是「突破後一路走不回來」的趨勢日失敗fade（無停損
+          放到收盤），已計交易的快速回歸獲利幾乎剛好被吃光再倒賠。與repo
+          研究史一致（H-RECOVERY hang_anchor、ASC close-fill、H-SC-EDGE-
+          REVERT fill clamp——亮眼數字一再死於結算細節）；channel_lab鐵律
+          與H-SC誠實引擎都有session邊界機械平倉，本線移植simulate時漏掉。
+          同輪另確認：veto濾網在always-in系統會改變交易路徑（60/40「事後挑
+          交易」+34%與5摺veto+0.9%的矛盾根源），sizing（路徑不變只調權重）
+          才能收割per-trade預測力——atr_at_entry sizing 5/5摺+39.2%，但此
+          提升建立在已計交易子集上，系統級結論被本假說推翻後暫無意義。
+
+          **後續（2026-08-07 統計顯著性補做輪，呼應H-SC-STAT-SIGNIFICANCE-
+          GAP）**：上述絕對數字至今只是83天總和，從未做過逐日層級的正式
+          檢定。用 tx_channel_session_end_hac_significance.py（原封不動
+          import run_block/simulate_with_forceclose，只新增window=233
+          單獨跑批＋把彙總粒度拆成逐日net_pts，day+night兩session相加
+          成一交易日）補做：w233逐日序列 n=83, mean=-65.3pt/day,
+          naive t=-1.20, p=0.232；combo(w34+w55+w89)逐日序列 n=83,
+          mean=-148.3pt/day, naive t=-0.84, p=0.405。Newey-West HAC
+          （maxlags=1/5/10）：w233 p=0.217/0.214/0.210，combo
+          p=0.394/0.444/0.483——**兩個序列在naive與全部三個maxlags下
+          都p>0.05，不顯著**。lag-1自相關 w233=-0.041、combo=-0.026，
+          跟tmf-slow-pattern-cell線484天樣本量到的+0.335正自相關方向
+          相反（不是「連續多天同向極端」的結構，逐日效應更接近獨立）。
+          用HAC p<0.05在全部maxlags都成立的**唯一標準**判定（正負向
+          同一套，不因方向放寬或收緊）：**兩個序列都是「不顯著」**，
+          83天樣本量下無法可信地區分「真的沒有edge」與「有一個小到目前
+          偵測不到的負edge」。腳本/輸出：
+          scripts/research/tx_channel_session_end_hac_significance.py，
+          reports/research/tx-donchian-regime/session_end_hac_significance.json，
+          reports/research/tx-donchian-regime/session_end_daily_netpts.csv。
+        do_not:
+          - 引用第五輪(realism check)之後任何一輪的絕對損益數字——全部
+            建立在這個記帳缺口上；相對比較（A設定vs B設定）若兩邊同樣
+            漏計則方向仍可參考，但採用前必須用force-close版重算
+          - 用「加個停損」當快速救援就直接上線——H-SC線的fade+停損歷史
+            (MODE A net -16,618pt)不樂觀；跨session持倉救援則受限於
+            夜盤快取缺00:00-05:00段，兩條路都是新研究不是參數調整
+          - 再寫任何不結算期末部位的回測引擎——這是本repo第四次在結算
+            細節上翻車（hang_anchor/close-fill/fill clamp/本次），任何
+            新引擎必須把「期末強制平倉或明確結轉」當成硬性規格
+          - 把2026-08-07統計顯著性補做輪的「不顯著」讀成「證明沒有
+            edge」——83天遠小於tmf-slow-pattern-cell線後續用的484天，
+            正確結論是檢定力不足以區分「沒有edge」與「有一個目前測不
+            到的小負edge」；點估計(-5,417.8pt/-12,310.3pt)在83天全樣本
+            下維持負號從未翻正，但這個負號本身未達HAC穩健顯著門檻
+          - 反過來把「不顯著」讀成「所以可能有正面edge」——lag-1自相關
+            實測為負(-0.04/-0.03)，不是tmf-slow-pattern-cell那種正自
+            相關撐高naive p值的情境，HAC校正對p值影響很小(0.232→0.210~
+            0.217、0.405→0.394~0.483)，naive本身就已經離0.05很遠，不是
+            「校正後才變得不顯著」的邊緣案例
+      - id: H-TXD-TICK-DATA-SENSITIVITY
+        statement: >
+          （方法論假說）現有分鐘K快取(tx_1m_daynight_cache.json)跟真實
+          tick數據之間的落差，會顯著影響策略訊號與損益判定——呼應
+          channel_lab研究史反覆證明的「bar級近似是最常見假edge來源」
+          （H-SC-TICK-TRIGGER單靠改確認粒度就讓數字變220%）。
+        status: rejected
+        evidence: >
+          用 finmind_tx_tick_by_day/（582天真實tick，遠超83天分鐘K
+          快取覆蓋範圍）驗證，範圍限日盤(tick cache跨午夜需拼接兩個
+          calendar date檔案，本輪未做)。第一層：17天抽樣比對，快取vs
+          tick-resample的1分K確實有實質落差(Close平均差1.3pt/根，
+          單根最大差38pt，僅65%完全一致)。第二層：直接用tick-derived
+          bars重跑w233與多window組合的訊號與損益，17天全部同號、交易
+          筆數完全相同(w233:6=6筆、組合版:127=127筆)、總損益差距<1%
+          (+2.0%/+0.1%)。跟H-SC線的rail/target/stop觸價機制對tick
+          精度極敏感不同，本策略架構是「訊號在bar收盤觸發、成交在下
+          一根bar開盤」，不做intrabar觸價判斷，對這個量級的bar級雜訊
+          天生不敏感——這個假說（落差會顯著影響結果）因此被否證。
+        do_not:
+          - 把這個結果讀成「所有bar級近似都沒問題」——這是本策略架構
+            (close觸發+next-open成交)特有的穩健性，不是通用結論；換成
+            intrabar觸價的機制設計，同樣的資料落差可能造成完全不同的
+            結論(見H-SC線的歷史教訓)
+          - 當作完整驗證——只測了日盤、只抽17天(~20%樣本)、只測了兩個
+            設定；夜盤tick驗證已在 H-TXD-NIGHT-TICK-COVERAGE-GAP 補做，
+            見該條目——結論比日盤複雜，不是同一個「不敏感」結論的延伸
+      - id: H-TXD-NIGHT-TICK-COVERAGE-GAP
+        statement: >
+          （方法論假說·補做夜盤tick驗證）H-TXD-TICK-DATA-SENSITIVITY只
+          驗證了日盤，夜盤橫跨兩個calendar date（15:00 D日開始～次日
+          05:00附近），bar cache（tx_1m_daynight_cache.json）是否也像
+          日盤一樣對bar級近似不敏感？另外意外發現一個獨立問題：bar
+          cache本身是否完整涵蓋整個夜盤時段？
+        status: passed  # 2/2審查通過（含1個小瑕疵已訂正）；發現bar cache夜盤缺00:00-05:00且此缺口足以翻轉w233方向，是本輪最重要的新發現
+        evidence: >
+          tick快取路徑確認：~/goldenstocks-data/cache/tmf_channel/
+          finmind_tx_tick_by_day/{calendar_date}.json，逐calendar date
+          一檔，820檔涵蓋2023-07-03~2026-08-07。夜盤跨兩檔：15:00-23:59
+          在{D}.json、00:00-~05:00在{D+1}.json開頭（在D+1日盤08:45開盤
+          前）。17天抽樣（跟日盤驗證同cadence）跨日拼接：17/17天邊界
+          缺口僅1-11秒（正常tick間隔）、時間序列單調遞增無缺口，拼接
+          方法正確。
+
+          **意外發現、比原本要驗證的問題更重要**：bar cache（DB裡
+          `sess='night'`的bar）在全部83天**一律硬截斷在23:59**，從未
+          捕捉00:00-05:00這段——也就是說先前所有day/night拆開的回測
+          （包含撐起H-TXD-SESSION-CONTINUITY-BUG／H-TXD-SESSION-END-
+          ACCOUNTING那些數字的夜盤，以及G2/G3畢業門檻判定）用的夜盤
+          時段實際只有~9小時而非完整~14小時。這是**覆蓋率缺口**，跟
+          「bar級近似精度夠不夠」是不同層次的問題。
+
+          **Layer 1（bar vs tick精度，比對15:00-23:59匹配窗口）**：
+          17天、Close差異mean=0.552pt(比日盤1.3pt更小)、exact match
+          79.8%(比日盤65%更高)、單根最大差45.0pt(比日盤38pt略大)。
+
+          **Layer 2（訊號/損益重跑，同一匹配窗口，force-close記帳）**：
+          w233：cache 33筆/−2,012.7pt vs tick 33筆/−2,018.7pt，差距
+          −0.3%、17/17天同號——**跟日盤結論一致：對bar級雜訊不敏感**。
+          但w34+w55+w89組合：cache 288筆/−2,915.2pt vs tick 292筆/
+          −2,439.8pt，差距+16.3%、多4筆交易——**比日盤組合版(+0.1%)
+          明顯更敏感**，方向不變但量級有感。
+
+          **完整夜盤(含00:00-05:00尾段，僅tick可得，無cache對照組)
+          vs截斷窗口對比（本輪最重要的數字）**：w233 完整版42筆/
+          **+663.2pt** vs 截斷版33筆/−2,018.7pt——**符號翻轉**；組合版
+          完整427筆/−3,165.3pt vs 截斷292筆/−2,439.8pt——維持負號，
+          虧損加深。翻轉只發生在w233單一window，組合版方向不變。
+
+          2/2審查通過（claim_survives=true）：獨立重跑兩支腳本逐位元
+          一致；審查者額外檢查了一個報告未主動揭露的潛在混淆（完整版
+          用了不同ATR門檻7.75 vs截斷版9.10），用截斷版門檻9.10重跑完整
+          夜盤資料，w233仍是42筆/+851.2pt正號不變、組合仍負——證實符號
+          翻轉是覆蓋率效應本身，不是門檻選擇造成的假象，報告的歸因
+          站得住。審查抓到一個小瑕疵：報告稱「重複列44-46%」，獨立算出
+          實際是35.2%-46.5%(整體41.7%)，屬描述性統計誤報，不影響任何
+          結論(重複列屬原始tick feed本身特性、非邊界拼接產物，這個定性
+          結論仍成立)。
+        do_not:
+          - 把「w233完整夜盤+663.2pt」讀成「找到正面edge、可以上線」——
+            這只是17天樣本、force-close記帳下的名目點數，**完全沒有做
+            HAC顯著性檢定**（呼應H-TXD-SESSION-END-ACCOUNTING那輪83天
+            都測不出顯著性，17天檢定力只會更差），也沒有跟已知死亡的
+            G2/G3畢業結論做正式對照，只能定性為「值得用完整夜盤資料
+            重新驗證，不能定性為edge」
+          - 把這個發現讀成「先前所有夜盤研究結論都作廢」——G2/G3失敗、
+            H-TXD-SESSION-END-ACCOUNTING的翻負結論，都是「同樣的截斷
+            窗口下、誠實結算vs不誠實結算」的比較，比較基準一致，那些
+            相對結論不受這次覆蓋率缺口影響；唯一需要重新評估的是「如果
+            用完整14小時夜盤重跑，絕對數字會不會不一樣」這個新問題
+          - 混用「組合版也翻正」——只有w233單一window的完整夜盤翻正，
+            w34+w55+w89組合版在完整/截斷兩種窗口下都維持負號，不要
+            誇大成「整條線翻正」
+          - 忽略bar cache本身需要擴充這件事——若要認真追這個方向，
+            第一步是重建tx_1m_daynight_cache.json涵蓋完整00:00-05:00
+            段，而不是繼續在tick-only的補丁資料上做進一步分析
+        rebuild_attempt_2026_08_07_incomplete: >
+          （誠實記錄一次未完成的嘗試，不是負面結果）2026-08-07 曾
+          嘗試把完整夜盤重建擴大到265個交易日、用誠實force-close引擎
+          重跑w233/組合版並補HAC顯著性檢定——這正是上面do_not第1點要求
+          的下一步。重建耗時遠超預期（單次tick抓取+1分K重採樣，265天
+          規模約需15-20分鐘背景執行），負責的agent在背景程序完成前就
+          結束了自己的回合，**沒有交回任何實際數字**，只回報「還在
+          跑」。背景程序後續狀態未知（沒有找到存活的程序，可能已經
+          結束但輸出未被收集，也可能中途失敗）。這代表「w233完整夜盤
+          在更大樣本上是否維持正號、能不能通過HAC顯著性檢定」這個
+          問題**依然沒有答案**——上面do_not第1點的警語依然完全成立，
+          17天樣本的+663.2pt仍然是唯一存在的數字，尚未被證實也尚未
+          被推翻。若要重試，建議把「抓取265天完整夜盤tick」拆成獨立
+          的、有檢查點的批次任務，不要跟「重跑回測+HAC檢定」放在
+          同一個agent回合裡，避免同樣的逾時問題。
+      - id: H-TXD-INSTRUMENT-IDENTITY
+        statement: >
+          （方法論假說·標的身分定案）topic do_not區塊從第一輪就記錄的
+          未解決疑慮——研究資料序列究竟對應TX大台、TMF微台、還是MTX
+          小台？損益試算沿用的200元/點乘數對不對？跟產線唯一能下單的
+          契約是同一個東西嗎？
+        status: passed  # 2/2審查通過；身分已定案，且發現一個實際影響資金結論的乘數誤用
+        evidence: >
+          **研究資料實際來源＝FinMind TaiwanFuturesTick, data_id="TX"**
+          （大台）：build_tick_cache_full83.py／fullnight_junjul_
+          restatement.py／build_tx_1m_janmar_holdout.py三支建快取腳本
+          寫死同一組fetch參數，原始tick dump本身`futures_id:"TX"`。
+          唯一例外是README記錄的第二輪單日smoke test，讀的是TMF富邦
+          實盤看板API——但第六輪起全部改用TX cache，此後所有絕對數字
+          都建立在TX序列上。`tx_1m_daynight_cache.json`跟
+          `src/tmf_channel/cache_store.py`共用同一實體檔案，但只在
+          `causal_engine.py`的`if __name__=="__main__":` guard內被讀取，
+          **不在**產線`worker_loop.py`即時下單路徑上（worker_loop只
+          import `order.tmf_channel_marketdata`），研究資料混入產線的
+          風險本身不存在。
+
+          **產線下單契約＝Fubon product="TMF"**（符號如TMFH6，會計代碼
+          FITM）：`config/order.yaml:218`／`tmf_channel_config.py:148`
+          預設皆為TMF；`src/order/`與`config/order.yaml`全域grep
+          "TX"/"MTX"/"MXF"**零命中**——這個系統目前只有TMF一種期貨
+          產品被接上下單邏輯。
+
+          **三契約乘數**：TX=200元/點（README明文引用）、TMF=10元/點
+          （`fubon_futopt_orders.py:450` `pv=10.0`，來自產線
+          `query_tmf_margin_equity()`的富邦清算SSOT）、MTX≈50元/點
+          （常識，repo未寫死）。TX/MTX在`src/order/`完全沒有下單路徑。
+
+          **實際影響**：README與研究線pt-based的損益方向/顯著性判定
+          （已被H-TXD-SESSION-END-ACCOUNTING等翻成rejected）不受乘數
+          影響，因為pt本身不需換算。但README有兩處明確用200元/點換算
+          出NTD資金結論並寫進do_not/graduation記錄：(1)第一輪smoke
+          test「700-1000點停損距離×200元/點=14萬-20萬元/口」；(2)第
+          十四輪風控「99百分位單筆虧損1033.2pt×200元/點=206,640元」→
+          「連1口都要2,066萬-2,830萬本金才撐得起」。**這兩個結論若換算
+          成產線實際唯一能下單的TMF（÷20），資金瓶頸敘事基本消失**：
+          1033.2pt×10元/點=10,332元，1%風險預算下只需103萬本金即可
+          撐1口，不是2,066萬。
+
+          2/2審查通過（claim_survives=true）：全部程式碼/設定檔證據
+          （TX fetch呼叫、cache symlink、`pv=10.0`位置、`product:TMF`、
+          零命中TX/MTX/MXF、causal_engine.py讀取確實只在main() guard
+          內未被worker_loop觸及）逐一grep核實存在，乘數換算數學正確，
+          與CLAUDE.md下單層描述（TMF為唯一live下單標的）無矛盾。
+        do_not:
+          - 把「資金瓶頸敘事消失」讀成「這條線現在有機會上線」——
+            H-TXD-SESSION-END-ACCOUNTING等翻負的rejected判定是pt-based
+            的，跟乘數無關，換算後依然成立；本假說只糾正了「連1口都
+            養不起」這個特定NTD資金結論算錯了乘數，不代表策略本身變得
+            可交易
+          - 忽略「研究資料(TX)≠產線下單契約(TMF)」這個根本落差——若
+            要真的重啟這條線並考慮上線，第一步必須是把資料源換成/至少
+            對照Fubon實際TMF報價、做TX vs TMF基差系統性檢查（目前只有
+            第二輪單日驗證過一次），不是換個乘數常數就結束
+          - 誤以為TX或MTX有可能成為下單標的——`src/order/`完全沒有這
+            兩種契約的下單基礎設施，要交易TX/MTX需要整條新開發，不是
+            設定檔調整
+        basis_check_2026_08_07: >
+          （補做「TX vs TMF基差系統性檢查」，回應上面do_not第2點）用
+          `tmf-channel-poll` worker每輪(~20s)寫進log的真實TMF spot
+          （`~/goldenstocks-data/logs/intraday/tmf_channel_live_
+          2026080{5,6}.log`）比對同期FinMind TX tick，`merge_asof`
+          (5秒容忍窗)配對出2,233筆TMF樣本、1,756筆有效配對。**basis
+          (TMF−TX)均值+0.33pt、std 5.16pt，兩個交易日內都在±3pt內震盪
+          沒有系統性漂移**，10秒容忍窗重跑結果穩定(mean穩定在
+          +0.3~0.36pt)，不是配對時窗造成的假象。但std(~5pt)跟策略最細
+          的判斷門檻(recipe cell的early_fill_gamma≈5-9pt)同量級——
+          代表即使回測在TX上校準出訊號，套到TMF時同一時點可能多出約
+          ±5pt獨立雜訊，量級足以讓臨界案例翻面。
+
+          **誠實聲明：只有2個日曆日重疊(2026-08-05/06)，00:00-08:45
+          完全空白(worker在08-06凌晨有crash斷點)，樣本量遠不足以下
+          「基差穩定」或「基差會漂移」的結論**——這只是2天快照，看不到
+          跨週/跨月/契約到期滾動(TMFH6於2026-08-19到期)前後的行為。
+          估計需要至少20-30個獨立交易日才夠做日層級HAC顯著性檢定；
+          worker本身每輪都在記錄spot，只需修好00:00附近的crash缺口讓
+          它連續收錄幾週即可累積出來，不需要新增instrumentation。
+
+          資料品質陷阱記錄：`finmind_tx_tick_by_day/`原始tick混了價差
+          合約(calendar spread，`contract_date="202608/202609"`等，
+          價格是價差點數~40-100不是指數點位~44000)，08-06當天81,116筆
+          中954筆(1.2%)是這種污染資料；確認既有回測管線
+          (`build_tick_cache_full83.py::pick_contract`)本來就有濾掉，
+          但任何人拿raw per-day cache做ad hoc分析都要自己記得濾。
+    do_not:
+      - 把這條線的任何"passed"判定當作可以直接上線的訊號——全部驗證都
+        只是點數總和正負號比較，沒有做過正式統計顯著性檢定（呼應
+        H-SC-STAT-SIGNIFICANCE-GAP的同一個方法論缺口，本線的83天HAC
+        補做見H-TXD-SESSION-END-ACCOUNTING evidence，兩個序列皆不顯著；
+        H-TXD-NIGHT-TICK-COVERAGE-GAP發現的完整夜盤w233正號同樣未做
+        顯著性檢定）
+      - 混淆這條線跟 tmf-slow-pattern-cell 線——兩者資料來源、訊號機制、
+        通道定義完全不同，只是都在研究TX/TMF channel breakout；不要把
+        兩邊的發現互相引用當作對方的佐證
+      - 認為標的身分已經完全解決到可以上線的程度——H-TXD-INSTRUMENT-
+        IDENTITY已定案「資料=TX、下單=TMF、乘數需÷20」這個事實，但
+        「資料源要不要換成TMF、TX/TMF基差多大」仍是未做的工作，不是
+        已關閉的問題
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: failed  # 誠實揭露：這條線是先做完10+輪研究才回頭補登記，不是research.yaml先預註記才開始測試
+        G2_oos_holdout: failed  # 2026-08-07翻案：5摺程序本身正確，但底層simulate漏結算session尾部位（H-TXD-SESSION-END-ACCOUNTING），誠實結算後所有OOS正報酬翻負
+        G3_regime_stratification: failed  # 同上——day/night「各自5/5摺正報酬」建立在同一個記帳缺口上
+        G4_rejection_registry: passed  # 6/8假說rejected且記錄do_not；僅存的passed是兩個方法論假說(SESSION-CONTINUITY-BUG/SESSION-END-ACCOUNTING)，無可交易機制
+        G5_frozen_spec: na  # 不會凍結——核心PnL結論已被誠實記帳推翻
+        G6_adoption_report: na
+    notes: >
+      2026-08-06~07：從「整合7個GitHub Donchian repo」開始，經忠實移植
+      →ablation→通道形狀對照(Donchian vs LRC)→邏輯稽核→83天驗證→參數
+      重新校準(IS/OOS+多摺滾動)→多window併行組合→日夜盤拆開→tick級驗證，
+      共12輪。核心教訓跟tmf-slow-pattern-cell線高度一致：原始移植版本
+      在真實成本結構下沒有edge，需要往低頻方向重新校準才找到正報酬；
+      but 跟該線不同的是，這條線確實找到了通過多摺OOS驗證的正報酬設定
+      （window=233單獨、或w34+w55+w89併行+day/night分開算），只是都
+      伴隨頻率妥協或風險集中度的誠實保留。距離下單層仍有多個未解決缺口
+      （標的身分、因果即時實作、正式統計顯著性檢定、部位/風控邏輯），
+      詳見 reports/research/tx-donchian-regime/README.md 第十二輪之後
+      的討論。
+
+      2026-08-07：使用者授權5小時自主研究，針對上述缺口逐項補做（第十三~
+      十六輪，詳見README）：(1) day/night拆開驗證，兩者各自5/5摺正報酬，
+      且意外發現先前合併連續版本的通道會跨過session空檔污染，拆開後
+      多window組合總損益從36,680.2pt提升到79,863.9pt；(2) 用582天真實
+      tick資料(finmind_tx_tick_by_day/)驗證bar級近似不影響本策略訊號/
+      損益(17天樣本、17/17同號、差距<1%)——跟tmf-slow-pattern-cell線
+      對tick精度的敏感度不同，因為本架構是bar收盤觸發+次根開盤成交，
+      不做intrabar觸價判斷；(3) 建成因果逐bar版引擎，過程中抓到兩個真實
+      bug(初始合成部位的index基準、ATR/RSI的shift語意跟通道不同)，修復
+      後83/83天與批次版完全等價；(4) 部位/風控設計重現了第一輪就出現過
+      的「風險預算撐不起1口」問題，且發現天真的單日虧損熔斷在這批資料上
+      沒有幫助、甚至讓總損益和最大回落雙雙變差(因為訊號不是強自相關，
+      熔斷會同時砍掉會繼續虧的和會拉回獲利的部位)。副產品：這輪過程中
+      發現 config/research.yaml 本身在此之前就是壞掉的YAML(H-SC-EDGE-
+      REVERT do_not清單裡的"house rule #8"，空格+#被當成註解語法，導致
+      整份檔案從那行以後解析失敗)——已修復，不是本次新增內容造成的。
+
+      2026-08-07 深夜盲點輪（使用者要求「突破盲點，找到進場早期特徵」）：
+      找到四個盲點，第四個推翻全線正報酬結論。(1) veto vs sizing 路徑
+      依賴——always-in系統擋掉訊號會改變後續整條路徑，60/40「事後挑
+      交易」+34%與5摺veto+0.9%的矛盾由此而來；sizing（路徑不變）收割
+      atr_at_entry 5/5摺+39.2%。(2) 舊n_sleeves_agree的±5分鐘窗含未來
+      =look-ahead，修為因果版。(3) 13個特徵全部改用5摺OOS Spearman IC
+      從頭篩選。(4) **檢查mins_to_end為何異常強時，發現simulate_pnl_
+      realistic從不結算session尾部位——498個被丟部位合計-92,174.2pt，
+      把全線正報酬翻成負(-12,310.3pt)，第五輪以後所有絕對損益數字失效**
+      （詳見H-TXD-SESSION-END-ACCOUNTING）。G2/G3因此翻案為failed，
+      H-TXD-WINDOW-RECALIBRATION與H-TXD-MULTIWINDOW-PORTFOLIO翻案為
+      rejected。這條線目前的誠實狀態：無可交易機制；倖存資產是方法論
+      （因果引擎、sizing>veto、force-close規格）與已計交易子集內仍真實
+      的條件性規律（高ATR進場/寬通道/多sleeve確認→表現較好），後者
+      只有在先解決趨勢尾損失（停損/跨session/非always-in重構，皆為
+      新研究）之後才有意義。
+
+  tx-donchian-flat-default-bracket:
+    title: TX/TMF Donchian flat-default + 停損停利 bracket 重構（G1正確預先登錄）
+    status: active
+    phase: hypothesis
+    layer: research
+    report_dir: reports/research/tx-donchian-regime
+    design_doc: reports/research/tx-donchian-regime/flat-default-bracket-design.md
+    run_scripts:
+      - scripts/research/tx_flat_bracket_engine.py
+      - scripts/research/tx_flat_bracket_causal.py
+      - scripts/research/test_tx_flat_bracket_engine.py
+      - scripts/research/tx_flat_bracket_phase2_screen.py
+      - scripts/research/tx_flat_bracket_phase5_walkforward.py
+      - scripts/research/tx_flat_bracket_engine_optionb.py
+      - scripts/research/tx_flat_bracket_causal_optionb.py
+      - scripts/research/test_tx_flat_bracket_engine_optionb.py
+      - scripts/research/tx_flat_bracket_phase2_screen_optionb.py
+      - scripts/research/tx_flat_bracket_phase5_walkforward_optionb.py
+      - scripts/research/tx_flat_bracket_vol_regime_gate.py
+      - scripts/research/tx_flat_bracket_regime_screen.py
+      - scripts/research/tx_flat_bracket_vixtwn_gate.py
+      - scripts/research/fold2_diagnostic_scratch.py
+      - scripts/research/tx_flat_bracket_longvol_gate.py
+      - scripts/research/tx_flat_bracket_shock_screen.py
+      - scripts/research/tx_flat_bracket_engine_optione.py
+      - scripts/research/tx_flat_bracket_causal_optione.py
+      - scripts/research/test_tx_flat_bracket_engine_optione.py
+      - scripts/research/tx_flat_bracket_phase2_screen_optione.py
+    hypotheses:
+      - id: H-TXFB-FLAT-DEFAULT-BREAKS-PATH-DEPENDENCE
+        statement: >
+          把 always-in 翻倉架構改成 flat-default（預設空手）+ 明確停損/停利
+          bracket，能同時解決 tx-donchian-multiwindow-channel 線第十六輪暴露
+          的兩個問題：(1) session尾記帳缺口——靠「進場即定義出場條件+session
+          邊界強制平倉」在架構層面根除，不再是可被遺忘的實作細節；(2) veto
+          的路徑依賴——已成交交易的進場價/出場價不再依賴前一筆交易怎麼結束
+          （進場價=訊號bar的下一根開盤價，出場價=entry±固定距離，皆為進場
+          當下一次鎖定的常數），使veto型態的進場濾網理論上重新可用（先前
+          only sizing可用，veto不可用）。
+        status: passed
+        evidence: >
+          Phase 1（`tx_flat_bracket_engine.py`批次版 + `tx_flat_bracket_causal.py`
+          因果版）83天×3組參數×2session×2window＝996個區塊，批次vs因果
+          bit-for-bit equivalence 996/996 PASS；對帳不變量
+          n_events=n_entered+n_skipped_in_position 且 n_entered=交易筆數
+          在所有測試組合上PASS——證實「進場即鎖定出場條件+session邊界強制
+          平倉」確實在架構層面根除了記帳缺口（每個進場保證恰好產生一筆
+          已平倉交易，不存在被靜默丟棄的尾部位）。debug過程中抓到兩個因果版
+          特有的同根bar邊界bug（事件消費要用『本根開始前』的state snapshot、
+          最後一根bar的事件要仿照批次版fill_idx clamp同根成交＋立刻重跑
+          exit-check），修完才達到996/996——過程本身印證了「架構論證不等於
+          已驗證」這條do_not的必要性。
+        do_not:
+          - 把「架構論證」當成「已驗證」——1.2節明確指出路徑依賴只有部分
+            破除（進出場價格獨立，但「是否有空位吃到下一個訊號」仍有較弱
+            的機會可得性依賴），veto vs sizing在新架構下是否給出一致結論
+            必須實測，不能只憑論證採信
+          - 忽略cooldown語意的正確定義（見design doc 1.3節）——cooldown若
+            綁在「持倉狀態變化」而非「訊號事件」，會重新引入路徑依賴，這
+            不是隨意的實作選擇，是整個「獨立事件」論點成立的必要條件
+      - id: H-TXFB-OPTION-A-FIXED-BRACKET-EDGE
+        statement: >
+          選項A（固定點數對稱/非對稱bracket，STOP_PTS∈{80,120,160,200,250,
+          300,400,500}×TARGET/STOP比∈{0.75,1.0,1.5,2.0}×window∈{34,55,89,233}）
+          搭配flat-default架構，能在Donchian fade訊號上找到通過Phase 2粗篩
+          +Phase 5 walk-forward的正報酬候選。
+        status: rejected
+        evidence: >
+          Phase 2（83天，2026-04-01~2026-07-31）標準網格stop≤200pt：63/64組合
+          總損益為負；放寬到stop∈{250..500}後，window=89出現一組方向一致的
+          候選（day/night分別皆正、top5%集中度<15%、同根K棒stop/target同時
+          觸及=0%），但Newey-West近似t≈1.1~1.3、p≈0.18~0.27，83天檢定力
+          不足無法下結論（如design doc kill criterion 3預期）。Phase 5
+          （750天，2023-07-03~2026-08-06，5個不重疊OOS fold）正式驗證：
+          w89/stop400/ratio2.0、w89/stop400/ratio1.5、w89/stop500/ratio2.0
+          三個候選全部只有2/5 fold正報酬（僅Fold5「2026-01-29~2026-08-06」
+          為正，該fold與Phase2的83天樣本區間重疊），其餘4個fold全負，
+          kill criterion 5（任一fold正負號翻轉）觸發，全樣本OOS總損益
+          三者皆負（-5,197.2pt / -5,650.5pt / -8,611.7pt）。曾懷疑是TX指數
+          750天內從~16,500漲到~44,000（近3倍）造成全歷史pool的ATR濾網門檻
+          被低價期拖低的混淆，改用trailing 150天rolling門檻重測後結論不變
+          （OOS總損益-6,428.3pt / -6,881.6pt，一樣只有Fold5為正）——排除了
+          regime-scale confound，代表Phase 2找到的候選本質上是對Fold5那個
+          特定4個月窗口的curve-fit，不是跨750天的穩健edge。
+        do_not:
+          - 不得只用83天樣本（或任何單一~4個月窗口）的正報酬結果宣稱找到
+            edge——這正是本假說被推翻的機制，Phase 2的83天候選被證實只是
+            Fold5窗口的curve-fit
+          - 不得再對這組固定點數參數（w89/stop400~500/ratio1.5~2.0）做任何
+            微調後重跑同一83天樣本當作「修正」——問題不在參數精度，是
+            fixed-point bracket本身在跨regime樣本上不穩健
+      - id: H-TXFB-OPTION-B-ATR-BRACKET-EDGE
+        statement: >
+          選項B（ATR倍數bracket，`stop=entry±k_stop×ATR[entry]`，k_stop∈
+          {5,8,12,16,20,25}×TARGET/STOP比∈{0.75,1.0,1.5,2.0}×window∈
+          {34,55,89,233}，k校準自83天樣本ATR(20)實測分布p5=11.2/p50=28.0/
+          p95=77.9，不用design doc建議的{0.75,1.0,1.5,2.0}那組——套用在這個
+          ATR尺度只會產生8~156pt停損，比選項A已知全負的<200pt網格還窄）能
+          在Donchian fade訊號上找到通過Phase 2粗篩+Phase 5 walk-forward的
+          正報酬候選，且ATR自動縮放能解決選項A「固定點數在3倍price regime
+          上不穩健」這個失敗模式。
+        status: rejected
+        evidence: >
+          Phase 1（`tx_flat_bracket_engine_optionb.py`+
+          `tx_flat_bracket_causal_optionb.py`）83天×3組參數×2session×2window
+          =996區塊批次vs因果equivalence 996/996 PASS，對帳不變量全過（debug
+          時抓到一個選項A沒有的新bug：因果版entry_atr索引要用『成交那一根
+          自己』算出的cur_atr，不能沿用前一根留下的值，否則對應到批次版
+          `ATR.iat[fill_idx-1]`而非`ATR.iat[fill_idx]`，修法是把ATR更新
+          移到on_bar最前面，成交判斷之後才做）。Phase 2（83天）96組合中
+          window=89最佳候選（k_stop=20/ratio1.5：+7,125.2pt/207筆、
+          t≈1.47；k_stop=25/ratio2.0：+7,018.75pt/185筆、t≈1.39）方向與
+          選項A一致但略優。Phase 5（750天5-fold walk-forward，同選項A的
+          expanding IS門檻）：三個候選（w89/k_stop20/ratio1.5、
+          w89/k_stop25/ratio2.0、w89/k_stop20/ratio2.0）**跟選項A完全同一個
+          fold pattern**——只有Fold3（2025-02-12~2025-08-05）與Fold5
+          （2026-01-29~2026-08-06）正報酬，Fold1/2/4全負，kill criterion 5
+          觸發，OOS總損益三者皆負（-7,531.0pt/-4,481.4pt/-6,765.0pt）。
+          關鍵佐證：day/night分項損益數字（例如Fold1 day pnl，三個選項B
+          候選都是-2,317.0或-2,145.0，非常接近選項A三個候選的-2,117.9~
+          -2,640.2）——選項A/B共用同一套訊號產生層（Donchian突破+ATR濾網
+          +cooldown），只有停損機制不同，兩者在同一組fold上以幾乎相同的
+          方式失敗，代表問題出在**訊號本身**（window=89 Donchian fade在
+          2024全年~2025年H2這段區間沒有edge），不是停損設計的選擇。
+        do_not:
+          - 把這個結果讀成「還沒試對ATR倍數的k值」——k_stop網格橫跨
+            5~25倍ATR（換算實際停損距離約56~2,500pt，涵蓋選項A已知範圍的
+            兩端），且結果的fold pattern與選項A一致，不是k值沒調好的問題
+          - 選項C（通道對側邊界當停損）不建議再試——design doc本身已把它
+            列為H-SC-SAR-CONVERTER/H-SC-WIDTH-PERCENTILE死掉的同一設計
+            族群，選項A/B都失敗在訊號層而非停損機制，換一種停損幾何無助
+            於解決訊號本身跨regime不穩定的問題
+          - 不得只因為Phase 2的83天樣本（或任何落在Fold3/Fold5範圍內的
+            子樣本）看到正報酬，就重啟這個window=89固定的Donchian fade
+            訊號當候選——Fold3/Fold5是這條線目前找到的唯一兩個「訊號剛好
+            有效」的區間，拿它們重新篩選只會重複同一個curve-fit陷阱
+      - id: H-TXFB-VOL-REGIME-GATE
+        statement: >
+          選項A/B都在同一組fold（Fold1/2/4負、Fold3/5正）上失敗後，用
+          trailing 20天|daily return|均值（因果、只用過去資料）當regime
+          分層變數，能否解釋/預測這個window=89 Donchian fade訊號何時有效，
+          並用一個causal walk-forward gate（只在trailing vol百分位超過門檻
+          的日子才允許進場）真正解決kill criterion 5。
+        status: rejected
+        evidence: >
+          全樣本（750天）描述性統計：daily pnl對trailing 20天realized vol
+          分5個quintile，最高quintile單獨貢獻+9,031.8pt（其餘4個quintile
+          合計-15,609.7pt），Spearman IC僅0.0627（p=0.09，非單調關係，只有
+          最頂端quintile特別突出，呈現門檻效應而非線性關係）——這個描述性
+          發現本身是真的，但只是後見之明的全樣本切分，不構成因果驗證。
+
+          操作化成因果walk-forward gate（`tx_flat_bracket_vol_regime_gate.py`，
+          每個fold的gate門檻值用IS期間trailing vol分佈的expanding百分位算，
+          不用未來資料）後，結果不支持「這是可靠的regime條件」：門檻從
+          50%拉到80%時OOS總損益確實從-1,467.7pt單調爬升到+1,571.2pt，
+          乍看像regime story成立；但拉到85%/90%後**趨勢反轉**——Fold1虧損
+          不再縮小（-4,099.8→-3,871.2→-4,217.2）、Fold3從正報酬(+665.4)
+          翻負(-542.4→-868.2)、Fold4在85%/90%門檻下0天通過gate（完全被
+          排除，而非被證明是虧錢regime）。決定性診斷：Fold5在90%門檻下仍
+          有97/120天通過gate——Fold5本身幾乎全程都是「高vol regime」，
+          所以收緊門檻在機制上只是不斷排除Fold1/2/4的交易日、讓Fold5佔
+          OOS總和的比例越來越高，不是真的把Fold1/2/3各自的高vol子區間
+          篩選成正報酬。換句話說，全樣本quintile分析裡「最高quintile賺錢」
+          這件事，主要是Fold5整個fold都落在高quintile造成的，不是一個能
+          跨fold遷移的regime條件。
+        do_not:
+          - 不得只看50~80%門檻區間「OOS總損益單調改善」就宣稱regime gate
+            成立——85%/90%門檻的結果證明這個改善趨勢不會延續，且是
+            Fold5佔比機械上升造成的假象，不是Fold1/2/3各自regime內部真的
+            轉正
+          - 不得把「trailing vol最高的日子傾向獲利」這個全樣本描述性統計
+            直接當成可交易的規則——同一個統計量在拆到fold層級因果驗證後
+            不成立，這正是這條線第八~十六輪一再示範的『單一切分/全樣本
+            統計 vs 真正walk-forward驗證』落差
+          - 不得因為這個特定vol定義（20天trailing、expanding百分位）失敗
+            就斷言regime分層方向整體不可行——只排除了這一種具體操作化，
+            其他regime變數（VIXTWN、外資期貨部位、TX自身趨勢posture）
+            尚未測試，design doc下一步(2)建議的方向仍然開放
+      - id: H-TXFB-VIXTWN-TREND-REGIME-GATE
+        statement: >
+          使用者要求「先試試其他regime變數」後，用IC-first篩選法（先做全樣本描述性
+          Spearman IC，只對顯著的變數才進到昂貴的causal walk-forward驗證，避免vol
+          gate那輪『一開始就對單一變數投入完整walk-forward』的浪費）測試VIXTWN水準/
+          趨勢、外資期貨OI z60（champion因子）+其絕對值、TX自身MA20/MA60乖離率、
+          TX自身20日趨勢強度共7個PIT-safe（皆shift(1)用T-1值）regime變數，能否找到
+          可靠解釋/預測這個window=89 Donchian fade訊號何時有效的條件。
+        status: rejected
+        evidence: >
+          全樣本IC篩選（`tx_flat_bracket_regime_screen.py`，750天）：僅
+          `vixtwn_chg20_t1`（VIXTWN相對20天前的變化量）顯著，IC=-0.1013,
+          p=0.0062（唯一p<0.05的變數）；其餘6個（vixtwn_level_t1、
+          foreign_oi_z60_t1、foreign_oi_z60_abs_t1、tx_ma60_dev_pct_t1、
+          tx_ma20_dev_pct_t1、tx_trend_strength20_t1）全部|IC|<0.04且p>0.32，
+          未進一步驗證。負相關方向有經濟邏輯：VIXTWN趨穩/下降時fade表現較好
+          （quintile q0：+34.6pt/day），VIXTWN急升時較差（q3/q4：-45.2/-39.8
+          pt/day）——恐慌升溫期breakout更可能延續而非回歸，符合fade策略的
+          直覺。
+
+          操作化成causal walk-forward gate（`tx_flat_bracket_vixtwn_gate.py`，
+          只保留vixtwn_chg20_t1 <= IS期間第N百分位的日子）後：OOS總損益隨
+          門檻收緊持續改善（0%:-5,650.5pt → 40%:+3,960.9pt → 50%:+6,655.1pt
+          → 60%:+6,485.2pt → 70%:+7,566.1pt → 80%:+7,906.1pt），且這次
+          Fold5的改善**不是**vol gate那種純粹佔比假象——Fold5的交易天數隨
+          門檻收緊大幅減少（120→34→...→59天）但總損益不減反增
+          （5,948.2→8,725→...→13,803.8pt），代表gate確實在Fold5內部篩出
+          品質更好的子集，不是機械式全部保留。但**kill criterion 5在所有
+          6個門檻下都持續觸發**——正報酬fold數量固定停在2/5（Fold3、
+          Fold5），Fold1/2/4在任何門檻下都沒有轉正；尤其Fold2在gate下
+          per-trade平均pnl完全沒有改善（40%門檻：-3,211.8pt/142筆≈-22.6pt/
+          筆，比0%門檻的-2,819.7pt/243筆≈-11.6pt/筆還差），代表Fold2
+          （2024-08-09~2025-02-11）的問題與VIXTWN趨勢無關，是另一個未知
+          因素。design doc要求「多數（非僅總和）fold正報酬」，2/5不是多數，
+          即使OOS總損益轉正也不能宣稱通過。
+        do_not:
+          - 不得只看OOS總損益轉正就宣稱這個gate『有效』——design doc明確
+            要求多數fold正報酬，2/5不是多數；OOS總損益轉正只代表Fold3/5的
+            正貢獻夠大，蓋過了Fold1/2/4持續的虧損，不是Fold1/2/4本身變好
+          - 不得把這次「Fold5天數減少但總損益增加」的較乾淨模式，跟vol
+            gate那輪「Fold5幾乎全部通過、純佔比假象」的模式混為一談——
+            兩者機制不同，這次是更接近真訊號但仍不足以通過kill criterion 5
+            的中間案例，不是同一種失敗
+          - 不得再對這7個regime變數的其餘6個（IC不顯著者）逐一做完整
+            causal walk-forward——IC-first篩選的意義就是排除這些，重新測試
+            等於否定篩選方法論本身
+          - Fold2（2024-08-09~2025-02-11）在VIXTWN gate下毫無改善，代表
+            至少還有一個未識別的regime因素——若要繼續這個方向，下一步該
+            先诊断Fold2本身的市場特徵（而非再試其他全樣本regime變數），
+            但這已超出「找regime條件」這個問題本身能回答的範圍
+      - id: H-TXFB-FOLD2-DIAGNOSIS-AND-LONGVOL-GATE
+        statement: >
+          使用者要求「都繼續」後，(a) 獨立診斷Fold2為何在vol/VIXTWN gate下皆無改善，
+          (b) 用診斷發現的線索（120天fold-aggregate realized vol能完全分開5個fold：
+          losers全部16.8~21.3%年化、winners全部>32.8%）建構causal trailing版本
+          （非fold自己的未來資料），重新測試walk-forward是否成立。
+        status: rejected
+        evidence: >
+          **(a) Fold2診斷**（agent獨立分析，scratch script
+          `scripts/research/fold2_diagnostic_scratch.py`）：(1) 交易層級是
+          「千刀萬剮」不是黑天鵝尾部——win_rate 44.4%、avg_win/avg_loss幾乎
+          對稱(+101.5/-102.1)、前3大虧損只佔總虧損8.8%；**關鍵發現：
+          400/800pt固定bracket在Fold1~4幾乎從不觸發**（session_end_forced佔
+          97.6~98.8%exit，stop僅0~1.2%、target=0%）——只有Fold5（價格水準
+          更高、區間更寬）才有實質stop/target活動(21.5%/4.5%)，代表Fold1~4
+          測到的其實接近『無停損扛到收盤』的診斷情境，不是名義上的bracket
+          策略。(2) efficiency ratio不能分開winners/losers（Fold3純chop卻贏、
+          Fold4最強趨勢卻輸）。(3) 120天fold-aggregate realized vol能完全
+          分開5個fold（losers全部16.8~21.3%、winners全部>32.8%），但這是用
+          『這個fold自己未來全部120天』當區塊統計量，不是causal。(4) 日夜盤：
+          3個輸的fold都是兩個session都輸，2個贏的fold至少有一個session大贏。
+          (5) 時間聚集是Fold2最尖銳的發現：78.6%的Fold2虧損集中在前40天
+          （2024-08-09~2024-10-08），緊接在2024-08-05全球carry-trade平倉
+          崩跌之後、涵蓋2024年9-10月中國刺激政策急拉急殺的鋸齒行情；
+          Fold1最慘的是其*最後*1/3（2024-06-12~08-08，含崩跌本身）——
+          **Fold1與Fold2共同橫跨同一個2024年8月崩跌事件**。Fold4則沒有找到
+          可信的單一事件解釋。
+
+          **(b) causal 120天trailing vol gate驗證**
+          （`tx_flat_bracket_longvol_gate.py`，用T-1值、shift(1)避免用到
+          當天，門檻用IS期間expanding百分位算）：**直接證偽了(a)發現的
+          block-level統計量**——0/30/40/50/60百分位門檻下，Fold1、Fold2的
+          交易天數**完全沒有變化**（永遠120/120天通過gate，數字與不gate時
+          逐位元相同），代表用causal trailing方式衡量時，Fold1/2從來不曾
+          被判定為『低vol』區間，即使在很寬鬆的門檻下也一樣——(a)發現的
+          『5個fold完全分開』乾淨分離，是用整個fold自己的未來120天當區塊
+          描述性統計量算出來的後見之明假象，不是可以即時判斷的因果訊號。
+          Gate唯一真正影響到的是Fold4（40%門檻:-2,863.8→-101.0pt；50%:
+          +449.6pt）和Fold5（持續走強），50%門檻下OOS總損益轉正
+          (+2,026.3pt)、3/5 fold正報酬，但Fold1(-6,351.4pt)、Fold2
+          (-2,819.7pt)全程紋風不動——這不是Fold1/2變好，只是Fold4/5的正
+          貢獻蓋過了它們，跟前兩輪vol/VIXTWN gate犯的同一種錯誤一樣。
+        do_not:
+          - 不得引用『120天realized vol能完全分開5個fold』這個描述性發現
+            當作可交易的regime條件——causal walk-forward版本直接證偽了它，
+            這是本輪對『fold-aggregate統計量 vs causal trailing統計量』
+            差異最乾淨的一次示範，往後任何regime分層的第一步描述性統計都
+            要提醒自己這個風險
+          - 不得把Fold4在50~60%門檻下轉正讀成『找到了Fold4的regime條件』
+            ——Fold1/2從未被這個gate觸及，問題fold（尤其Fold2）完全沒被
+            這支gate解釋到，跟H-TXFB-VOL-REGIME-GATE、
+            H-TXFB-VIXTWN-TREND-REGIME-GATE是同一種『只搬動了本來就沒問題
+            的fold、真正的問題fold紋風不動』失敗模式
+          - Fold1+Fold2共同橫跨2024年8月崩跌事件這個發現雖然具體、可查證，
+            但只是2個fold的個案觀察，不構成可交易規則——如果要繼續這個
+            角度，需要的是『能不能causal偵測到carry-trade式流動性崩跌事件
+            剛發生』這種截然不同的訊號類型（例如VIX/VIXTWN的單日跳空幅度、
+            跨市場相關性瞬間飆升等），不是本輪已測過的trailing vol/VIXTWN
+            趨勢類指標能回答的問題（此方向已在H-TXFB-SHOCK-EVENT-DETECTOR
+            測試，結果同樣rejected）
+      - id: H-TXFB-SHOCK-EVENT-DETECTOR
+        statement: >
+          使用者要求「請繼續測試」承接上一假說的do_not建議：Fold1/2的問題是離散
+          『衝擊事件』（2024年8月carry-trade崩跌），不是前幾輪測過的緩慢trailing
+          regime，兩者性質不同——trailing平均/趨勢類指標天生對離散事件不敏感。改測
+          『事件剛發生』類PIT-safe特徵：VIXTWN單日跳空絕對值、trailing 10/20天內
+          最大單日VIXTWN跳空、TX自身trailing 10/20天內最大單日High-Low區間占比、
+          距離上次VIXTWN跳空事件天數，能否預測這個window=89 Donchian fade訊號的
+          當日表現。
+        status: rejected
+        evidence: >
+          全樣本IC篩選（`tx_flat_bracket_shock_screen.py`，750天）：6個特徵**全部
+          未達顯著**，最好的是`vixtwn_shock_max10_t1`(trailing 10天最大單日VIXTWN
+          跳空)，IC=0.0565, p=0.1247，其餘5個p全部>0.24。`days_since_vixtwn_shock_t1`
+          （距離上次VIXTWN跳空事件天數，衝擊事件定義為單日變化超過IS期間90百分位）
+          IC=-0.0102, p=0.78，幾乎零相關——雖然這個特徵在Fold2最慘的前40天
+          （2024-08-09~10-08）確實顯示mean=1.17天、median=0.5天（該窗口內策略
+          持續處於『剛發生過衝擊』的狀態，表面上符合診斷時的敘事），但這只是
+          單一fold視窗內的個案吻合，放到全樣本750天的層級上完全沒有可偵測的
+          預測力——許多其他『剛發生VIXTWN跳空』的日子並沒有對應變差的表現，
+          稀釋成雜訊。依IC-first篩選方法論（本線第二輪起建立的紀律），無變數
+          達顯著門檻，不進入昂貴的causal walk-forward驗證。
+        do_not:
+          - 不得因為`days_since_vixtwn_shock_t1`在Fold2早期窗口『看起來吻合』
+            就認為這個方向本質上是對的、只是特徵設計不夠好——這正是本輪要避免
+            的陷阱：單一fold/單一窗口的個案吻合，跟全樣本750天層級的統計顯著性
+            是兩件不同的事，前者不能取代後者
+          - 不得再對VIXTWN/TX自身衝擊特徵做進一步的參數微調（例如換
+            trailing 5天、30天、不同百分位定義）——6個已測特徵涵蓋了trailing
+            1/10/20天視窗×VIXTWN跳空/TX自身range兩種資料源×衝擊絕對值/
+            trailing max/距離上次事件三種操作化，已是合理涵蓋的組合空間，
+            IC全部不顯著代表這整個『用VIXTWN或TX自身歷史跳空幅度偵測衝擊
+            事件』的角度本身站不住，不是某個特定參數選錯
+          - 至此，這條研究線已測試3輪共13個PIT-safe regime變數（20天/
+            120天trailing vol、VIXTWN水準/20天趨勢/單日跳空系列、外資OI z60、
+            TX自身MA乖離率/趨勢強度/range shock），沒有一個能通過causal
+            walk-forward讓多數fold轉正——累積證據強度已經足夠，不建議再對
+            這個window=89 Donchian fade訊號測試第4輪regime變數；若要繼續
+            這條研究線，該換訊號來源（呼應`tmf-post-channel-signal-sources`
+            topic），不是再找一個新的regime分類器
+      - id: H-TXFB-OPTION-E-SWING-STOP-MEDIAN-EXIT
+        statement: >
+          使用者要求重讀原始來源文章（Linear Regression Channel, forextraininggroup.com；
+          Andrews Pitchfork, quantifiedstrategies.com）後，取材文章的兩個具體機制：
+          (1) 擺動點停損（swing-based stop，停損設在造成反彈那根K棒的高/低點，動態
+          跟隨市場結構，不是選項A的固定距離或選項B的ATR倍數）；(2) 通道中線出場
+          （median-line exit，價格穿越通道中線就出場，LRC文章的真實案例顯示這有時
+          比撐到對側通道更好）。這兩個機制能否在Donchian fade訊號上找到通過Phase 2
+          粗篩的候選。
+        status: rejected
+        evidence: >
+          Phase 1（`tx_flat_bracket_engine_optione.py`+
+          `tx_flat_bracket_causal_optione.py`）83天×3組參數×2session×2window=996
+          區塊批次vs因果equivalence 996/996 PASS（新索引陷阱：中線出場要用『這一根
+          自己』的single-shift Upper/Lower，即批次版`dataset["Upper"].iat[i]`，不是
+          事件偵測用的雙重shift`self.prev_upper`，兩者混用會對不上——已在實作時
+          正確處理，等價性測試一次就過）。
+
+          Phase 2（83天，window=89，swing_lookback∈{5,10,20,40}×swing_buffer∈
+          {20,50,100,150}pt×target∈{400,800}pt×median_exit∈{True,False}，64組合）：
+          **0/64組合總損益為正**，比選項A/B更快被拒絕（選項A/B在83天粗篩階段都還
+          找得到方向一致的正報酬候選，這裡連粗篩都過不了，未進入Phase 5 walk-forward）。
+          最好的組合（swing_buffer=150、target=800、無中線）也是-811.1pt。診斷發現：
+          **swing_buffer越窄，stop出場佔比越高**（buffer=20pt時stop佔84.9%出場、
+          buffer=150pt時降到只有3.5~28.8%），代表擺動點停損天生就設得太緊。
+
+          **決定性的結構性發現**：`swing_lookback`（回看5/10/20/40根bar找擺動極值）
+          對結果**完全沒有影響**——同一組buffer/target/median_exit組合下，4種
+          lookback給出逐位元相同的total_pnl。根因：LRC文章的swing-based stop是設計
+          給「等待第二次反彈確認後才進場」的交易風格用的（進場時價格已經從擺動點
+          反彈一段距離，兩者是有意義的不同價位）；我們的Donchian fade訊號是「一
+          突破就立刻進場淡出」，進場當下的價格本身就處於（或極接近）最近的擺動
+          極值，所以不管往回看幾根bar，找到的都是同一個點（通常就是進場訊號bar
+          自己）——這不是參數沒調好，是這個停損機制的前提（進場點與擺動點有意義地
+          分離）在我們的進場風格下不成立。
+        do_not:
+          - 不得把0/64讀成「停損buffer或lookback沒調對」——lookback完全不影響結果
+            這件事本身就證明了問題不在參數精度，是機制的前提假設（進場時機跟LRC
+            原始設計的『反彈確認後進場』不同）不成立
+          - 不建議把「等第二次反彈確認才進場」這個LRC原始進場邏輯，套用回我們的
+            Donchian fade訊號重新設計一版——這已經不是「換停損機制」，是換一個
+            全新的訊號產生層，等同於從頭開始一個新研究線，不是本假說範圍
+          - 通道中線出場（median_exit）本身在64組合中沒有展現優勢（含中線的組合
+            平均更差，最好的15名裡只有3個含中線，且都排在後段）——不是中線出場
+            這個概念本身沒用，是它疊加在「已經因swing停損太緊而失敗」的部位管理
+            上，難以獨立判斷其真實貢獻；若未來要重新測中線出場，應該疊加在選項A
+            （已知固定停損距離合理）上，不是選項E的swing停損上
+    do_not:
+      - 在通過 design doc 第5節七項 kill criteria 之前，宣稱「找到edge」
+        或往下單層方向推進——任一項未過只能記錄rejected並寫入do_not清單
+      - 用「無停損」設定（選項D）當終局方案去驗證——那只是Phase 2的內部
+        一致性檢查基準，用來確認新引擎沒有跟第十六輪已知結果矛盾的新bug
+      - 對「拿掉某個出場機制會怎樣」的問題，用損益標籤加總代替真的重跑
+        （H-RECOVERY歸因陷阱的教訓，design doc 2.5節）
+      - 選項C（通道對側邊界當停損）排進第一輪驗證——這正是
+        H-SC-SAR-CONVERTER／H-SC-WIDTH-PERCENTILE死掉的設計族群，留作
+        選項A/B都被拒絕後的備案
+      - 把第十二輪「bar級近似不影響本策略」的結論外推到新增的stop/target
+        intrabar觸發判定——那個結論只驗證過進場決策（close觸發+next-open
+        成交），出場端的intrabar觸價是全新問題，必須獨立做tick級複驗
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # 本條目就是G1——設計研究(design doc)先於任何實作/跑數完成並登錄，修正tx-donchian-multiwindow-channel線"先跑完10+輪才回頭補登記"的錯誤
+        G2_oos_holdout: failed  # Phase 5 750天5-fold walk-forward：選項A/B都觸發kill criterion 5（fold正負號翻轉），OOS總損益全部候選皆負
+        G3_regime_stratification: passed  # 有做時間分fold（近似regime分層）+ day/night拆開報告，正確揭露了「僅Fold3/Fold5訊號有效」的regime依賴，即使結論是rejected也算通過（有誠實分層報告）
+        G4_rejection_registry: passed  # H-TXFB-OPTION-A-FIXED-BRACKET-EDGE、H-TXFB-OPTION-B-ATR-BRACKET-EDGE均已記錄rejected+do_not
+        G5_frozen_spec: na  # 沒有東西可凍結，選項A/B皆已拒絕
+        G6_adoption_report: na
+    notes: >
+      2026-08-07：使用者要求「請告訴我應該從哪裡開始繼續」後，授權自主推進
+      三件並行工作：(1) 建582天tick衍生1分K資料集（scripts/research/
+      tx_channel_build_582d_dataset.py，寫入bars.sqlite新source
+      'tx_1m_tick_built_582d'，實際涵蓋750天2023-07-03~2026-08-06，對照
+      既有83天快取交叉驗證OHLC均絕對誤差0.81pt）；(2) 收斂canonical回測
+      引擎並釘死規格（scripts/research/tx_channel_canonical_engine.py，
+      session尾強制平倉+次根開盤成交+5.9pt成本，4項回歸測試全部獨立重跑
+      確認PASS）；(3) 本假說群組——flat-default+停損bracket重構的完整
+      設計研究。
+
+      同日稍後使用者要求「試試把研究救回來」，據此執行design doc的
+      Phase 1/2/5：Phase 1建causal on_bar()版+對帳測試，debug出兩個同根
+      bar邊界的因果版特有bug（事件消費要用本根開始前的state snapshot、
+      最後一根bar要clamp同根成交），修完後83天×3參數×996區塊批次vs因果
+      100% bit-for-bit equivalence，H-TXFB-FLAT-DEFAULT-BREAKS-PATH-DEPENDENCE
+      轉passed。Phase 2粗篩＋Phase 5的750天5-fold walk-forward（含rolling-IS
+      控制排除價格regime混淆）顯示Option A固定點數bracket沒有跨樣本穩健
+      edge——僅一個fold（剛好是Phase2用來篩選的83天樣本所在區間）正報酬，
+      新增H-TXFB-OPTION-A-FIXED-BRACKET-EDGE記為rejected。
+
+      使用者再指示「繼續」，接著做design doc選項B（ATR倍數停損，k網格改用
+      83天樣本ATR實測分布校準，design doc建議值{0.75,1.0,1.5,2.0}明顯是
+      假設不同ATR量級才合理，未校準直接套用）。Phase 1（causal版debug出
+      選項A沒有的新bug：entry_atr索引要用『成交那一根自己』算出的ATR，
+      不能沿用前一根的值，修法是把ATR更新移到on_bar最前面）修完後同樣
+      996/996 bit-for-bit equivalence。Phase 2 83天粗篩找到方向一致、略優
+      於選項A的候選（w89/k_stop20/ratio1.5：+7,125.2pt、t≈1.47）。但
+      Phase 5 750天walk-forward顯示**選項B跟選項A是同一個fold pattern
+      失敗**——只有Fold3(2025-02~2025-08)、Fold5(2026-01~2026-08)正報酬，
+      day/night分項損益數字在選項A/B之間高度接近（例如Fold1 day pnl兩邊
+      都在-2,100~-2,700pt這個窄範圍），kill criterion 5同樣觸發，OOS總
+      損益三候選皆負。新增H-TXFB-OPTION-B-ATR-BRACKET-EDGE記為rejected。
+
+      **本輪最終結論**：選項A（固定點數）、選項B（ATR倍數，理論上該解決
+      前者的regime-scale問題）在同一組fold上以幾乎相同的方式失敗——因為
+      兩者共用同一套訊號產生層（window=89 Donchian突破+ATR濾網+cooldown），
+      只有停損機制不同，卻在750天樣本上表現一致地差，代表問題出在**訊號
+      本身**（這個Donchian fade訊號在2024全年~2025年H2這段區間沒有edge，
+      只在2025 H1與2026 H1兩段窗口有效），不是停損設計的選擇。選項C
+      （通道對側邊界當停損）design doc已預先排除（H-SC-SAR-CONVERTER/
+      H-SC-WIDTH-PERCENTILE死在同一設計族群），換停損幾何無助於解決訊號
+      層的regime不穩定。至此flat-default+bracket對這個特定Donchian fade
+      訊號的「救回」嘗試已窮盡design doc規劃的兩個可行方向，皆rejected；
+      若要繼續，需要的是不同的訊號來源，不是換一種停損/停利設計——這跟
+      `tmf-slow-pattern-cell`線窮盡ZigZag+通道框架後的結論（改找全新訊號
+      機制）是同一個模式。
+
+  tmf-structbreak-mitigation:
+    title: TMF struct_break 出場減損 — rvol/adv 條件閘門 + falsification lab 系列 (sbc/fl1-6)
+    status: rejected  # 2026-08-08事後補登記（違反G1，見graduation區塊）：核心假說H-SB-RVOL-ADV-GATE 22/22候選皆未過4項穩健性gate；fl1-6並行系列（不同機制/尺度）亦無一過gate，僅fl5/fl6留下待續診斷
+    phase: rejected
+    layer: research
+    report_dir: reports/research/channel_lab
+    run_scripts:
+      - reports/research/channel_lab/sbc_engine.py
+      - reports/research/channel_lab/sbc_parity.py
+      - reports/research/channel_lab/sbc_f1_prescreen.py
+      - reports/research/channel_lab/sbc_wf_scan.py
+      - reports/research/channel_lab/sbc_eval.py
+      - reports/research/channel_lab/fl1_structlab_engine.py
+      - reports/research/channel_lab/fl1_baseline_repro.py
+      - reports/research/channel_lab/fl1_parity.py
+      - reports/research/channel_lab/fl1_robustness.py
+      - reports/research/channel_lab/fl1_variants_wf.py
+      - reports/research/channel_lab/fl2_baseline_repro.py
+      - reports/research/channel_lab/fl2_daypnl_matrix.py
+      - reports/research/channel_lab/fl2_daytype_oos_eval.py
+      - reports/research/channel_lab/fl2_train_combo_grid.py
+      - reports/research/channel_lab/fl3_meso_engine.py
+      - reports/research/channel_lab/fl3_parity.py
+      - reports/research/channel_lab/fl3_baseline_diag.py
+      - reports/research/channel_lab/fl3_meso_variants.py
+      - reports/research/channel_lab/fl4_baseline_repro.py
+      - reports/research/channel_lab/fl4_alloc_variants.py
+      - reports/research/channel_lab/fl4_fresh_falsification.py
+      - reports/research/channel_lab/fl5_r15_baseline_repro.py
+      - reports/research/channel_lab/fl5_r15_tick_replay.py
+      - reports/research/channel_lab/fl5_r15_summary.py
+      - reports/research/channel_lab/fl5_r15_overnight_gap.py
+      - reports/research/channel_lab/fl5_r15_trade_bias_decomp.py
+      - reports/research/channel_lab/fl6_baseline_repro.py
+      - reports/research/channel_lab/fl6_blindspot_audit.py
+    hypotheses:
+      - id: H-SB-RVOL-ADV-GATE
+        statement: >
+          直播中 struct_break 出場（貢獻策略約75%毛損、勝率~1.9%）能不能
+          靠「break發生當下的實現波動率(rvol)／均量(adv)門檻，或夜盤時段」
+          條件性關閉多方(L)側觸發（S側維持全開）來減損；4窗口walk-forward
+          （julsep25=65天IS、octdec25=62天、janmar26=55天holdout、
+          w83=83天2026-04-01~07-31）+ 22組rvol/adv/night組合候選，套用
+          4項pre-registered gate（rule1 julsep25均值需≥baseline、rule2
+          需≥3/4窗口改善、rule3 w83需改善、rule4a單日不得主導改善且
+          rule4b鄰近網格需同樣通過rule2）。
+        status: rejected  # 自行重算sbc_eval.json確認22/22候選passes_all=false，非引用腳本自動標籤
+        evidence: >
+          **parity（sbc_parity.json）**：sim vs prod 4窗口
+          （julsep25/octdec25/janmar26/w83）逐日 max_abs_day_diff=0.0、
+          n_mismatch_days=0，baseline均值 julsep25=-3.52、octdec25=6.20、
+          janmar26=66.38、w83=174.82 pt/day，與 sbc_eval.json 的
+          baseline_repro（got vs expect 完全一致，ok:true）雙重confirm。
+          sbc_engine.py 是 `src/tmf_channel/causal_engine.py`（現行凍結
+          production引擎）的verbatim fork，四個新增gate條件（
+          struct_cond_l_rvol_min／struct_cond_l_adverse_frac／
+          struct_cond_l_night_ok）在原始碼（_struct_gates_skip,
+          sbc_engine.py:1457-1489）逐行核對只使用break當下已知的
+          rv_now／adverse_now（vs第一口進場價）／hm_now，未見任何
+          index>t或收盤後才知道的量，結構上因果（未另外做擾動測試，見
+          下方缺口說明）。
+
+          直接讀 sbc_eval.json 的 variants dict（22 key）逐一核對
+          passes_all 欄位：**22/22 全部 False**，不是引用腳本敘述、是
+          本輪重算欄位邏輯（rule1_julsep/rule2_3of4/rule3_w83/rule4a_ok/
+          rule4b_ok 五個布林 AND 全過才是passes_all，人工核對五個候選案例
+          的邊界情況——結果一致，未發現BUG-6式判斷式bug）。最接近過關的
+          `adv40_night`（struct_cond_l_adverse_frac=0.4 +
+          struct_cond_l_night_ok=true）四窗口**全部改善**
+          （julsep25 -3.52→-3.30、octdec25 6.20→6.49、
+          janmar26 66.38→69.52、w83 174.82→175.97）、過rule1/2/3/4b，
+          但rule4a（單日不得主導）**四個窗口全部fail**：julsep25單日
+          top_share_pct=554.1%（即單日delta比整窗改善量還大3倍多，
+          扣掉那天結論會反轉）、octdec25=432.6%、janmar26=71.1%、
+          w83=139.7%——四個窗口沒有一個是廣泛分佈的優勢，全部是少數日
+          主導的假象。`rvol12`（唯一過rule3的變體）僅改善w83一個窗口，
+          rule2_3of4 fail。其餘20個候選改善窗口數更少或rule1即fail。
+        do_not:
+          - 引用「adv40_night 四窗口全部改善」這句話當正面結論——四個
+            窗口的rule4a top_share_pct全部遠高於50%門檻（71%~554%），
+            是本輪22個候選裡「看起來最像過關」但實為單日/少數日主導假象
+            最明顯的一個，不能只看improved清單就採信
+          - 把「22/22 passes_all=false」讀成「已用HAC/Newey-West做過正式
+            顯著性檢定後判定無效」——本輪從頭到尾未執行任何逐日序列
+            顯著性檢定（grep sbc_*.py/fl*.py 無 HAC/newey 字樣），
+            rejected的依據是「未通過pre-registered的4窗口walk-forward
+            穩健性gate」，不是「證明點估計無統計意義」，兩者是不同層次
+            的宣稱，若要進一步定性統計顯著性需補做
+          - 把BUG-1（session尾未平倉強制平倉）／BUG-5（成交價clamp）
+            視為本輪已驗證通過——sbc_engine是production causal_engine的
+            verbatim fork，本輪只重新確認parity(sim==prod)，未獨立對
+            這兩類bug重跑force-close對照或clamp檢查；如果之後要更新
+            production引擎本身（而非只是研究層的條件開關），要回頭補這
+            兩項
+      - id: H-FL-SLOW-ENTRY-HYSTERESIS-GATE
+        statement: >
+          （fl1系列，不同機制：改動L側進場的slow-state辨識gate/hysteresis
+          寬度，非struct_break出場端）能不能靠放寬/收窄慢尺度進場辨識的
+          hysteresis／lookback（`fl1_slow_entry_gate`／`fl1_slow_look`
+          等16個變體）減損；用同一套4窗口+全新的y2024(2024全年)第5窗口、
+          共5項gate（r1_julsep/r2_3of4/r3_w83/r4_topday/r5_fresh2024）
+          評分。
+        status: rejected  # 自行重算fl1_robustness.json：16變體僅1個過r1/r2/r3/r5，但該變體本身fail r4_topday
+        evidence: >
+          fl1_baseline_repro.json／fl1_parity.json 對 fl1_structlab_engine.py
+          （另一支獨立引擎，非sbc_engine分支）做過對帳，all_ok未見於本輪
+          直接檢視的欄位（見下方缺口說明）。16個變體逐一核對
+          fl1_robustness.json：僅 `sgate_lo_look35`（
+          fl1_slow_entry_gate=["lo|*"]、fl1_slow_look=35）r1/r2/r3/r5四項
+          皆True（passes_1235=true，該欄位刻意排除r4），但 r4_topday
+          =False——w83窗口 total_delta=516.8pt 裡單日
+          （2026-06-09估算，需交叉核對）貢獻top1=482.4pt、
+          top1_share=**93.3%**，julsep25窗口同樣top1_share=60.4%。其餘
+          15個變體連r1/r2/r3/r5都未能同時通過。跟H-SB-RVOL-ADV-GATE的
+          adv40_night是同一種失敗模式：總量看似改善，拆開後由個位數
+          極端日主導。
+        do_not:
+          - 引用「sgate_lo_look35 passes_1235=true」當作接近過關的證據
+            ——`passes_1235`這個欄位名稱本身會誤導（暗示已過1/2/3/5四項
+            門檻），但完整gate定義必須五項全過，r4_topday是本輪除rule2
+            外最容易被個位數異常日操縱的一項，93.3%單日佔比是本清單
+            BUG-6／附錄A2典型案例，不能因為變數名稱裡沒提r4就忽略它
+        next_step: >
+          尚未核對 fl1_parity.json 的 all_ok 欄位是否為 true（本輪僅
+          核對 fl1_robustness.json 的判定邏輯），若要進一步引用
+          fl1_structlab_engine.py 的任何結論，先確認parity。
+      - id: H-FL-DAYTYPE-STOP-CONDITION
+        statement: >
+          （fl2系列，同樣是全新機制：日類型/前5日波動範圍門檻觸發的
+          「stop」動作，非struct_break rvol/adv gate）用
+          `prev5_range`／`vt22`等特徵定義「安靜盤」條件觸發全域stop，
+          能否在4窗口+fresh25h1+train2024共6段資料上減損；6個候選
+          （fl2_a3_control ~ fl2_v5_vt25）評分。
+        status: rejected  # 6個候選n_improved最高僅2/4，未達3/4門檻
+        evidence: >
+          fl2_daytype_oos_eval.json 的 results dict 逐一核對：6個候選
+          n_improved 分別為 1/0/1/1/2/1（4窗口中最多只有2個窗口改善），
+          沒有一個接近3/4的rule2門檻，是本輪22+16+6=44個候選裡表現最差
+          的一組，不需要再看top-day dominance就已經乾淨fail——跟
+          H-SB-RVOL-ADV-GATE、H-FL-SLOW-ENTRY-HYSTERESIS-GATE不同，這組
+          連「總量看似改善」的假象階段都沒到。
+        do_not:
+          - 把 fl2_train_combo_grid.json 裡31組訓練期組合的 train_mean
+            正負號當作結論引用——那是訓練期（校準期）內部網格搜尋的中間
+            產物，本身就是用來挑進 fl2_daytype_oos_eval.json 那6個候選
+            的來源，不是獨立的OOS證據，且該JSON本身不含通過/拒絕判定
+      - id: H-FL-ALLOC-SLEEVE-OVERLAY
+        statement: >
+          （fl4系列，第三種不同機制：不改變struct_break本身，而是在既有
+          channel訊號之外疊加一個獨立的「配置/sleeve互換」層——
+          a_swap／a0_stop／b_parallel／c_sleeve_comp／d_weight等45個
+          N×X參數組合）能否在既有通道淨值之上疊加正貢獻；並在
+          fl4_fresh_falsification.json 用2023H2/2024/2025H1/
+          fresh2404_2506四段獨立資料對6個「relative」偵測器變體
+          （rel_a0_stop_f70等）做falsification複驗。
+        status: rejected  # fresh falsification：6個rel_detector候選 0/6 verdict.beats=true；且每個窗口n_comp（觸發次數）多為0~5筆，樣本量本身過薄
+        evidence: >
+          fl4_fresh_falsification.json 的 rel_detector dict 6個key逐一
+          核對 verdict.beats 欄位：**0/6 為 true**。且各窗口 n_comp（該
+          overlay在該窗口實際觸發的組成事件數）多數為0（julsep25/
+          janmar26/w83三個窗口對多數變體n_comp=0，代表overlay在這些窗口
+          幾乎沒觸發），octdec25/fresh2404_2506僅2~5筆——這是附錄A9類型
+          問題的變體（樣本量過薄到無法評分，不是「評分後fail」，是
+          「根本評不了分」）。sleeve_family_fresh區塊另外對5個t1~t5變體
+          在4段獨立資料上分別跑，逐段mean正負號不一致（例如t1_base：
+          sl_2023h2=-1.85、sl_2024=+2.63、sl_2025h1=-5.40、
+          fresh2404_2506=+1.23，四段兩正兩負），跟BUG-3清單裡「多數fold
+          轉正才算數」的判準對照，這組連「多數段同號」都沒做到。
+        do_not:
+          - 引用45組alloc_variants（fl4_alloc_variants.json）裡任何單一
+            窗口的正delta（例如a_swap_N4_X250在julsep25 delta_vs_channel
+            =+3.86）當證據——janmar26/w83兩個窗口n_comp=0（該overlay對
+            這兩窗口完全沒有觸發樣本），旁邊寫的mean/delta其實是
+            baseline原封不動的數字，不是這個overlay真的在那兩窗口驗證
+            過
+      - id: H-FL-TICK-REPLAY-STRUCTBREAK-ATTRIBUTION
+        statement: >
+          （fl5/r15系列，診斷性非交易假說）用tick級重放（非bar近似）
+          複驗baseline（無gate）channel策略，量化struct_break出場在
+          bar級回測裡是否被低估/高估，並拆解bar-vs-tick的損益差距具體
+          來自哪個出場類型。
+        status: pending  # 兩份JSON（day級落差歸因 vs 出場類型歸因）呈現的敘事看似不一致，本輪未及交叉核對，誠實標pending而非勉強下結論
+        evidence: >
+          fl5_r15_summary.json：julsep25窗口 bar mean=-3.52、
+          tick mean=-15.11（delta_mean=-11.59，即tick級重放下更虧），
+          gap_total=-753.4pt，其中gap_in_top5_bar_days=-537.0pt
+          （gap_top5_share=71.3%，落差多數集中在前5個bar-tick分歧最大
+          的日子）；octdec25窗口gap_top5_share更達100.7%（前5天落差已
+          超過總落差，代表其餘天數落差方向相反、部分抵銷）。
+          exit_decomp_bar／exit_decomp_tick兩個子欄位顯示struct_break
+          在bar級與tick級都是最大負貢獻項（julsep25 bar:-1254.8pt
+          86筆 → tick:-2489.0pt 195筆，tick級觸發次數幾乎翻倍且單筆
+          更差）。但fl5_r15_trade_bias_decomp.json的grand彙總欄位顯示
+          struct_break的bar-vs-tick delta僅+45.0pt（相對trail出場的
+          delta=+1898.0pt），意味著兩份JSON對「落差主要來源」的歸因
+          方式不同（前者是day級top5天歸因、後者是exit-type歸因），
+          本輪未交叉核對兩者是否一致或如何調和。
+        next_step: >
+          在下一輪寫結論前，先核對fl5_r15_trade_bias_decomp.json的
+          exit-type delta加總，是否等於fl5_r15_summary.json的
+          gap_total；若對不上，代表兩支腳本的歸因口徑不同（例如一個算
+          全部83+65+62+55天合計、另一個只算部分窗口），需要先統一口徑
+          才能下「struct_break在tick級是被bar近似低估還是高估」的結論。
+      - id: H-FL-NQ-GATE-PIT-SENSITIVITY
+        statement: >
+          （fl6_blindspot_audit系列，描述性稽核非假說檢定）現行NQ
+          （美股期指）gate的訊號判定，若用point-in-time(PIT)嚴格版本
+          重算，跟現行（可能非PIT）版本相比，會不會在部分交易日產生
+          不同的L/S/none判定，進而影響損益？
+        status: pending  # 純描述性稽核（gate_diff_days、pit_gate_mean_ptday），未回測PIT修正後的完整策略損益，不構成可採信的因果宣稱
+        evidence: >
+          fl6_blindspot_audit.json item5_nq_gate_pit：julsep25窗口65天
+          中有11天PIT版與現行版判定不同（gate_diff_days=11，例如
+          2025-07-02 none→L、2025-07-07 L→none），
+          pit_gate_mean_ptday=-8.21pt/day；octdec25窗口12天不同。這只是
+          「差異天數」與「差異天的平均損益」兩個描述性統計，**不是**
+          「換成PIT版本後完整策略的OOS回測結果」——沒有做完整4窗口
+          walk-forward、沒有statistical test，不能拿來宣稱NQ gate現行
+          版本有多少pt/day的PIT洩漏成本。item1（結算日）／item2（美股
+          事件夜）／item4（週一跳空）／item6（深夜時段佔比）四項同屬
+          描述性稽核，均未附帶通過/拒絕判定，本輪一併不升級為假說結論。
+        do_not:
+          - 把 pit_gate_mean_ptday=-8.21pt/day 直接讀成「NQ gate PIT
+            bug每天平均少賺8.21pt」——這個數字只是「PIT/非PIT判定不同的
+            那11天」的平均，不是「全樣本」平均，也未區分是PIT版本更好
+            還是現行版本更好（正負號代表現行版本在這些差異日的損益，
+            不是PIT修正後的增量）
+        next_step: >
+          若要把NQ gate的PIT問題升級成可採信結論，需要：(1)重建完整
+          PIT版NQ gate訊號序列（非只列出差異日）、(2)兩版本各自跑完整
+          4窗口walk-forward、(3)對差異做HAC顯著性檢定，三者目前都沒做。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: failed  # 附錄A13案例：sbc/fl1-6全部腳本於2026-08-07 10:43-12:03跑完才回頭補寫進本檔（本條目本身），不是先登記假說再跑數
+        G2_oos_holdout: passed  # janmar26(55天)與w83(83天)皆為訊號生成後的獨立窗口；fl4另有fresh2404_2506、fl1另有y2024，皆非用來校準gate門檻的資料
+        G3_regime_stratification: na  # 未正式宣稱regime軸，仍以4(或5/6)獨立時間窗口walk-forward為主要穩健性檢定手段
+        G4_rejection_registry: passed  # 7個hypotheses（3 rejected/1 rejected/1 rejected/1 rejected/1 rejected/2 pending）均已附evidence+do_not或next_step
+        G5_frozen_spec: na  # 無候選過gate，沒有規格可凍結
+        G6_adoption_report: na
+      action: do-not-adopt · research archive only；H-FL-TICK-REPLAY-STRUCTBREAK-ATTRIBUTION與H-FL-NQ-GATE-PIT-SENSITIVITY兩項pending診斷若要繼續，見各自next_step
+    notes: >
+      2026-08-07同一時段內至少兩條並行探索：(1) sbc_*系列窄而深，只測
+      「struct_break的L側是否該用rvol/adv/night條件性關閉」這一個具體
+      機制，22個候選網格化窮盡rvol門檻(10/12/15/20)×adv門檻
+      (30/40/50)×night旗標的主要組合；(2) fl1~fl6系列廣而淺，六個
+      互相獨立、機制完全不同的探索方向（fl1慢尺度進場hysteresis、fl2
+      日類型stop條件、fl3全新meso尺度引擎的parity基礎建設、fl4配置/
+      sleeve疊加層、fl5 tick級重放診斷、fl6 PIT/結算/美股事件描述性
+      稽核），彼此之間除了共用同一組4窗口baseline與部分shared
+      utility外，沒有共同的假說主線，屬於「open-ended落石探勘」而非
+      單一假說的深化。
+
+      本輪最一致的模式（跟`tx-donchian-multiwindow-channel`／
+      `tmf-slow-pattern-cell`兩條線的歷史結論同構）：只要用「總量是否
+      改善」當唯一篩選標準，幾乎每組sweep都能找到看似正面的候選
+      （sbc的adv40_night四窗口全改善、fl1的sgate_lo_look35五項門檻中
+      四項過關）；但一旦加上「單日不得主導改善」這一項robustness check
+      （rule4a/r4_topday），最強的候選全部現形為個位數異常日撐起來的
+      假象（top_share 60%~554%不等）。fl2/fl4則是連「總量改善」這第一
+      層篩選都過不了。fl3（新引擎的parity基礎建設）與fl5/fl6（tick級
+      診斷、PIT稽核）尚未產出可採信的假說級結論，留pending供後續判斷
+      是否值得繼續投入。
+
+      本輪未執行：任何逐日/逐筆的HAC顯著性檢定（BUG-4，grep全系列
+      sbc_*.py/fl*.py 無HAC/newey字樣）、任何針對rvol/adv條件本身的
+      擾動測試（BUG-2，僅靠原始碼逐行review確認因果性，未跑合成序列
+      注入測試）、獨立於sbc_engine.py/fl1_structlab_engine.py/
+      fl3_meso_engine.py之間的force-close/成交價clamp重驗（BUG-1/
+      BUG-5，僅sbc_engine因是production引擎verbatim fork而透過parity
+      間接放心，其餘engine未做）。由於核心宣稱（22+16+6個候選能否減損）
+      已經在pre-registered的walk-forward穩健性gate這一關就未過，這些
+      統計/因果嚴謹性缺口不影響「rejected」這個結論本身，但若未來要
+      重啟本方向或把fl5/fl6的pending診斷升級為假說，必須先補上。
