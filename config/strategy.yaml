@@ -521,7 +521,7 @@ strategies:
         採納為衛星袖 · 不取代 main。
 
   tmf-micro-channel:
-    title: TMF 微型臺指 · Channel Final v1.3.0（PV16 cell-tune v2 · O-anchor）
+    title: TMF 微型臺指 · Channel Final v1.5.0（PV16 cell-tune v2 + 逐分鐘即時 NQ 閘門 + 下單層韌性強化 · O-anchor）
     kind: research_adopted
     schedule: launchd
     launchd_label: com.jackm4.goldenstocks.tmf-channel-poll
@@ -533,15 +533,24 @@ strategies:
     research_topic: tmf-pv16-specialized
     config_ref: config/order.yaml
     description: >
-      微型臺指近月限價雙向通道 · Final v1.3.0：session×PV8＝16 cell recipe
-      （hang/EARLY/block/quiet/bias 每格獨立）· hang_anchor=O · quiet=dry ·
-      cell-tune v2＝12 patch（night normal/expand_dn/div_hh_weak_vol block_LS ·
-      正格 hang 下調＋γ 上調＋hold 拉長）· far_cover 65/105 沿用 v1.1.3 · max_lots=1。
-      WF 5/5 期勝 v1.2.0（COST=5.8 pe=5 STRICT_BAR · 3 OOS 季＋w83＋w25）。
+      微型臺指近月限價雙向通道 · Final v1.5.0：cell recipe 本身跟 v1.3.0/v1.4.0
+      完全相同（session×PV8＝16 cell，SPECIALIZED_PATCHES＋cell-tune v2 12
+      patch，hang_anchor=O、quiet=dry、far_cover 65/105 沿用 v1.1.3、
+      max_lots=1）——v1.4.0 原本要疊加的 cell-tune v3（day normal／
+      div_hh_weak_vol 全封鎖）2026-08-08 經五輪對抗式審計後判定其
+      「p<0.001」證據源自 NQ 隔夜閘門的同日 look-ahead bug，修正後
+      CELL_TUNE_V2 自己的「5/5顯著」也不成立、v3 增量效果統計上
+      無法與零區分，故 v3 未採納，僅留程式碼供未來重新評估。**v1.5.0 帶的是
+      兩批獨立於 cell-recipe 的下單層改動**：(1) NQ/ES 隔夜閘門從「凍結在
+      session開盤時間點」改成逐分鐘即時重算（causal_engine.py session_side_gate
+      支援per-bar timestamp key、nq_gate.py錨點改為當下時刻）；(2)
+      2026-08-10 當晚連續發生的3個下單層真實事故修復（broker查詢失敗誤送
+      新單／誤刪除已掛真單、查詢中斷會意外重置max-hold安全網時鐘、真倉位
+      對不上sim追蹤時完全沒有保護單掛著）。詳見下方 applied_refinements。
     matcher:
-      id: tmf_channel_v130
+      id: tmf_channel_v150
       product: TMF
-      recipe_version: final_v1_3_0_pv16_celltune_v2
+      recipe_version: final_v1_5_0_pv16_continuous_gate
     execution:
       asset: futopt
       max_lots: 1
@@ -550,13 +559,110 @@ strategies:
     backtest:
       spec_type: bar_1m_day_night
       source_module: tmf_channel.causal_engine
-      frozen_id: final_v1_3_0_pv16_celltune_v2
+      frozen_id: final_v1_5_0_pv16_continuous_gate
       source_summary: reports/research/channel_lab/r_cost_aware_cell_tune_wf.json
       metrics:
         - mean_day_w83_strict_bar_cost5p8
         - mean_day_3season_oos
         - lift_vs_v120
     applied_refinements:
+      - candidate_id: final_v1_5_0_pv16_continuous_gate
+        title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
+        research_topic: tmf-pv16-specialized
+        graduation: >
+          NQ即時閘門部分為統計性backtest驗證：scripts/research/
+          tmf_continuous_gate_vs_frozen_anchor.py 在 lookback_days=500（修正
+          原本60天窗口不足導致OOS樣本82%為資料缺失偽訊號的方法論瑕疵）下
+          重跑，22天IS mean=+143.64pt/日(p=0.213不顯著)、66天OOS
+          mean=+206.27pt/日(t=3.679,**p=0.00048**)——比原本(未修正lookback)
+          算出的p=0.0037更顯著，證據比原始上線時更紮實。下單層3項修復為
+          事故驅動（非統計性backtest），驗證方式同v1.4.0模式——單元測試+
+          全專案回歸測試（1447 passed / 0 failed）+ .venv-fubon preflight：
+          (1) query_tmf_broker_net查詢失敗時want_s/want_l改為None，避免
+          誤判空手連續送出重複新單（2026-08-10 16:14-17一次「call id」查詢
+          中斷造成5張重複45131買單）；同修復也讓check_max_hold_safety_net
+          在query_failed時保留原有position_open_ts不重置，避免查詢中斷
+          意外延長90分鐘安全網的觸發時間；(2) 上述修復的副作用——want為
+          None時「取消多餘委託」邏輯會誤刪已掛的真實委託——加query_failed
+          旗標讓查詢中斷期間完全不動任何已掛委託；(3) 新增
+          synthesize_lost_tracking_protect_rail：當broker確認真倉位但
+          bar-replay自己的追蹤對不上（找到根因是sim重播對15:03-15:11同一
+          分鐘內「單子先成交還是先被取消」判斷跟真實成交分岔，此後sim整天
+          都以為自己空手）導致算不出任何掛單價格時，直接用真實成交價+目前
+          cell的hang_hi重建一張保護單。
+        adoption_report: 本 diff 本身（src/tmf_channel/causal_engine.py ·
+          src/tmf_channel/nq_gate.py · src/order/tmf_channel_order.py 等，
+          見 applied_to）；NQ閘門部分另有
+          reports/research/channel_lab/tmf_continuous_gate_vs_frozen_anchor_result.json
+          （lookback_days=500修正後重跑）
+        applied_to: >
+          src/tmf_channel/causal_engine.py（session_side_gate per-bar-key
+          fallback）· src/tmf_channel/nq_gate.py（nq_side_for_day錨點改為
+          當下(day,hm)逐次重算）· src/order/tmf_channel_order.py
+          （query_failed guard · synthesize_lost_tracking_protect_rail ·
+          check_max_hold_safety_net query_failed參數 · 取消迴圈
+          query_outage_cancel_skipped）· src/order/tmf_channel_pv16_book.py
+          （RECIPE_VERSION/FROZEN_ID bump）
+        applied_date: "2026-08-10"
+        status: applied
+      - candidate_id: final_v1_4_0_pv16_safety_hardening
+        title: 下單層安全強化（5 項獨立防護修復，非 cell-recipe 變更）
+        research_topic: tmf-pv16-specialized
+        graduation: >
+          非統計性backtest驗證——5個修復各自對應2026-08-06~08實際發生的live
+          事故，用單元測試+全專案回歸測試（1425 passed / 0 failed）+
+          .venv-fubon preflight import驗證：(1) apply_quiet_flat_entry_gate
+          補上cell.block即時檢查（發現一筆在block=['L','S']格仍被送出的真單）；
+          (2) 同函式加對稱遲滯，修「未收完K棒重分類造成每小時~28place+~26
+          cancel同價位反覆刷單」；(3) check_max_hold_safety_net獨立wall-clock
+          持倉追蹤，修「sim內部lots[0]['eb']一旦broker_live變權威來源就失聯，
+          部位開8+小時零max-hold」；(4) in_tmf_trade_window補星期幾判斷，修
+          「週六被當正常交易日狂重試resolve front symbol」；(5) nq_gate.py
+          改直接抓Yahoo（不再靠沒排程刷新的靜態研究快照，該快照凍結在
+          2026-08-05造成閘門連續兩天回傳假的"none"持平訊號、疊加bias=True
+          hard-block幾乎所有新倉）＋修好00:00-05:00尾段錨點該用前一天15:00
+          而非當天。
+        adoption_report: 本 diff 本身（src/order/tmf_channel_order.py 等，
+          見 applied_to）；無獨立 backtest report——這批是事故驅動修復，
+          不是回測驗證的策略假說
+        applied_to: >
+          src/order/tmf_channel_order.py（check_max_hold_safety_net ·
+          apply_quiet_flat_entry_gate block檢查+遲滯 · should_throttle_quiet_cancel ·
+          _drop_forming_last_bar）· src/order/tmf_channel_config.py
+          （max_hold_safety_min設定）· src/order/tmf_channel_ledger.py
+          （對應持久化欄位）· src/order/tmf_channel_marketdata.py
+          （in_tmf_trade_window星期幾）· src/tmf_channel/nq_gate.py
+          （即時Yahoo抓取＋stale guard＋三錨點修正）· RECIPE_VERSION bump
+        applied_date: "2026-08-08"
+        status: applied
+      - candidate_id: final_v1_4_0_pv16_normal_dhwv_block
+        title: PV16 cell-tune v3 · day|normal ＋ day|div_hh_weak_vol 全封鎖
+        research_topic: tmf-pv16-specialized
+        graduation: >
+          原始聲稱：4/4 已測窗口 net-positive delta（w83 2026-04-01..
+          2026-07-31 bar-level +12,476 且獨立逐tick重建 +17,691，兩者按天
+          配對 t檢定 p<0.001；julsep25 holdout +840；octdec25 holdout
+          +1,486；janmar26 holdout +3,232）。**2026-08-08 五輪對抗式審計
+          推翻此證據**：根因是研究harness的NQ隔夜閘門（session_side_gate）
+          用同一個值同時餵日盤與夜盤決策（每天只認calendar date、不分
+          session），該值又固定錨定在夜盤15:00開盤——等於用「當天晚上才
+          會發生的事」去決定「當天白天」的下單，是同日look-ahead。修正
+          日/夜/隔夜尾段三種正確錨點後重跑：CELL_TUNE_V2自己原本「5/5期
+          HAC顯著為正」也不成立（修正後0/5顯著，兩個最強的in-sample窗口
+          點估計甚至翻負）；CELL_TUNE_V3對V2的增量效果統計上無法與零
+          區分（5窗口方向不一致、合併真獨立OOS n=182 mean=+12.75pt/day
+          但p=0.088不顯著，且其中最佳窗口約一半的正值被查出是這輪審計
+          自己的閘門修復手法引入的副作用，不是v3真實效果）。**判定：v3
+          未採納**——不是因為證明有害，是因為原始上線理由已知是bug算出來
+          的假訊號，且修正後找不到任何站得住的替代證據。
+        adoption_report: reports/research/channel_lab/r_cost_aware_cell_tune_wf.json
+          （原始聲稱，已知有瑕疵）· reports/research/channel_lab/r_gate_anchor_v4_audit.json
+          （修正後重跑，判定基礎）
+        applied_to: src/order/tmf_channel_pv16_book.py（CELL_TUNE_V3_PATCHES
+          定義保留但不套用於 specialized_cell_book()；RECIPE_VERSION 未跟
+          此候選走，見上方 final_v1_4_0_pv16_safety_hardening 條目）
+        applied_date: "2026-08-07"
+        status: reverted  # 2026-08-08 五輪審計後判定未採納，見 graduation 欄位
       - candidate_id: final_v1_3_0_pv16_celltune_v2
         title: PV16 cell-tune v2 · 16 格獨立調參（12 patch · julsep 歸因 revert 3 格）
         research_topic: tmf-pv16-specialized

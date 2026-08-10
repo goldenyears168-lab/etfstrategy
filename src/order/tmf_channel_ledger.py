@@ -69,6 +69,42 @@ def _empty() -> dict[str, Any]:
         "last_desired": None,
         "actions_tail": [],
         "broker_pos": None,
+        # Independent, sim-state-free max-hold safety net (2026-08-07): simulate()'s
+        # own max_hold_bars only fires off its internal lots[0]['eb'], which gets
+        # bypassed the moment broker_live becomes authoritative for open_pos (see
+        # tmf_channel_order.reconcile_once) — a position can then sit for hours with
+        # zero max-hold enforcement if the bar-replay ever loses sync with the real
+        # broker position. This tracks wall-clock open time independently.
+        "position_open_ts": None,
+        "position_open_sig": None,
+        # Quiet-cancellation hysteresis (2026-08-08): apply_quiet_flat_entry_gate
+        # only cancels an already-resting rail once the cell's pv has stayed in
+        # the quiet set (e.g. "dry") continuously for quiet_hysteresis_min.
+        # Symmetric on the exit side too (quiet_not_quiet_since): a single
+        # poll leaving the quiet set does not reset quiet_pv_since, only a
+        # sustained exit (quiet_exit_debounce_min) does — otherwise a market
+        # drifting briefly in/out of "dry" still matured the streak every
+        # ~2-3min and cancel+replaced the identical resting price each time.
+        # See that function's docstring for the live incident this fixes.
+        "quiet_pv_since": None,
+        "quiet_pv_value": None,
+        "quiet_not_quiet_since": None,
+        # Cancel-rate throttle (2026-08-08): per-side timestamp of the last
+        # CANCEL fired for a want-became-None-via-quiet reason. Never touched
+        # for block-caused cancels or price-drift cancels — see
+        # should_throttle_quiet_cancel() in tmf_channel_order.py. Confirmed
+        # via true re-simulation that smoothing the classifier itself (the
+        # alternative) is not worth its safety cost, so this throttles the
+        # order layer's redundant API round trips instead.
+        "cancel_throttle_last": {"S": None, "L": None},
+        # Consecutive broker-rejected order actions (2026-08-10): counts
+        # api-calling actions (place/cancel/exit) with ok=False in a row,
+        # across polls; any ok=True action resets it to 0. Found live: a
+        # 財力證明額度 (financial-capacity-proof quota) rejection made the
+        # worker retry the same failing SELL every poll indefinitely,
+        # burning API calls with no way to succeed until the account-side
+        # issue was fixed. See reconcile_once()'s kill_triggers check.
+        "consecutive_order_failures": 0,
     }
 
 
@@ -86,4 +122,10 @@ def record_actions(data: dict[str, Any], actions: list[dict], *, api_n: int) -> 
     tail = list(data.get("actions_tail") or [])
     tail.extend(actions)
     data["actions_tail"] = tail[-80:]
+    streak = int(data.get("consecutive_order_failures") or 0)
+    for act in actions:
+        if not act.get("counts_api"):
+            continue
+        streak = 0 if act.get("ok") else streak + 1
+    data["consecutive_order_failures"] = streak
     return data

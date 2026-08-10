@@ -214,15 +214,19 @@ strategies:
       - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md
 
   tmf-micro-channel:
-    title: TMF 微型臺指 · Channel Final v1.3.0 PV16 cell-tune v2
+    title: TMF 微型臺指 · Channel Final v1.5.0 PV16 cell-tune v2 + 逐分鐘即時 NQ 閘門
     layer: strategy
     kind: research_adopted
     enabled: true
     env_flag: ORDER_TMF_CHANNEL_ENABLED
     description: >
-      微型臺指近月 channel · Order futopt · Final v1.3.0：16-cell cell-tune v2
+      微型臺指近月 channel · Order futopt · Final v1.5.0：16-cell cell-tune v2
       （O-anchor · quiet=dry · cell BIAS · night normal/expand_dn/div_hh_weak_vol
-      block_LS）· engine=src/tmf_channel · KeepAlive worker。
+      block_LS）——cell-tune v3（day normal/div_hh_weak_vol 全封鎖）2026-08-08
+      經對抗式審計判定原始證據源自NQ閘門look-ahead bug，未採納/已revert，
+      不在本版；v1.5.0 帶的是NQ/ES隔夜閘門改逐分鐘即時重算 + 3項下單層
+      韌性修復（詳見 config/strategy.yaml applied_refinements）·
+      engine=src/tmf_channel · KeepAlive worker。
       白皮書 docs/tmf-micro-channel-final-v1-1-prd.md。
     sources:
       - docs/tmf-micro-channel-final-v1-1-prd.md

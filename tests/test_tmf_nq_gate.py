@@ -15,12 +15,17 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
+import pandas as pd
+
+import us_futures_overnight
 from tmf_channel import nq_gate, nq_signal
 from tmf_channel.aux_cache import clear_aux_cache
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 R5_PATH = PROJECT_ROOT / "reports/research/channel_lab/r5_synth_p0p1_vs_baseline.py"
+_TZ_ET = ZoneInfo("America/New_York")
 
 
 def _load_r5():
@@ -51,21 +56,43 @@ def _write_cache(path: Path, last_nq_close: float) -> None:
     path.write_text(json.dumps(payload))
 
 
+def _fake_intraday_fetch(nq_last_close: float, es_last_close: float = 100.5):
+    """Two 1h points on 2026-08-04: RTH close 100.0, then an afterhours print."""
+
+    def fake(yahoo_symbol, start, end, *, interval="1h"):
+        last = nq_last_close if yahoo_symbol == us_futures_overnight.NQ_YAHOO else es_last_close
+        idx = pd.DatetimeIndex(
+            [pd.Timestamp("2026-08-04T15:30:00"), pd.Timestamp("2026-08-04T20:00:00")]
+        ).tz_localize(_TZ_ET)
+        return pd.Series([100.0, last], index=idx, dtype=float)
+
+    return fake
+
+
+def _fake_daily_fetch():
+    def fake(yahoo_symbol, start, end):
+        return pd.Series({"2026-08-04": 100.0})
+
+    return fake
+
+
 class NqSideForDayTest(unittest.TestCase):
     def setUp(self):
         clear_aux_cache()
-        self._tmp = tempfile.TemporaryDirectory()
-        self.cache = Path(self._tmp.name) / "nq_es_1h.json"
 
     def tearDown(self):
         clear_aux_cache()
-        self._tmp.cleanup()
 
-    def _side(self, last_nq_close: float, hm: str = "16:00") -> str | None:
-        _write_cache(self.cache, last_nq_close)
+    def _side(self, last_nq_close: float, hm: str = "16:00", *, day: str = "2026-08-05") -> str | None:
         clear_aux_cache()
-        with mock.patch.object(nq_signal, "NQ_ES_1H_CACHE", self.cache):
-            return nq_gate.nq_side_for_day("2026-08-05", hm=hm)
+        with mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_intraday_closes",
+            side_effect=_fake_intraday_fetch(last_nq_close),
+        ), mock.patch.object(
+            us_futures_overnight, "fetch_yahoo_daily_closes", side_effect=_fake_daily_fetch()
+        ):
+            return nq_gate.nq_side_for_day(day, hm=hm)
 
     def test_up_drift_returns_long(self):
         self.assertEqual(self._side(101.0), "L")  # +1.0% ≥ 0.15
@@ -77,21 +104,90 @@ class NqSideForDayTest(unittest.TestCase):
         self.assertEqual(self._side(100.1), "none")  # +0.1% inside ±0.15
 
     def test_day_session_hm_branch(self):
-        # hm < 15:00 → 08:45 TW anchor; same synthetic data still resolves.
+        # anchor = day + hm directly (continuous, 2026-08-10); same
+        # synthetic data still resolves regardless of the exact hm chosen.
         self.assertEqual(self._side(101.0, hm="09:00"), "L")
 
-    def test_missing_cache_fails_safe_none(self):
+    def test_fetch_failure_fails_safe_none(self):
         clear_aux_cache()
-        missing = Path(self._tmp.name) / "nope.json"
-        with mock.patch.object(nq_signal, "NQ_ES_1H_CACHE", missing):
+        with mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_intraday_closes",
+            side_effect=RuntimeError("yahoo unreachable"),
+        ):
             self.assertIsNone(nq_gate.nq_side_for_day("2026-08-05", hm="16:00"))
         self.assertIsNotNone(nq_gate.last_nq_load_error())
 
-    def test_broken_cache_fails_safe_none(self):
+    def test_empty_series_fails_safe_none(self):
         clear_aux_cache()
-        self.cache.write_text("{not json")
-        with mock.patch.object(nq_signal, "NQ_ES_1H_CACHE", self.cache):
+        with mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_intraday_closes",
+            side_effect=lambda *a, **k: pd.Series(dtype=float),
+        ), mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_daily_closes",
+            side_effect=lambda *a, **k: pd.Series(dtype=float),
+        ):
             self.assertIsNone(nq_gate.nq_side_for_day("2026-08-05", hm="16:00"))
+        self.assertIsNotNone(nq_gate.last_nq_load_error())
+
+    def test_night_tail_anchors_to_actual_current_moment(self):
+        """2026-08-08: hm<05:00 used to anchor to *yesterday's* 15:00 open
+        (the session-open-freeze design) instead of the night session's
+        actual current moment -- fixed same night. 2026-08-10: the whole
+        session-open-freeze design was replaced by a continuous anchor (day
+        + hm directly, recomputed every call instead of frozen once per
+        session -- true re-simulation showed this beats the frozen anchor
+        on both in-sample and out-of-sample windows, OOS p=0.0037). Under
+        the new design, day="2026-08-06" hm="03:00" simply anchors to
+        2026-08-06T03:00 -- today's own date, not shifted to yesterday --
+        because ``day`` and ``hm`` together already describe the real
+        current moment; no special-casing is needed for the tail."""
+        seen = {}
+        real_fn = nq_signal.futures_overnight_at
+
+        def spy(dt_tw, **kw):
+            seen["dt"] = dt_tw
+            return real_fn(dt_tw, **kw)
+
+        with mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_intraday_closes",
+            side_effect=_fake_intraday_fetch(101.0),
+        ), mock.patch.object(
+            us_futures_overnight, "fetch_yahoo_daily_closes", side_effect=_fake_daily_fetch()
+        ), mock.patch.object(nq_signal, "futures_overnight_at", side_effect=spy):
+            nq_gate.nq_side_for_day("2026-08-06", hm="03:00")
+        self.assertEqual(seen["dt"].date().isoformat(), "2026-08-06")
+        self.assertEqual(seen["dt"].hour, 3)
+
+    def test_anchor_moves_with_hm_within_the_same_day(self):
+        """The core 'continuous' property (2026-08-10): two calls for the
+        SAME day but different hm must anchor to different moments -- under
+        the old frozen-at-session-open design both of these (08:46 and
+        13:44, both inside the day session) would have anchored to the
+        identical 08:45 timestamp."""
+        seen = []
+        real_fn = nq_signal.futures_overnight_at
+
+        def spy(dt_tw, **kw):
+            seen.append(dt_tw)
+            return real_fn(dt_tw, **kw)
+
+        with mock.patch.object(
+            us_futures_overnight,
+            "fetch_yahoo_intraday_closes",
+            side_effect=_fake_intraday_fetch(101.0),
+        ), mock.patch.object(
+            us_futures_overnight, "fetch_yahoo_daily_closes", side_effect=_fake_daily_fetch()
+        ), mock.patch.object(nq_signal, "futures_overnight_at", side_effect=spy):
+            nq_gate.nq_side_for_day("2026-08-06", hm="08:46")
+            nq_gate.nq_side_for_day("2026-08-06", hm="13:44")
+        self.assertEqual(len(seen), 2)
+        self.assertNotEqual(seen[0], seen[1])
+        self.assertEqual((seen[0].hour, seen[0].minute), (8, 46))
+        self.assertEqual((seen[1].hour, seen[1].minute), (13, 44))
 
 
 @unittest.skipUnless(R5_PATH.is_file(), "r5 research file not present")

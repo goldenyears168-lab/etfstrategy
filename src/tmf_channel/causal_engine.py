@@ -2382,7 +2382,14 @@ def simulate(
                 and not lots
                 and not bool(p.get("nq_conf_soft_gate"))
             ):
-                g = ssg.get(day, "none")
+                # Per-bar key (full ISO timestamp, e.g. from a continuously
+                # recomputed research gate) takes priority when present;
+                # falls back to the original per-CALENDAR-DAY key otherwise.
+                # Backward compatible: existing callers only ever pass
+                # {day: "L"/"S"/"none"} dicts, whose keys never collide with
+                # a full bar timestamp, so T[t] never matches and behavior
+                # is byte-for-byte unchanged for every caller before this.
+                g = ssg.get(T[t], ssg.get(day, "none"))
                 if g == "L":
                     place_s, place_l = False, True
                     note = note + "|ssg_L"

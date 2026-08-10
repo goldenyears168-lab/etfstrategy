@@ -6,6 +6,7 @@ import unittest
 
 from order.tmf_channel_config import PAPER_RECIPE, load_tmf_channel_order_config
 from order.tmf_channel_pv16_book import (
+    CELL_TUNE_V3_PATCHES,
     PV8,
     RECIPE_VERSION,
     book_summary,
@@ -44,6 +45,24 @@ class Pv16BookTest(unittest.TestCase):
         self.assertEqual(book["night"]["contract"]["hang_lo"], 16.0)
         # hard rule
         self.assertEqual(book["night"]["climax_up"]["block"], ["L", "S"])
+
+    def test_celltune_v3_defined_but_not_applied(self):
+        # Cell-tune v3 候選（2026-08-07）：day|normal 與 div_hh_weak_vol 全封鎖，
+        # 原始理由是「harness回測兩大虧損中心」、聲稱 day-clustered p<0.001。
+        # 2026-08-08 五輪對抗式審計發現該證據源自 NQ 閘門的同日 look-ahead
+        # bug（日盤決策誤用夜盤錨點）；修正後 CELL_TUNE_V2 自己的「5/5顯著」
+        # 也不成立，v3 增量效果統計上無法與零區分——故 v3 保留定義供未來
+        # 重新評估，但不套用在 specialized_cell_book()。見
+        # config/strategy.yaml applied_refinements 完整記錄。
+        book = specialized_cell_book()
+        self.assertEqual(book["day"]["normal"]["block"], [])
+        self.assertEqual(book["day"]["div_hh_weak_vol"]["block"], [])
+        # v2 的 day|normal 調參（hang/gamma/max_hold）不受影響，仍然套用。
+        self.assertEqual(book["day"]["normal"]["hang_lo"], 12.0)
+        self.assertEqual(book["day"]["normal"]["early_fill_gamma"], 13.0)
+        # CELL_TUNE_V3_PATCHES 本身仍存在（未刪除，只是未套用）。
+        v3_regs = {reg for _, reg, _ in CELL_TUNE_V3_PATCHES}
+        self.assertEqual(v3_regs, {"normal", "div_hh_weak_vol"})
 
     def test_seed_differs_from_specialized(self):
         seed = freeze_cell_book()

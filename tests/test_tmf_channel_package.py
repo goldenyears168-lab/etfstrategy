@@ -146,21 +146,149 @@ class HarnessRecipeGuardTest(unittest.TestCase):
 
 
 class QuietGateStillWorks(unittest.TestCase):
-    def test_flat_dry_strips(self):
+    def test_flat_dry_strips_once_streak_matures(self):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
         from order.tmf_channel_order import apply_quiet_flat_entry_gate
 
-        ws, wl, why = apply_quiet_flat_entry_gate(
-            1.0,
-            2.0,
-            broker_live=None,
-            desired={
-                "regime": "dry",
-                "active_cell": {"pv": "dry", "recipe": {"skip_quiet_mode": "dry"}},
-            },
+        tz = ZoneInfo("Asia/Taipei")
+        desired = {
+            "regime": "dry",
+            "active_cell": {"pv": "dry", "recipe": {"skip_quiet_mode": "dry"}},
+        }
+        t0 = datetime(2026, 8, 8, 3, 0, 0, tzinfo=tz)
+        _, _, _, ledger = apply_quiet_flat_entry_gate(
+            1.0, 2.0, broker_live=None, desired=desired, ledger={}, now=t0
+        )
+        later = t0 + timedelta(minutes=2, seconds=1)
+        ws, wl, why, ledger = apply_quiet_flat_entry_gate(
+            1.0, 2.0, broker_live=None, desired=desired, ledger=ledger, now=later
         )
         self.assertIsNone(ws)
         self.assertIsNone(wl)
         self.assertIn("quiet_flat_skip", why or "")
+
+
+class SessionSideGatePerBarKeyTest(unittest.TestCase):
+    """causal_engine.py's session_side_gate lookup (2026-08-10): found only
+    per-CALENDAR-DAY granularity was supported (`ssg.get(day, "none")`),
+    which cannot express a gate that updates within a single trading day.
+    Changed to `ssg.get(T[t], ssg.get(day, "none"))` -- a full-bar-timestamp
+    key takes priority when present, falling back to the original day-key
+    lookup otherwise. This must be provably backward compatible: every
+    existing caller (live desired_from_simulate, all research scripts)
+    only ever passes {day: "L"/"S"/"none"} dicts, whose keys never look
+    like a full ISO bar timestamp, so T[t] can never match for them and
+    behavior must be byte-for-byte identical to before this change.
+    """
+
+    @staticmethod
+    def _synthetic_day_bars(day: str, n: int = 200, start_px: float = 44000.0):
+        """n 1-min day-session bars starting 08:45 -- oscillating drift +
+        noise, volatile enough to actually cross hang levels and produce
+        real entries/exits within the array (needed so the trade-count
+        assertions below are meaningful, not just "still empty either way")."""
+        O, H, L, C, V, T = [], [], [], [], [], []
+        px = start_px
+        for i in range(n):
+            hh = 8 + (45 + i) // 60
+            if hh >= 14:
+                break
+            mm = (45 + i) % 60
+            drift = 15.0 if (i // 10) % 2 == 0 else -15.0
+            noise = 5.0 if i % 2 == 0 else -5.0
+            o = px
+            c = px + drift + noise
+            h = max(o, c) + 3.0
+            lo = min(o, c) - 3.0
+            v = 1000.0 + (i % 7) * 500.0
+            O.append(o)
+            H.append(h)
+            L.append(lo)
+            C.append(c)
+            V.append(v)
+            T.append(f"{day}T{hh:02d}:{mm:02d}:00.000+08:00")
+            px = c
+        return O, H, L, C, V, T
+
+    def _recipe(self):
+        from copy import deepcopy
+
+        from order.tmf_channel_config import PAPER_RECIPE
+
+        recipe = deepcopy(PAPER_RECIPE)
+        recipe["hang_anchor"] = "O"
+        return recipe
+
+    def test_day_key_only_dict_is_unaffected_by_the_new_lookup(self):
+        """Old-style {day: ...} dicts must produce byte-identical trades
+        before and after this change -- this pins that guarantee directly
+        rather than trusting it by inspection."""
+        from tmf_channel.causal_engine import simulate
+
+        day = "2026-08-06"
+        O, H, L, C, V, T = self._synthetic_day_bars(day)
+        recipe = self._recipe()
+        recipe["session_side_gate"] = {day: "none"}
+
+        trades, *_ = simulate(O, H, L, C, V, T, recipe, vix_delta={})
+        # ssg_none hard-blocks both sides for every cell with bias=True
+        # while flat -- with no position ever opened, there can be no exits
+        # or entries born from this cell-gate path at all.
+        self.assertEqual(trades, [])
+
+    def test_per_bar_key_takes_priority_over_day_key(self):
+        """A bar-timestamp-keyed 'L' must override a day-keyed 'none' for
+        that specific bar -- proving the new lookup path is actually wired
+        in, not just present and unused."""
+        from tmf_channel.causal_engine import simulate
+
+        day = "2026-08-06"
+        O, H, L, C, V, T = self._synthetic_day_bars(day)
+        recipe = self._recipe()
+        # Day-level default says "none" (would block everything under the
+        # old behavior); every individual bar is overridden to "L" via its
+        # exact timestamp key.
+        ssg = {day: "none"}
+        ssg.update({t: "L" for t in T})
+        recipe["session_side_gate"] = ssg
+
+        trades_bar_override, *_ = simulate(O, H, L, C, V, T, recipe, vix_delta={})
+
+        # Control: same recipe, but WITHOUT the per-bar overrides (pure
+        # day-level "none") must still be fully blocked, confirming the
+        # override above is what changed the outcome, not something else
+        # about this synthetic data.
+        recipe_day_only = self._recipe()
+        recipe_day_only["session_side_gate"] = {day: "none"}
+        trades_day_only, *_ = simulate(O, H, L, C, V, T, recipe_day_only, vix_delta={})
+
+        self.assertEqual(trades_day_only, [])
+        self.assertNotEqual(trades_bar_override, [])
+        for tr in trades_bar_override:
+            self.assertEqual(tr["s"], "L")  # ssg_L steers entries long-only
+
+    def test_missing_session_side_gate_key_falls_back_to_day(self):
+        """A per-bar dict that only covers SOME bars must fall back to the
+        day-level value for the rest, not silently no-op (e.g. default to
+        unblocked)."""
+        from tmf_channel.causal_engine import simulate
+
+        day = "2026-08-06"
+        O, H, L, C, V, T = self._synthetic_day_bars(day)
+        recipe = self._recipe()
+        # Only the first 5 bars have a bar-level override (to "L"); every
+        # other bar has no bar-level key at all and must fall back to the
+        # day-level "none" (full block).
+        ssg = {day: "none"}
+        ssg.update({t: "L" for t in T[:5]})
+        recipe["session_side_gate"] = ssg
+
+        trades, *_ = simulate(O, H, L, C, V, T, recipe, vix_delta={})
+        for tr in trades:
+            entry_t = tr.get("et")
+            self.assertIn(entry_t, T[:5], "entries must only occur inside the overridden window")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,20 @@ def _ensure_realtime_once(session: FubonSession) -> None:
             setattr(session, "_tmf_realtime_ok", True)
 
 
+def _ticker_api_session(hm: str | None = None) -> str:
+    """Fubon ``tickers()`` session param — REGULAR only inside day-session hours.
+
+    Found live 2026-08-08: the REGULAR-session ticker list is empty outside
+    08:45-13:45 (confirmed directly against the Fugle endpoint); the night
+    symbol only kept resolving because of the 300s cache carrying over from
+    day-session close, so this broke silently once that cache went stale
+    past midnight — resolve_front_symbol then fails continuously all night
+    with no independent contract listing to fall back on.
+    """
+    hm = hm or session_hhmm_now()
+    return "REGULAR" if "08:45" <= hm <= "13:45" else "AFTERHOURS"
+
+
 def resolve_front_symbol(
     session: FubonSession,
     *,
@@ -36,7 +50,10 @@ def resolve_front_symbol(
         return _CACHE["sym"]
     _ensure_realtime_once(session)
     fut = session.sdk.marketdata.rest_client.futopt
-    data = fut.intraday.tickers(type="FUTURE", exchange="TAIFEX", product=product)
+    api_session = _ticker_api_session()
+    data = fut.intraday.tickers(
+        type="FUTURE", exchange="TAIFEX", product=product, session=api_session
+    )
     rows = data if isinstance(data, list) else (data.get("data") or data.get("tickers") or [])
     today = datetime.now(tz=_TZ).strftime("%Y-%m-%d")
     cands = []
@@ -166,10 +183,28 @@ def session_hhmm_now() -> str:
     return datetime.now(tz=_TZ).strftime("%H:%M")
 
 
-def in_tmf_trade_window(hm: str | None = None) -> bool:
+def in_tmf_trade_window(hm: str | None = None, *, weekday: int | None = None) -> bool:
+    """``weekday``: ``date.weekday()`` convention, Monday=0 .. Sunday=6.
+
+    Found live 2026-08-08 (a Saturday): this function only ever checked
+    HH:MM, never day-of-week, so once wall-clock crossed 08:45 the live
+    worker treated a non-trading Saturday as a real day session and
+    login-thrashed trying to resolve a front-month symbol against a market
+    that was never open (real orders were never at risk — dry_run happened
+    to be on — but the worker had to be manually stopped to end the loop).
+    TAIFEX trades Mon-Fri only. The night session opened Friday 15:00
+    legitimately continues into Saturday's 00:00-05:00 tail (the week's
+    last night session), but no session opens Saturday or Sunday evening,
+    and no session continues into Monday's 00:00-05:00 tail (that would
+    require a Sunday-evening open, which does not exist).
+    """
     hm = hm or session_hhmm_now()
+    if weekday is None:
+        weekday = datetime.now(tz=_TZ).weekday()
     if "08:45" <= hm <= "13:45":
-        return True
-    if hm >= "15:00" or hm < "05:00":
-        return True
+        return weekday <= 4  # Mon-Fri day session
+    if hm >= "15:00":
+        return weekday <= 4  # a new night session opens only Mon-Fri evening
+    if hm < "05:00":
+        return 1 <= weekday <= 5  # Tue-Sat tail continues Mon-Fri's night open
     return False

@@ -90,6 +90,8 @@ class TmfChannelOrderConfig:
     ledger_path: str
     product: str
     kill_day_loss_pts: float
+    max_hold_safety_min: float
+    kill_consecutive_failures: int
     recipe: dict[str, Any]
     recipe_version: str
 
@@ -149,6 +151,14 @@ def load_tmf_channel_order_config(cfg: dict[str, Any] | None = None) -> TmfChann
         kill_day_loss_pts=_env_float(
             "ORDER_TMF_CHANNEL_KILL_DAY_LOSS",
             float(block.get("kill_day_loss_pts", 400.0)),
+        ),
+        max_hold_safety_min=_env_float(
+            "ORDER_TMF_CHANNEL_MAX_HOLD_SAFETY_MIN",
+            float(block.get("max_hold_safety_min", 90.0)),
+        ),
+        kill_consecutive_failures=_env_int(
+            "ORDER_TMF_CHANNEL_KILL_CONSECUTIVE_FAILURES",
+            int(block.get("kill_consecutive_failures", 5)),
         ),
         recipe=recipe,
         recipe_version=RECIPE_VERSION,
