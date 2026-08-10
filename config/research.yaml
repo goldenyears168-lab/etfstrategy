@@ -9990,6 +9990,76 @@ topics:
       `tmf-slow-pattern-cell`線窮盡ZigZag+通道框架後的結論（改找全新訊號
       機制）是同一個模式。
 
+  umc-branch-overnight-decision:
+    title: 聯電(2303) 分點訊號 → 夜盤隔夜決策 · 全線否定歸檔
+    status: closed
+    phase: rejected
+    split_spec: default_is_oos
+    run_scripts:
+      - scripts/research/umc_branch_overnight_signal_sweep.py
+      - scripts/research/umc_branch_market_calibrated_sweep.py
+      - scripts/research/branch_overnight_crosssection_sweep.py
+      - scripts/research/branch_netdisp_multihorizon_validation.py
+      - scripts/research/umc_night_forward_recorder.py
+    report_dir: reports/research/branch-footprint-screen
+    hypotheses:
+      - id: H1-UMC-BRANCH-OVERNIGHT
+        statement: >
+          分點單日大額淨買（固定 2 億或自身 z-score 自適應門檻）可預測聯電隔夜跳空
+        status: rejected
+      - id: H2-UMC-ADAPTIVE-SELECTION
+        statement: >
+          自適應門檻能事前挑出「有 edge 的分點」
+        status: rejected
+      - id: H3-UMC-SIGNAL-SWEEP
+        statement: >
+          32 支分點衍生訊號中，至少一支對隔夜跳空有可驗證增量
+        status: rejected
+      - id: H4-UMC-CROSSSECTION
+        statement: >
+          橫斷面設計（同日多空對沖）能讓分點訊號的幅度超過交易成本
+        status: rejected
+      - id: H5-NETDISP-MULTIHORIZON
+        statement: >
+          net_disp 在某個持有天期上訊號幅度會超過成本
+        status: rejected
+      - id: H6-MOMENTUM-DECISION-RULE
+        statement: >
+          三因子動能規則（當日漲跌 + 台指夜盤 + NQ 隔夜）構成可用的每日多空決策
+        status: rejected
+    methodology: >
+      決策時點 16:45（實測 FinMind TaiwanStockTradingDailyReport 於 T 日 16:25 發布：
+      一次性探測 15:00 起每 5 分鐘打，16:20 尚無、16:25 found）。
+      六種設計依序檢驗：單股時序 → 自適應門檻 → 三層校正（大盤／台指期／全市場火力）
+      → 橫斷面（35 檔個股期）→ 多天期 H1~H20 → 三態決策策略。
+      統計協議：訓練/測試切分、Newey-West t（重疊持有期）、BH-FDR 多重檢定校正、
+      去極值敏感度、非重疊子樣本、block bootstrap、走動式重配門檻。
+    notes: >
+      【結論】全部否定。敗因一致：分點聚合訊號在隔夜天期的幅度（0.1~0.3%）與交易成本
+      （個股期來回 2 tick，股價<100 元 0.21%、>=100 元 0.94%）同一數量級。
+      對照 repo 既有唯一通過決定性驗證的 9217（H7 天期、mean +5.66% / median +6.28% /
+      permutation p<0.0001）—— 幅度差兩個數量級。可轉移的教訓：分點資料要成為 edge，
+      必須是「特定分點的稀有重押事件」，不能是「全市場聚合的橫斷面因子」。
+
+      【H6 的決定性否證 · 跨股票驗證】三因子動能規則在 2303 上呈現「前半年負、後半年正」，
+      原本無法判斷是規則問題還是市場狀態。將同一規則套到 35 檔高流動性個股期
+      （10,418 個觀測、3,977 次出手，成本 0.81%），以 2026-03-01 切半：
+      H1 為正 3/35（中位 −33.49%）、H2 為正 32/35（中位 +40.67%）、兩期同號僅 6/35。
+      逐月看 2025-05~2025-12 連續 8 個月為負，2026-05 起連續 4 個月為正且 32~34/35 檔
+      同時轉正。2303 自身（H1 −34.08% / H2 +59.42%）與全體中位數幾乎重合、完全不特別。
+      35 檔同時同月翻號不可能是 35 個獨立股票特性，只能是共同的市場狀態變數在切換，
+      而規則不含任何能偵測該切換的成分。因此判 rejected 而非 inconclusive ——
+      這不是樣本不足，是證據充分且為否定。要復活必須先解決「事前辨識狀態切換」這個
+      新的、更難的問題，不屬本主題延伸。
+
+      【方法論陷阱記錄】(a) 公告前後對照的切點若用 18:00 會把 16:25-18:00 這 95 分鐘的
+      公告後時間算進「公告前」，導致誤判「公告無資訊」——正確切點是 16:25。
+      (b) 目標獲利出場全面劣於不設目標（勝率上升但期望值下降，因報酬靠尾部）；
+      且用日 OHLC 判斷觸價有同棒樂觀偏誤。
+      (c) 早期回測用 2303 現股代理 CCF，失真點正好在 16:45 進場與 08:45 出場兩點上；
+      這兩個時點事後補不回來（FinMind tick 只有日盤、daily 只有整場 OHLC），
+      故保留 umc-night-forward-recorder 前推累積正確標的資料，供未來任何夜盤假說使用。
+
   tmf-structbreak-mitigation:
     title: TMF struct_break 出場減損 — rvol/adv 條件閘門 + falsification lab 系列 (sbc/fl1-6)
     status: rejected  # 2026-08-08事後補登記（違反G1，見graduation區塊）：核心假說H-SB-RVOL-ADV-GATE 22/22候選皆未過4項穩健性gate；fl1-6並行系列（不同機制/尺度）亦無一過gate，僅fl5/fl6留下待續診斷
