@@ -52,8 +52,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-RECIPE_VERSION = "final_v1_5_0_pv16_continuous_gate"
-FROZEN_ID = "final_v1_5_0_pv16_continuous_gate"
+RECIPE_VERSION = "final_v1_6_0_pv16_1m_spread_gate"
+FROZEN_ID = "final_v1_6_0_pv16_1m_spread_gate"
 
 PV8 = (
     "climax_up",

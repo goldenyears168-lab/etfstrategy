@@ -22,6 +22,7 @@ from order.fubon_futopt_orders import (
     get_futopt_order_results,
     is_tmf_acct_symbol,
     market_type_for_hhmm,
+    modify_futopt_order_price,
     pick_futopt_account,
     place_futopt_order,
     query_tmf_broker_net,
@@ -455,7 +456,7 @@ def desired_from_simulate(
         store_desired,
     )
     from tmf_channel.engine import classify_pv, rvol_series, simulate
-    from tmf_channel.nq_gate import last_nq_load_error, nq_side_for_day
+    from tmf_channel.nq_1m_spread_gate import last_spread_load_error, spread_side_for_day
 
     bars = _drop_forming_last_bar(bars)
     if len(bars) < 20:
@@ -474,8 +475,8 @@ def desired_from_simulate(
         run_recipe["vixtwn_1m"] = load_vixtwn_1m_cached()
     except Exception:
         run_recipe.setdefault("vixtwn_calib", "none")
-    nq_side = nq_side_for_day(day, hm=hhmm_from_bar_t(bars[-1].get("t")))
-    nq_gate_error = last_nq_load_error()
+    nq_side = spread_side_for_day(day, hm=hhmm_from_bar_t(bars[-1].get("t")), C=C, T=T)
+    nq_gate_error = last_spread_load_error()
     if nq_side is not None:
         run_recipe["session_side_gate"] = {day: nq_side}
 
@@ -997,7 +998,8 @@ def reconcile_once(
                 return True
         return False
 
-    # Cancel extras / wrong prices
+    # Cancel extras (want vanished) / amend price-drifted rails
+    amended_sides: set[str] = set()
     for side, px, raw in list(working):
         want = want_s if side == "S" else want_l
         if want is None or abs(px - float(want)) > match:
@@ -1016,23 +1018,46 @@ def reconcile_once(
                     {"side": side, "price": px}
                 )
                 continue
-            if want is None:
-                # Only the "want vanished" branch is throttle-eligible, and
-                # only for a quiet reason — never for a block reason (see
-                # should_throttle_quiet_cancel docstring) and never for a
-                # price-drift cancel (that branch has want is not None and
-                # never reaches here).
-                suppress, ledger = should_throttle_quiet_cancel(
-                    side,
-                    quiet_skip_reason=quiet_skip,
-                    open_pos=open_pos,
-                    ledger=ledger,
-                )
-                if suppress:
-                    out.setdefault("throttled_cancels", []).append(
-                        {"side": side, "price": px}
+            if want is not None:
+                # Price drifted but still wanted -- amend the existing
+                # resting order's price directly (Fubon futopt.modify_price)
+                # instead of cancel+place. One API round trip instead of
+                # two, and no window with zero resting order in between.
+                # 2026-08-10: previously always cancel+replace here.
+                act = {
+                    "kind": "amend",
+                    "side": side,
+                    "price": float(want),
+                    "prev_price": px,
+                    "why": "reconcile_amend",
+                    "counts_api": True,
+                }
+                try:
+                    modify_futopt_order_price(
+                        session, raw, float(want), acc=acc, dry_run=cfg.dry_run, session_date=day,
                     )
-                    continue
+                    act["ok"] = True
+                    amended_sides.add(side)
+                except Exception as e:
+                    act["ok"] = False
+                    act["error"] = str(e)
+                actions.append(act)
+                continue
+            # Only the "want vanished" branch is throttle-eligible, and
+            # only for a quiet reason — never for a block reason (see
+            # should_throttle_quiet_cancel docstring) and never for a
+            # price-drift case (that branch is handled above via amend).
+            suppress, ledger = should_throttle_quiet_cancel(
+                side,
+                quiet_skip_reason=quiet_skip,
+                open_pos=open_pos,
+                ledger=ledger,
+            )
+            if suppress:
+                out.setdefault("throttled_cancels", []).append(
+                    {"side": side, "price": px}
+                )
+                continue
             act = {
                 "kind": "cancel",
                 "side": side,
@@ -1054,9 +1079,14 @@ def reconcile_once(
                 act["error"] = str(e)
             actions.append(act)
 
-    # Refresh working after cancels (shadow): remove cancelled sides from local list
+    # Refresh working after cancels/amends (shadow): drop cancelled sides,
+    # re-price amended sides so rail_ok() below sees them as already resolved.
     cancelled_sides = {a["side"] for a in actions if a.get("kind") == "cancel" and a.get("ok")}
-    working = [(s, p, r) for s, p, r in working if s not in cancelled_sides or rail_ok(s, want_s if s == "S" else want_l)]
+    working = [
+        (s, (want_s if s == "S" else want_l) if s in amended_sides else p, r)
+        for s, p, r in working
+        if s not in cancelled_sides or rail_ok(s, want_s if s == "S" else want_l)
+    ]
 
     # Place missing rails (flat dual hang or protect while in pos)
     for side, want in (("S", want_s), ("L", want_l)):

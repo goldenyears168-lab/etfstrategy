@@ -14,6 +14,7 @@ LOG_FILE="${LOG_DIR}/tmf_channel_live_$(date +%Y%m%d).log"
 echo "[1/3] preflight: import check（.venv-fubon）"
 PYTHONPATH="${PROJECT_ROOT}/src" "${PY}" -c "
 import tmf_channel.worker_loop, tmf_channel.session_pool, tmf_channel.nq_gate
+import tmf_channel.nq_1m_spread_gate
 import tmf_channel.blotter, tmf_channel.engine, tmf_channel.harness
 print('preflight ok')
 "

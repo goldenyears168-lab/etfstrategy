@@ -533,24 +533,26 @@ strategies:
     research_topic: tmf-pv16-specialized
     config_ref: config/order.yaml
     description: >
-      微型臺指近月限價雙向通道 · Final v1.5.0：cell recipe 本身跟 v1.3.0/v1.4.0
-      完全相同（session×PV8＝16 cell，SPECIALIZED_PATCHES＋cell-tune v2 12
-      patch，hang_anchor=O、quiet=dry、far_cover 65/105 沿用 v1.1.3、
-      max_lots=1）——v1.4.0 原本要疊加的 cell-tune v3（day normal／
-      div_hh_weak_vol 全封鎖）2026-08-08 經五輪對抗式審計後判定其
-      「p<0.001」證據源自 NQ 隔夜閘門的同日 look-ahead bug，修正後
-      CELL_TUNE_V2 自己的「5/5顯著」也不成立、v3 增量效果統計上
-      無法與零區分，故 v3 未採納，僅留程式碼供未來重新評估。**v1.5.0 帶的是
-      兩批獨立於 cell-recipe 的下單層改動**：(1) NQ/ES 隔夜閘門從「凍結在
-      session開盤時間點」改成逐分鐘即時重算（causal_engine.py session_side_gate
-      支援per-bar timestamp key、nq_gate.py錨點改為當下時刻）；(2)
-      2026-08-10 當晚連續發生的3個下單層真實事故修復（broker查詢失敗誤送
-      新單／誤刪除已掛真單、查詢中斷會意外重置max-hold安全網時鐘、真倉位
-      對不上sim追蹤時完全沒有保護單掛著）。詳見下方 applied_refinements。
+      微型臺指近月限價雙向通道 · Final v1.6.0：cell recipe 本身跟 v1.3.0/
+      v1.4.0/v1.5.0 完全相同（session×PV8＝16 cell，SPECIALIZED_PATCHES＋
+      cell-tune v2 12 patch，hang_anchor=O、quiet=dry、far_cover 65/105
+      沿用 v1.1.3、max_lots=1）。**v1.6.0 唯一改動是 session_side_gate 的
+      方向訊號來源**：從 v1.5.0 的「NQ/ES 小時K vs 前收」逐分鐘閘門
+      （tmf_channel.nq_gate.nq_side_for_day）換成「台美1分鐘MA偏離差」
+      （tmf_channel.nq_1m_spread_gate.spread_side_for_day：TX/NQ 各自對
+      trailing 100分鐘1m-bar均線的偏離百分比相減，>= +0.2% 判空、
+      <= -0.2% 判多，逆勢均值回歸邏輯）。**此變更未通過本策略線一貫的
+      IS(22天)/OOS(66天)/3-holdout(2025三季)驗證關卡**——2026-08-11僅有
+      3天TX+真實1分鐘NQ重疊資料，樣本量遠不足以做day-clustered顯著性
+      檢定；threshold二元規則化在較長歷史（小時K代理，2h窗口）的IS篩選
+      甚至沒過關（詳見下方 graduation 段落的誠實記錄）。使用者在完整看過
+      證據不足的說明後，明確指示以「測試用小額資金」上線，同時啟動
+      scripts/research/nq_es_1m_daily_accumulate.py 逐日累積真實1分鐘
+      NQ/ES史，供後續正式重新驗證。
     matcher:
-      id: tmf_channel_v150
+      id: tmf_channel_v160
       product: TMF
-      recipe_version: final_v1_5_0_pv16_continuous_gate
+      recipe_version: final_v1_6_0_pv16_1m_spread_gate
     execution:
       asset: futopt
       max_lots: 1
@@ -559,13 +561,44 @@ strategies:
     backtest:
       spec_type: bar_1m_day_night
       source_module: tmf_channel.causal_engine
-      frozen_id: final_v1_5_0_pv16_continuous_gate
+      frozen_id: final_v1_6_0_pv16_1m_spread_gate
       source_summary: reports/research/channel_lab/r_cost_aware_cell_tune_wf.json
       metrics:
         - mean_day_w83_strict_bar_cost5p8
         - mean_day_3season_oos
         - lift_vs_v120
     applied_refinements:
+      - candidate_id: final_v1_6_0_pv16_1m_spread_gate
+        title: 台美1分鐘MA偏離差取代小時K NQ閘門（使用者明確授權·未達標準驗證關卡）
+        research_topic: tmf-tw-us-ma5h-deviation-spread
+        graduation: >
+          **未通過本策略線標準關卡，記錄在案供未來檢討**。IC本身在小時K長史
+          （window=2h，IS 22天+OOS 66天，day-clustered）顯著：IS h15min
+          p=0.018、OOS h15min p=0.003；但把IC轉成threshold二元交易規則
+          （取代NQ閘門）在同一個2h窗口IS(22天)全部未過關（threshold
+          0.2/0.3/0.4/0.5 之 p 介於0.64~0.99，方向不一致）。實際上線的是
+          window=100分鐘、threshold=0.2的版本，僅用3天（2026-08-05~07）
+          真實TX 1m + 真實NQ 1m重疊資料做過P&L回測（vs 同期v1.5.0現行
+          continuous gate）：3天全部同號，加總delta+2397pt，但n=3天連
+          day-clustered t檢定的最低門檻都不到，且剛好是v1.5.0現行閘門
+          本身連虧三天的一段（-455/-792/-419），不能排除是巧合區間。
+          2026-08-11嘗試回放當天（8/11）比較「現行 vs 1分K候選」時發現
+          事後用已確定的資料重算「當時」決策，得出的net($+401)跟真實帳本
+          sim_day_pnl_pts(-205)對不上——證明事後重算不可信（跟forming-bar
+          bug同一類問題），因此無法對任何單一交易日做可信的逐bar回放驗證，
+          僅能倚賴3天期的批次回測結果。
+        adoption_report: 本 diff 本身（src/tmf_channel/nq_1m_spread_gate.py ·
+          src/order/tmf_channel_order.py · src/order/tmf_channel_pv16_book.py）；
+          3天P&L回測與2h小時K IC結果未落地為獨立報告檔，記錄於本段
+          graduation 文字與對話紀錄。
+        applied_to: >
+          src/tmf_channel/nq_1m_spread_gate.py（新模組，WINDOW_MIN=100、
+          THRESHOLD=0.2，fail-open vs 硬封鎖語意逐bar比對回測規則到0
+          mismatch）· src/order/tmf_channel_order.py（desired_from_simulate
+          改呼叫 spread_side_for_day 取代 nq_side_for_day）·
+          src/order/tmf_channel_pv16_book.py（RECIPE_VERSION/FROZEN_ID bump）
+        applied_date: "2026-08-11"
+        status: applied_unvalidated_user_authorized
       - candidate_id: final_v1_5_0_pv16_continuous_gate
         title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
         research_topic: tmf-pv16-specialized

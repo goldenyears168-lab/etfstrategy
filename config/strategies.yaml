@@ -214,18 +214,22 @@ strategies:
       - reports/research/rrg/20260715_leading_dip_gap_excess_open_anchor.md
 
   tmf-micro-channel:
-    title: TMF 微型臺指 · Channel Final v1.5.0 PV16 cell-tune v2 + 逐分鐘即時 NQ 閘門
+    title: TMF 微型臺指 · Channel Final v1.6.0 PV16 cell-tune v2 + 台美1分鐘MA偏離差閘門
     layer: strategy
     kind: research_adopted
     enabled: true
     env_flag: ORDER_TMF_CHANNEL_ENABLED
     description: >
-      微型臺指近月 channel · Order futopt · Final v1.5.0：16-cell cell-tune v2
+      微型臺指近月 channel · Order futopt · Final v1.6.0：16-cell cell-tune v2
       （O-anchor · quiet=dry · cell BIAS · night normal/expand_dn/div_hh_weak_vol
       block_LS）——cell-tune v3（day normal/div_hh_weak_vol 全封鎖）2026-08-08
       經對抗式審計判定原始證據源自NQ閘門look-ahead bug，未採納/已revert，
-      不在本版；v1.5.0 帶的是NQ/ES隔夜閘門改逐分鐘即時重算 + 3項下單層
-      韌性修復（詳見 config/strategy.yaml applied_refinements）·
+      不在本版。v1.6.0 把 session_side_gate 方向來源從 v1.5.0 的小時K
+      NQ/ES隔夜閘門換成台美1分鐘MA偏離差（tmf_channel.nq_1m_spread_gate，
+      window=100min、threshold=0.2%、逆勢均值回歸）——**此變更未通過
+      IS/OOS/3-holdout標準關卡（僅3天真實1分鐘重疊資料驗證），使用者
+      在明確告知證據不足後仍指示以測試用小額資金上線**，詳見
+      config/strategy.yaml applied_refinements 的完整誠實記錄；
       engine=src/tmf_channel · KeepAlive worker。
       白皮書 docs/tmf-micro-channel-final-v1-1-prd.md。
     sources:
