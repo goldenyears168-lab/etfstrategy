@@ -10333,3 +10333,666 @@ topics:
       已經在pre-registered的walk-forward穩健性gate這一關就未過，這些
       統計/因果嚴謹性缺口不影響「rejected」這個結論本身，但若未來要
       重啟本方向或把fl5/fl6的pending診斷升級為假說，必須先補上。
+
+  tmf-tw-us-ma5h-deviation-spread:
+    title: TX/NQ 台美 5 小時 MA 偏離差（spread）· 均值回歸原始訊號
+    status: active  # 2026-08-11 降級：IS 已全數不顯著，只剩 OOS 15/30 分存活；
+      # 不再是「本輪最高優先」，見 ⚠️_BAR_ORDER_DEFECT_RERUN
+    phase: hypothesis  # 2026-08-11 retract：原標 oos_holdout 是基於已失效的 IC
+    layer: research
+    report_dir: reports/research/channel_lab
+    ⚠️_BAR_ORDER_DEFECT_RERUN: >
+      2026-08-11 已修復＋已重跑（本主題是三個主題裡唯一真正重跑完的）。
+      真正的元凶**不是**先前推測的時間戳，而是
+      `src/tmf_channel/cache_store.py::load_day()` 的兩個缺陷：
+      **缺陷 A（主宰一切）**——`bars.sqlite` 沒有 `cal` 欄位（`cal` 從未送達任何
+      腳本），且 `ORDER BY t` 是**字典序**，把 00:00–04:59 尾段從 session 結尾
+      提到了開頭，**所有回測都跑在時序被打亂的 bar 上**；
+      **缺陷 B**——session-date 時間戳讓 NQ/ES 閘門取到早 24 小時的值。
+      **本主題的關鍵細節**：只修時間戳（缺陷 B）的版本與原始結果**逐位元相同**
+      ——在被打亂的順序下午夜後 bar 落在索引 0–299，而 IC 迴圈從
+      `range(TW_WINDOW_MIN=300, n)` 起算，那些 bar 全被當成 MA burn-in 吃掉，
+      **us_dev 端從未被污染**。驅動原始 IC 的是缺陷 A 改變了樣本組成。
+      兩缺陷皆**不是** look-ahead 洩漏，**生產線不受影響**
+      （src/tmf_channel/causal_engine.py 讀券商 candle 的真實 `Datetime`）。
+      重跑產物：reports/research/channel_lab/audit_ma5h_spread_ic_before_after.json
+      （含 original／ts_fixed_only／fully_fixed 三組對照；`original` 逐位元重現了
+      本主題最初登記的 p 值，所以這組對照可信）。
+    run_scripts:
+      - scripts/research/tmf_tw_us_ma5h_deviation_spread_ic.py
+      - scripts/research/tmf_spread_gate_backtest.py
+      - scripts/research/tmf_spread_gate_combine_test.py
+    hypotheses:
+      - id: H-SPREAD-IC
+        statement: >
+          定義 tw_dev(t)=(C_tx[t] − MA(C_tx, 過去 5 小時 1 分K)) / MA × 100、
+          us_dev(t)=(NQ 現價 − MA(NQ, 過去 5 根已收完小時K)) / MA × 100、
+          spread(t)=tw_dev(t) − us_dev(t)；spread 對未來 TX 報酬有均值回歸
+          （負相關）預測力，且在 IS 與獨立 OOS 窗口方向一致。
+        status: pending  # 2026-08-11 從 passed 退回：修復 cache_store 缺陷 A
+          # （bar 時序）後 IS 三個 horizon 全數不顯著、60 分還變號，只剩
+          # OOS 15/30 分存活——一個**在 IS 上形成**的假說失去 IS 支撐，
+          # 不能再宣稱 passed；也不到 rejected（OOS 15/30 分仍顯著）
+        evidence: >
+          修復缺陷 A 後重跑（audit_ma5h_spread_ic_before_after.json，
+          `original` 組逐位元重現最初登記的 p 值）：
+
+          IS（22 天，mean daily IC / p）：
+          15 分 −0.1034 (0.000947) → **−0.0252 (0.238)**；
+          30 分 −0.1181 (0.00315) → **−0.0073 (0.793)**；
+          60 分 −0.1286 (0.0216) → **+0.0111 (0.789)，符號翻轉**。
+          OOS（66 天）：
+          15 分 −0.0931 (1.33e-9) → **−0.0579 (2.34e-5)**；
+          30 分 −0.1064 (5.16e-7) → **−0.0552 (0.00148)**；
+          60 分 −0.0997 (0.00046) → **−0.0368 (0.126)**。
+
+          解讀：**IC 全面變弱**。IS 三個 horizon 全部失去顯著性（60 分甚至變號），
+          OOS 只剩 15/30 分存活、60 分掉出顯著。原始「IS+OOS 都極端顯著、方向
+          完全一致」的敘述**已不成立**；現在的形態是「IS 不顯著、OOS 顯著」，
+          對一個在 IS 上形成的假說而言方向正好相反，必須當成警訊而非佐證。
+          樣本數不變（IS n_spreads=18,097、OOS n_spreads=55,109），變的是缺陷 A
+          改變了樣本組成。
+        revalidation_status: >
+          **已重跑（2026-08-11），數字為修復後版本。**
+          ⚠️ 我先前登記的推測「這個缺陷是在訊號裡摻雜訊，修好後 IC 只會更乾淨」
+          **已被否證**——實測 IC 是**變弱**，不是變乾淨。
+          另記：只修時間戳（缺陷 B）的版本與原始逐位元相同，所以「時間戳污染了
+          us_dev」這個當初的歸因也是錯的（午夜後 bar 被 MA burn-in 吃掉了）。
+      - id: H-SPREAD-GATE-REPLACE
+        statement: >
+          用 spread 取代現行 NQ 閘門（spread 單獨決定該時段允許的方向），
+          在 16-cell 通道書上應優於現行閘門。
+        status: rejected
+        evidence: >
+          四個門檻（0.2／0.3／0.4／0.5）在 IS 與 OOS 都是一致正向但不顯著：
+          IS 最好 p=0.107、OOS p=0.33~0.35。方向線索保留，但沒有任何一組達到
+          可採納水準。見 tmf_spread_gate_backtest.py（stdout only）。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：這兩支閘門腳本吃到的是缺陷 A
+          （時序打亂）＋缺陷 B（閘門時間戳）雙重污染，且 IC 端已證實缺陷 A 會
+          實質改變結果——所以「一致正向但不顯著」這個描述**不能再當定論**。
+          不過拒絕的方向暫時不改：spread 本身的 IC 在修復後變弱，靠它當閘門更
+          不可能變強。要重啟必須先重跑。
+      - id: H-SPREAD-GATE-INTERSECT
+        statement: >
+          交集設計——要求 spread 與現行 NQ 閘門同時同意才放行（含把門檻放寬到
+          0.0~0.4 的版本），應比單獨任一個閘門更純。
+        status: rejected
+        evidence: >
+          比「取代」版更差：IS 連 p<0.20 的篩選線都沒進。見
+          tmf_spread_gate_combine_test.py（stdout only）。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：同 H-SPREAD-GATE-REPLACE。
+      - id: H-SPREAD-BARCOUNT-MISALIGN
+        statement: >
+          （設計缺陷版本，保留當拒絕紀錄）用「過去 5 根K棒」而非「過去 5 小時」
+          計算兩邊 MA 偏離差。
+        status: rejected
+        evidence: >
+          IC 全部不顯著（p=0.22~0.40）。原因是時間尺度沒對齊——TX 用 1 分K 5 根
+          ＝5 分鐘、NQ 用小時K 5 根＝5 小時，兩邊在比不同尺度的偏離。**這是實作
+          設計錯誤造成的拒絕，不代表這個方向沒用**；改成同為「過去 5 小時」後
+          就是 H-SPREAD-IC（注意：H-SPREAD-IC 的「極端顯著」在 2026-08-11 修復
+          cache_store 缺陷 A 後已大幅減弱，IS 全不顯著、只剩 OOS 15/30 分）。舊腳本
+          scripts/research/tmf_tw_us_ma5_deviation_spread_ic.py 已被
+          tmf_tw_us_ma5h_deviation_spread_ic.py 取代。
+        revalidation_status: >
+          **未重驗（缺陷已修、舊腳本未重跑，也不打算重跑）**：p=0.22~0.40 這組
+          數字同樣算在有缺陷的資料上。但這條的拒絕理由是**設計錯誤**（時間尺度
+          沒對齊），不依賴那些 p 值，所以不需要重跑就維持 rejected。
+    do_not:
+      - 不要再把 spread 當閘門用——「取代現行 NQ 閘門」（門檻 0.2~0.5）與「交集」
+        （0.0~0.4）兩種整合方式都已完整測過，前者一致正向但 IS 最好只有 p=0.107、
+        OOS p=0.33~0.35，後者更差；下一步是獨立策略設計，不是再掃第三種閘門接法
+      - 不要參考或引用 scripts/research/tmf_tw_us_ma5_deviation_spread_ic.py
+        的任何數字——那是棒數不對齊的設計錯誤版本，已被
+        tmf_tw_us_ma5h_deviation_spread_ic.py 取代
+      - 不要拿舊版「5 根K棒」IC 不顯著（p=0.22~0.40）當「台美偏離差方向沒用」的
+        證據——那是尺度沒對齊，不是訊號不存在
+      - 不要把「IC 顯著」直接讀成「有可用 edge」——本主題已示範同一個訊號在
+        IC 層極端顯著、轉成交易規則後兩種接法都不顯著；**而且那個「極端顯著」
+        本身在修掉一個資料層缺陷後就縮水了**（見 H-SPREAD-IC）
+      - 不要再引用「IS+OOS 都極端顯著、方向完全一致」這句描述——**已失效**。
+        修復 cache_store 缺陷 A 後 IS 三個 horizon 全不顯著（15 分 p=0.238、
+        30 分 p=0.793、60 分 p=0.789 且變號），只剩 OOS 15/30 分（p=2.34e-5／
+        0.00148）存活
+      - 不要把現在的「IS 不顯著、OOS 顯著」讀成 OOS 更可信——這條假說是**在 IS
+        上形成**的，形態反過來時應優先懷疑樣本組成／窗口特性，而不是宣稱訊號
+        在 OOS 更強
+      - 未經新設計＋完整 walk-forward 就寫進 config/strategy.yaml、config/order.yaml
+        或碰 src/order/、src/tmf_channel/causal_engine.py、盤中 worker
+      - 引用 2026-08-10 深夜 us_futures_overnight.price_at_or_before 加上 min_age
+        參數（NQ/ES 小時K forming-bar 修復）之前跑出來的任何 NQ 相關數字——
+        修復前後結論可以完全反轉，見 tmf-cell-unblock-and-nq-gate-variants 的
+        H-ALWAYS-LO-STRUCT-DISABLED
+      - 誤以為快取本身髒了——tx_1m_fullnight_cache_full.json 已全量稽核為乾淨
+        （00:00–04:59 的 24,532 根對 tick bit-exact），兩個缺陷都在
+        `src/tmf_channel/cache_store.py::load_day()`（bar 排序 + session-date
+        時間戳），**不在快取裡**；見 audit_tx_1m_fullnight_cache_quality.json
+      - ⚠️ 不要對午夜後 bar 盲目套 +1 日——**不同來源的慣例是相反的**：
+        `tx_1m_fullnight_cache_full.json`／`tx_1m_fullnight_cache.json` 的尾段是
+        day+1，但 `tx_1m_tick_built_fullnight_aug` 是**同一天**（同日比對 dev
+        0.0pt，硬套 day+1 會差 1901pt）。`cache_store.py` 現已改成 per-source
+        慣例註冊表，未註冊的來源直接 `KeyError`——不要為了讓腳本跑起來就隨手
+        補一個猜的慣例進去
+      - 只修時間戳就宣稱「已修好」——本主題的實測是：只修缺陷 B 的版本與原始
+        **逐位元相同**，真正改變結果的是缺陷 A（bar 時序）
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # ⚠️ 誠實聲明：本主題是**事後補登記**
+          # ——腳本 2026-08-10/11 跑完才寫進本檔，不是先登記假說再跑數。標 passed
+          # 是為了與同批補登記的 tx-channel-amp-persistence／
+          # tx-channel-amp-uncertainty-gate 一致（該慣例把「假說與 sweep 維度已
+          # 成文、可被後續 session 檢驗」視為 G1 達成），不代表有預註記程序
+        G2_oos_holdout: pending  # 2026-08-11 retract（原 passed）：修復 cache_store
+          # 缺陷 A 後，H-SPREAD-IC 的 OOS 只剩 15/30 分顯著（60 分 p=0.126）且
+          # IS 全數失去顯著——「IS 不顯著、OOS 顯著」不構成通過的 OOS 驗證，
+          # 退回 pending 待重新設計後再測
+        G3_regime_stratification: na  # 未宣稱環境軸；分層是前瞻窗長（15/30/60 分）
+        G4_rejection_registry: passed  # 三條相近 variant（取代／交集／棒數對齊）
+          # 皆已成文拒絕
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+      action: >
+        **2026-08-11 重評（修復後）**：原本的「下一步＝設計獨立均值回歸策略」
+        建議建立在已失效的 IC 之上，現階段**不建議**直接投入策略設計。
+        若還要往下走，先做的是「這個訊號到底還剩多少」的問題：
+        (1) 為什麼 IS 全滅而 OOS 15/30 分還在（窗口特性？樣本組成？）；
+        (2) 用修復後的資料重新挑 horizon／重估效應量，而不是沿用原本的門檻；
+        (3) 通過 (1)(2) 之後才談獨立策略設計。
+        原則不變：不塞回現有 16-cell 通道書。
+    notes: >
+      2026-08-11 補登記，來源 docs/tmf-channel-research-handoff-20260811.md §4b
+      （該輪自評為「最強發現、最高優先」）。**同日修復 cache_store 缺陷 A 後
+      重跑，該自評已不成立**——IS 全數不顯著、只剩 OOS 15/30 分存活，主題
+      status 從「最高優先」降級、phase 從 oos_holdout 退回 hypothesis、
+      H-SPREAD-IC 從 passed 退回 pending、G2 從 passed 退回 pending。
+      這是本輪「先修資料再談統計」的第二個實例（第一個是 NQ 小時K forming-bar）。
+      結構性提醒（handoff §5b，與 tmf-cell-unblock-and-nq-gate-variants 共用）：
+      現行 16-cell 通道書 max_lots=1，任何「高頻率觸發」的新規則會排擠掉罕見但
+      個別更好的機會——這也是把 spread 做成獨立策略線（有自己的部位額度）比
+      塞進通道書更合理的原因之一。
+
+  tmf-night-climax-up-long-unblock:
+    title: TMF 通道 · night|climax_up 只解封多方（block=["S"]）
+    status: paused  # 方向一致但樣本天生薄；等真實交易累積後重驗，現階段不上線
+    phase: hypothesis  # 2026-08-11 retract（原 oos_holdout）：OOS 宣稱建立在
+      # 尚未重跑的 delta 統計上；已重跑的只有逐 tick 驗證那一段
+    layer: research
+    report_dir: reports/research/channel_lab
+    ⚠️_BAR_ORDER_DEFECT_PARTIAL_RERUN: >
+      2026-08-11：`src/tmf_channel/cache_store.py::load_day()` 的兩個缺陷已修，
+      本主題**只重跑了逐 tick 驗證那一段，portfolio 層的 delta 統計沒有重跑**。
+      缺陷 A（主宰一切）——`bars.sqlite` 沒有 `cal` 欄位（`cal` 從未送達腳本），
+      `ORDER BY t` 是字典序，把 00:00–04:59 尾段從 session 結尾提到開頭，
+      **所有回測都跑在時序被打亂的 bar 上**；實測影響 **100% 交易日**，
+      PAPER_RECIPE 全 83 日 −3605→−3041、July IS 17 日 **+1712→−1659（變號）**、
+      OOS 66 日 −5317→−1382。
+      缺陷 B——session-date 時間戳讓 NQ/ES 閘門取到早 24 小時的值，影響 66.3%
+      交易日（全 83 日 7380→5198、IS 2453→1617、OOS 4927→3581）。
+      兩者皆非 look-ahead 洩漏，**生產線不受影響**（causal_engine.py 讀券商
+      candle 的真實 `Datetime`）。產物：
+      reports/research/channel_lab/audit_bar_order_and_timestamp_impact.json。
+      **因此本主題的 +64.00pt/日 等 delta 數字是在缺陷資料上算的，且尚未重跑；
+      在缺陷 A 會讓 IS 窗整體變號的量級下，這些數字不能當有效證據。**
+    run_scripts:
+      - scripts/research/tmf_night_climax_up_lonly_tick_step1.py
+      - scripts/research/tmf_night_climax_up_lonly_tick_step2.py
+      - scripts/research/tmf_continuous_gate_cell_tune_night_climax_up.py
+    artifacts:
+      trades_for_tick_check: reports/research/channel_lab/tmf_night_climax_up_lonly_trades_for_tick_check.json
+      tick_check_result: reports/research/channel_lab/tmf_night_climax_up_lonly_tick_check_result.json
+      trades_for_tick_check_prefix: reports/research/channel_lab/tmf_night_climax_up_lonly_trades_for_tick_check.PREFIX_20260811.json
+      tick_check_result_prefix: reports/research/channel_lab/tmf_night_climax_up_lonly_tick_check_result.PREFIX_20260811.json
+      bar_order_defect_impact: reports/research/channel_lab/audit_bar_order_and_timestamp_impact.json
+    hypotheses:
+      - id: H-CLIMAX-UP-LONLY
+        statement: >
+          把 night|climax_up 從 block=["L","S"]（全封鎖）改成 block=["S"]
+          （只開多方），在 portfolio 層級（日配對、非單格 standalone）應優於
+          現行通道書。
+        status: pending
+        evidence: >
+          ⚠️ **以下 delta 統計全部是「未重驗、在已知有缺陷的資料上計算」**
+          （cache_store 缺陷 A/B，見主題頂端）——保留只為記錄當初的推導過程，
+          **不得當成有效證據引用**：
+          IS mean=+64.00pt/日、t=2.361、p=0.028；OOS mean=+13.00pt/日、p=0.128；
+          三個獨立舊窗口 julsep25 −0.42（p=0.67，7 筆）、octdec25 +2.58
+          （p=0.20，7 筆）、janmar26 +10.07（p=0.11，19 筆）。
+          當時的解讀是「5 個獨立窗口無一明顯為負、方向一致，但 climax_up 稀有、
+          每窗只有 7~19 筆所以都不顯著」。
+          **這些是候選減基準的 delta，2026-08-11 的修復重跑並未涵蓋它們**
+          （產生這些數字的腳本無法辨識；step1/step2 只輸出原始交易），
+          所以「5 個窗口方向一致」這個宣稱目前**沒有有效數據支撐**。
+        revalidation_status: >
+          **未重驗（缺陷已修、產生 delta 的腳本未重跑）**。
+          已重跑的只有交易面（見 H-CLIMAX-UP-BAR-ARTIFACT）：
+          IS 12 筆 net 1074 → 12 筆 **1006**；OOS 34 筆 971 → **37 筆 696**
+          （交易數與損益都變了，證明本候選確實受缺陷影響）。
+          在 delta 統計重跑之前，本假說維持 pending，且**不得**以「IS p=0.028」
+          之類的字眼描述它。
+      - id: H-CLIMAX-UP-BAR-ARTIFACT
+        statement: >
+          （反證假說）IS 的 +64.00pt/日 是 bar 級回測的同根K棒成交假象
+          （house rule 的老紅旗），逐 tick 重放後會消失。
+        status: rejected  # 修復重跑後結論不變，而且變得更乾淨
+        evidence: >
+          **修復 cache_store 缺陷後已重跑（2026-08-11）**：
+          IS 12 筆、net 1074 → 12 筆、net **1006**，逐 tick 確認 12/12 → **12/12**；
+          OOS 34 筆、net 971 → **37 筆、net 696**，逐 tick 確認 **26/34 → 37/37**，
+          tick 確認 PnL 1029 → **696**。
+          修復前 OOS 有 8 筆對不上（2 筆 PRICE_FAR_FROM_TICKS、4 筆
+          no_ticks_in_bar、2 筆 NOT_CONFIRMED）——**那 8 筆正是 handoff §5a 誤判為
+          「快取髒了」的幽靈交易**，修好時序後全部消失，現在 37/37 全部乾淨確認。
+          結論：「這些交易不是 bar 級同根成交假象」成立且更穩固；
+          「12 筆 100% tick 確認」對 IS 仍然成立。見
+          tmf_night_climax_up_lonly_tick_check_result.json
+          （修復前版本保留為 ..._tick_check_result.PREFIX_20260811.json）。
+        revalidation_status: >
+          **已重跑**。注意這條只證明「交易本身是真的」，**不**證明候選賺錢——
+          後者要看 H-CLIMAX-UP-LONLY 的 delta 統計，而那部分尚未重跑。
+          附帶：step1 的 load_arrays() 是缺陷 B 的消費端之一，它同時製造了
+          handoff §5a 那個已被證偽的「快取髒了」假警報。
+    do_not:
+      - ⚠️ 不要引用 IS p=0.028／+64.00pt/日／OOS p=0.128／三窗 −0.42、+2.58、
+        +10.07 這組數字——它們是在有缺陷的資料上算的、**且尚未重跑**；就算重跑
+        後數字回來了，當初「只有 IS 一個顯著、其餘 4 窗不顯著」的證據等級也不
+        構成採納依據
+      - 不要對同一份 2025-07～2026-08 的資料再掃一次同樣的**參數**期待不同答案
+        ——本候選缺的是樣本厚度；但**用修好的資料重跑同一組參數不算重掃**，
+        那是必要的第一步（delta 統計目前是空白）
+      - 不要順手把 S 側一起解封——本輪只測 L-only；同批研究裡
+        night|div_hh_weak_vol 的 S-only 反而被證實顯著為負（OOS p=0.015），
+        沒有任何證據支持解 climax_up 的 S 側
+      - 不要再去查 tx_1m_fullnight_cache_full.json 的「夜盤尾段資料品質」——
+        **已全量稽核，快取本身是乾淨的**：83 sessions（2026-04-01～07-31）、
+        94,226 根 bar，00:00–04:59 的 24,532 根對 tick 逐根 bit-exact
+        （dev mean/p50/p95/p99/max 全為 0.0，受污染日期清單為空）。
+        handoff §5a 的「近千點價差」是**比對端日期歸屬錯誤造成的假陽性**：
+        午夜後的 bar 被蓋上 session date、時間戳早了 24 小時。三個案例全部重現
+        並證偽——2026-04-02 00:36 dev 1062pt→**0.0**、2026-06-26 01:11 dev
+        499pt→**0.0**、2026-05-07 00:00 dev 85pt→**0.0**（左為 session date、
+        右為真實日曆日）。反向對照組（刻意用 session date）97.0% 的午夜後 bar
+        被標記、平均偏離 804.7pt——系統性而非零星，正是「日期標籤錯」的指紋。
+        **兩個真正的缺陷都在 `src/tmf_channel/cache_store.py::load_day()`
+        （bar 排序 + session-date 時間戳），都不在快取裡。**
+        產物：reports/research/channel_lab/audit_tx_1m_fullnight_cache_quality.json
+        與 ..._session_attribution.json（對照組）、
+        scripts/research/audit_tx_1m_fullnight_cache_quality.py
+      - ⚠️ **bar 的真實日曆日一律走 `cache_store` 的 `cal` 欄位／慣例註冊表，
+        不要自己用 session date 拼字串**（`f"{day}T{r['t']}..."`）——`bars.sqlite`
+        本身沒有 `cal` 欄位，所以 `cal` 從未送達任何腳本，這是缺陷能潛伏這麼久
+        的原因
+      - ⚠️ **不要對午夜後 bar 盲目套 +1 日——不同來源的慣例是相反的**：
+        `tx_1m_fullnight_cache_full.json`／`tx_1m_fullnight_cache.json` 尾段是
+        day+1，但 `tx_1m_tick_built_fullnight_aug` 是**同一天**（同日比對
+        dev 0.0pt，硬套 day+1 差 1901pt）。`cache_store.py` 現已改成 per-source
+        慣例註冊表、未註冊來源直接 `KeyError`；不要為了讓腳本跑起來就補一個
+        用猜的慣例進去——那會毀掉 8 月來源
+      - 未過 gate 前改 config/strategy.yaml 的 CELL_TUNE 書、config/order.yaml、
+        src/tmf_channel/causal_engine.py 或 live worker
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # ⚠️ 誠實聲明：**事後補登記**
+          # （2026-08-11，腳本先跑完才寫進本檔）。標 passed 是與同批補登記的
+          # tx-channel-amp-persistence／tx-channel-amp-uncertainty-gate 對齊，
+          # 不代表有預註記程序
+        G2_oos_holdout: pending  # 支撐它的 OOS delta 尚未在修好的資料上重跑
+        G3_regime_stratification: pending  # 2026-08-11 retract（原 passed）：
+          # 「5 個獨立時間窗口無一明顯為負」建立在未重跑的 delta 上，
+          # 而缺陷 A 已證實會讓整段 IS 窗變號——分層宣稱暫時無效
+        G4_rejection_registry: passed  # bar 級假象反證假說已測並拒絕，且已在
+          # 修好的資料上重跑（37/37 tick 確認），是本主題唯一有效的證據
+        G5_frozen_spec: pending
+        G6_adoption_report: pending
+        G7_sample_thickening: pending  # 本主題專屬：等樣本變厚才有意義
+      pass_threshold: >
+        現階段不上線。重啟順序（2026-08-11 更新）：
+        (0) **先用修好的 cache_store 重跑 delta 統計**——目前 5 個窗口的
+        delta 數字全部作廢，這一步不做就沒有任何有效證據；
+        (1) 再看重跑後的方向是否仍一致；
+        (2) 最後才是原本的門檻——**累積更多真實交易讓 climax_up 樣本變厚**後，
+        重新檢驗 5 個窗口（IS／OOS／julsep25／octdec25／janmar26 + 新累積的
+        live 交易）是否轉為顯著。步驟 (0) 屬於修 bug 後的必要重跑，不受
+        「不要重掃同一份資料」那條 do_not 限制。
+    notes: >
+      2026-08-11 補登記，來源 docs/tmf-channel-research-handoff-20260811.md §4a；
+      同日 cache_store 缺陷修復後**部分重跑**（只有逐 tick 那段），本條目已依
+      重跑結果改寫。
+      當初把本主題標 paused（等樣本）而非 rejected 的理由是「唯一 IS 顯著、
+      逐 tick 驗證過、5 窗無一明顯為負」——**現在只剩「逐 tick 驗證過」這一項
+      仍然有效**（且更強：37/37），另外兩項的數字尚未在修好的資料上重跑。
+      維持 paused，但理由已從「證據不錯只是樣本薄」降為「唯一還活著的候選，
+      但證據待重建」。
+      結構性提醒（handoff §5b）：climax_up 是稀有 regime，受 max_lots=1 排擠的
+      影響理論上遠小於 night|normal 這種高頻格——注意這是**機制論述**，支撐它的
+      數字（night|normal standalone vs portfolio）同樣尚未重跑。
+
+  tmf-cell-unblock-and-nq-gate-variants:
+    title: TMF 通道 · 16-cell 解封／NQ 閘門變體／固定內圈 —— 2026-08-10/11 輪拒絕登記
+    status: paused  # ⚠️ 2026-08-11 從 rejected 改判：12 條候選的拒絕**數字依據**
+      # 已因 cache_store 缺陷 A（bar 時序打亂，影響 100% 交易日、IS 窗甚至變號）
+      # 全面失效，且沒有任何一條重跑過。「拒絕」這個結論現在沒有有效證據撐著——
+      # 但也**沒有**證據說它們該被採納。維持不重做為預設，改判只是誠實標記
+      # 「這批結論待重建」，不是邀請全部重掃
+    phase: is_sweep  # 從 rejected 退回：sweep 跑過但結論作廢
+    layer: research
+    report_dir: reports/research/channel_lab
+    ⚠️_FORMING_BAR_WARNING: >
+      本主題數條假說的結論**取決於 NQ/ES 小時K「未收完棒」修復**
+      （us_futures_overnight.price_at_or_before 加 min_age 參數，2026-08-10 深夜）。
+      修好之前，NQ 閘門在小時棒剛開始成型的頭幾分鐘會讀到尚未定案的部分數值，
+      連續數小時誤判成 "none"。同一套邏輯、同一組資料，只因為底層閘門資料品質
+      不同，結論可以完全反轉（見 H-ALWAYS-LO-STRUCT-DISABLED：修復前 OOS
+      p=0.0003／三窗 +10.14pt/日 → 修復後 OOS p=0.047／三窗 −11.48pt/日）。
+      ⚠️ 2026-08-11 補註：**上面這組數字的兩端現在都已失效**——它們全都跑在
+      cache_store 缺陷 A（bar 時序打亂）的資料上，見下一則警告。留著只是為了
+      說明「資料品質可以翻轉結論」這個教訓本身。
+      **引用任何 NQ 相關回測數字前，先確認它是在 min_age 修復之後跑的。**
+    ⚠️_BAR_ORDER_DEFECT_NOT_RERUN: >
+      2026-08-11 發現並修好的第二類缺陷（與 forming-bar 是兩件事），都在
+      `src/tmf_channel/cache_store.py::load_day()`——**本主題 12 條候選沒有任何
+      一條重跑過**（30 支 cell-tune／always_lo／hang 腳本、
+      tmf_nq_gate_momentum_confirm_test、tmf_nq_width_calib_sweep 等都已修好但
+      未執行：各自是耗時且依賴網路的回測）。
+      **缺陷 A（主宰一切）**：`bars.sqlite` 沒有 `cal` 欄位（`cal` 從未送達任何
+      腳本），且 `ORDER BY t` 是**字典序**，把 00:00–04:59 尾段從 session 結尾
+      提到了開頭——**所有回測都跑在時序被打亂的 bar 上**。實測（PAPER_RECIPE）：
+      **100% 交易日改變**，全 83 日 −3605→−3041、July IS 17 日
+      **+1712→−1659（正負號翻轉）**、OOS 66 日 −5317→−1382。
+      **缺陷 B**：session-date 時間戳 → NQ/ES 閘門取到早 24 小時的值，
+      66.3% 交易日改變（全 83 日 7380→5198、IS 2453→1617、OOS 4927→3581）。
+      兩者皆非 look-ahead 洩漏，**生產線不受影響**（causal_engine.py 讀券商
+      candle 的真實 `Datetime`）。產物：audit_bar_order_and_timestamp_impact.json。
+      **結論：本主題所有數字都是「在有缺陷資料上計算」，這批拒絕的數字依據
+      已經失效。** 尤其注意——我先前寫的「有些拒絕理由不依賴單一數字（第三窗
+      方向不一致／max_lots 排擠／L-only 零筆）」**在缺陷 A 之下也站不住**：
+      時序打亂會改變進出場序列本身，連「方向」都不可信（IS 窗整體變號就是
+      直接證據）。這些論述現在只是**機制假說**，不是已驗證結論。
+    run_scripts:
+      - scripts/research/tmf_blocked_cells_standalone_scan.py
+      - scripts/research/tmf_channel_side_level_cell_rescan.py
+      - scripts/research/tmf_night_normal_unblock_retest.py
+      - scripts/research/tmf_night_expand_dn_holdout3_validate.py
+      - scripts/research/tmf_night_expand_dn_divhh_side_split.py
+      - scripts/research/tx_day_expandupdn_retune_scan.py
+      - scripts/research/tmf_always_lo_struct_disabled_test.py
+      - scripts/research/tmf_always_lo_struct_disabled_holdout3_validate.py
+      - scripts/research/tmf_always_lo_combo_dampen_test.py
+      - scripts/research/tmf_always_lo_trade_feature_scan.py
+      - scripts/research/tmf_hang_lo_vs_hi_scorecard.py
+      - scripts/research/tmf_nq_width_calib_sweep.py
+      - scripts/research/tmf_nq_gate_momentum_confirm_test.py
+    hypotheses:
+      - id: H-NIGHT-EXPAND-DN-UNBLOCK
+        statement: >
+          night|expand_dn 全解封（block=[] + hang_lo/hang_hi/early_fill_gamma/
+          max_hold_bars 微調）優於現行封鎖。
+        status: rejected
+        evidence: >
+          三窗驗證方向不一致、加權平均接近零／為負。此候選在 22 天 IS／66 天 OOS
+          上曾被 16-agent 重調工作流判為 ADOPT，是第三窗獨立驗證把它擋下來的
+          （tmf_night_expand_dn_holdout3_validate.py 的 docstring 記載該輪
+          IS p=0.0069／OOS p=0.0299——那是腳本內記錄、非本次交接筆記的數字，
+          要引用請重跑）。教訓：IS+OOS 兩窗顯著仍可能是過擬合。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑），數字在有缺陷資料上計算。**
+          先前寫的「第三窗方向不一致這個理由不依賴單一數字」**已收回**——
+          缺陷 A 打亂 bar 時序後連方向都可能翻轉（IS 窗整體 +1712→−1659），
+          三窗的方向比較本身就是那批失效數字算出來的。
+      - id: H-ALWAYS-LO-FIXED-INNER
+        statement: >
+          用固定內圈掛單錨點（always_lo）取代現行智慧結構選點，較簡單也較容易
+          目視驗證，且不劣於現行規則。
+        status: rejected  # 在 forming-bar bug 修好後才轉為拒絕
+        evidence: >
+          修復後 OOS p=0.047（原本以為 p=0.049 即可疑），三窗驗證轉負。
+          修復前這條線一度看起來是本輪最強候選（見
+          H-ALWAYS-LO-STRUCT-DISABLED 的前後對照）。附帶測過的兩個補強
+          （always_lo + trend dampen 智慧輔助、julsep25 最差日成因掃描）
+          亦未救回：tmf_always_lo_combo_dampen_test.py／
+          tmf_always_lo_trade_feature_scan.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：三窗驗證含夜盤，全部走缺陷路徑。
+      - id: H-ALWAYS-LO-STRUCT-DISABLED
+        statement: >
+          固定內圈（always_lo）+ 停用 struct_break 出場，優於現行規則。
+        status: rejected  # 在 forming-bar bug 修好後才轉為拒絕，前後結論完全反轉
+        evidence: >
+          **本輪最重要的方法論案例**。forming-bar bug 修好前：OOS p=0.0003、
+          三窗驗證加權平均 +10.14pt/日（看起來是明確的採納候選）；
+          用修好的 price_at_or_before(min_age=1h) 重跑後：OOS p=0.047（勉強）、
+          三窗驗證加權平均 **−11.48pt/日（轉負）**。同一套邏輯、同一組資料，
+          只因為底層 NQ 閘門資料品質不同，結論完全反轉。
+          見 tmf_always_lo_struct_disabled_test.py／
+          tmf_always_lo_struct_disabled_holdout3_validate.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：這條線是 NQ 閘門敏感度最高的候選，
+          先後受三個資料層問題影響——forming-bar（已修，上列數字已是修復後版本）、
+          cache_store 缺陷 A（bar 時序，**已修但未重跑**）、缺陷 B（閘門時間戳，
+          **已修但未重跑**）。**+10.14／−11.48 兩個數值都已失效**。
+          唯一不受影響的是方法論教訓：同一套邏輯在不同資料品質下結論可以完全
+          反轉——而現在這條假說本身就是第二次示範（第一次是 forming-bar，
+          第二次是 bar 時序）。
+      - id: H-NQ-WIDTH-CALIB
+        statement: >
+          用 NQ 波動校正通道口寬（nq_calib 的 always_nq／div_tx 兩種模式）
+          優於固定口寬。
+        status: rejected
+        evidence: >
+          IS 看似正向，OOS 全部翻負。見
+          reports/research/channel_lab/tmf_nq_width_calib_sweep_result.json。
+          與 tx-channel-amp-persistence／tmf-hang-band-realtime-range 的結論同向
+          （用外生波動即時調口寬，至今三次獨立驗證都輸給固定值）。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：本候選直接吃 NQ 序列，
+          缺陷 A（時序）與缺陷 B（閘門時間戳）雙重影響。
+      - id: H-DAY-EXPAND-UP-RETUNE
+        statement: >
+          day|expand_up（現為 block=["L","S"]）重調 hang_lo/hang_hi 小網格後
+          可解封。
+        status: rejected
+        evidence: >
+          被 max_lots=1 排擠稀釋成雜訊——單格看得到的改善在 portfolio 層被
+          既有交易佔用倉位額度吃掉。見 tx_day_expandupdn_retune_scan.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：日盤 cell，但缺陷 A 影響 100% 交易日。
+      - id: H-DAY-EXPAND-DN-RETUNE
+        statement: >
+          day|expand_dn（現為 block=["L"]，S 側已 live）重調 hang_lo/hang_hi
+          可再加分。
+        status: rejected
+        evidence: >
+          IS 與 OOS 方向相反。見 tx_day_expandupdn_retune_scan.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：日盤 cell，但缺陷 A 影響 100% 交易日。
+      - id: H-NIGHT-DIVHH-SIDE-SPLIT
+        statement: >
+          night|div_hh_weak_vol 不必全封鎖，拆邊（L-only 或 S-only）可救回
+          其中一側。
+        status: rejected
+        evidence: >
+          S-only 甚至被**證實顯著為負**（OOS p=0.015）——現行的全封鎖是對的，
+          這是本輪少數「拒絕候選反而強化既有設定」的結果。見
+          tmf_night_expand_dn_divhh_side_split.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**（夜盤 cell）。OOS p=0.015 這個
+          「顯著為負」同樣是在缺陷資料上算的——**不能再當成「全封鎖已被證實正確」
+          的證據**；維持全封鎖是因為沒有理由改，不是因為已驗證。
+      - id: H-NIGHT-EXPAND-DN-SIDE-SPLIT
+        statement: >
+          night|expand_dn 全解封被拒後，改測拆邊（L-only／S-only）。
+        status: rejected
+        evidence: >
+          L-only 結構性零筆交易（該格的多方進場條件實際上不會觸發）；
+          S-only 在 IS/OOS 一度顯著，但三窗驗證一負一零，仍拒絕。見
+          tmf_night_expand_dn_divhh_side_split.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**（夜盤 cell）。先前寫的
+          「L-only 結構性零筆是結構性事實、不受影響」**已收回**——bar 時序被
+          打亂會改變 regime 判定與進場序列，零筆這件事也要在修好的資料上重確認
+          （這條很便宜，值得優先重跑）。
+      - id: H-NIGHT-NORMAL-UNBLOCK
+        statement: >
+          night|normal 的封鎖決定早於「逐分鐘連續 NQ 閘門」與 forming-bar 修復，
+          在現行 recipe 下重測應可全解封或 L-only 解封。
+        status: rejected
+        evidence: >
+          **單獨看這一格是賺錢的（standalone +503／+502pt）**，但因為 night|normal
+          是最常見的 regime，解封後在 max_lots=1 下佔住大部分時間的唯一倉位額度、
+          排擠掉其他 cell 的機會，portfolio 層級不顯著（p=0.47~0.50）。
+          見 tmf_night_normal_unblock_retest.py／tmf_blocked_cells_standalone_scan.py。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**（夜盤最高頻 cell，受影響筆數最多）。
+          「max_lots=1 排擠」目前只是**機制假說**：支撐它的兩組數字
+          （standalone +503/+502 與 portfolio p=0.47~0.50）都在缺陷資料上算的，
+          先前寫的「重跑後預期仍成立」是推測，不是結論。
+      - id: H-DAY-NORMAL-L-BLOCK
+        statement: >
+          （反向候選：不是解封而是加封）對已 live 的 day|normal 新增 L 側封鎖，
+          移除一個長期為負的方向。
+        status: rejected  # 判定為「不採用」：方向一致但不顯著
+        evidence: >
+          IS p=0.15／OOS p=0.48——方向一致但兩窗都不顯著，不足以動已 live 的格。
+          來自全 16 格側別掃描（tmf_channel_side_level_cell_rescan.py，尋找在
+          IS 與 OOS 都為負的 (cell, side) 組合）。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：cell 本身是日盤，但缺陷 A 影響
+          100% 交易日（不只夜盤段），portfolio 層日配對 delta 全受影響。
+      - id: H-NQ-GATE-MOMENTUM-CONFIRM
+        statement: >
+          NQ 閘門加「動能確認」混合設計——除了跟前一美股 RTH 收盤比，還要求
+          最近 1~3 根已收完小時K的動能同向才放行。
+        status: rejected
+        evidence: >
+          IS 最好僅 p=0.15、OOS 直接歸零（p=0.88）。見
+          tmf_nq_gate_momentum_confirm_test.py（stdout only）。
+          註：使用者原始問題是「為什麼跟前收比而不是跟幾分鐘前比」——免費資料源
+          （Yahoo NQ/ES）最細只有小時K，「幾分鐘前」在這個資料源上做不出來，
+          所以測的是「最近 N 根已收完小時K」的代理版本。
+        revalidation_status: >
+          **未重驗（缺陷已修、腳本未重跑）**：本假說整條線就是 NQ 閘門變體，
+          缺陷 A＋B 雙重影響，是本主題受影響最直接的一條。
+      - id: H-SPREAD-BARCOUNT-MISALIGN-XREF
+        statement: >
+          （交叉索引）台美「5 根K棒」MA 偏離差對 TX 未來報酬有預測力。
+        status: rejected
+        evidence: >
+          IC 全部不顯著（p=0.22~0.40），但**這是設計缺陷造成的拒絕**：兩邊棒數
+          相同而時間尺度不同（TX 1 分K×5＝5 分鐘 vs NQ 小時K×5＝5 小時）。
+          改成同為「過去 5 小時」對齊後 IC 一度在 IS+OOS 都極端顯著——但
+          **2026-08-11 修復 cache_store 缺陷 A 後，那個「極端顯著」已大幅縮水**
+          （IS 三個 horizon 全不顯著、60 分變號，只剩 OOS 15/30 分）；
+          見獨立主題 **tmf-tw-us-ma5h-deviation-spread**。
+          **不要把這條當成「台美偏離差方向沒用」的證據**，但也不要再引用
+          「對齊後就極端顯著」這句話。
+    do_not:
+      - ⚠️ **不要引用本主題任何一條 hypothesis 的 p 值／pt-per-day 數字**——
+        12 條候選全部是在有缺陷的資料上算的（cache_store 缺陷 A 影響 100%
+        交易日、IS 窗整體變號），而且**沒有任何一條重跑過**。條目保留是為了
+        記錄「這些角度已經試過、當初怎麼判的」，不是為了提供有效統計量
+      - 不要因為數字失效就全部重掃 12 個候選——重跑是耗時且依賴網路的回測，
+        **要挑**：優先順序建議 (1) H-NIGHT-EXPAND-DN-SIDE-SPLIT 的「L-only 零筆」
+        （很便宜、結構性）、(2) H-NIGHT-NORMAL-UNBLOCK（max_lots 排擠這個機制
+        論述值不值得繼續相信，取決於它）、(3) H-ALWAYS-LO-STRUCT-DISABLED
+        （對資料品質最敏感、已兩度示範結論反轉）；其餘先擱著
+      - 不要在沒有新論點的情況下重跑「同一組參數的變體掃描」——修 bug 後的
+        重跑不算重掃（那是必要的），但**再開一輪新變體 sweep** 需要新論點
+      - ⚠️ 不要引用 forming-bar 修復（price_at_or_before 的 min_age 參數）之前跑出來
+        的任何 NQ 相關數字——always_lo+struct_disabled 就是修復前後結論完全反轉的
+        實例（OOS p=0.0003／三窗 +10.14 → OOS p=0.047／三窗 −11.48）
+      - 不要只看單格 standalone 淨利就解封——**這條當機制論述保留**（在
+        max_lots=1 之下，出現頻率越高的 regime，採納門檻要設得越高；高頻格的
+        邊際效益天生被單一倉位額度打折扣），但支撐它的數字（night|normal
+        standalone +503/+502pt vs portfolio p=0.47~0.50）**已失效未重跑**，
+        不要再當成「已證實」引用
+      - 不要把「IS+OOS 兩窗顯著」當成可以部署——**這條方法論教訓不依賴具體
+        數字仍然成立**（多加一個獨立窗口是最便宜的過擬合檢測），但
+        night|expand_dn 那個案例的三窗結果本身待重跑
+      - 不要再重查 tx_1m_fullnight_cache_full.json 的夜盤尾段品質，也不要為此
+        排除任何日期——**已全量稽核，快取本身乾淨**：83 sessions
+        （2026-04-01～07-31）、94,226 根 bar，00:00–04:59 的 24,532 根對 tick
+        逐根 bit-exact（dev max=0.0），受污染日期清單為空。handoff §5a 的
+        「近千點價差」是比對端日期歸屬錯誤的假陽性（bar 自帶 `cal` 欄位沒被用，
+        午夜後 bar 被蓋上 session date、時間戳早了 24 小時）：
+        2026-04-02 00:36 dev 1062pt→**0.0**、2026-06-26 01:11 dev 499pt→**0.0**、
+        2026-05-07 00:00 dev 85pt→**0.0**；刻意用 session date 的對照組則有
+        97.0% 的午夜後 bar 被標記、平均偏離 804.7pt（系統性＝日期標籤錯的指紋）。
+        產物：reports/research/channel_lab/audit_tx_1m_fullnight_cache_quality.json
+        ＋ ..._session_attribution.json、
+        scripts/research/audit_tx_1m_fullnight_cache_quality.py。
+        （附帶：cal 歸屬下全量僅 440 筆 flag，全部落在日盤 402／午夜前夜盤 38，
+        且 440/440 換用替代合約即對得上，屬 pick_contract 合約選擇差異、
+        非快取毀損。）
+      - ⚠️ **bar 的真實日曆日與時序一律走 `cache_store.load_day()`，不要自己
+        `ORDER BY t` 或用 session date 拼時間戳**——`bars.sqlite` 沒有 `cal`
+        欄位（`cal` 從未送達腳本），字典序排序會把 00:00–04:59 尾段提到 session
+        開頭；這才是本輪真正的元凶，`load_day()` 現在會回傳真時序 + `cal`
+      - ⚠️ **不要對午夜後 bar 盲目套 +1 日——不同來源慣例相反**：
+        `tx_1m_fullnight_cache_full.json`／`tx_1m_fullnight_cache.json` 尾段是
+        day+1，`tx_1m_tick_built_fullnight_aug` 是**同一天**（同日 dev 0.0pt，
+        硬套 day+1 差 1901pt）。`cache_store.py` 已改成 per-source 慣例註冊表、
+        未註冊來源直接 `KeyError`——不要為了讓腳本跑起來就補一個猜的慣例
+      - ⚠️ 不要只修時間戳就宣稱資料問題已解決——主題
+        tmf-tw-us-ma5h-deviation-spread 的實測是「只修缺陷 B 的版本與原始逐位元
+        相同」，真正改變結果的是缺陷 A（bar 時序）
+      - 不要因為本主題原本標「全數拒絕」就認定「16-cell 解封這條路已死」——
+        這些拒絕的數字依據已失效（status 因此從 rejected 改判 paused）；
+        同輪的 night|climax_up L-only 仍是最有希望的一條
+        （見 tmf-night-climax-up-long-unblock）
+      - 反過來也不要因為「數字失效」就把任何一條當成「其實可能有效」——
+        失效的意思是**沒有證據**，不是**有反向證據**；預設仍是不採用
+      - 未過 gate 前改 config/strategy.yaml 的 CELL_TUNE 書、config/order.yaml、
+        src/tmf_channel/causal_engine.py 或 live worker
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # ⚠️ 誠實聲明：**事後補登記**
+          # （2026-08-11，12 條候選全部跑完才回頭寫進本檔）。標 passed 是與同批
+          # 補登記的 tx-channel-amp-persistence／tx-channel-amp-uncertainty-gate
+          # 對齊，不代表有預註記程序
+        G2_oos_holdout: pending  # 2026-08-11 retract（原 passed）：OOS 與三個
+          # 2025 舊窗口的驗證全部跑在時序被打亂的 bar 上（缺陷 A 影響 100%
+          # 交易日、IS 窗變號），流程雖走完但結果無效，且無一重跑
+        G3_regime_stratification: na  # 本主題本身就是逐 cell（session×PV8）分層，
+          # 未另外宣稱環境軸
+        G4_rejection_registry: passed  # 12 條候選逐條附當初結論、關鍵數字與
+          # 失效標記——registry 的價值在「這些角度試過、怎麼判的」，這部分仍成立
+        G5_frozen_spec: na  # 無候選過 gate
+        G6_adoption_report: na
+      action: >
+        **do-not-adopt 維持不變，但理由已改變**：不是「已證偽」，而是
+        「數字依據失效、沒有任何有效證據支持採納」。要動其中任何一條之前，
+        先用修好的 cache_store 重跑該條（優先順序見 do_not）。
+        同輪往下走的路線：tmf-night-climax-up-long-unblock（唯一存活候選，
+        但 delta 統計同樣待重跑）與 tmf-tw-us-ma5h-deviation-spread
+        （已重跑、訊號大幅縮水、亦已降級）。
+    notes: >
+      2026-08-11 補登記，來源 docs/tmf-channel-research-handoff-20260811.md §3
+      （拒絕清單）＋§2（方法論教訓）＋§5（新發現的獨立問題）。
+      **2026-08-11 重評**：本條目登記當天就被同日的資料層修復推翻了數字依據
+      （cache_store 缺陷 A/B），status 從 rejected 改判 paused、G2 從 passed
+      退回 pending、12 條 hypothesis 全部加上「未重驗」標記。這批 sweep 的
+      殘值是「這些角度試過、當初怎麼判的」，不是統計量。
+      本輪四個結構性教訓，值得帶到下一輪：
+      (1) **資料品質先於統計**——同一輪連續兩次示範：NQ 小時K forming-bar bug
+      讓多數候選從「看起來顯著」變成不顯著甚至翻負；接著 cache_store 的 bar
+      時序 bug 讓**整個 IS 窗變號**（+1712→−1659，100% 交易日改變）。
+      跑統計之前先確認：棒收完了嗎？順序對嗎？日期歸屬對嗎？
+      (2) **max_lots=1 的排擠效應**（handoff §5b）——高頻 regime 解封後會佔住
+      唯一倉位額度、排擠罕見但個別更好的 cell 機會，所以出現頻率越高的 regime，
+      採納門檻要設得越高。⚠️ 這條現在是**機制假說**：支撐它的
+      night|normal（高頻）vs night|climax_up（罕見）對照數字尚未重跑。
+      (3) **第三窗獨立驗證是真正的過濾器**——多加一個獨立窗口是最便宜的過擬合
+      檢測（本輪 night|expand_dn 與 always_lo 都是這樣被擋下的；那兩組具體
+      數字待重跑，但做法本身仍是對的）。
+      (4) **「資料髒了」的第一嫌疑犯是消費端，不是資料本身**——handoff §5a 報的
+      「快取夜盤尾段差近千點」經全量稽核證實是假陽性（快取 bit-exact）；真正的
+      兩個缺陷都在 `cache_store.load_day()`（字典序排序 + session-date 時間戳）。
+      推論方向也要小心：我當初推測「時間戳污染 us_dev、修好 IC 會更乾淨」，
+      結果**兩個推測都錯**——時間戳那條逐位元無影響，真正的元凶是 bar 順序，
+      而修好之後 IC 是**變弱**。
+      另註（登記時發現的 repo 現況差異）：交接筆記說 forming-bar 修復可以用
+      commit 訊息含「NQ/ES 小時K forming-bar」字樣來辨識，但 2026-08-11 登記當下
+      該修復仍只存在於 src/us_futures_overnight.py 的**工作區未提交變更**，
+      git log 查不到這樣的 commit；判斷某份結果是否在修復後跑的，請改看
+      price_at_or_before 是否已有 min_age 參數。

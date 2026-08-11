@@ -14,6 +14,8 @@ import json
 import os
 import sqlite3
 import threading
+from datetime import date as _date
+from datetime import timedelta as _timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,6 +33,90 @@ _TX_SOURCES = (
     "tx_1m_octdec_holdout_cache.json",
     "tx_1m_cache.json",
 )
+
+# --- post-midnight (00:00-04:59) calendar convention, per source -------------
+# A session key D does NOT mean the same thing in every cache, and the two live
+# conventions are mutually incompatible:
+#
+#   "session"  D's rows span D 08:45 -> D+1 04:59. The 00:00-04:59 tail is the
+#              tail of D's OWN night session and its calendar date is D+1, so
+#              chronologically it belongs at the END of the array. These files
+#              carry an explicit per-bar ``cal`` field.
+#   "calendar" every row in D is calendar date D. The 00:00-04:59 block is the
+#              tail of the PREVIOUS session's night, so it belongs at the FRONT
+#              of the array. No ``cal`` field.
+#
+# Evidence (bar OHLC vs FinMind TaiwanFuturesTick, see
+# scripts/research/audit_tx_1m_fullnight_cache_quality.py):
+#   tx_1m_fullnight_cache_full.json — 83/83 sessions cal offset = +1 day,
+#     24,532 post-midnight bars match D+1 ticks with max deviation 0.0pt.
+#   tx_1m_fullnight_cache.json      — 43/43 sessions cal offset = +1 day.
+#   tx_1m_tick_built_fullnight_aug  — post-midnight bars match SAME-day ticks
+#     with max deviation 0.0pt (checked 2026-08-04/05/06/07); matching against
+#     D+1 gives deviations up to 1901pt. Opposite convention, confirmed.
+# Sources listed as "calendar" that simply contain zero post-midnight bars are
+# unaffected either way (tx_1m_daynight_cache, tx_1m_cache, the three holdout
+# caches, tx_1m_tick_built_582d).
+_POST_MIDNIGHT_CONVENTION: dict[str, str] = {
+    "tx_1m_fullnight_cache_full.json": "session",
+    "tx_1m_fullnight_cache.json": "session",
+    "tx_1m_tick_built_fullnight_aug": "calendar",
+    "tx_1m_tick_built_582d": "calendar",
+    "tx_1m_daynight_cache.json": "calendar",
+    "tx_1m_cache.json": "calendar",
+    "tx_1m_janmar_holdout_cache.json": "calendar",
+    "tx_1m_julsep_holdout_cache.json": "calendar",
+    "tx_1m_octdec_holdout_cache.json": "calendar",
+}
+
+
+def post_midnight_convention(source: str) -> str:
+    """Return "session" or "calendar" for a cache source, or raise.
+
+    Deliberately fails loud for an unregistered source rather than guessing a
+    calendar date for its 00:00-04:59 bars — guessing is exactly what produced
+    the ~1000pt phantom bar/tick mismatches investigated on 2026-08-11.
+    """
+    try:
+        return _POST_MIDNIGHT_CONVENTION[source]
+    except KeyError:
+        raise KeyError(
+            f"unknown post-midnight calendar convention for source {source!r}; "
+            "register it in cache_store._POST_MIDNIGHT_CONVENTION after checking "
+            "its 00:00-04:59 bars against raw ticks "
+            "(scripts/research/audit_tx_1m_fullnight_cache_quality.py)"
+        ) from None
+
+
+def bar_calendar_date(day: str, t: str, *, source: str, row: dict | None = None) -> str:
+    """Real calendar date of one bar. ``row['cal']`` wins when present."""
+    if row is not None:
+        cal = row.get("cal")
+        if cal:
+            return str(cal)
+    if t >= "05:00":
+        return day
+    if post_midnight_convention(source) == "session":
+        y, m, d = (int(x) for x in day.split("-"))
+        return (_date(y, m, d) + _timedelta(days=1)).isoformat()
+    return day
+
+
+def bar_timestamp(day: str, t: str, *, source: str, row: dict | None = None) -> str:
+    """ISO-8601 +08:00 timestamp of the bar's real instant.
+
+    Use this instead of ``f"{day}T{t}:00.000+08:00"`` anywhere the timestamp is
+    parsed back into a real instant (NQ/ES gate lookups, tick alignment, VIXTWN
+    joins). The naive form is 24h early for every 00:00-04:59 bar of a
+    "session"-convention source.
+    """
+    return f"{bar_calendar_date(day, t, source=source, row=row)}T{t}:00.000+08:00"
+
+
+def bar_timestamps(day: str, rows: list[dict[str, Any]], *, source: str) -> list[str]:
+    return [
+        bar_timestamp(day, str(r.get("t") or ""), source=source, row=r) for r in rows
+    ]
 
 
 def data_cache_dir() -> Path:
@@ -170,12 +256,38 @@ def list_days(source: str = "tx_1m_fullnight_cache_full.json") -> list[str]:
     return sorted(blob.keys())
 
 
+def _chronological(
+    day: str, rows: list[dict[str, Any]], *, source: str
+) -> list[dict[str, Any]]:
+    """Stamp each bar with its real calendar date and sort into true time order.
+
+    The SQLite table has no ``cal`` column and its ``ORDER BY t`` is a plain
+    lexicographic sort, which for a "session"-convention source hoists the
+    00:00-04:59 night tail from the END of the session to the FRONT — i.e. the
+    engine would see the last 5 hours of the night session *before* the day
+    session of the same key. Sorting by (calendar date, clock time) restores the
+    order the JSON files already have, and is a no-op for every
+    "calendar"-convention source.
+    """
+    out = []
+    for r in rows:
+        rr = dict(r)
+        t = str(rr.get("t") or "")
+        rr["cal"] = bar_calendar_date(day, t, source=source, row=rr)
+        out.append(rr)
+    out.sort(key=lambda r: (r["cal"], str(r.get("t") or "")))
+    return out
+
+
 def load_day(
     day: str,
     *,
     source: str = "tx_1m_fullnight_cache_full.json",
 ) -> list[dict[str, Any]]:
-    """Return one session's bars — SQLite first, JSON fallback."""
+    """Return one session's bars in true chronological order — SQLite first,
+    JSON fallback. Every row carries a ``cal`` field (real calendar date); use
+    ``bar_timestamp()`` rather than interpolating ``day`` into a timestamp.
+    """
     if bars_db_path().is_file():
         con = _connect()
         try:
@@ -188,23 +300,29 @@ def load_day(
                 (source, day),
             ).fetchall()
             if rows:
-                return [
-                    {
-                        "t": r["t"],
-                        "o": r["o"],
-                        "h": r["h"],
-                        "l": r["l"],
-                        "c": r["c"],
-                        "v": r["v"],
-                        "sess": r["sess"],
-                    }
-                    for r in rows
-                ]
+                return _chronological(
+                    day,
+                    [
+                        {
+                            "t": r["t"],
+                            "o": r["o"],
+                            "h": r["h"],
+                            "l": r["l"],
+                            "c": r["c"],
+                            "v": r["v"],
+                            "sess": r["sess"],
+                        }
+                        for r in rows
+                    ],
+                    source=source,
+                )
         finally:
             con.close()
     blob = load_json_cache(source)
     rows = blob.get(day) or []
-    return list(rows) if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    return _chronological(day, rows, source=source)
 
 
 def load_json_cache(name: str, *, keep_in_memory: bool = True) -> dict[str, Any]:

@@ -94,6 +94,68 @@ class SqliteBarsCacheTest(unittest.TestCase):
         self.assertIn("c", rows[0])
 
 
+class BarCalendarAttributionTest(unittest.TestCase):
+    """Pins the 2026-08-11 fix: a session key is not always a calendar date."""
+
+    SESSION_SRC = "tx_1m_fullnight_cache_full.json"
+    CALENDAR_SRC = "tx_1m_tick_built_fullnight_aug"
+
+    def test_post_midnight_bar_is_next_calendar_day_for_session_source(self):
+        from tmf_channel.cache_store import bar_calendar_date, bar_timestamp
+
+        self.assertEqual(
+            bar_calendar_date("2026-04-02", "00:36", source=self.SESSION_SRC),
+            "2026-04-03",
+        )
+        self.assertEqual(
+            bar_timestamp("2026-04-02", "00:36", source=self.SESSION_SRC),
+            "2026-04-03T00:36:00.000+08:00",
+        )
+        # day-session bars are unaffected
+        self.assertEqual(
+            bar_calendar_date("2026-04-02", "09:00", source=self.SESSION_SRC),
+            "2026-04-02",
+        )
+
+    def test_calendar_convention_source_keeps_session_date(self):
+        from tmf_channel.cache_store import bar_calendar_date
+
+        self.assertEqual(
+            bar_calendar_date("2026-08-04", "00:36", source=self.CALENDAR_SRC),
+            "2026-08-04",
+        )
+
+    def test_explicit_cal_field_wins(self):
+        from tmf_channel.cache_store import bar_calendar_date
+
+        row = {"t": "00:36", "cal": "2026-04-05"}
+        self.assertEqual(
+            bar_calendar_date("2026-04-02", "00:36", source=self.SESSION_SRC, row=row),
+            "2026-04-05",
+        )
+
+    def test_unknown_source_raises_instead_of_guessing(self):
+        from tmf_channel.cache_store import bar_calendar_date
+
+        with self.assertRaises(KeyError):
+            bar_calendar_date("2026-04-02", "00:36", source="not_a_registered_source")
+
+    def test_load_day_returns_chronological_order_with_tail_last(self):
+        from tmf_channel.cache_store import bars_db_path, load_day
+
+        if not bars_db_path().is_file():
+            self.skipTest("bars.sqlite not materialized")
+        rows = load_day("2026-04-02", source=self.SESSION_SRC)
+        if not rows:
+            self.skipTest("session not in cache")
+        # night tail must sort AFTER the day session, not before it
+        self.assertGreaterEqual(rows[0]["t"], "08:00")
+        self.assertLess(rows[-1]["t"], "05:00")
+        self.assertEqual(rows[-1]["cal"], "2026-04-03")
+        cals = [(r["cal"], r["t"]) for r in rows]
+        self.assertEqual(cals, sorted(cals))
+
+
 class LegacyHelpersNoLabPath(unittest.TestCase):
     def test_causal_engine_imports_without_jack_v5(self):
         import tmf_channel.causal_engine as eng
