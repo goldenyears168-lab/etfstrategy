@@ -107,10 +107,29 @@ def prior_us_rth_close_date(dt_et: datetime, us_trade_dates: list[str]) -> str |
     return prior[-1] if prior else None
 
 
-def price_at_or_before(intraday: pd.Series, dt_et: datetime) -> float | None:
+def price_at_or_before(
+    intraday: pd.Series, dt_et: datetime, *, min_age: timedelta | None = None
+) -> float | None:
+    """Last bar close at or before dt_et.
+
+    min_age (2026-08-10): a bar indexed at its START time is still FORMING
+    for its whole interval -- e.g. an hourly bar dated 08:00 keeps updating
+    its "close" as trades print through 08:00-09:00, so querying at 08:10
+    returns a partial, unsettled value rather than the eventual real close.
+    Found live: TMF's NQ overnight gate read "none" (flat) continuously for
+    ~4h one night because every decision point kept landing inside a still-
+    forming hourly bar; re-querying the same historical moments later (once
+    those bars had actually closed) showed real, threshold-crossing moves.
+    Same root cause as causal_engine's own 1m "forming last bar" handling
+    (_drop_forming_last_bar in order/tmf_channel_order.py), one level up at
+    hourly granularity. Passing min_age=1h only accepts a bar once its own
+    close time (index + min_age) is at or before dt_et -- i.e. actually
+    settled, never the bar currently in progress.
+    """
     if intraday.empty:
         return None
-    sub = intraday[intraday.index <= dt_et]
+    cutoff = dt_et - min_age if min_age else dt_et
+    sub = intraday[intraday.index <= cutoff]
     if sub.empty:
         return None
     val = float(sub.iloc[-1])

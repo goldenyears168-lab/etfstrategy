@@ -190,6 +190,52 @@ class NqSideForDayTest(unittest.TestCase):
         self.assertEqual((seen[1].hour, seen[1].minute), (13, 44))
 
 
+class MinAgeExcludesFormingBarTest(unittest.TestCase):
+    """2026-08-10 live: TMF's NQ overnight gate read "none" (flat) for ~4h
+    straight one night. Root cause: an hourly bar indexed at its START time
+    keeps updating its "close" as trades print through the whole hour, so a
+    query 10min into that hour sees a partial/unsettled value -- re-querying
+    the SAME historical moments later (once those bars had actually closed)
+    showed real, threshold-crossing moves the live gate never saw. Same
+    class of bug as order/tmf_channel_order.py's _drop_forming_last_bar for
+    1m TX bars, one level up at hourly NQ/ES granularity.
+    price_at_or_before(min_age=1h) only accepts a bar once its own close
+    time (index + min_age) is at or before the query moment."""
+
+    def _series(self):
+        idx = pd.DatetimeIndex(
+            [
+                pd.Timestamp("2026-08-10T07:00:00", tz=_TZ_ET),
+                pd.Timestamp("2026-08-10T08:00:00", tz=_TZ_ET),
+            ]
+        )
+        return pd.Series([100.0, 105.0], index=idx, dtype=float)
+
+    def test_query_within_the_forming_hour_uses_prior_settled_bar(self):
+        s = self._series()
+        # 08:10 ET is 10min into the 08:00 bar's own hour -- still forming.
+        dt = pd.Timestamp("2026-08-10T08:10:00", tz=_TZ_ET)
+        from datetime import timedelta
+
+        val = us_futures_overnight.price_at_or_before(s, dt, min_age=timedelta(hours=1))
+        self.assertEqual(val, 100.0)  # the settled 07:00 bar, not the forming 08:00 one
+
+    def test_query_after_the_bar_fully_closes_uses_it(self):
+        s = self._series()
+        # 09:05 ET: the 08:00 bar closed at 09:00, a full hour has elapsed.
+        dt = pd.Timestamp("2026-08-10T09:05:00", tz=_TZ_ET)
+        from datetime import timedelta
+
+        val = us_futures_overnight.price_at_or_before(s, dt, min_age=timedelta(hours=1))
+        self.assertEqual(val, 105.0)
+
+    def test_no_min_age_keeps_old_behavior(self):
+        s = self._series()
+        dt = pd.Timestamp("2026-08-10T08:10:00", tz=_TZ_ET)
+        val = us_futures_overnight.price_at_or_before(s, dt)
+        self.assertEqual(val, 105.0)  # unchanged: forming bar accepted when min_age=None
+
+
 @unittest.skipUnless(R5_PATH.is_file(), "r5 research file not present")
 class R5ParityTest(unittest.TestCase):
     """Pin numeric parity between the in-package copy and the R5 original."""
@@ -241,7 +287,12 @@ class R5ParityTest(unittest.TestCase):
         tz_tw = ZoneInfo("Asia/Taipei")
         for dt in (
             datetime(2026, 8, 5, 15, 0, tzinfo=tz_tw),
-            datetime(2026, 8, 5, 8, 45, tzinfo=tz_tw),
+            # 2026-08-05 08:45 TW deliberately excluded (2026-08-10): it maps
+            # to 2026-08-04 20:45 ET, less than 1h after the synthetic
+            # 20:00 ET point -- our copy now correctly excludes that
+            # still-forming bar (price_at_or_before min_age=1h) while the
+            # frozen r5 reference does not, so parity is expected to break
+            # right here. See MinAgeExcludesFormingBarTest for the fix itself.
             datetime(2026, 8, 1, 15, 0, tzinfo=tz_tw),  # before any data
         ):
             kw = dict(
@@ -266,14 +317,17 @@ class R5ParityTest(unittest.TestCase):
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
+        # Snapshot-value parity with r5 deliberately NOT asserted below
+        # (2026-08-10): our copy now excludes still-forming NQ/ES hourly
+        # bars (price_at_or_before min_age=1h -- see
+        # MinAgeExcludesFormingBarTest) while the frozen r5 reference does
+        # not, so any query point close enough to the real cache's most
+        # recent bar legitimately diverges. Bundle-loading parity above
+        # (the actual data fetch) is unaffected and still asserted.
         dt = datetime(2026, 8, 5, 15, 0, tzinfo=ZoneInfo("Asia/Taipei"))
         kw = dict(nq_1h=ours[0], es_1h=ours[1], nq_d=ours[2], es_d=ours[3], us_dates=ours[4])
         snap_a = nq_signal.futures_overnight_at(dt, **kw)
-        snap_b = self.r5.futures_overnight_at(dt, **kw)
-        self.assertEqual(snap_a, snap_b)
-        if snap_a is not None:
-            nq = snap_a.get("nq_overnight_pct")
-            self.assertEqual(nq_signal.bias_side(nq), self.r5.bias_side(nq))
+        self.assertTrue(snap_a is None or "nq_overnight_pct" in snap_a)
 
 
 class NoResearchImportTest(unittest.TestCase):

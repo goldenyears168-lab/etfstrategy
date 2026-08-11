@@ -14,6 +14,7 @@ cache raises here — callers (``tmf_channel.nq_gate``) catch and fail safe.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import Any
 
 import numpy as np
@@ -26,6 +27,12 @@ from us_futures_overnight import (
     prior_us_rth_close_date,
     price_at_or_before,
 )
+
+# NQ_ES_1H_INTERVAL: matches fetch_yahoo_intraday_closes(..., interval="1h")
+# in nq_gate.py's _load_futures_bundle -- an hourly bar is only settled once
+# a full hour has elapsed since it started (see price_at_or_before's
+# min_age docstring for the live incident this fixes).
+NQ_ES_1H_MIN_AGE = timedelta(hours=1)
 
 # Same file R5 reads (LAB / "nikkei_us_intraday_1h_cache.json").
 NQ_ES_1H_CACHE = (
@@ -77,8 +84,8 @@ def futures_overnight_at(dt_tw, *, nq_1h, es_1h, nq_d, es_d, us_dates):
         return None
     nq_prior = float(nq_d[us_prior]) if us_prior in nq_d.index else None
     es_prior = float(es_d[us_prior]) if us_prior in es_d.index else None
-    nq_px = price_at_or_before(nq_1h, dt_et)
-    es_px = price_at_or_before(es_1h, dt_et)
+    nq_px = price_at_or_before(nq_1h, dt_et, min_age=NQ_ES_1H_MIN_AGE)
+    es_px = price_at_or_before(es_1h, dt_et, min_age=NQ_ES_1H_MIN_AGE)
     if nq_px is None and es_px is None:
         return None
     return {
