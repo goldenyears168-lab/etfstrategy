@@ -17,8 +17,16 @@ scripts/research/nq_es_1m_daily_accumulate.py, which keeps building real
 history so this can be re-validated properly once enough days exist).
 WINDOW_MIN=100 and THRESHOLD=0.2 were the values actually backtested
 end-to-end against the live continuous NQ gate on those 3 days
-(scripts/research/tmf_spread_gate_backtest_2h.py's sibling ad-hoc run) --
-not re-tuned here.
+(scripts/research/tmf_spread_gate_backtest_2h.py's sibling ad-hoc run).
+
+THRESHOLD lowered 0.2 -> 0.1 same day, per explicit user request for more
+trade frequency ("目前一直沒有掛單" / "我要更多交易筆數，請放寬") --
+NOT re-backtested at this value. Chosen from tonight's live nq_gate_debug
+distribution (n=244 polls, mean=0.061, std=0.082): 0.2 fired on only 3.7%
+of polls, 0.1 fires on ~34% -- a meaningful, non-extreme loosening (0.05
+would already fire on ~70% of polls, i.e. barely a filter at all). Every
+trade taken under this looser threshold is *additional* live evidence for
+the eventual re-validation, not a substitute for it.
 
 Fail-safe: any load/eval problem returns ``None`` (no bias, gate inactive),
 never raises into the order layer -- identical contract to
@@ -34,7 +42,7 @@ from tmf_channel.aux_cache import get_cached
 from us_futures_overnight import TZ_ET
 
 WINDOW_MIN = 100
-THRESHOLD = 0.2
+THRESHOLD = 0.1
 _NQ_1M_CACHE_TTL_SEC = 90.0
 _LAST_ERR: str | None = None
 _LAST_DEBUG: dict[str, float | str | None] | None = None

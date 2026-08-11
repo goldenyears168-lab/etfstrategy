@@ -59,7 +59,7 @@ class SpreadSideForDayTest(unittest.TestCase):
             return gate.spread_side_for_day("2026-08-05", hm=T[-1][11:16], C=C, T=T)
 
     def test_spread_above_threshold_returns_short(self):
-        C, T = _tw_bars(22000.0 * 1.005)  # tw_dev = +0.5%, us_dev = 0 -> spread=+0.5 >= 0.2
+        C, T = _tw_bars(22000.0 * 1.005)  # tw_dev = +0.5%, us_dev = 0 -> spread=+0.5 >= THRESHOLD
         self.assertEqual(self._side(C, T), "S")
 
     def test_debug_numbers_recorded_for_audit(self):
@@ -81,11 +81,11 @@ class SpreadSideForDayTest(unittest.TestCase):
         self.assertIsNone(gate.last_spread_debug())
 
     def test_spread_below_negative_threshold_returns_long(self):
-        C, T = _tw_bars(22000.0 * 0.995)  # tw_dev = -0.5% -> spread=-0.5 <= -0.2
+        C, T = _tw_bars(22000.0 * 0.995)  # tw_dev = -0.5% -> spread=-0.5 <= -THRESHOLD
         self.assertEqual(self._side(C, T), "L")
 
     def test_spread_within_band_returns_none_str(self):
-        C, T = _tw_bars(22000.0 * 1.001)  # tw_dev = +0.1%, within [-0.2, 0.2]
+        C, T = _tw_bars(22000.0 * 1.0005)  # tw_dev = +0.05%, within [-THRESHOLD, THRESHOLD]
         self.assertEqual(self._side(C, T), "none")
 
     def test_current_bar_excluded_from_own_reference_average(self):

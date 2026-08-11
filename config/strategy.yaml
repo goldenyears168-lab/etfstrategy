@@ -593,12 +593,24 @@ strategies:
           graduation 文字與對話紀錄。
         applied_to: >
           src/tmf_channel/nq_1m_spread_gate.py（新模組，WINDOW_MIN=100、
-          THRESHOLD=0.2，fail-open vs 硬封鎖語意逐bar比對回測規則到0
-          mismatch）· src/order/tmf_channel_order.py（desired_from_simulate
+          THRESHOLD 上線時=0.2，fail-open vs 硬封鎖語意逐bar比對回測規則到0
+          mismatch；同日追加 nq_gate_debug 把每輪 tw_dev/us_dev/spread/
+          nq_last_ts 記進 log，供邊界案例事後稽核不用再猜）·
+          src/order/tmf_channel_order.py（desired_from_simulate
           改呼叫 spread_side_for_day 取代 nq_side_for_day）·
           src/order/tmf_channel_pv16_book.py（RECIPE_VERSION/FROZEN_ID bump）
         applied_date: "2026-08-11"
         status: applied_unvalidated_user_authorized
+        followups:
+          - date: "2026-08-11"
+            change: THRESHOLD 0.2 → 0.1（同日稍晚）
+            reason: >
+              使用者觀察到夜盤長時間「一直沒有掛單」（0.2門檻下，今晚244輪
+              poll中只有3.7%會給方向），明確要求「我要更多交易筆數，請
+              放寬」。0.1 取值依據當晚 nq_gate_debug 實際 spread 分布（n=244，
+              mean=0.061，std=0.082）：0.2→3.7%輪次會給方向，0.1→約34%，
+              0.05→約70%（幾乎等於沒有濾網）。選 0.1 是折衷、非回測挑選值。
+            status: applied_unvalidated_user_authorized_2
       - candidate_id: final_v1_5_0_pv16_continuous_gate
         title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
         research_topic: tmf-pv16-specialized
