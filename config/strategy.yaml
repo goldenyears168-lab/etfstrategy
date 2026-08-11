@@ -683,6 +683,56 @@ strategies:
             revert_condition: >
               若後續累積天數顯示25不如40（或不如30這個次佳候選），改回40
               並重新用更長歷史做完整sweep。
+      - candidate_id: final_v1_6_0_pv16_sim_broker_desync_and_midnight_session_fix
+        title: 2026-08-11晚間真實事故修復（2項）——sim追蹤失真＋跨午夜session_date
+        research_topic: tmf-pv16-specialized
+        graduation: >
+          事故驅動，非統計性backtest驗證——用單元測試（逐bar/逐poll重現真實
+          事故序列）+ 全專案回歸測試驗證，同v1.4.0/v1.5.0模式。
+        incident: >
+          21:44夜盤開多倉L×1@45458，浮虧最深-372點、持續超過1小時，150點
+          固定停損跟90分鐘安全網都沒有真正保護到這筆倉位；手動出場時
+          自動平倉又連續3次被富邦後台拒絕（"超過客戶可平倉口數"），最終
+          用查到的第2個bug手動改價繞過解決（改既有掛單價格到市價成交，
+          不是走"平倉"單）。
+        bug1: >
+          simulate()每輪從頭重播當天全部K棒，內部倉位追蹤(lots[0])可能跟
+          真實券商倉位分岔——直接重播live當下同一套邏輯證實：sim自己以為
+          空手（reconcile重播出entirely不同的3筆交易），broker_live卻顯示
+          真實L@45458持有47分鐘。stop_pts/max_hold算的是sim自己（錯的）
+          lots[0]，從未真正評估過這筆真倉位。既有的
+          synthesize_lost_tracking_protect_rail防線只在want_s/want_l都是
+          None時觸發；這次sim很confident地算出兩個非None的（但完全錯的、
+          對應「空手」狀態的全新進場價）want，防線沒被觸發。
+        bug1_fix: >
+          新增sim_lost_track偵測：broker_live有真倉位、且desired_from_
+          simulate()回傳的open_pos（sim自己的原始信念，覆寫成broker權威
+          值之前先保存）side或進場價對不上broker_live，就把want_s/want_l
+          直接清成None，讓既有的synthesize機制正確接手重建保護單。
+        bug2: >
+          reconcile_once的day變數用datetime.now().strftime()算，是裸日曆
+          日期，跨夜盤午夜(00:00)後就變成隔天。22:59開的倉，午夜後所有
+          平倉委託(含kill-switch強制平倉)都帶著錯的session_date送出，
+          富邦後台仍把整個15:00→05:00夜盤算在開盤那天帳上（直接查詢既有
+          掛單自己的date欄位證實="2026/08/11"），送"2026-08-12"的
+          session_date去問後台自然找不到可平倉口數。trading_day_str()
+          （session-aware，00:00-04:59歸前一天）已存在且已用在ledger/
+          roll_day，只是這個下單用的day變數沒接上。
+        bug2_fix: 'day = trading_day_str()（原本 day = datetime.now(tz=_TZ).strftime("%Y-%m-%d")）'
+        applied_to: >
+          src/order/tmf_channel_order.py（reconcile_once：day改用
+          trading_day_str()；新增sim_open_pos保存＋sim_lost_track偵測
+          清空want_s/want_l）
+        tests_added: >
+          tests/test_tmf_channel_order.py::KillSwitchFlattenStopgapTest::
+          test_flatten_session_date_survives_midnight_crossing（驗證修好前
+          會失敗、修好後session_date正確）·
+          LostTrackingProtectRailTest::
+          test_reconcile_once_synthesizes_when_sim_confidently_wrong
+          （逐bar重現「sim自信算錯」這個確切場景，驗證修好前會把錯的
+          want_s送成真實委託、修好後正確清空並重建保護單）
+        applied_date: "2026-08-12"
+        status: applied_verified
       - candidate_id: final_v1_5_0_pv16_continuous_gate
         title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
         research_topic: tmf-pv16-specialized

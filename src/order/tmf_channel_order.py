@@ -483,7 +483,34 @@ def desired_from_simulate(
     nq_gate_error = last_spread_load_error()
     nq_gate_debug = last_spread_debug()
     if nq_side is not None:
+        # Kept for the nq_gate/nq_gate_debug display fields and as a harmless
+        # fallback -- nq_conf_soft_gate=True below makes causal_engine skip
+        # the hard L/S/none block entirely (see nq_calib wiring), so this no
+        # longer gates entries by itself. cell.block (the per-cell hard block,
+        # e.g. night|normal) is a fully separate mechanism unaffected by
+        # nq_conf_soft_gate -- verified empirically against tonight's live
+        # log (2026-08-11: 299 real bars with an active L/S gate while
+        # night|normal was flat, zero produced a want price) and pinned by
+        # tests/test_tmf_channel_order.py::NqCalibContinuousDistanceTest.
         run_recipe["session_side_gate"] = {day: nq_side}
+    spread_now = (nq_gate_debug or {}).get("spread")
+    if spread_now is not None:
+        hm_now = hhmm_from_bar_t(bars[-1].get("t"))
+        # 2026-08-11: user explicitly asked for "always something resting,
+        # just farther away when unsure, closer when the signal is strong"
+        # instead of the old binary block/allow -- causal_engine already has
+        # exactly this (nq_hang_adj via nq_calib), just never wired to real
+        # data before (nq_on_1m was always empty). always_nq mode: pull is
+        # continuous in the signed spread magnitude, symmetric around 0 (no
+        # signal -> no pull -> normal cell width). Params left at
+        # causal_engine's own defaults (gamma=4.0/cap=12.0/eps_nq=0.05) --
+        # same %-scale as spread, not re-tuned for this signal specifically.
+        run_recipe["nq_on_1m"] = {day: {hm_now: spread_now}}
+        run_recipe["nq_calib"] = "always_nq"
+        run_recipe["nq_calib_gamma"] = 4.0
+        run_recipe["nq_calib_cap"] = 12.0
+        run_recipe["nq_calib_eps_nq"] = 0.05
+        run_recipe["nq_conf_soft_gate"] = True
 
     vix = load_vixtwn_delta_cached()
     trades, events, ws, wl, rvol, regime, open_pos = simulate(
@@ -592,7 +619,18 @@ def reconcile_once(
     """
     cfg = cfg or load_tmf_channel_order_config()
     hm = session_hhmm_now()
-    day = datetime.now(tz=_TZ).strftime("%Y-%m-%d")
+    # 2026-08-11/12: was a naive calendar-date strftime -- broke session_date
+    # for every order (incl. the kill-switch flatten) once wall-clock crossed
+    # midnight mid-night-session. A real position opened 22:59 on 2026-08-11
+    # could not be closed after 00:00 on 2026-08-12: the close order carried
+    # session_date=2026-08-12, but Fubon's own back-office still books the
+    # whole 15:00->05:00 night session under the day it opened (confirmed
+    # live: the resting order's own `date` field read back as 2026/08/11),
+    # so the close was rejected "超過客戶可平倉口數(後檯)" every ~20s poll.
+    # trading_day_str() already encodes this exact 00:00-04:59 rule (see its
+    # docstring) and was already used elsewhere in this file/ledger — just
+    # never applied to this variable.
+    day = trading_day_str()
     out: dict[str, Any] = {
         "ok": False,
         "strategy_id": cfg.strategy_id,
@@ -706,6 +744,7 @@ def reconcile_once(
     want_s = desired.get("want_s")
     want_l = desired.get("want_l")
     open_pos = desired.get("open_pos")
+    sim_open_pos = open_pos  # preserved pre-broker-override for the mismatch check below
     spot = float(desired["spot"])
     mt = market_type_for_hhmm(hm)
     mt_name = "future_night" if "Night" in str(mt) else "future"
@@ -785,6 +824,42 @@ def reconcile_once(
             "ep": broker_live.get("ep"),
         }
         out["broker_authoritative_pos"] = True
+
+    # 2026-08-11/12 live: simulate() re-replays ALL of today's bars from
+    # scratch every poll (no continuous state), so its own internal fill
+    # sequence can diverge from what actually happened live (same class of
+    # bug as the 2026-08-06 "15:03-15:11 fill-vs-cancel ordering" incident,
+    # compounded tonight by nq_on_1m only ever carrying a single current-
+    # instant point rather than accumulated history, so a fresh replay of
+    # past bars sees a different nq_calib pull each poll than what was live
+    # at the time). Confirmed live: sim believed it was flat (having
+    # independently entered/exited three different trades since) while
+    # broker_live showed a real L@45458 held for 47+ minutes -- want_s/
+    # want_l were sim's fresh FLAT-state entry rails, not a protective rail
+    # for the real position, so stop_pts (computed against sim's own,
+    # wrong, lots[0]) never even evaluated the real fill. synthesize_lost_
+    # tracking_protect_rail below only fired on "both wants None"; it never
+    # saw this case because sim confidently produced non-None (just wrong)
+    # wants. sim_lost_track catches the mismatch itself, independent of
+    # whether sim happened to leave a want standing.
+    sim_lost_track = False
+    if broker_live and broker_live.get("s") and int(broker_live.get("n") or 0) > 0:
+        if not isinstance(sim_open_pos, dict) or not sim_open_pos.get("s"):
+            sim_lost_track = True
+        elif str(sim_open_pos.get("s")) != str(broker_live.get("s")):
+            sim_lost_track = True
+        else:
+            try:
+                sim_lost_track = abs(float(sim_open_pos.get("ep")) - float(broker_live.get("ep"))) > 0.5
+            except (TypeError, ValueError):
+                sim_lost_track = True
+    if sim_lost_track:
+        want_s = None
+        want_l = None
+        out["sim_broker_position_mismatch"] = {
+            "sim_open_pos": sim_open_pos,
+            "broker_live": broker_live,
+        }
 
     # Quiet flat hard gate (defense in depth vs leftover hangs / greed bypass).
     want_s, want_l, quiet_skip, ledger = apply_quiet_flat_entry_gate(

@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from order.fubon_futopt_orders import FutOptResolvedOrder, build_futopt_order, market_type_for_hhmm
 from order.tmf_channel_config import TmfChannelOrderConfig, load_tmf_channel_order_config
-from order.tmf_channel_ledger import record_actions, roll_day, save_ledger, trading_day_str
+from order.tmf_channel_ledger import load_ledger, record_actions, roll_day, save_ledger, trading_day_str
 from order.tmf_channel_marketdata import in_tmf_trade_window
 from order.tmf_channel_order import (
     _drop_forming_last_bar,
@@ -235,6 +235,94 @@ class DropFormingLastBarTest(unittest.TestCase):
         self.assertEqual(out["reason"], "bars_lt_20")
 
 
+class NqCalibRecipeWiringTest(unittest.TestCase):
+    """2026-08-11: desired_from_simulate() must pass the continuous spread
+    magnitude through to causal_engine as nq_on_1m + nq_calib="always_nq" +
+    nq_conf_soft_gate=True whenever a spread value is available -- pins the
+    wiring itself (the underlying nq_calib/nq_conf_soft_gate mechanics are
+    tested against causal_engine directly in
+    tests/test_tmf_channel_package.py::NqCalibContinuousDistanceTest)."""
+
+    def setUp(self):
+        from tmf_channel.desired_cache import clear_desired_cache
+
+        clear_desired_cache()
+
+    def tearDown(self):
+        from tmf_channel.desired_cache import clear_desired_cache
+
+        clear_desired_cache()
+
+    def _bars(self, n: int = 25, *, close: float = 100.5) -> list[dict]:
+        base = datetime(2026, 8, 8, 3, 0, 0, tzinfo=_TZ)
+        return [
+            dict(
+                t=(base + timedelta(minutes=i)).isoformat(timespec="milliseconds"),
+                o=100.0, h=101.0, l=99.0, c=close, v=10.0,
+            )
+            for i in range(n)
+        ]
+
+    def test_recipe_gets_nq_calib_fields_when_spread_available(self):
+        from order.tmf_channel_order import desired_from_simulate
+
+        bars = self._bars()
+        fixed_now = datetime(2026, 8, 8, 3, 30, 0, tzinfo=_TZ)
+        captured = {}
+
+        def fake_simulate(O, H, L, C, V, T, recipe, *, vix_delta=None):
+            captured["recipe"] = recipe
+            return [], [], [None] * len(C), [None] * len(C), [], ["na"] * len(C), None
+
+        with (
+            mock.patch("order.tmf_channel_order.datetime") as mock_dt,
+            mock.patch("tmf_channel.nq_1m_spread_gate.spread_side_for_day", return_value="S"),
+            mock.patch("tmf_channel.nq_1m_spread_gate.last_spread_load_error", return_value=None),
+            mock.patch(
+                "tmf_channel.nq_1m_spread_gate.last_spread_debug",
+                return_value={"tw_dev": 0.3, "us_dev": 0.0, "spread": 0.3, "nq_last_ts": "x"},
+            ),
+            mock.patch("tmf_channel.engine.simulate", side_effect=fake_simulate),
+        ):
+            mock_dt.now.return_value = fixed_now
+            mock_dt.fromisoformat = datetime.fromisoformat
+            out = desired_from_simulate(bars, day="2026-08-08", recipe={})
+
+        self.assertTrue(out["ok"])
+        recipe = captured["recipe"]
+        self.assertEqual(recipe["nq_calib"], "always_nq")
+        self.assertIs(recipe["nq_conf_soft_gate"], True)
+        self.assertEqual(recipe["nq_on_1m"]["2026-08-08"]["03:24"], 0.3)
+
+    def test_recipe_unchanged_when_spread_unavailable(self):
+        from order.tmf_channel_order import desired_from_simulate
+
+        bars = self._bars(close=100.7)
+        fixed_now = datetime(2026, 8, 8, 3, 30, 0, tzinfo=_TZ)
+        captured = {}
+
+        def fake_simulate(O, H, L, C, V, T, recipe, *, vix_delta=None):
+            captured["recipe"] = recipe
+            return [], [], [None] * len(C), [None] * len(C), [], ["na"] * len(C), None
+
+        with (
+            mock.patch("order.tmf_channel_order.datetime") as mock_dt,
+            mock.patch("tmf_channel.nq_1m_spread_gate.spread_side_for_day", return_value=None),
+            mock.patch("tmf_channel.nq_1m_spread_gate.last_spread_load_error", return_value="feed down"),
+            mock.patch("tmf_channel.nq_1m_spread_gate.last_spread_debug", return_value=None),
+            mock.patch("tmf_channel.engine.simulate", side_effect=fake_simulate),
+        ):
+            mock_dt.now.return_value = fixed_now
+            mock_dt.fromisoformat = datetime.fromisoformat
+            out = desired_from_simulate(bars, day="2026-08-08", recipe={})
+
+        self.assertTrue(out["ok"])
+        recipe = captured["recipe"]
+        self.assertNotIn("nq_calib", recipe)
+        self.assertNotIn("nq_conf_soft_gate", recipe)
+        self.assertNotIn("nq_on_1m", recipe)
+
+
 def _dry_cfg(ledger_path: str) -> TmfChannelOrderConfig:
     return TmfChannelOrderConfig(
         strategy_id="tmf-micro-channel",
@@ -347,6 +435,52 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
 
         self.assertTrue(out["reason"].startswith("killed:"))
         self.assertIn("no network", out.get("kill_flatten_error", ""))
+
+    def test_flatten_session_date_survives_midnight_crossing(self):
+        """2026-08-11/12 live: a position opened 22:59 on 2026-08-11 could
+        not be closed after 00:00 on 2026-08-12 -- the close order carried
+        session_date=2026-08-12 (naive datetime.now().strftime()), but
+        Fubon's back-office still books the whole 15:00->05:00 night session
+        under the day it opened, so every kill-flatten attempt was rejected
+        "超過客戶可平倉口數(後檯)" every ~20s poll. session_date must reflect
+        trading_day_str() (2026-08-11 for a "now" of 2026-08-12 00:30), not
+        the raw calendar date."""
+        fixed_now = datetime(2026, 8, 12, 0, 30, 0, tzinfo=_TZ)
+        # roll_day() recomputes trading_day_str() off the SAME mocked "now"
+        # below (it lives in tmf_channel_ledger, which we also patch) --
+        # the ledger's stored "day" must already match that session-aware
+        # value (2026-08-11) or roll_day() resets killed=False before the
+        # kill-check ever runs, defeating this test's premise.
+        killed_ledger = load_ledger(self.ledger_path)
+        killed_ledger["day"] = "2026-08-11"
+        save_ledger(self.ledger_path, killed_ledger)
+        cfg = _dry_cfg(self.ledger_path)
+        fake_broker_pos = {"s": "L", "n": 1, "ep": 45458.0, "acct_symbol": "FITM"}
+        with (
+            mock.patch("order.tmf_channel_order.datetime") as mock_dt_order,
+            mock.patch("order.tmf_channel_marketdata.datetime") as mock_dt_md,
+            mock.patch("order.tmf_channel_ledger.datetime") as mock_dt_ledger,
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net", return_value=fake_broker_pos
+            ),
+            mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+        ):
+            for m in (mock_dt_order, mock_dt_md, mock_dt_ledger):
+                m.now.return_value = fixed_now
+                m.fromisoformat = datetime.fromisoformat
+            out = reconcile_once(cfg, force=True)
+
+        self.assertEqual(mock_place.call_count, 1)
+        _session, resolved = mock_place.call_args[0]
+        self.assertEqual(resolved.session_date, "2026-08-11")
+        self.assertNotEqual(resolved.session_date, "2026-08-12")
+        self.assertTrue(out["kill_flatten_action"]["ok"])
 
 
 class ForceCliGateTest(unittest.TestCase):
@@ -538,6 +672,91 @@ class LostTrackingProtectRailTest(unittest.TestCase):
             _session, resolved = mock_place.call_args[0]
             self.assertEqual(resolved.buy_sell, "Sell")
             self.assertEqual(resolved.price, 45022.0)
+        finally:
+            Path(ledger_path).unlink(missing_ok=True)
+
+    def test_reconcile_once_synthesizes_when_sim_confidently_wrong(self):
+        """2026-08-11/12 live incident: simulate() re-replays every poll and
+        can independently diverge from what actually happened live -- sim
+        believed it was FLAT (having entered/exited three different trades
+        of its own on this same replay) while broker_live showed a real
+        L@45458 held 47+ minutes. sim's want_s/want_l were non-None (fresh
+        FLAT-state entry rails), so the pre-existing "both wants None"
+        synthesis trigger never fired and stop_pts silently protected
+        nothing. This is the case where sim confidently produces WRONG (not
+        missing) wants -- must still synthesize a real protective rail off
+        the broker position, discarding sim's mismatched wants entirely."""
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        ledger_path = tmp.name
+        try:
+            save_ledger(ledger_path, {
+                "schema": "tmf-channel-ledger-v1",
+                "day": trading_day_str(),
+                "api_calls_day": 0,
+                "day_pnl_pts": 0.0,
+                "killed": False,
+                "kill_reason": None,
+                "last_symbol": None,
+                "last_desired": None,
+                "actions_tail": [],
+                "broker_pos": None,
+                "consecutive_order_failures": 0,
+            })
+            cfg = _dry_cfg(ledger_path)
+            # sim believes FLAT and offers fresh entry rails for that belief
+            # -- both non-None, both wrong for the real L@45458 position.
+            fake_desired = {
+                "ok": True,
+                "want_s": 45331.0,
+                "want_l": 45231.0,
+                "open_pos": None,
+                "trades": [],
+                "events": [],
+                "spot": 45262.0,
+                "last_t": "2026-08-12T00:05:00.000+08:00",
+                "regime": "contract",
+                "active_cell": {
+                    "cell": "night|contract", "session": "night",
+                    "pv": "contract",
+                    "recipe": {"hang_lo": 16.0, "hang_hi": 30.0},
+                },
+                "nq_gate": "none",
+                "nq_gate_error": None,
+                "recipe_version": "test",
+            }
+            with (
+                mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+                mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+                mock.patch(
+                    "order.tmf_channel_order.resolve_front_symbol",
+                    return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+                ),
+                mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+                mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+                mock.patch(
+                    "order.tmf_channel_order.query_tmf_broker_net",
+                    return_value={"s": "L", "n": 1, "ep": 45458.0, "acct_symbol": "FITM"},
+                ),
+                mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                    "order.tmf_channel_broadcast.emit_from_summary",
+                    side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+                ),
+            ):
+                out = reconcile_once(cfg, force=True)
+
+            self.assertIn("sim_broker_position_mismatch", out)
+            self.assertTrue(out.get("protect_rail_synthesized"))
+            # protective S rail off the REAL entry (45458 + hang_hi 30), not
+            # sim's mismatched flat-state want_s (45331).
+            self.assertEqual(out.get("want_s"), 45488.0)
+            self.assertIsNone(out.get("want_l"))
+            self.assertEqual(mock_place.call_count, 1)
+            _session, resolved = mock_place.call_args[0]
+            self.assertEqual(resolved.buy_sell, "Sell")
+            self.assertEqual(resolved.price, 45488.0)
         finally:
             Path(ledger_path).unlink(missing_ok=True)
 
@@ -1429,6 +1648,163 @@ class BrokerQueryFailureSuppressesFreshEntryTest(unittest.TestCase):
             self.assertEqual(
                 out.get("query_outage_cancel_skipped"), [{"side": "S", "price": 45022.0}]
             )
+        finally:
+            Path(ledger_path).unlink(missing_ok=True)
+
+
+class PriceDriftAmendsInsteadOfCancelReplaceTest(unittest.TestCase):
+    """2026-08-10: a resting rail whose price merely drifted (still wanted,
+    just at the wrong price) used to always cancel + place a fresh order --
+    two API round trips with a window of zero resting order in between.
+    Fubon's futopt API has a native modify_price/make_modify_price_obj --
+    reconcile_once now amends the existing order's price directly for this
+    case, only falling back to cancel for the "want vanished entirely" case
+    (see BrokerQueryFailureSuppressesFreshEntryTest / query_outage_cancel_skipped
+    for that path, unaffected by this change)."""
+
+    def test_drifted_rail_is_amended_not_cancel_and_replaced(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        ledger_path = tmp.name
+        try:
+            save_ledger(ledger_path, {
+                "schema": "tmf-channel-ledger-v1",
+                "day": trading_day_str(),
+                "api_calls_day": 0,
+                "day_pnl_pts": 0.0,
+                "killed": False,
+                "kill_reason": None,
+                "last_symbol": None,
+                "last_desired": None,
+                "actions_tail": [],
+                "broker_pos": None,
+                "consecutive_order_failures": 0,
+            })
+            cfg = _dry_cfg(ledger_path)
+            fake_desired = {
+                "ok": True,
+                "want_s": 45090.0,
+                "want_l": None,
+                "open_pos": None,
+                "trades": [],
+                "events": [],
+                "spot": 45050.0,
+                "last_t": "2026-08-10T23:56:00.000+08:00",
+                "regime": "contract",
+                "active_cell": {"cell": "night|contract", "session": "night", "pv": "contract", "recipe": {}},
+                "nq_gate": "S",
+                "nq_gate_error": None,
+                "recipe_version": "test",
+            }
+            resting_short = mock.Mock(
+                symbol="FITM", status=0, buy_sell=mock.Mock(), price=45022.0,
+            )
+            resting_short.buy_sell.name = "Sell"
+            with (
+                mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+                mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+                mock.patch(
+                    "order.tmf_channel_order.resolve_front_symbol",
+                    return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+                ),
+                mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+                mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+                mock.patch(
+                    "order.tmf_channel_order.query_tmf_broker_net", return_value=None,
+                ),
+                mock.patch(
+                    "order.tmf_channel_order.get_futopt_order_results",
+                    return_value=[resting_short],
+                ),
+                mock.patch("order.tmf_channel_order.modify_futopt_order_price") as mock_modify,
+                mock.patch("order.tmf_channel_order.cancel_futopt_order") as mock_cancel,
+                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                    "order.tmf_channel_broadcast.emit_from_summary",
+                    side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+                ),
+            ):
+                out = reconcile_once(cfg, force=True)
+
+            self.assertEqual(mock_modify.call_count, 1)
+            _session, order_res, new_price = mock_modify.call_args[0]
+            self.assertIs(order_res, resting_short)
+            self.assertEqual(new_price, 45090.0)
+            self.assertEqual(mock_cancel.call_count, 0)
+            self.assertEqual(mock_place.call_count, 0)
+            amend_actions = [a for a in out.get("actions", []) if a.get("kind") == "amend"]
+            self.assertEqual(len(amend_actions), 1)
+            self.assertEqual(amend_actions[0]["side"], "S")
+            self.assertEqual(amend_actions[0]["price"], 45090.0)
+            self.assertEqual(amend_actions[0]["prev_price"], 45022.0)
+        finally:
+            Path(ledger_path).unlink(missing_ok=True)
+
+    def test_want_vanished_still_cancels_not_amends(self):
+        """Sanity guard: the amend path must only fire for want-is-not-None
+        price drift, never for the want-vanished-entirely case."""
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        ledger_path = tmp.name
+        try:
+            save_ledger(ledger_path, {
+                "schema": "tmf-channel-ledger-v1",
+                "day": trading_day_str(),
+                "api_calls_day": 0,
+                "day_pnl_pts": 0.0,
+                "killed": False,
+                "kill_reason": None,
+                "last_symbol": None,
+                "last_desired": None,
+                "actions_tail": [],
+                "broker_pos": None,
+                "consecutive_order_failures": 0,
+            })
+            cfg = _dry_cfg(ledger_path)
+            fake_desired = {
+                "ok": True,
+                "want_s": None,
+                "want_l": None,
+                "open_pos": None,
+                "trades": [],
+                "events": [],
+                "spot": 45050.0,
+                "last_t": "2026-08-10T23:56:00.000+08:00",
+                "regime": "normal",
+                "active_cell": {"cell": "night|normal", "session": "night", "pv": "normal", "recipe": {"block": ["L", "S"]}},
+                "nq_gate": "none",
+                "nq_gate_error": None,
+                "recipe_version": "test",
+            }
+            resting_short = mock.Mock(
+                symbol="FITM", status=0, buy_sell=mock.Mock(), price=45022.0,
+            )
+            resting_short.buy_sell.name = "Sell"
+            with (
+                mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+                mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+                mock.patch(
+                    "order.tmf_channel_order.resolve_front_symbol",
+                    return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+                ),
+                mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+                mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+                mock.patch("order.tmf_channel_order.query_tmf_broker_net", return_value=None),
+                mock.patch(
+                    "order.tmf_channel_order.get_futopt_order_results",
+                    return_value=[resting_short],
+                ),
+                mock.patch("order.tmf_channel_order.modify_futopt_order_price") as mock_modify,
+                mock.patch("order.tmf_channel_order.cancel_futopt_order") as mock_cancel,
+                mock.patch(
+                    "order.tmf_channel_broadcast.emit_from_summary",
+                    side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+                ),
+            ):
+                reconcile_once(cfg, force=True)
+
+            self.assertEqual(mock_modify.call_count, 0)
+            self.assertEqual(mock_cancel.call_count, 1)
         finally:
             Path(ledger_path).unlink(missing_ok=True)
 
