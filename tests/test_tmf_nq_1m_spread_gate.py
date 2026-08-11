@@ -62,6 +62,24 @@ class SpreadSideForDayTest(unittest.TestCase):
         C, T = _tw_bars(22000.0 * 1.005)  # tw_dev = +0.5%, us_dev = 0 -> spread=+0.5 >= 0.2
         self.assertEqual(self._side(C, T), "S")
 
+    def test_debug_numbers_recorded_for_audit(self):
+        C, T = _tw_bars(22000.0 * 1.005)
+        self._side(C, T)
+        dbg = gate.last_spread_debug()
+        self.assertAlmostEqual(dbg["tw_dev"], 0.5, places=2)
+        self.assertAlmostEqual(dbg["us_dev"], 0.0, places=2)
+        self.assertAlmostEqual(dbg["spread"], 0.5, places=2)
+        self.assertIsNotNone(dbg["nq_last_ts"])
+
+    def test_debug_cleared_on_fail_open(self):
+        C, T = _tw_bars(22000.0 * 1.005)
+
+        def raising_fetch(*a, **k):
+            raise RuntimeError("network down")
+
+        self._side(C, T, nq_fetch=raising_fetch)
+        self.assertIsNone(gate.last_spread_debug())
+
     def test_spread_below_negative_threshold_returns_long(self):
         C, T = _tw_bars(22000.0 * 0.995)  # tw_dev = -0.5% -> spread=-0.5 <= -0.2
         self.assertEqual(self._side(C, T), "L")

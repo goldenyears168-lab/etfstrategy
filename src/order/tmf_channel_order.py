@@ -456,7 +456,11 @@ def desired_from_simulate(
         store_desired,
     )
     from tmf_channel.engine import classify_pv, rvol_series, simulate
-    from tmf_channel.nq_1m_spread_gate import last_spread_load_error, spread_side_for_day
+    from tmf_channel.nq_1m_spread_gate import (
+        last_spread_debug,
+        last_spread_load_error,
+        spread_side_for_day,
+    )
 
     bars = _drop_forming_last_bar(bars)
     if len(bars) < 20:
@@ -477,6 +481,7 @@ def desired_from_simulate(
         run_recipe.setdefault("vixtwn_calib", "none")
     nq_side = spread_side_for_day(day, hm=hhmm_from_bar_t(bars[-1].get("t")), C=C, T=T)
     nq_gate_error = last_spread_load_error()
+    nq_gate_debug = last_spread_debug()
     if nq_side is not None:
         run_recipe["session_side_gate"] = {day: nq_side}
 
@@ -514,6 +519,7 @@ def desired_from_simulate(
         active_cell=cell,
         nq_gate=nq_side,
         nq_gate_error=nq_gate_error,
+        nq_gate_debug=nq_gate_debug,
         recipe_version=str(run_recipe.get("recipe_version") or ""),
     )
     store_desired(fp, out, bars=bars)
@@ -975,6 +981,7 @@ def reconcile_once(
             dry_run=cfg.dry_run,
             active_cell=desired.get("active_cell"),
             nq_gate=desired.get("nq_gate"),
+            nq_gate_debug=desired.get("nq_gate_debug"),
             recipe_version=desired.get("recipe_version"),
         )
         return _finish(out, ledger)
@@ -1243,6 +1250,7 @@ def reconcile_once(
         reason="reconciled",
         active_cell=desired.get("active_cell"),
         nq_gate=desired.get("nq_gate"),
+        nq_gate_debug=desired.get("nq_gate_debug"),
         recipe_version=desired.get("recipe_version"),
     )
     return _finish(out, ledger)

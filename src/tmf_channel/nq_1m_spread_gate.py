@@ -37,6 +37,7 @@ WINDOW_MIN = 100
 THRESHOLD = 0.2
 _NQ_1M_CACHE_TTL_SEC = 90.0
 _LAST_ERR: str | None = None
+_LAST_DEBUG: dict[str, float | str | None] | None = None
 
 
 def _load_nq_1m_recent():
@@ -98,7 +99,8 @@ def spread_side_for_day(day: str, *, hm: str, C: list[float], T: list[str]) -> s
       exactly what the backtested rule did for these same cases, see
       ``devs[i] is None -> "none"`` in the research script).
     """
-    global _LAST_ERR
+    global _LAST_ERR, _LAST_DEBUG
+    _LAST_DEBUG = None
     try:
         nq_1m = get_cached("nq_1m_live", _NQ_1M_CACHE_TTL_SEC, _load_nq_1m_recent)
     except Exception as exc:  # noqa: BLE001 -- feed load is best-effort
@@ -111,6 +113,7 @@ def spread_side_for_day(day: str, *, hm: str, C: list[float], T: list[str]) -> s
     try:
         tw_dev = _tw_dev(C)
         if tw_dev is None:
+            _LAST_DEBUG = {"tw_dev": None, "us_dev": None, "spread": None, "nq_last_ts": None}
             return "none"
 
         if T and T[-1]:
@@ -121,15 +124,29 @@ def spread_side_for_day(day: str, *, hm: str, C: list[float], T: list[str]) -> s
             dt = datetime.fromisoformat(f"{day}T{hm}:00").replace(tzinfo=ZoneInfo("Asia/Taipei"))
         dt_et = dt.astimezone(TZ_ET)
         us_dev = _us_dev(nq_1m, dt_et)
+        # NQ series' newest bar at-or-before this instant -- lets an after-the-
+        # fact audit tell whether the ~90s cache TTL served slightly stale NQ
+        # data at decision time, without needing to re-fetch and guess.
+        sub_now = nq_1m[nq_1m.index <= dt_et]
+        nq_last_ts = sub_now.index.max().isoformat() if not sub_now.empty else None
         if us_dev is None:
+            _LAST_DEBUG = {"tw_dev": tw_dev, "us_dev": None, "spread": None, "nq_last_ts": nq_last_ts}
             return "none"
 
         spread = tw_dev - us_dev
         if spread >= THRESHOLD:
-            return "S"
-        if spread <= -THRESHOLD:
-            return "L"
-        return "none"
+            side = "S"
+        elif spread <= -THRESHOLD:
+            side = "L"
+        else:
+            side = "none"
+        _LAST_DEBUG = {
+            "tw_dev": round(tw_dev, 4),
+            "us_dev": round(us_dev, 4),
+            "spread": round(spread, 4),
+            "nq_last_ts": nq_last_ts,
+        }
+        return side
     except Exception as exc:  # noqa: BLE001 -- eval is best-effort
         _LAST_ERR = str(exc)[:200]
         return None
@@ -137,3 +154,10 @@ def spread_side_for_day(day: str, *, hm: str, C: list[float], T: list[str]) -> s
 
 def last_spread_load_error() -> str | None:
     return _LAST_ERR
+
+
+def last_spread_debug() -> dict[str, float | str | None] | None:
+    """Raw tw_dev/us_dev/spread/nq_last_ts from the most recent
+    spread_side_for_day() call -- for after-the-fact auditing of
+    near-threshold decisions without having to re-fetch and guess."""
+    return _LAST_DEBUG
