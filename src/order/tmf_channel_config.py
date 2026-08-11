@@ -58,7 +58,11 @@ _PAPER_BASE: dict[str, Any] = dict(
     in_pos_hang="both",
     exit_mode="hybrid_trail",
     trail_arm_pts=50.0,
-    trail_giveback_pts=40.0,
+    # 2026-08-11: 40 -> 25, user-authorized, unvalidated (see
+    # config/strategy.yaml applied_refinements for the evidence: one real
+    # evening, n=15 trades, net -7->+10 at 25 vs 40; 15 was worse again --
+    # not monotonic, don't push tighter without re-testing).
+    trail_giveback_pts=25.0,
     far_cover_lo=65.0,
     far_cover_hi=105.0,
     struct_exit_look=12,

@@ -666,6 +666,23 @@ strategies:
             revert_condition: >
               若後續累積的真實天數顯示這格淨值轉負或無法與零區分，改回
               block: ["L","S"]。
+          - date: "2026-08-11"
+            change: trail_giveback_pts 40.0 → 25.0（PAPER_RECIPE，全cell共用）
+            reason: >
+              使用者觀察到21:56一筆L倉浮虧衝到-154點才觸發討論，要求研究
+              能不能反應更快；研究先排除150點固定停損（今晚最差單筆實際
+              只到-96，從沒真的碰到150），鎖定移動停利回吐幅度可能是瓶頸。
+            evidence: >
+              同一份今晚真實資料(729根真實K棒)測stop_pts全無影響(80/100/
+              120/150結果一致)；giveback則有感：40(現行)net=-7、
+              30→+2、25→+10（15筆交易全部同號比較）、15→-3（過緊又變差，
+              非單調關係）。使用者選25先上線觀察。**n=15筆、一個晚上，
+              同樣遠低於統計門檻**。
+            applied_to: src/order/tmf_channel_config.py（_PAPER_BASE trail_giveback_pts）
+            status: applied_unvalidated_user_authorized_5
+            revert_condition: >
+              若後續累積天數顯示25不如40（或不如30這個次佳候選），改回40
+              並重新用更長歷史做完整sweep。
       - candidate_id: final_v1_5_0_pv16_continuous_gate
         title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
         research_topic: tmf-pv16-specialized
