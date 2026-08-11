@@ -79,6 +79,61 @@ class BroadcastBuilderTest(unittest.TestCase):
         self.assertIn("平倉", bc["headline"])
         self.assertTrue(any("禁止先掛" in n or "flatten" in n.lower() or "平倉" in n for n in bc["narrative"]))
 
+    def test_dry_run_day_loss_shows_cumulative_realized(self):
+        """dry_run: trip_day_pnl_kill() DOES act on day_pnl_pts here, so the
+        '日已實現／熔斷' cumulative framing is accurate -- must stay as-is."""
+        bc = build_broadcast(
+            {
+                "reason": "reconciled",
+                "dry_run": True,
+                "hhmm": "10:00",
+                "spot": 44500.0,
+            },
+            ledger={"day_pnl_pts": -120.0},
+        )
+        item = next(p for p in bc["progress"] if p["id"] == "day_loss")
+        self.assertIn("日已實現", item["label"])
+        self.assertEqual(item["value"], -120.0)
+
+    def test_live_day_loss_shows_per_position_float_not_day_realized(self):
+        """2026-08-11: LIVE mode never trips on cumulative day-realized PnL
+        (trip_day_pnl_kill hard-returns False when not dry_run) -- the label
+        must not claim a day-total breaker exists, and must show the
+        genuinely-active per-position floating-loss figure computed from
+        real broker entry price vs spot, not the (deliberately-nulled-live)
+        day_pnl_pts."""
+        bc = build_broadcast(
+            {
+                "reason": "reconciled",
+                "dry_run": False,
+                "hhmm": "10:00",
+                "spot": 44700.0,
+                "broker_live": {"s": "L", "n": 1, "ep": 44500.0},
+                "open_pos": None,
+            },
+            ledger={"day_pnl_pts": None},
+        )
+        item = next(p for p in bc["progress"] if p["id"] == "day_loss")
+        self.assertNotIn("日已實現", item["label"])
+        self.assertIn("無日虧總量熔斷", item["label"])
+        self.assertEqual(item["value"], 200.0)  # (44700-44500)*1, real broker float
+
+    def test_live_day_loss_flat_shows_no_position_state(self):
+        bc = build_broadcast(
+            {
+                "reason": "reconciled",
+                "dry_run": False,
+                "hhmm": "10:00",
+                "spot": 44700.0,
+                "broker_live": None,
+                "open_pos": None,
+            },
+            ledger={"day_pnl_pts": None},
+        )
+        item = next(p for p in bc["progress"] if p["id"] == "day_loss")
+        self.assertIsNone(item["value"])
+        self.assertIn("空手", item["label"])
+
     def test_save_load_roundtrip(self):
         with tempfile.TemporaryDirectory() as td:
             fp = Path(td) / "bc.json"

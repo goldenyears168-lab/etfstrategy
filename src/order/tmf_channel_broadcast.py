@@ -296,18 +296,73 @@ def build_broadcast(
             "near": api_near,
         }
     )
-    kill_pct = max(0.0, min(100.0, 100.0 * abs(min(0.0, day_pnl_f)) / kill_pts)) if kill_pts else None
-    progress.append(
-        {
-            "id": "day_loss",
-            "label": f"日已實現 {day_pnl_f:+.0f}／熔斷 −{kill_pts:.0f}",
-            "value": round(day_pnl_f, 1),
-            "unit": "pt",
-            "hint": "接近日虧熔斷" if day_pnl_f <= -0.7 * kill_pts else "日虧控管中",
-            "pct": kill_pct,
-            "near": day_pnl_f <= -0.7 * kill_pts,
-        }
-    )
+    if dry:
+        # dry-run: day_pnl_pts is sim-replay-derived and trip_day_pnl_kill()
+        # DOES act on it here -- label is accurate as a cumulative day-loss
+        # breaker.
+        kill_pct = max(0.0, min(100.0, 100.0 * abs(min(0.0, day_pnl_f)) / kill_pts)) if kill_pts else None
+        progress.append(
+            {
+                "id": "day_loss",
+                "label": f"日已實現 {day_pnl_f:+.0f}／熔斷 −{kill_pts:.0f}",
+                "value": round(day_pnl_f, 1),
+                "unit": "pt",
+                "hint": "接近日虧熔斷" if day_pnl_f <= -0.7 * kill_pts else "日虧控管中",
+                "pct": kill_pct,
+                "near": day_pnl_f <= -0.7 * kill_pts,
+            }
+        )
+    else:
+        # 2026-08-11: LIVE mode never trips on cumulative day-realized PnL --
+        # trip_day_pnl_kill() hard-returns False when not dry_run (sim replay
+        # diverges from real fills, e.g. sim -1230 vs broker +12 on
+        # 2026-08-06). The one protection genuinely active live is a
+        # PER-POSITION floating-loss check computed straight from the real
+        # broker entry price vs current spot (tmf_channel_order.py's
+        # kill_triggers u_pnl/broker_u_pnl branch) -- show THAT number, not
+        # a "day realized" figure that structurally reads 0 in live mode
+        # (day_pnl_pts is deliberately nulled for live) and could be
+        # mistaken for "you made/lost nothing today, protected by a day
+        # breaker" when neither half of that is true.
+        u_live: float | None = None
+        if isinstance(open_pos, dict) and open_pos.get("u_pnl") is not None:
+            try:
+                u_live = float(open_pos["u_pnl"])
+            except (TypeError, ValueError):
+                u_live = None
+        if u_live is None and isinstance(broker, dict) and broker.get("s") and spot is not None:
+            try:
+                ep = float(broker.get("ep"))
+                n = int(broker.get("n") or 1)
+                side = str(broker["s"])
+                u_live = round((float(spot) - ep) * n if side == "L" else (ep - float(spot)) * n, 1)
+            except (TypeError, ValueError):
+                u_live = None
+        if u_live is None:
+            progress.append(
+                {
+                    "id": "day_loss",
+                    "label": f"空手・單筆浮虧熔斷門檻 −{kill_pts:.0f}（無日虧總量熔斷）",
+                    "value": None,
+                    "unit": "pt",
+                    "hint": "無日虧總量熔斷；僅單筆浮虧達門檻才觸發",
+                    "pct": None,
+                    "near": False,
+                }
+            )
+        else:
+            kill_pct = max(0.0, min(100.0, 100.0 * abs(min(0.0, u_live)) / kill_pts)) if kill_pts else None
+            progress.append(
+                {
+                    "id": "day_loss",
+                    "label": f"單筆浮虧 {u_live:+.0f}／熔斷 −{kill_pts:.0f}（無日虧總量熔斷）",
+                    "value": round(u_live, 1),
+                    "unit": "pt",
+                    "hint": "接近單筆浮虧熔斷" if u_live <= -0.7 * kill_pts else "單筆浮虧控管中",
+                    "pct": kill_pct,
+                    "near": u_live <= -0.7 * kill_pts,
+                }
+            )
 
     # --- C actions ---
     action_lines = []
