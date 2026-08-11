@@ -667,10 +667,75 @@ strategies:
         title: PV16 cell-tune v2 · 16 格獨立調參（12 patch · julsep 歸因 revert 3 格）
         research_topic: tmf-pv16-specialized
         graduation: WF 5/5 期勝 v1.2.0（julsep25/octdec25/janmar26 OOS＋w83/w25 IS · COST=5.8 pe=5 STRICT_BAR）
+          ⚠️ 此為原始（2026-08-06）聲稱，已被下方兩輪獨立事後審計質疑，見
+          re_audit_history，未更新過本欄位文字本身以保留原始記錄
+        re_audit_history: >
+          **第一輪（2026-08-08，r_gate_anchor_v4_audit.json，隨v3審計同步做）**：
+          當時的NQ閘門有「日夜盤共用同一個值、且該值錨定在夜盤15:00開盤」的
+          look-ahead（等於用「當天晚上才會發生的事」決定「當天白天」的下單）。
+          用session-aware 3-anchor修正版重跑CELL_TUNE_V2 vs v1.2.0：**pooled
+          OOS(3季度,n=182) mean_delta=+2.97pt/day, naive p=0.72, HAC全部
+          maxlags>0.05 → NOT SIGNIFICANT**；w83/w25兩個IS窗口點估計甚至
+          翻負(-20.78/-43.36)；5個窗口中唯一naive顯著的julsep25(p=0.043)
+          HAC校正後也不顯著(worst HAC p=0.099，NAIVE-ONLY POSITIVE，不算
+          穩健)。結論：原始「5/5顯著」的畢業證據無法在修正閘門下重現。
+
+          **第二輪（2026-08-11，gt5_r5_official_4window_backtest.json，
+          呼應使用者要求「現在閘門已修好，重新單獨測」）**：用2026-08-10
+          晚間再修好的「連續逐bar閘門」(fix B)＋「小時棒未結算」(fix C)
+          兩項後的當下正式production機制重跑同一組窗口：**pooled OOS(3
+          季度,n=182) mean_delta=+18.37pt/day, naive p=0.035, HAC全部
+          maxlags(1/5/10/20)皆<0.05(0.024~0.037) → SIGNIFICANT POSITIVE**；
+          w83_IS(+83.56pt/day)與w25_IS(+205.56pt/day)兩個IS窗口也都HAC
+          全maxlags顯著轉正——跟第一輪的「翻負、不顯著」方向完全相反。但
+          誠實揭露：julsep25/octdec25/janmar26三個**真正OOS窗口各自單獨
+          檢定皆NOT SIGNIFICANT**（point estimate皆為正+5~+41pt/day，但
+          HAC p未過0.05；octdec25在maxlags=10/20已接近0.05邊緣但maxlags
+          =1/5仍偏高），只有把三季度**合併**才達到全maxlags顯著——嚴格說
+          不是「5/5期各自顯著」，是「方向5/5一致為正，但只有pooled OOS
+          與兩個IS窗口個別站得住」。
+
+          **第三輪 ablation（2026-08-11，gt5_r6_ablation_result.json，
+          拆解fix B/C各自的邊際貢獻）**：用跟第二輪完全相同的連續逐bar
+          重算(fix B)，但monkeypatch關掉小時棒結算保護(fix C，
+          NQ_ES_1H_MIN_AGE設回0，重新允許讀取未結算的forming bar)，
+          單獨測「連續重算但不管結算」這一格：**pooled OOS mean_delta=
+          +4.27pt/day, naive p=0.68, HAC全部maxlags皆不顯著(0.67~0.71)
+          → NOT SIGNIFICANT**，w83_IS/w25_IS也都不顯著(+42.68/+121.74pt，
+          HAC未過)——這格的結果量級跟強度都很接近第一輪的session-aware
+          3-anchor修正版(pooled+2.97不顯著)，遠遜於第二輪fix B+C合併版
+          (pooled+18.37顯著)。
+
+          **答案清楚且是乾淨的劑量反應關係**：造成翻盤的關鍵是**fix C
+          （小時棒結算保護），不是fix B（連續重算）本身**。三格由弱到強
+          排列，每一格的point estimate都單調遞增——「連續重算+無結算
+          保護」(pooled+4.27，本輪)≈「session-aware 3-anchor+無結算
+          保護」(pooled+2.97，第一輪)≪「連續重算+有結算保護」(pooled
+          +18.37，第二輪=當下production)。逐窗口也是同一個單調模式
+          （julsep25: +0.24→+5.12；octdec25: +5.28→+11.80；janmar26:
+          +7.88→+41.44；w83: +42.68→+83.56；w25: +121.74→+205.56，
+          加上min_age後每一格都變大，沒有一格反向）。機制上合理：連續
+          重算若不配結算保護，反而讓「讀到未結算forming bar」這個問題
+          發生頻率從「每個session一次」暴增到「每根bar一次」，噪音只會
+          更多不會更少——這也解釋了為什麼fix B單獨看不出效果。
+
+          **修正後的結論**：CELL_TUNE_V2相對v1.2.0的增量效果，在「連續
+          重算+正確結算保護」（今晚兩項修復都到位後的當下production
+          機制）下有機制上說得通、跨窗口單調一致的統計證據支持（pooled
+          OOS三個獨立季度合併後HAC全maxlags顯著，兩個IS窗口也顯著）。
+          殘留的誠實保留：julsep25/octdec25/janmar26三個真正OOS窗口
+          **各自單獨**檢定仍未達顯著（僅合併後才顯著），這點在fix B+C
+          與fix-B-only兩格都一樣，不是本輪ablation能解決的問題——需要
+          更長的独立OOS樣本累積，或改用bootstrap等更高檢定力方法，
+          才能讓單一季度窗口自己站得住。
         adoption_report: reports/research/channel_lab/r_cost_aware_cell_tune_wf.json
+          （原始）· reports/research/channel_lab/r_gate_anchor_v4_audit.json
+          （第一輪修正重審）· reports/research/channel_lab/gt5_r5_official_4window_backtest_result.json
+          （第二輪修正重審）· reports/research/channel_lab/gt5_r6_ablation_result.json
+          （第三輪ablation，拆解出fix C是關鍵，皆2026-08-11）
         applied_to: src/order/tmf_channel_pv16_book.py（CELL_TUNE_V2_PATCHES · RECIPE_VERSION bump）
         applied_date: "2026-08-06"
-        status: applied
+        status: applied  # 2026-08-11：三輪重審+ablation後，當下production機制(fix B+C)下pooled OOS+兩個IS窗口皆HAC顯著為正，且有機制解釋(fix C是關鍵)；殘留保留是3個OOS窗口各自單獨仍不顯著，僅合併後顯著——證據比原始"5/5"聲稱更薄弱但方向站得住，繼續持有或降風險留給使用者決定
       - candidate_id: final_v1_2_0_pv16_specialized
         title: PV16 specialized cell book + causal O-anchor engine
         research_topic: tmf-pv16-specialized
