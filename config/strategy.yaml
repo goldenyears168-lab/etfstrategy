@@ -611,6 +611,61 @@ strategies:
               mean=0.061，std=0.082）：0.2→3.7%輪次會給方向，0.1→約34%，
               0.05→約70%（幾乎等於沒有濾網）。選 0.1 是折衷、非回測挑選值。
             status: applied_unvalidated_user_authorized_2
+          - date: "2026-08-11"
+            change: >
+              session_side_gate 硬擋（block/allow二分）改成 causal_engine.py
+              既有但從未接上真資料的 nq_calib="always_nq" + nq_conf_soft_gate=
+              True 連續調距機制：不再「沒訊號就兩邊都不掛」，改成訊號弱時維持
+              cell原本寬度、訊號越強favored方向掛單越靠近現價（另一邊對稱拉遠）。
+              spread_side_for_day() 算出的連續 spread 值餵進 nq_on_1m；
+              gamma/cap/eps_nq 沿用 causal_engine 既有預設(4.0/12.0/0.05)，
+              未針對這個新訊號重新校準。
+            reason: >
+              使用者明確提出設計要求：「平常沒事都掛著呢，掛遠一點，真的
+              認真時候再拉近」。
+            safety_note: >
+              nq_conf_soft_gate=True 只跳過 ssg 那段 block/allow 邏輯，
+              cell.block（如 night|normal 的 block=["L","S"]）是完全獨立、
+              更早執行的程式碼路徑，不受影響——用今晚655筆real log核對過
+              （night|normal 空手時 gate給方向的299筆，want_s/want_l全部
+              是None）+ tests/test_tmf_channel_package.py::
+              NqCalibContinuousDistanceTest 用「全部16格都硬擋+每根bar強
+              訊號」直接釘住這個保證。
+            applied_to: >
+              src/order/tmf_channel_order.py（desired_from_simulate 新增
+              nq_on_1m/nq_calib/nq_calib_gamma/nq_calib_cap/nq_calib_eps_nq/
+              nq_conf_soft_gate 寫入 run_recipe）
+            status: applied_unvalidated_user_authorized_3
+          - date: "2026-08-11"
+            change: >
+              night|normal 解封（CELL_TUNE_V2_PATCHES 的 block: ["L","S"]
+              → block: []）。這格是16 cell裡歷史上虧損最大宗、也是最高頻
+              出現的regime——今晚v1.6.0上線後766輪reconcile裡58.7%時間
+              active cell都是它，是「掛單覆蓋率低」的最大單一原因。
+            reason: >
+              使用者明確指示：「normal有了美股nq加值，應該可以開放了」——
+              判斷依據是這格現在跟其他格一樣吃得到 nq_calib 連續調距機制
+              （見上一條followup），不再是完全裸的固定通道。
+            evidence: >
+              用今晚v1.6.0上線後真實記錄的202分鐘真實spread值(不是回測重算)
+              + 富邦真實K棒，直接跑simulate()比對：解封後這格單獨貢獻
+              6-7筆交易（依hang寬度不同）、net +251~344pt、4-5贏對1-2輸。
+              另外測了距離拉寬(25/40、30/50、40/65、50/80 vs 現況18/32)：
+              總損益隨距離拉寬不升反降(344→175→274→48→48)，未支持「拉遠
+              更好」的假設。**n=1個晚上，遠低於day-clustered統計門檻，
+              以上兩組數字都只是方向性參考，不是驗證結果**。
+            safety_note: >
+              解封只影響「是否允許新進場」，不影響已驗證的cell.block優先權
+              機制本身（見上一條followup的safety_note）；hang_lo/hang_hi
+              維持v2原值(18.0/32.0)，未套用「拉遠距離」測試裡的任何一組
+              候選值。
+            applied_to: >
+              src/order/tmf_channel_pv16_book.py（CELL_TUNE_V2_PATCHES
+              night|normal 條目 block: ["L","S"] → []）
+            status: applied_unvalidated_user_authorized_4
+            revert_condition: >
+              若後續累積的真實天數顯示這格淨值轉負或無法與零區分，改回
+              block: ["L","S"]。
       - candidate_id: final_v1_5_0_pv16_continuous_gate
         title: 逐分鐘即時 NQ 閘門 + 下單層韌性強化（3 項獨立事故修復，非 cell-recipe 變更）
         research_topic: tmf-pv16-specialized

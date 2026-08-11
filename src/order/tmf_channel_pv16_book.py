@@ -98,7 +98,19 @@ CELL_TUNE_V2_PATCHES: tuple[tuple[str, str, dict[str, Any]], ...] = (
     ("night", "expand_dn", {"block": ["L", "S"]}),
     ("night", "contract", {"hang_lo": 16.0, "hang_hi": 30.0}),
     ("night", "dry", {"hang_lo": 14.0, "hang_hi": 28.0}),
-    ("night", "normal", {"block": ["L", "S"]}),
+    # 2026-08-11: unblocked (was {"block": ["L", "S"]}) -- user-authorized,
+    # NOT statistically validated. This block decision predates the
+    # nq_calib="always_nq"/nq_conf_soft_gate continuous-distance mechanism
+    # (see tmf_channel_order.py) that now applies to every cell including
+    # this one; the original "keep blocked" evidence (most recently
+    # reconfirmed the same day under the OLD v1.5.0 hourly-NQ continuous
+    # gate) never tested this combination. Only real-data evidence so far:
+    # one evening (2026-08-11, v1.6.0 1m spread gate, 202 real spread
+    # minutes) showed 6-7 trades, net +251~344pt depending on hang width --
+    # nowhere near a day-clustered sample. Full record in
+    # config/strategy.yaml applied_refinements. Revert to
+    # {"block": ["L", "S"]} if this doesn't hold up as real days accumulate.
+    ("night", "normal", {"block": []}),
     ("night", "expand_up", {"hang_lo": 15.0, "hang_hi": 29.0, "early_fill_gamma": 8.0, "max_hold_bars": 28}),
     ("night", "div_hh_weak_vol", {"block": ["L", "S"]}),
 )
