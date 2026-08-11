@@ -46,6 +46,19 @@ class TestLiveSubmitGuard(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("ORDER_MASTER_ENABLED=0", str(reason))
 
+    def test_today_session_date_matches_trading_day_str(self) -> None:
+        """2026-08-11/12 live: today_session_date() used a naive calendar
+        strftime, independent of tmf_channel_order.py's day computation
+        (fixed the same night to use trading_day_str()). Once that fix
+        landed, every order placed during 00:00-04:59 correctly carried
+        session_date=<previous day>, but this guard still compared against
+        the old naive "today" and rejected all of them as backdated,
+        immediately after un-killing the sleeve. Must delegate to the same
+        single source of truth."""
+        from order.tmf_channel_ledger import trading_day_str
+
+        self.assertEqual(today_session_date(), trading_day_str())
+
     def test_today_allowed_when_master_on_and_not_under_test(self) -> None:
         with patch("order.live_submit_guard.under_test_runner", return_value=False):
             with patch.dict(

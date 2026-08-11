@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-_TZ = ZoneInfo("Asia/Taipei")
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
 
@@ -40,7 +37,24 @@ def under_test_runner() -> bool:
 
 
 def today_session_date() -> str:
-    return datetime.now(tz=_TZ).strftime("%Y-%m-%d")
+    """Session-aware, not raw calendar date.
+
+    2026-08-11/12 live: this used a naive strftime, independent of (and
+    inconsistent with) tmf_channel_order.py's own day computation, which
+    was fixed the same night to use trading_day_str() (00:00-04:59 belongs
+    to the trading day that opened at 15:00 the previous evening). Once
+    that fix landed, every order placed during 00:00-04:59 carried a
+    correctly session-aware session_date, but THIS check still compared
+    against the old naive "today" and rejected every one of them as
+    backdated -- live_submit_blocked:session_date=2026-08-11!=today=
+    2026-08-12, immediately after un-killing the sleeve. Delegates to
+    tmf_channel_ledger.trading_day_str() (the single source of truth for
+    this rule, already used by roll_day()) instead of duplicating the
+    hour<5 logic here.
+    """
+    from order.tmf_channel_ledger import trading_day_str
+
+    return trading_day_str()
 
 
 def live_submit_block_reason(*, session_date: str | None = None) -> str | None:
