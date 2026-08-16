@@ -74,6 +74,12 @@ DEFAULT_BRANCHES: tuple[BranchSpec, ...] = (
     BranchSpec("nomura", "港商野村", "1560", "foreign"),
     BranchSpec("ubs-sg", "新加坡商瑞銀", "1650", "foreign"),
     BranchSpec("credit-suisse", "瑞士信貸", "1520", "foreign"),
+    # Foreign-branch completion batch (20260817): remaining 外資分點 on tape
+    BranchSpec("macquarie", "港商麥格理", "1360", "foreign"),
+    BranchSpec("merrill", "美林", "1440", "foreign"),
+    BranchSpec("citigroup", "花旗環球", "1590", "foreign"),
+    BranchSpec("daiwa-cathay", "大和國泰", "8890", "foreign"),
+    BranchSpec("hsbc", "上海匯豐", "8960", "foreign"),
 )
 
 
@@ -191,6 +197,7 @@ def evaluate_branch_window(
     n_slots: int = DEFAULT_SLOTS,
     capital_ntd: float = DEFAULT_SIGNAL_CAPITAL_NTD,
     min_avg_volume_shares: float | None = 200_000.0,
+    cost_bps: float = 0.0,
 ) -> dict:
     signals = iter_branch_amount_buy_signals(
         conn,
@@ -226,7 +233,7 @@ def evaluate_branch_window(
         hold_trading_days=hold_trading_days,
         entry_price_mode="open",
         capital_ntd=capital_ntd,
-        cost_bps=0.0,
+        cost_bps=cost_bps,
         window_start=window_start,
         window_end=window_end,
         grouped=grouped,
