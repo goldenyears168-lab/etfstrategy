@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 22:30 · 分點 tape 活躍標的的價格補檔 · data ingest · 不下單
+#
+# 目的（2026-08-17 查明的根因）：`stock_daily_bars` 的**每日排程來源只有 ETF 成分股
+# watchlist**（約 258 檔）。其餘 150~280 檔一直是偶發手動 backfill 的殘影
+# （synced_at 可見 2026-06-16 / 07-14 / 08-07 三批一次性寫入），跑完就不再更新，
+# 所以每日有價檔數會從 540 退潮到 419。這不是某個 job 壞了，是**價格宇宙從來沒有
+# 排程來源**——這支 job 就是那個缺席的來源。
+#
+# 為什麼重要：大量訊號腳本用 `stock_broker_branch_daily INNER JOIN stock_daily_bars`
+# 算金額，缺價標的會被**靜默丟掉、不報錯**。已證實吃掉真實訊號：7610 @ 2026-07-30
+# （9217 五日買超 1.456 億、淨比 1.000，live watch 完全沒看到）。同一機制也讓研究
+# 母體會在有人手動 backfill 時事後長大（whale-branch-l1h7 第十輪 n=36→48）。
+#
+# ⚠️ 排程時間為何是 22:30：分點 tape 由 16:30/18:30 branch-tape-prewarm 與
+# 20:00/20:35 expert-pool 系列寫入，22:30 讀得到當日完整 tape，且已離開所有
+# 其他 FinMind 使用者的時段，不會搶 rate limit。
+#
+# 預算制：每輪 --max-stocks 250（依近 3 交易日 tape 買進股數排序，大的先補），
+# backlog 分多天排掉。冪等，重跑安全。
+#
+#   log：${GOLDENSTOCKS_DATA_DIR}/logs/tape_bars_backfill_YYYYMMDD.log
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+DATA_ROOT="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}"
+RUN_LOG="${DATA_ROOT}/logs/tape_bars_backfill_${STAMP}.log"
+LOCK_DIR="/tmp/com.jackm4.goldenstocks.tape-bars-backfill.lock"
+
+mkdir -p "${DATA_ROOT}/logs"
+
+# 星期過濾：plist 只給鐘面，真正的「平日」判斷在這裡（1=Mon … 5=Fri）
+DOW="$(date '+%u')"
+if [[ "${DOW}" -gt 5 ]]; then
+  echo "=== tape-bars-backfill skip: 週末（dow=${DOW}）$(date '+%Y-%m-%d %H:%M:%S') ==="
+  exit 0
+fi
+
+# 防重疊：mkdir 為 atomic，前一輪還在跑就直接退出
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  echo "=== tape-bars-backfill skip: 前一輪仍在執行（${LOCK_DIR}）$(date '+%Y-%m-%d %H:%M:%S') ==="
+  exit 0
+fi
+trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+
+echo ""
+echo "=== launchd tape-bars-backfill 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+PYTHON="${ROOT}/.venv/bin/python"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${DATA_ROOT}/.env"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/ops/backfill_active_tape_bars.py" \
+    --max-stocks "${TAPE_BARS_BACKFILL_MAX_STOCKS:-250}" \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+
+  # 補完後跑覆蓋率斷言，把結果附在同一份 log（唯讀）。
+  # 刻意**不**讓斷言的 FAIL 影響本 job 的 exit code：backlog 要排幾天才會排完，
+  # 每晚都告警只會變成雜訊。斷言的正式消費者是 08:30 mini-schedule 體檢。
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/ops/check_stock_daily_bars_coverage.py" 2>&1 | tee -a "${RUN_LOG}"
+  set -e
+fi
+
+echo "=== launchd tape-bars-backfill 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="分點價格補檔" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="stock_daily_bars 補檔失敗，缺價標的會讓 INNER JOIN 靜默丟訊號，詳見 log"
+  set -e
+fi
+
+exit "${EXIT}"

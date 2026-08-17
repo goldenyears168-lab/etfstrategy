@@ -9,7 +9,7 @@
 
 【各表預期輪廓(2026-08-01 根因調查核定,可實查驗證)】
 - daily_bars:指數表,約 13 個 code(TAIEX/IX0001/TWII…),不是個股。是交易日錨點來源。預期每交易日約 13 筆。
-- stock_daily_bars:**不是全市場表**,是多支 watchlist 同步的聯集(晚間同步只灌少數觀察股,如 3189,6147,2492,3653,6505)。近月每交易日約 130~370 檔屬正常,忽多忽少正常。只在符合 (a) 或 (b) 時才算壞。
+- stock_daily_bars:**不是全市場表**,是多支 watchlist 同步的聯集。每日排程實際只覆蓋 ETF 成分股 watchlist(約 258 檔,每輪回填 7 日滾動窗);其餘檔數來自偶發手動 backfill 的殘影,會隨時間衰減。**因此「每日檔數忽多忽少」本身確實不算壞,但不能再拿它當「沒事」的證據**——2026-07-14 起從穩定 540 掉到 419~611,用 (a)(b) 兩條判準完全測不出來,卻已經讓一筆真實訊號消失(7610 @ 2026-07-30)。這張表改用第 2.5 項的專用斷言腳本判定,不要只靠 (a)(b)。
 - stock_institutional_daily:小焦點清單,常態約 5~7 檔/天,正常。用 (a)(b) 判。
 - stock_broker_branch_daily(分點):常態由 branch-tape-prewarm 每日補「POOLS ∪ 富邦持倉」約 44 檔(~4萬列/天)。2026-07-16 以前的 ~50萬列/~2300檔是研究回填 campaign 的遺產、已結束,**不代表現在「應該」有那麼多**。除非另建全市場分點排程,否則 ~44 檔即正常。
 - market_vix_daily:**mini 本機不預期存在**(VIX 只在 Book)。查不到 = 正常,標「本機不適用」,不要算 ❌。
@@ -26,7 +26,17 @@
    qlib_tw_factor_scores=as_of_date, us_daily_bars=trade_date
    (market_vix_daily 若不存在 → 標「本機不適用」,不算 ❌。)
 
-3) 真斷點清單:**只列**符合 (a) 或 (b) 的表,並註明是「沒有最新交易日」還是「相對自身中位數驟降」。設計上就小量的表(見輪廓)不要列進來。若無真斷點,明講「今日無真斷點」。
+2.5) stock_daily_bars 覆蓋率斷言(專用檢查,不受 (a)(b) 判準限制):
+   cd /Users/jackm4/goldenstocks && PYTHONPATH=src .venv/bin/python scripts/ops/check_stock_daily_bars_coverage.py
+   這支是唯讀的,退出碼 0=OK / 1=FAIL。把它的完整輸出貼進報告。三個檢查的意義:
+   - daily_priced_count:斷言打在 T-3(收盤 sync 每輪回填 7 日窗,當日檔數還會長大)。
+     注意 baseline 是滾動中位數,退化夠久會自己下沉——同時看它印出的絕對水位歷史。
+   - branch_price_coverage:分點 9217 當日 tape 有多少比例查得到價格。
+   - stale_but_active:**這項最重要**。分點 tape 近 5 日天天有量、但 bars 已停更的標的。
+     大量訊號腳本用 `INNER JOIN stock_daily_bars` 算金額,這些標的會被**靜默丟掉不報錯**。
+   若 FAIL 或 stale_but_active 數量比昨日報告明顯增加,列進第 3 項真斷點清單。
+
+3) 真斷點清單:**只列**符合 (a) 或 (b) 的表(外加第 2.5 項判 FAIL 者),並註明是「沒有最新交易日」還是「相對自身中位數驟降」還是「覆蓋率斷言 FAIL」。設計上就小量的表(見輪廓)不要列進來。若無真斷點,明講「今日無真斷點」。
 
 4) 昨日驗證:讀 data/research/ 底下最近一份 daily_health_*.md(若有),對照它的「真斷點清單」,今天逐項說「已修復 / 仍斷 / 新增」。若無前一份,寫「首日,無可驗證」。
 

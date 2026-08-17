@@ -83,6 +83,15 @@ else
     EXIT=1
   fi
 
+  # ⚠️ 2026-08-17：以下三步是**推 Supabase 公開 ops-console**，由 RUN_OPS_CONSOLE_PUSH
+  # 控制（預設 1；mini 上設 0，因為使用者已停用 Supabase 以省 Pro Plan $25/月）。
+  # **前面的步驟不能一起關掉**——這支 job 順帶是目前唯一還在跑的 by-trader 全市場
+  # 分點 tape 寫入者（backfill_broker_branch_tape.py --universe-json
+  # crash_thermometer_panel_universe.json，8 席：1650/1560/1480/1360/984K/1261/
+  # 5850/585c）。整支 job disable 掉會靜默斷掉那 8 席的每日 tape，見 job_registry。
+  if [[ "${RUN_OPS_CONSOLE_PUSH:-1}" == "0" ]]; then
+    echo "  SKIP ops-console push（RUN_OPS_CONSOLE_PUSH=0 · Supabase 已停用）"
+  else
   set +e
   "${PY}" "${ROOT}/scripts/order/write_ops_console_snapshot.py" \
     --kind all --also-digest \
@@ -103,9 +112,12 @@ else
     echo "✗ write_ops_sleeve_status exit=${rc}"
     EXIT=1
   fi
+  fi
 fi
 
-if [[ ! -x "${PY_FUBON}" ]]; then
+if [[ "${RUN_OPS_CONSOLE_PUSH:-1}" == "0" ]]; then
+  echo "  SKIP holdings sync（RUN_OPS_CONSOLE_PUSH=0 · Supabase 已停用）"
+elif [[ ! -x "${PY_FUBON}" ]]; then
   echo "⚠ skip holdings sync · missing ${PY_FUBON}"
 else
   set +e

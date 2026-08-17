@@ -64,6 +64,143 @@ jobs:
     schedule: "KeepAlive worker · interval≈20s in-window · day 08:45-13:45 + night 15:00-05:00"
     description: "TMF Final v1.4.0 PV16 normal/dhwv block（O-anchor）· tmf_channel.causal_engine · session-reuse worker · .env 四鎖"
 
+  - label: momentum-rotation-poll
+    category: order
+    order_capable: true
+    status: enabled
+    enabled_since: "2026-08-12"
+    schedule: "KeepAlive worker · interval≈1s in-window（2026-08-13 20s→5s→1s，使用者要求；⚠️12檔trades()請求量隨之提高，rate limit風險見下）· weekdays 08:44-13:41"
+    description: >
+      ⚠️ 2026-08-13 11:04起 ORDER_MOMENTUM_ROTATION_AUTO_SUBMIT改回0（dry-run）
+      ——使用者live當天發現4筆交易全虧、追查後發現回測本身的fill-price假設有問題
+      （用「訊號當下實際tick價」重跑backtest，勝率從86.9%掉到40.2%、日均從+22.8%
+      掉到+1.67%，見reports/research/momentum_breakout_expert_pool_futures_summary.md
+      開頭的2026-08-13重大更新章節）——回測宣稱的高勝率絕大部分是量測錯覺，不是
+      執行問題，在這個問題被完整重新驗證之前**不要**恢復AUTO_SUBMIT=1，即使明天
+      開盤worker照常會跑，也只會是dry-run。當天收工時ledger是halted=True、空手、
+      無孤兒部位（AI watch agent判斷「額度錯誤已反覆5輪未解決」觸發，同時使用者
+      已知情這個回測發現，主動選擇今天不再嘗試恢復）。
+
+      個股期貨開盤動能12檔單槽位輪動+動態搶佔（momentum-rotation）· 開盤±0.5%突破+
+      量能≥1.5x確認進場 · 1%移動停利 · 同檔一天可多次觸發（rearm 0.25%）· 搶佔倍數
+      2.0x。2026-08-12 使用者明確決策：2026-08-13起真人真金實盤（LIVE，非dry-run），
+      第一階段固定1口，保證金預算11萬。ORDER_MOMENTUM_ROTATION_AUTO_SUBMIT=1（已在
+      mini .env 設定，2026-08-13開盤起送真單，11:04起改回0，見上）。安全閥：
+      ORDER_MASTER_ENABLED總開關
+      （=1）+ 連續進場失敗5次熔斷（max_consecutive_entry_failures）+ 單日虧損
+      -3%熔斷（daily_loss_limit_pct）。引擎：src/order/momentum_rotation_order.py
+      （reconcile_once狀態機）+ momentum_rotation_signal.py（12檔訊號邏輯）。
+      2026-08-13盤前：資料來源從1分K（fetch_1m_bars）改逐筆成交（fetch_1m_bars→
+      order/momentum_rotation_tick_marketdata.py::fetch_ticks_as_bars，使用者明確
+      要求比照回測simulate_portfolio_day最細刻度）；process_new_bar本身通用不用改，
+      等同性驗證見tests/test_momentum_rotation_tick_marketdata.py（真實逐筆資料重放
+      比對兩條路徑，過程中抓到並修掉process_new_bar一個跟回測不一致多年的volume
+      baseline seeding bug——原本開盤那根K的volume會被錯誤塞進baseline歷史，
+      跟回測「空歷史預設1.0」不一致，只影響每檔每天第一個候選訊號的判定）。worker
+      輪詢間隔20s→5s，降低trades()可能截斷回傳筆數的風險。⚠️ 兩個沒辦法在今天
+      開盤前驗證的殘留風險（見momentum_rotation_tick_marketdata.py檔頭）：
+      Fugle/富邦intraday.trades()真實回傳筆數上限未知、回傳欄位名稱是防禦性猜測
+      （比照candles/tickers慣例），失敗模式設計成安靜漏訊號而非用錯資料下錯單。
+      2026-08-13再修一項：reconcile_once進場/搶佔選擇規則從「本次poll候選裡分數
+      最高」改成「嚴格按BreakoutSignal.trigger_time排序、先到先贏」（搶佔則是
+      「先到且分數有過PREEMPT_MULT門檻」），對齊回測simulate_portfolio_day逐筆
+      掃描的規則——兩者只有「同一次poll內≥2檔不同標的同時合格」才會有差異；拿
+      全部75天真實逐筆資料重放過這個情境，0次發生，理論落差消除、經驗機率原本
+      就極低。單元測試見tests/test_momentum_rotation_entry_selection.py。
+      2026-08-13盤中10:04-10:30真實事故（比前兩個更嚴重）：使用者發現當天4筆
+      交易ledger自報ret_pct全部是正報酬（+6.14%加總），但broker權威成交價
+      （get_order_results_detail）顯示4筆全部虧損（真實加總-1.82%），3筆連
+      正負號都相反——根因是fill/exit_price從來沒用過真實成交價，_enter_position
+      存的fill是理論觸發價（long_trigger/short_trigger）、_close_position的
+      exit_price是最後觀察tick價/理論停利價，不是broker真實撮合價。這個bug
+      也連帶讓daily_loss_limit_pct（-3%熔斷）用錯誤數字計算、可能該觸發時不觸發
+      ——比前兩個bug更嚴重，牽涉風控機制本身。修復：新增
+      fubon_futopt_orders.fetch_real_fill_price()（查get_order_results_detail
+      的details陣列裡status=50那筆的after_price，市價單約780ms才會撮合完成，
+      故有限次數重試），_enter_position/_close_position改用真實成交價，
+      PositionState/trades_today新增fill_source/exit_source欄位留痕跡
+      （"real" vs "theoretical_fallback"，查不到才退回理論價、且會被看到，
+      不悄悄冒充精確數字）。已用今天已知的8筆真實成交（4筆進場+4筆出場）逐一
+      回歸驗證、8/8比對正確；單元測試見tests/test_fubon_futopt_orders_fill_price.py
+      （mock版本，鎖住status=50/10判斷、重試、API例外三種情境）。當天既有的4筆
+      trades_today記錄也已用真實成交價人工回溯修正（date-scoped，只影響
+      2026-08-13這天的ledger）。另外，10:04-10:11期間AI watch agent也抓到一個
+      獨立於前兩個bug的現象：連續多次進場遇到broker「交易額度超過資(財)力證明
+      額度」拒絕，判斷「常在搶佔後立即re-entry時發生，疑似保證金釋放延遲，非
+      策略邏輯問題」，觸發kill switch暫停——這件事本身沒有code fix（mini帳戶
+      總保證金只有30萬NTD，TMF/dayflip-short/momentum-rotation三個live sleeve
+      共用同一份、無跨sleeve協調，見memory「mini帳戶總保證金30萬」），是否恢復
+      交易需要使用者決定，不是bug。10:36再修一項（使用者要求「研究下單為什麼
+      賠錢」後發現的根因）：把當天4筆真實交易的成交價拿去反推理論觸發價，發現
+      進場滑價0.5%~2.7%（市價單IOC完全沒有價格保護），若零滑價4筆全部會贏、不
+      是全輸——訊號方向邏輯沒問題，純粹是市價單追價太嚴重。改為限價單：新增
+      order/momentum_rotation_tick_marketdata.py::fetch_live_quote()（查
+      intraday.quote()的Level-1 bid/ask——這個repo沒有真正的Level-2五檔深度資料，
+      連tmf_channel_order.py自己下限價單也是用spot±offset而非真實買賣二價，
+      2026-08-13使用者確認這個限制後明確選擇用「Level-1+緩衝」逼近）+
+      _compute_marketable_limit_price()（buy=ask+spread、sell=bid-spread，
+      spread至少0.1%當緩衝下限）+ `_place_market_order`重構為`_place_order`
+      （查不到報價才fallback回市價單，標記price_source="market_fallback_no_quote"
+      留痕跡）。⚠️改限價單新增的風險：市價單幾乎必成交、限價IOC沒撮合到會直接
+      取消零成交——`_enter_position`/`_close_position`都新增「送單成功但查不到
+      真實成交紀錄=視為未成交」的檢查（entry不建倉、close不清空部位/不寫
+      trades_today，沿用出場「絕不放棄重試」的既有原則），避免ledger出現
+      broker端不存在的幻影部位。單元測試見
+      tests/test_momentum_rotation_limit_order.py（含「送單成功但沒成交絕對不能
+      建立部位」這條最危險的情境）。監控：
+      :8770 儀表板「動能輪動」分頁（reports/research/channel_lab/live_v6_sim_server.py，
+      com.jackm4.goldenstocks.tmf-sim-server）+ momentum-rotation-watch（見下條，
+      08:40-13:45盤中每15分鐘AI異常掃描）。launchctl bootstrap 單獨安裝（未跑整支
+      install-launchd.sh——該腳本因既有us-overnight-futures-sync.command缺檔而無法
+      完整執行，屬既有問題，非本次新增；scripts/install-launchd.sh 的
+      LABELS/TEMPLATES 已補上本job條目供下次修好後的完整安裝使用）。研究脈絡見
+      reports/research/momentum_breakout_expert_pool_futures_summary.md（開頭
+      「2026-08-13重大更新」章節有修正後定案數字，本檔原先寫的「可信估計約
+      3.58%/天」已知無出處、不可信，不要再引用）。
+      2026-08-13再推進一項（使用者明確要求「把websocket連上」）：新增
+      order/momentum_rotation_websocket_feed.py，資料來源改成「優先訂閱
+      futopt websocket 'trades'頻道（12檔共用一個連線）、新鮮度（30秒內收過
+      訊息）不足才退回既有REST fetch_ticks_as_bars」，比照TMF sleeve
+      tmf_channel_ws_feed.py同一套已在production驗證過的手法（見該檔
+      docstring）。'trades'頻道已用momentum_rotation_websocket_trades_shadow.py
+      實測確認Speed模式（跟live worker既有session同一個）沒有被擋、訊息格式
+      跟REST trades()解析邏輯相容（重用同一組_normalize_tick/_dedupe_same_second）。
+      Kill switch：ORDER_MOMENTUM_ROTATION_WS_MARKETDATA_ENABLED（預設0=關，
+      跟TMF那支預設開不同——這支只跑過幾分鐘的2檔shadow smoke test，尚未走過
+      一整個交易日驗證，比照這個repo「新機制先關閉觀察」的慣例）。單元測試見
+      tests/test_momentum_rotation_websocket_feed.py。目前sleeve本身仍是
+      dry-run（見上方11:04起AUTO_SUBMIT=0），這項改動不影響是否送真單，只影響
+      訊號資料來源的即時性。
+
+  - label: momentum-rotation-watch
+    category: monitoring
+    order_capable: false  # 自己不呼叫下單API；但可透過kill switch檔案間接觸發
+      # momentum-rotation-poll既有的halted強制平倉路徑，見下方說明
+    status: enabled
+    enabled_since: "2026-08-12"
+    schedule: "StartInterval 120s（2026-08-12使用者要求從900s縮短；launcher自濾 weekdays 08:40-13:45，盤中約150次呼叫/天）"
+    description: >
+      momentum-rotation-poll 盤中即時監看：headless claude -p 讀today's
+      logs/intraday/momentum_rotation_*.log + ledger/broadcast json。判準核心原則
+      （2026-08-12使用者明確交代）：觸發暫停不是看「有沒有賠錢」，是看「跟預期/
+      研究文件描述的行為模式吻不吻合」——遇到沒訓練過、沒料到、程式碼沒有對應處理
+      路徑的狀況，即使沒虧錢也當🚨處理；只有監控工具本身的操作性小狀況（log格式/
+      暫時性讀檔問題）才允許agent自主排除，src/order/**、config/order.yaml、.env、
+      worker重啟一律禁止agent自己動，全部走🚨流程。異常時：1) 寫
+      data/research/momentum_rotation_ALERT_<date>.log 2) 寫
+      data/order/momentum_rotation_kill_switch.json（date+reason）——
+      momentum_rotation_order.py的reconcile_once下一輪poll（≈20秒內）讀到後轉成
+      跟halted一樣的強制平倉+擋新進場路徑，AI只負責判斷+寫旗標，實際平倉沿用既有
+      _close_position確定性程式碼，不讓AI直接呼叫下單API；旗標以date欄位自然過期，
+      不需要刪檔。3) 呼叫scripts/notify_job_result.py寄信（含per-day dedup flag，
+      避免每次poll重複騷擾）——worker自己的email alert機制沒有把noop_halted/
+      closed_halted納入寄信名單，這是唯一會為熔斷事件通知使用者的管道。
+      2026-08-12 使用者明確授權「email+自動kill switch都做」，同日23:xx部署
+      （momentum-rotation-poll worker已kickstart重啟載入新碼）。2026-08-12建立，
+      取代原本規劃錯誤的「每日14:00跑一次」設計（使用者更正：「監控agent 8:40就要
+      一直跑到收盤才對」）。判準SSOT：scripts/launchd/momentum-rotation-watch-prompt.txt。
+      launchctl bootstrap+enable 已完成（使用者遠端明確授權）。
+
   - label: dayflip-short-poll
     category: order
     order_capable: true
@@ -78,13 +215,72 @@ jobs:
       ORDER_DAYFLIP_SHORT_AUTO_SUBMIT（plist預設=1）+ 保證金/口數/單日單筆三重硬上限。
       引擎：src/order/dayflip_short_order.py（reconcile_once狀態機）+
       dayflip_short_signal.py（候選篩選）。監控：:8770「隔日沖空單」分頁 +
-      dayflip-short-watch（唯讀AI監看，09:10/13:50兩次檢查點）。
+      dayflip-short-watch（見下條，2026-08-13起每2分鐘即時監看+可自動kill switch，
+      取代原本09:10/13:50兩次檢查點的唯讀版本）。margin_cap_twd 2026-08-13從30萬
+      降到17萬（使用者實際準備資金，見config/order.yaml notes）。
       研究/週度重算見 dayflip-seat-weekly-refresh（另一筆 research entry）。
       2026-08-08：StartInterval 60s 冷啟動（08:44-13:41 每分鐘全新 Fubon 登入，~297次/日，
       跟 TMF 舊架構同一個問題）→ KeepAlive 常駐 worker，重用單一 session（見
       order/dayflip_short_worker_loop.py + dayflip_short_session_pool.py，架構同
       tmf_channel/worker_loop.py）。切換工具：scripts/order/dayflip_short_cutover.sh。
       舊 scripts/order/run_dayflip_short_poll.py 保留供手動測試（不再是 launchd 進入點）。
+
+  - label: dayflip-short-watch
+    category: monitoring
+    order_capable: false  # 自己不呼叫下單API；但可透過kill switch檔案間接觸發
+      # dayflip_short_order.py既有的halted/force_closed路徑
+    status: enabled
+    enabled_since: "2026-08-13"
+    schedule: "StartInterval 120s（比照momentum-rotation-watch）· launcher自濾 weekdays 08:44-13:41，盤中約150次呼叫/天"
+    description: >
+      dayflip-futures-short 盤中即時監看：headless claude -p 讀today's
+      logs/intraday/dayflip_short_*.log + ledger json。判準核心原則（2026-08-13
+      使用者明確交代，比照momentum-rotation-watch同一套哲學）：觸發暫停不是看
+      「有沒有賠錢」，是看「跟已知劇本（程式碼裡真的有對應處理路徑的情境）吻不
+      吻合」——賺錢但不吻合任何已知劇本一樣要暫停。異常時：1) 寫
+      data/research/dayflip_short_ALERT_<date>.log 2) 寫
+      data/order/dayflip_short_kill_switch.json（date+reason）——
+      dayflip_short_order.py的reconcile_once下一輪poll（≈20秒內）讀到後：idle
+      轉halted（今天不再進場）、entered立刻強制平倉（不等13:40）。AI只負責
+      判斷+寫旗標，實際平倉沿用既有place_futopt_order確定性程式碼，不讓AI直接
+      呼叫下單API。3) notify_job_result.py寄信（含per-day dedup flag）。
+      2026-08-13 首次真正部署（先前的09:10/13:50兩次檢查點版本雖然範本/文件
+      都存在，但從未被裝進install-launchd.sh的LABELS/TEMPLATES、也從未出現在
+      launchctl list——查證後確認實際上從來沒有真正跑過，這次是第一次真正安裝，
+      不是修改一個原本在跑的東西）。判準SSOT：
+      scripts/launchd/dayflip-short-watch-prompt.txt（改prompt不需重裝launchd）。
+      對應src/order/dayflip_short_order.py同批新增的kill_switch_reason()：45個
+      既有測試全過+3個新情境smoke test（idle→halted、entered→closed_by_kill_
+      switch、terminal→no-op，皆dry-run驗證）。launchctl bootstrap+enable 已
+      完成（使用者明確授權執行）。
+
+  - label: dayflip-post-dump-long-poll
+    category: order
+    order_capable: true
+    status: enabled
+    enabled_since: "2026-08-09"
+    schedule: "KeepAlive worker（比照 dayflip-short-poll）· interval≈60s in-window · weekdays 08:44-13:41"
+    description: >
+      個股期貨隔日沖倒貨後反彈做多 v1（dayflip-post-dump-long）· 同一套24席分點
+      T0買超候選（跟dayflip-futures-short相反方向）· rolling_relative_dip滾動
+      窗口相對弱勢訊號進場 · 移動停利5%(EOD-only檢查)或最長10交易日出場 ·
+      多部位跨日持倉（跟short邊單日狀態機不同）· 共用dayflip-futures-short既有
+      300,000 NTD保證金池（單向讀取短邊ledger，見dayflip_post_dump_long_order.py
+      的available_pool_ntd()）· 單一標的曝險上限15%(4.5萬)。
+      config/order.yaml enabled=true/dry_run=false/auto_submit=true，使用者
+      2026-08-09明確指示「程式碼一寫完直接送實單、不比照dry-run-first慣例」。
+      安全閥：ORDER_MASTER_ENABLED總開關 + ORDER_DAYFLIP_POST_DUMP_LONG_AUTO_SUBMIT
+      （plist預設=1）+ 300,000共用池/15%單股上限/1口硬上限。
+      引擎：src/order/dayflip_post_dump_long_order.py（reconcile_once，多部位
+      ledger）+ dayflip_post_dump_long_signal.py（rolling_relative_dip即時偵測，
+      復用dayflip_short_signal.py的候選篩選）。
+      2026-08-09：plist/launcher渲染+launchctl bootstrap安裝完成（使用者遠端
+      明確授權執行，因初次安裝動作被 permission classifier 擋下需要人工確認）。
+      安裝後驗證：launchctl print 顯示 state=running、pid穩定、last exit
+      code=never exited，worker_start log正常寫出interval=60/idle=120，未進入
+      crash loop。當天(週日)在窗外idle sleep，預期週一08:44自動進入輪詢。
+      跟 dayflip-short-poll 一樣，這個 job 目前也不在 scripts/install-launchd.sh
+      的 LABELS/TEMPLATES 陣列裡（手動渲染安裝，非這次新增的缺口，是既有模式）。
 
   - label: tmf-sim-server
     category: notify
@@ -148,8 +344,131 @@ jobs:
     category: collect
     order_capable: false
     status: enabled
-    schedule: "weekdays 18:30"
-    description: "分點 tape backfill for POOLS ∪ holdings, so 20:00+ jobs read pure DB"
+    schedule: "weekdays 16:30 + 18:30"
+    description: >
+      分點 tape backfill for POOLS ∪ holdings, so 20:00+ jobs read pure DB。
+      2026-08-10 主排程由 18:30 提前到 16:30：當日一次性探測實測 FinMind
+      TaiwanStockTradingDailyReport 於 T 日 16:25 發布（15:00 起每 5 分鐘打，
+      16:20 尚無、16:25 found）。18:30 保留為安全網——16:25 僅單日單檔觀測，
+      FinMind 若偶爾延後，16:30 那輪會撲空。--refresh-days 2 使兩輪皆冪等。
+      ⚠️ **涵蓋邊界（2026-08-17 查證）**：本 job 是 **by-stock** 取數——只抓
+      POOLS ∪ holdings 的那 ~44 檔，但那 44 檔會帶回**全部 ~820 席**分點。
+      所以 `stock_broker_branch_daily` 從 2026-07-17 起，**未被 by-trader 全 tape
+      涵蓋的分點每天只有 ~44 列**（僅那 44 檔的視角），不是全市場 tape；
+      例如 8440 摩根大通在 2026-08-14 的那 44 檔裡**不含 2330**。這會讓
+      「當日 Top-N 買超」在該期間變成從 ~44 檔宇宙挑選，跨期比較須切窗或先 backfill。
+      2026-07-16 之前那份 ~50 萬列/日的全市場歷史是**一次性 backfill**
+      （synced_at 全為 2026-07-18T01:21Z），不是每日排程，不會自己往前長。
+      要補非涵蓋分點的近期資料，手動跑
+      scripts/research/backfill_broker_branch_tape.py --branches <slug> --start … --end …。
+      每日 by-trader 全 tape 的涵蓋範圍見 ops-console-evening-sync。
+      證據與研究影響量化見 config/research.yaml →
+      topics.foreign-branch-copytrade-full-sweep.notes。
+
+  - label: tape-bars-backfill
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 22:30"
+    description: >
+      分點 tape 活躍標的的 stock_daily_bars 價格補檔（scripts/ops/backfill_active_tape_bars.py）。
+      2026-08-17 新增。根因：stock_daily_bars 的每日排程來源**只有 ETF 成分股 watchlist**
+      （約 258 檔，收盤 sync 每輪回填 7 日滾動窗）；其餘 150~280 檔一直是偶發手動 backfill
+      的殘影（synced_at 可見 2026-06-16 / 07-14 / 08-07 三批），跑完就不再更新，所以每日
+      有價檔數從 2026-07-13 的穩定 540 退潮到 419。**不是某個 job 壞了，是價格宇宙從來沒有
+      排程來源**，這支就是那個缺席的來源。
+      為什麼重要：大量訊號腳本用 stock_broker_branch_daily INNER JOIN stock_daily_bars
+      算金額，缺價標的會被靜默丟掉、不報錯。已證實吃掉真實訊號 7610 @ 2026-07-30
+      （9217 五日買超 1.456 億、淨比 1.000，live watch 完全沒看到）；同一機制也讓研究母體
+      會在有人手動 backfill 時事後長大（whale-branch-l1h7 第十輪 n=36→48）。
+      預算制每輪 250 檔（依近 3 交易日 tape 買進股數排序，大的先補）、冪等、可重跑；
+      補完會附跑 scripts/ops/check_stock_daily_bars_coverage.py 的覆蓋率斷言（唯讀，
+      刻意不影響 exit code——backlog 要排幾天，每晚告警只會變雜訊；斷言的正式消費者是
+      08:30 mini-schedule 體檢）。22:30 是為了讀得到當日完整 tape 並避開所有 FinMind
+      使用者。不透過完整 install-launchd.sh 安裝（手動 bootstrap，比照
+      second-disp-oos-accumulate／songshan-follow-watch 模式），避免彈掉常駐的 live
+      tmf-channel-poll worker。
+
+  - label: taifex-intraday-snapshot
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 08:46 / 13:46 / 15:01 / 16:46"
+    description: >
+      期交所 MIS 盤中＋夜盤即時報價（台指期 TXF、聯電個股期 CCF）→ futures_intraday_snapshot。
+      2026-08-10 新增。決策規則需要「16:45 當下 CCF 夜盤價」（進場）與「隔日 08:45 日盤開盤價」
+      （出場），這兩個時點只能當下捕捉、事後補不回來。資料源比較：FinMind 快照不涵蓋 CCF；
+      FinMind tick 只有日盤 08:45-13:44；FinMind daily 只有整場 OHLC。Fubon 可以但 16:45
+      在常駐 tmf-channel-poll worker 的窗內（>=15:00），另建 session 可能踢掉它。
+      期交所 MIS 是純 HTTP、無 session，是唯一無衝突解。Symbol 後綴 -F 日盤 / -M 盤後；
+      前月合約以 CTotalVolume 最大者自動推導（轉倉自動跟上）。表由腳本自建、未 bump
+      SCHEMA_VERSION。取代先前的 tx-futures-snapshot（FinMind 版，因不涵蓋 CCF 而退役）。
+
+  - label: us-overnight-futures-sync
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 14:10"
+    description: >
+      ES/NQ 隔夜快照同步（Yahoo ES=F / NQ=F）→ us_futures_overnight_snapshot。
+      2026-08-10 新增：該表過去無任何排程、2026-07-13 後停更，而它是 us_tw_* 研究線
+      與 16:25 決策面板的輸入。capture_label 09:30~13:30 皆為台股日盤時段，故 13:30
+      收盤後即可補齊當日；--tail-days 5 為滾動補檔兼修前幾日缺漏。
+      純 Yahoo 抓取，不建立 Fubon session（避免與常駐 TMF worker 搶 token）。
+
+  - label: nq-es-1m-accumulate
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "daily 08:00 / 20:00"
+    description: >
+      NQ/ES 1分K滾動歸檔（Yahoo NQ=F/ES=F intraday 1m，只提供~8天歷史，
+      parquet封存去重累積）。2026-08-12 新增：tmf-exit-mechanism-search 研究線
+      的 H-TXNQ-DECOUPLE-DEFENSIVE-EXIT（台指-NQ脫鉤防禦性出場）需要真實1分K
+      重疊史才能驗證live解析度訊號，目前可用天數僅約4天不足以下結論。純研究
+      資料累積，不建立 Fubon session、不碰下單邏輯、不影響任何 order layer job。
+      腳本：scripts/research/nq_es_1m_daily_accumulate.py。
+
+  - label: taifex-tick-accumulate
+    category: collect
+    order_capable: false
+    status: enabled
+    enabled_since: "2026-08-13"
+    schedule: "daily 16:30 / 20:00"
+    description: >
+      TAIFEX（台灣期貨交易所）官方「前30個交易日期貨每筆成交資料」滾動歸檔
+      （免費download，Daily_YYYY_MM_DD.zip，涵蓋TX大盤+momentum-rotation
+      12檔個股期貨），每日append去重存成CSV，欄位比照既有
+      reports/research/expert_pool_futures_tick/*.csv慣例（date/futures_id/
+      contract_date/price/volume）。動機：momentum-rotation 2026-08-13研究
+      發現Fubon REST intraday.trades()有~50筆上限（可能漏兩次poll間的tick）、
+      且SDK完全沒有歷史tick回放API，只能靠手動存的固定快照當歷史資料庫。
+      ⚠️ 2026-08-14訂正：上一版這裡寫「REST/WebSocket都沒有Level-2訂單簿
+      深度，已查證」是錯的——只查了REST（intraday.quote()確實只有Level-1）,
+      沒實測WebSocket。實測發現session.sdk.marketdata.websocket_client.futopt
+      訂閱{"channel":"books","symbol":...}會推真正五檔（bids/asks各5檔
+      price+size），比照tmf_channel_ws_feed.py既有的候/candles訂閱模式即可
+      用。仍然沒有歷史（channel只推「現在」的變動，沒有回放），且盤中實際
+      更新頻率／是否逐tick不漏尚未在活躍交易時段驗證過，見memory
+      「五檔兩條真來源」。TAIFEX免費資料能解決
+      「完整、官方、可長期累積」這兩個問題，但**不含買賣方向欄位**（成交
+      數量標記為(B+S)合併量，不分邊）——不是真正的order flow imbalance
+      資料，跟現有Fubon逐筆同一個資訊等級，只是不會被50筆截斷、可以無限期
+      累積。免費視窗只留前30個交易日，一天不跑就永久漏當天，一天兩次(16:30/
+      20:00)降低單次失敗造成永久缺口的機率，比照nq-es-1m-accumulate同一個
+      手法。⚠️ TX（大盤台指期貨）因為有夜盤、交易日認定橫跨午夜，依日曆日
+      累積時筆數會忽多忽少（資料沒漏，只是分布不均勻）——12檔個股期貨無夜盤
+      不受影響。純研究資料累積，不建立Fubon session、不碰下單邏輯、不影響
+      任何order layer job。腳本：scripts/research/taifex_tick_daily_accumulate.py。
+      2026-08-13同一個job時段內加跑第二支腳本
+      scripts/research/taifex_broad_tick_daily_accumulate.py——momentum-rotation
+      micro VCP（量縮盤整+趨勢方向一致+爆量）研究在12檔上驗證時撞上樣本量
+      瓶頸（4折留一窗口交叉驗證常有3折崩潰到個位數~十幾筆交易，risk-adj
+      變成不可信的-inf），需要擴大標的池增加訊號密度。同一份TAIFEX每日zip、
+      不用另外下載，只是解析時收下全部326檔個股期貨（商品代號pattern
+      `^[A-Z][A-Z0-9]F$`，含意外收穫TMF微型台指期貨），各自存獨立CSV於
+      cache/momentum_rotation/taifex_tick_daily_broad/{product_code}.csv，
+      跟前者的12檔存檔互不干擾。單日資料量約60萬行、24MB。
 
   # --- 分點/expert-pool research + digests (the line that stays active) ---
   # installed launchd label is `nightly-expert-digest`; earlier names
@@ -167,6 +486,31 @@ jobs:
     status: enabled
     schedule: "weekdays 20:35"
     description: "Disposition-stock expert-pool copytrade watch, T0 filter, email only"
+
+  - label: songshan-follow-watch
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 21:00"
+    description: >
+      Observe-only：每個交易日固定記錄 9217（凱基松山）跟單訊號的觸發與
+      near-miss，不下單、不建立 Fubon session。腳本
+      scripts/research/run_songshan_follow_watch.py --branch songshan
+      --no-refresh --bootstrap-only；報告寫入
+      reports/research/branch-footprint-screen/ab58_xMega_copytrade/watch/
+      songshan_YYYYMMDD.md（TRIGGERED / no_signal 兩種都寫），state 在
+      ${GOLDENSTOCKS_DATA_DIR}/data/scratch/songshan_follow_watch_state.json。
+      建立動機（2026-08-17）：songshan-copytrade-poll 下單 job 已於
+      2026-07-27 disabled，此後沒有獨立的 point-in-time 留痕，研究上
+      「累積樣本外交易」零進度；事後重算永遠會被質疑是看著結果挑窗口。
+      排 21:00 是因為 9217 的分點 tape 由 20:00 nightly-expert-digest／
+      20:35 second-disp-expert-pool-watch 先補完，21:00 讀得到當日完整
+      資料，也避開 FinMind rate limit 撞車（故帶 --no-refresh）。
+      預設不寄信（--bootstrap-only）——20:00 digest 已把同一份 9217 內容
+      寄出，重複信無意義；要獨立寄信在 .env 加
+      SONGSHAN_FOLLOW_WATCH_EMAIL=1。job 失敗仍會發告警信。
+      註：nightly-expert-digest 也會寫同一個報告檔路徑，本 job 是刻意的
+      冗餘 PIT 記錄器（20:00 那支若整體失敗，21:00 仍會補上留痕）。
 
   - label: expert-pool-chart-digest
     category: research
@@ -259,9 +603,73 @@ jobs:
   - label: ops-console-evening-sync
     category: webfeed
     order_capable: false
+    status: disabled
+    disabled_since: "2026-08-17"
+    schedule: "weekdays 20:40（已停用）"
+    description: >
+      ops.snapshots / sleeve / holdings sync to Supabase for the website。
+      **2026-08-17 整支 launchctl disable**：使用者不再使用 Supabase、要停掉
+      Pro Plan $25/月扣款；並在被明確告知「會一併斷掉 8 席全市場分點 tape」後
+      選擇整支斷（該 8 席多為外資分點，跟單研究已判定全無 edge，見 research 線）。
+      **停掉這支等於同時停掉四件事**（不只是 Supabase 推送）：
+      (1) backfill_broker_branch_tape.py --universe-json
+          crash_thermometer_panel_universe.json —— 8 席 by-trader 全市場 tape 的
+          **唯一每日寫入者**（1650 瑞銀／1560 港商野村／1480 美商高盛／1360 港麥格理／
+          984K 元大館前／1261 宏遠民生／5850 統一／585c 統一仁愛）。要補回來：
+          `PYTHONPATH=src .venv/bin/python scripts/research/backfill_broker_branch_tape.py
+          --trader-id <id> --start <date>`（FinMind 有歷史，非不可逆）
+      (2) run_market_crash_thermometer_dashboard.py —— 溫度計面板不再更新
+      (3) sync_stock_market_daily.py 的窄版呼叫（daily-sync 的全量版仍在跑，不影響）
+      (4) build_stage_heatmap_1y.py
+      註：9217 凱基松山的全 tape 由 20:00 nightly-expert-digest 寫入，**不受影響**；
+      其餘所有分點仍有 branch-tape-prewarm 的 ~44 檔視角。
+      launcher 內的 Supabase 推送三步另有 `RUN_OPS_CONSOLE_PUSH`（mini 設 0）保護，
+      即使日後有人重新 enable 這支 job 也不會再打 Supabase。
+      ⚠️ **副作用（2026-08-17 查證）**：本 job 順帶是目前唯一還在跑的
+      **by-trader 全市場分點 tape** 寫入者——launcher 內先跑
+      backfill_broker_branch_tape.py --universe-json
+      reports/research/branch-footprint-screen/crash_thermometer_panel_universe.json
+      --start -5d --force（原意是餵崩盤溫度計）。因此**只有那份 universe 的 8 席**
+      有每日全 tape：1650 瑞銀／1560 港商野村／1480 美商高盛／1360 港麥格理／
+      984K 元大館前／1261 宏遠民生／5850 統一／585c 統一仁愛
+      （2026-08-14 實測列數 1368／1056／1517／166／…／1004；synced_at 12:40Z＝20:40 台北）。
+      另有 9217 凱基-松山 亦為全 tape（622 檔、synced_at 12:00Z＝20:00 台北），
+      寫入者未逐一比對到 launcher。**其餘所有分點只有 branch-tape-prewarm 的 ~44 檔視角。**
+      要新增／移除全 tape 分點，改那份 universe JSON 即可，不必動 launcher。
+      註：crash-thermometer-daily（09:00）已 retired、plist 已卸載，但其 launcher
+      仍留在 Application Support（孤兒檔，不會被觸發）。
+
+  - label: daily-sync
+    category: ingest
+    order_capable: false
     status: enabled
-    schedule: "weekdays 20:40"
-    description: "ops.snapshots / sleeve / holdings sync to Supabase for the website"
+    schedule: "weekdays 16:35"
+    description: >-
+      Full scripts/daily_sync.sh (not --holdings-only) — constituent stock
+      market+institutional (sync_stock_market_daily.py, gated by
+      RUN_STOCK_MARKET_SYNC=1) + chip daily + ETF holdings + tech risk +
+      RUN_*-gated RRG/VCP/Lens/Supabase steps per .env. Added 2026-08-10:
+      previously this pipeline was documented in CLAUDE.md as a manual
+      "常用指令" (scripts/1630收盤雷達.command only covers --holdings-only,
+      a narrower path) with no launchd automation — found stock_daily_bars
+      (which dayflip-short/-long build_candidates() depends on for pricing
+      branch-buy candidates) was only getting a 5-stock watchlist subset via
+      ops-console-evening-sync's narrow sync_stock_market_daily.py call,
+      not a real full sync; 192/251 (76%) of the individual-stock-futures
+      universe had zero price data on a day nobody happened to run it
+      manually. Also fixed a latent bug in daily_sync.sh: its bash-level
+      $DB var was hardcoded to ${ROOT}/data/stocks.db (a 0-byte file,
+      disconnected from the real stock_db.DATA_DIR-resolved production
+      DB) — same PROJECT_ROOT-vs-DATA_DIR debt pattern CLAUDE.md warns
+      about, just in bash instead of Python.
+      Also runs scripts/research/refresh_dayflip_futures_daily_cache.py
+      (found same night: build_candidates()'s ADV liquidity gate reads
+      futures_daily_cache.json, which was only refreshed weekly by
+      dayflip-seat-weekly-refresh — the fail-closed design silently
+      excluded every candidate on any day nobody manually refreshed it,
+      confirmed by a real case where 0-candidate flipped to 12 after a
+      manual refresh; more severe than the stock_daily_bars gap since it
+      zeroes out the whole candidate pool, not just pricing).
 
   # --- Local AI agent job (headless Claude Code, not a Python pipeline) ---
   - label: mini-schedule

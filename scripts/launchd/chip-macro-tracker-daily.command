@@ -33,7 +33,11 @@ if [[ ! -x "${PYTHON}" ]]; then
   echo "✗ missing venv python: ${PYTHON}"; EXIT=1
 else
   set +e
+  # --no-ops：2026-08-17 起停用 Supabase（使用者不再使用、要停 Pro Plan $25/月 扣款）。
+  # 本地 panel/6燈/backfill_outcomes 全部照常，只是不再把 chip_macro payload 推上
+  # 公開 ops-console。要恢復就拿掉這個 flag（同時要把 .env 的 RUN_SUPABASE_* 打開）。
   "${PYTHON}" "${ROOT}/scripts/research/chip_macro/daily_tracker.py" \
+    --no-ops \
     2>&1 | tee -a "${RUN_LOG}"
   EXIT=${PIPESTATUS[0]}
   set -e

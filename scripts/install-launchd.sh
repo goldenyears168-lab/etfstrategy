@@ -30,11 +30,20 @@ LABELS=(
   com.jackm4.goldenstocks.expert-pool-staged-gate
   com.jackm4.goldenstocks.nightly-expert-digest
   com.jackm4.goldenstocks.second-disp-expert-pool-watch
+  com.jackm4.goldenstocks.songshan-follow-watch
+  com.jackm4.goldenstocks.tape-bars-backfill
   com.jackm4.goldenstocks.expert-pool-chart-digest
   com.jackm4.goldenstocks.holdings-branch-sell-monitor
   com.jackm4.goldenstocks.branch-tape-prewarm
+  com.jackm4.goldenstocks.us-overnight-futures-sync
+  com.jackm4.goldenstocks.taifex-intraday-snapshot
   com.jackm4.goldenstocks.ops-console-evening-sync
   com.jackm4.goldenstocks.mini-schedule
+  com.jackm4.goldenstocks.daily-sync
+  com.jackm4.goldenstocks.nq-es-1m-accumulate
+  com.jackm4.goldenstocks.taifex-tick-accumulate
+  com.jackm4.goldenstocks.momentum-rotation-poll
+  com.jackm4.goldenstocks.momentum-rotation-watch
 )
 
 TEMPLATES=(
@@ -47,11 +56,20 @@ TEMPLATES=(
   com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
   com.jackm4.goldenstocks.nightly-expert-digest.plist.template
   com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
+  com.jackm4.goldenstocks.songshan-follow-watch.plist.template
+  com.jackm4.goldenstocks.tape-bars-backfill.plist.template
   com.jackm4.goldenstocks.expert-pool-chart-digest.plist.template
   com.jackm4.goldenstocks.holdings-branch-sell-monitor.plist.template
   com.jackm4.goldenstocks.branch-tape-prewarm.plist.template
+  com.jackm4.goldenstocks.us-overnight-futures-sync.plist.template
+  com.jackm4.goldenstocks.taifex-intraday-snapshot.plist.template
   com.jackm4.goldenstocks.ops-console-evening-sync.plist.template
   com.jackm4.goldenstocks.mini-schedule.plist.template
+  com.jackm4.goldenstocks.daily-sync.plist.template
+  com.jackm4.goldenstocks.nq-es-1m-accumulate.plist.template
+  com.jackm4.goldenstocks.taifex-tick-accumulate.plist.template
+  com.jackm4.goldenstocks.momentum-rotation-poll.plist.template
+  com.jackm4.goldenstocks.momentum-rotation-watch.plist.template
 )
 
 usage() {
@@ -71,9 +89,15 @@ usage() {
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
     nightly-expert-digest  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
+    songshan-follow-watch      週一至五 21:00（9217 凱基松山跟單 PIT 留痕 · observe only ·
+                               預設不寄信〔20:00 digest 已寄同內容〕· 不下單）
+    tape-bars-backfill         週一至五 22:30（分點 tape 活躍標的的 stock_daily_bars 補檔 ·
+                               預算制 250 檔/輪 · 補完附覆蓋率斷言 · 不下單）
     expert-pool-chart-digest   週一至五 20:05（專家池達標 HTML 圖文 · 無達標不寄 · 不下單）
     holdings-branch-sell-monitor  週一至五 20:10（富邦持倉×專家分點淨賣預警 · 不下單）
-    branch-tape-prewarm        週一至五 18:30（分點 tape 補檔 POOLS∪持倉 · 讓 20:00 起純讀 DB · 不下單）
+    branch-tape-prewarm        週一至五 16:30+18:30（分點 tape 補檔 POOLS∪持倉 · FinMind 16:25 發布 · 不下單）
+    us-overnight-futures-sync  週一至五 14:10（ES/NQ 隔夜快照 Yahoo · 補 us_futures_overnight_snapshot · 不下單）
+    taifex-intraday-snapshot   週一至五 08:46/13:46/15:01/16:46（期交所MIS 台指+聯電個股期 日夜盤報價 · 不走 Fubon · 不下單）
     ops-console-evening-sync   週一至五 20:40（ops.snapshots／sleeve／holdings 上牆 · 不下單）
     mini-schedule              每日 08:30（headless Claude 資料體檢 · 唯讀 DB · 不下單）
                                判準 SSOT：scripts/launchd/mini-schedule-prompt.txt
@@ -113,6 +137,8 @@ LAUNCHD_COMMANDS=(
   expert-pool-chart-digest
   holdings-branch-sell-monitor
   branch-tape-prewarm
+  us-overnight-futures-sync
+  taifex-intraday-snapshot
   ops-console-evening-sync
 )
 
@@ -378,14 +404,21 @@ render_template() {
       -e "s|{{LEADING_DIP_LAUNCHER}}|${LEADING_DIP_LAUNCHER}|g" \
       -e "s|{{SONGSHAN_COPYTRADE_LAUNCHER}}|${SONGSHAN_COPYTRADE_LAUNCHER}|g" \
       -e "s|{{TMF_CHANNEL_LAUNCHER}}|${TMF_CHANNEL_LAUNCHER}|g" \
+      -e "s|{{MOMENTUM_ROTATION_LAUNCHER}}|${MOMENTUM_ROTATION_LAUNCHER}|g" \
+      -e "s|{{MOMENTUM_ROTATION_WATCH_LAUNCHER}}|${MOMENTUM_ROTATION_WATCH_LAUNCHER}|g" \
       -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
       -e "s|{{NIGHTLY_EXPERT_DIGEST_LAUNCHER}}|${NIGHTLY_EXPERT_DIGEST_LAUNCHER}|g" \
       -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
+      -e "s|{{SONGSHAN_FOLLOW_WATCH_LAUNCHER}}|${SONGSHAN_FOLLOW_WATCH_LAUNCHER}|g" \
+      -e "s|{{TAPE_BARS_BACKFILL_LAUNCHER}}|${TAPE_BARS_BACKFILL_LAUNCHER}|g" \
       -e "s|{{EXPERT_POOL_CHART_LAUNCHER}}|${EXPERT_POOL_CHART_LAUNCHER}|g" \
       -e "s|{{HOLDINGS_BRANCH_SELL_LAUNCHER}}|${HOLDINGS_BRANCH_SELL_LAUNCHER}|g" \
       -e "s|{{BRANCH_TAPE_PREWARM_LAUNCHER}}|${BRANCH_TAPE_PREWARM_LAUNCHER}|g" \
+      -e "s|{{US_OVERNIGHT_FUTURES_SYNC_LAUNCHER}}|${US_OVERNIGHT_FUTURES_SYNC_LAUNCHER}|g" \
+      -e "s|{{TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER}}|${TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER}|g" \
       -e "s|{{OPS_CONSOLE_EVENING_LAUNCHER}}|${OPS_CONSOLE_EVENING_LAUNCHER}|g" \
       -e "s|{{MINI_SCHEDULE_LAUNCHER}}|${MINI_SCHEDULE_LAUNCHER}|g" \
+      -e "s|{{DAILY_SYNC_LAUNCHER}}|${DAILY_SYNC_LAUNCHER}|g" \
       -e "s|{{EVENING_HOLDINGS_LAUNCHER}}|${EVENING_HOLDINGS_LAUNCHER}|g" \
       -e "s|{{MORNING_BRIEF_LAUNCHER}}|${MORNING_BRIEF_LAUNCHER}|g" \
       -e "s|{{INTRADAY_GATE_LAUNCHER}}|${INTRADAY_GATE_LAUNCHER}|g" \
@@ -397,6 +430,8 @@ render_template() {
       -e "s|{{MUTUAL_FUND_LAUNCHER}}|${MUTUAL_FUND_LAUNCHER}|g" \
       -e "s|{{MINERVINI_LAUNCHER}}|${MINERVINI_LAUNCHER}|g" \
       -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
+      -e "s|{{NQ_ES_1M_ACCUMULATE_LAUNCHER}}|${NQ_ES_1M_ACCUMULATE_LAUNCHER}|g" \
+      -e "s|{{TAIFEX_TICK_ACCUMULATE_LAUNCHER}}|${TAIFEX_TICK_ACCUMULATE_LAUNCHER}|g" \
       "${template}" >"${dest}"
 }
 
@@ -491,6 +526,34 @@ install_tmf_channel_launcher() {
   chmod +x "${TMF_CHANNEL_LAUNCHER}"
 }
 
+install_momentum_rotation_launcher() {
+  local src="${LAUNCHD_SRC}/momentum-rotation-poll-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  MOMENTUM_ROTATION_LAUNCHER="${app_support}/momentum-rotation-poll.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${MOMENTUM_ROTATION_LAUNCHER}"
+  chmod +x "${MOMENTUM_ROTATION_LAUNCHER}"
+}
+
+install_momentum_rotation_watch_launcher() {
+  local src="${LAUNCHD_SRC}/momentum-rotation-watch-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  MOMENTUM_ROTATION_WATCH_LAUNCHER="${app_support}/momentum-rotation-watch.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  APP_SUPPORT="${app_support}"
+  render_template "${src}" "${MOMENTUM_ROTATION_WATCH_LAUNCHER}"
+  chmod +x "${MOMENTUM_ROTATION_WATCH_LAUNCHER}"
+}
+
 install_ep_staged_gate_launcher() {
   local src="${LAUNCHD_SRC}/expert-pool-staged-gate-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
@@ -529,6 +592,32 @@ install_second_disp_expert_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${SECOND_DISP_EXPERT_LAUNCHER}"
   chmod +x "${SECOND_DISP_EXPERT_LAUNCHER}"
+}
+
+install_songshan_follow_watch_launcher() {
+  local src="${LAUNCHD_SRC}/songshan-follow-watch-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  SONGSHAN_FOLLOW_WATCH_LAUNCHER="${app_support}/songshan-follow-watch.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${SONGSHAN_FOLLOW_WATCH_LAUNCHER}"
+  chmod +x "${SONGSHAN_FOLLOW_WATCH_LAUNCHER}"
+}
+
+install_tape_bars_backfill_launcher() {
+  local src="${LAUNCHD_SRC}/tape-bars-backfill-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  TAPE_BARS_BACKFILL_LAUNCHER="${app_support}/tape-bars-backfill.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${TAPE_BARS_BACKFILL_LAUNCHER}"
+  chmod +x "${TAPE_BARS_BACKFILL_LAUNCHER}"
 }
 
 install_expert_pool_chart_launcher() {
@@ -570,6 +659,58 @@ install_branch_tape_prewarm_launcher() {
   chmod +x "${BRANCH_TAPE_PREWARM_LAUNCHER}"
 }
 
+install_us_overnight_futures_sync_launcher() {
+  local src="${LAUNCHD_SRC}/us-overnight-futures-sync-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  US_OVERNIGHT_FUTURES_SYNC_LAUNCHER="${app_support}/us-overnight-futures-sync.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${US_OVERNIGHT_FUTURES_SYNC_LAUNCHER}"
+  chmod +x "${US_OVERNIGHT_FUTURES_SYNC_LAUNCHER}"
+}
+
+install_nq_es_1m_accumulate_launcher() {
+  local src="${LAUNCHD_SRC}/nq-es-1m-accumulate-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  NQ_ES_1M_ACCUMULATE_LAUNCHER="${app_support}/nq-es-1m-accumulate.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${NQ_ES_1M_ACCUMULATE_LAUNCHER}"
+  chmod +x "${NQ_ES_1M_ACCUMULATE_LAUNCHER}"
+}
+
+install_taifex_tick_accumulate_launcher() {
+  local src="${LAUNCHD_SRC}/taifex-tick-accumulate-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  TAIFEX_TICK_ACCUMULATE_LAUNCHER="${app_support}/taifex-tick-accumulate.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${TAIFEX_TICK_ACCUMULATE_LAUNCHER}"
+  chmod +x "${TAIFEX_TICK_ACCUMULATE_LAUNCHER}"
+}
+
+install_taifex_intraday_snapshot_launcher() {
+  local src="${LAUNCHD_SRC}/taifex-intraday-snapshot-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER="${app_support}/taifex-intraday-snapshot.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER}"
+  chmod +x "${TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER}"
+}
+
 install_ops_console_evening_launcher() {
   local src="${LAUNCHD_SRC}/ops-console-evening-sync-launcher.sh.template"
   local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
@@ -581,6 +722,19 @@ install_ops_console_evening_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${OPS_CONSOLE_EVENING_LAUNCHER}"
   chmod +x "${OPS_CONSOLE_EVENING_LAUNCHER}"
+}
+
+install_daily_sync_launcher() {
+  local src="${LAUNCHD_SRC}/daily-sync-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  DAILY_SYNC_LAUNCHER="${app_support}/daily-sync.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${DAILY_SYNC_LAUNCHER}"
+  chmod +x "${DAILY_SYNC_LAUNCHER}"
 }
 
 install_mini_schedule_launcher() {
@@ -802,14 +956,21 @@ install_agents() {
   LEADING_DIP_LAUNCHER=""
   SONGSHAN_COPYTRADE_LAUNCHER=""
   TMF_CHANNEL_LAUNCHER=""
+  MOMENTUM_ROTATION_LAUNCHER=""
+  MOMENTUM_ROTATION_WATCH_LAUNCHER=""
   EP_STAGED_GATE_LAUNCHER=""
   NIGHTLY_EXPERT_DIGEST_LAUNCHER=""
   SECOND_DISP_EXPERT_LAUNCHER=""
+  SONGSHAN_FOLLOW_WATCH_LAUNCHER=""
+  TAPE_BARS_BACKFILL_LAUNCHER=""
   EXPERT_POOL_CHART_LAUNCHER=""
   HOLDINGS_BRANCH_SELL_LAUNCHER=""
   BRANCH_TAPE_PREWARM_LAUNCHER=""
+  US_OVERNIGHT_FUTURES_SYNC_LAUNCHER=""
+  TAIFEX_INTRADAY_SNAPSHOT_LAUNCHER=""
   OPS_CONSOLE_EVENING_LAUNCHER=""
   MINI_SCHEDULE_LAUNCHER=""
+  DAILY_SYNC_LAUNCHER=""
   EVENING_HOLDINGS_LAUNCHER=""
   MORNING_BRIEF_LAUNCHER=""
   INTRADAY_GATE_LAUNCHER=""
@@ -821,20 +982,31 @@ install_agents() {
   MUTUAL_FUND_LAUNCHER=""
   MINERVINI_LAUNCHER=""
   WEEKLY_DEEP_LAUNCHER=""
+  NQ_ES_1M_ACCUMULATE_LAUNCHER=""
+  TAIFEX_TICK_ACCUMULATE_LAUNCHER=""
   sync_order_env_mirror
   install_buy_radar_launcher
   install_detach_gate_launcher
   install_leading_dip_launcher
   install_songshan_copytrade_launcher
   install_tmf_channel_launcher
+  install_momentum_rotation_launcher
+  install_momentum_rotation_watch_launcher
   install_ep_staged_gate_launcher
   install_nightly_expert_digest_launcher
   install_second_disp_expert_launcher
+  install_songshan_follow_watch_launcher
+  install_tape_bars_backfill_launcher
   install_expert_pool_chart_launcher
   install_holdings_branch_sell_launcher
   install_branch_tape_prewarm_launcher
+  install_us_overnight_futures_sync_launcher
+  install_taifex_intraday_snapshot_launcher
   install_ops_console_evening_launcher
   install_mini_schedule_launcher
+  install_daily_sync_launcher
+  install_nq_es_1m_accumulate_launcher
+  install_taifex_tick_accumulate_launcher
   # specialty-expert-pool-watch retired 2026-07-20 · merged into nightly-expert-digest
   # morning-holdings-brief retired 2026-07-16 · not installed
 

@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 21:00 · 凱基松山（9217）跟單觀測 · observe only · 不下單
+#
+# 目的：`songshan-copytrade-poll` 下單 job 已於 2026-07-27 disabled，之後
+# 9217 訊號沒有獨立的 point-in-time（PIT）留痕，研究上「累積樣本外交易」
+# 零進度。這支 job 每個交易日固定跑一次 run_songshan_follow_watch.py，
+# 把當日觸發（五日累積買≥0.5億 ∩ 五日淨比≥95% ∩ !mega）與 near-miss
+# 原因寫成報告檔，事後不可能被指控是看著結果挑窗口。
+#
+#   報告：reports/research/branch-footprint-screen/ab58_xMega_copytrade/watch/
+#         songshan_YYYYMMDD.md（每個交易日一檔 · TRIGGERED / no_signal）
+#   狀態：${GOLDENSTOCKS_DATA_DIR}/data/scratch/songshan_follow_watch_state.json
+#
+# ⚠️ 排程時間為何是 21:00：9217 自身的分點 tape 由 20:00 nightly-expert-digest
+# 與 20:35 second-disp-expert-pool-watch 先行補檔完成，21:00 讀得到當日完整
+# 資料，也避開 FinMind rate limit 撞車。因此本 job 帶 `--no-refresh`
+# （不重複打 FinMind backfill；缺漏 OHLC 仍會補，正常情況為 no-op）。
+#
+# ⚠️ 郵件預設關閉（走 `--bootstrap-only`：照常寫報告檔，但不寄信）：20:00
+# nightly-expert-digest 已經把同一份 9217 內容併進合併 digest 寄出，這支再寄
+# 就是每天第二封重複信。本 job 的價值是 PIT 檔案不是信。job 失敗時仍會用
+# notify_job_result.py 發告警（那才是需要知道的事）。
+# 若真的要這支獨立寄信，在 mini `${GOLDENSTOCKS_DATA_DIR}/.env` 加一行：
+#     SONGSHAN_FOLLOW_WATCH_EMAIL=1
+# （祕密／旗標一律不寫進 plist。）
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+DATA_ROOT="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}"
+RUN_LOG="${DATA_ROOT}/logs/songshan_follow_watch_${STAMP}.log"
+LOCK_DIR="/tmp/com.jackm4.goldenstocks.songshan-follow-watch.lock"
+
+mkdir -p "${DATA_ROOT}/logs"
+
+# 星期過濾：plist 只給鐘面，真正的「平日」判斷在這裡（1=Mon … 5=Fri）
+DOW="$(date '+%u')"
+if [[ "${DOW}" -gt 5 ]]; then
+  echo "=== songshan-follow-watch skip: 週末（dow=${DOW}）$(date '+%Y-%m-%d %H:%M:%S') ==="
+  exit 0
+fi
+
+# 防重疊：mkdir 為 atomic，前一輪還在跑就直接退出
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  echo "=== songshan-follow-watch skip: 前一輪仍在執行（${LOCK_DIR}）$(date '+%Y-%m-%d %H:%M:%S') ==="
+  exit 0
+fi
+trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+
+echo ""
+echo "=== launchd songshan-follow-watch 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src:${ROOT}/scripts/research"
+PYTHON="${ROOT}/.venv/bin/python"
+
+_load_env_file() {
+  local path="$1"
+  if [[ ! -r "${path}" ]]; then
+    return 0
+  fi
+  set +e
+  set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  set +a
+  set -e
+}
+
+_load_env_file "${DATA_ROOT}/.env"
+
+# observe-only 預設：`--bootstrap-only` 會照常評估、照常寫 PIT 報告檔與 state，
+# 但**不寄信**（見 run_songshan_follow_watch.py main() 的 bootstrap 分支）。
+# 這是刻意的：20:00 digest 已寄過同一份 9217 內容。
+# 用 RUN_SONGSHAN_FOLLOW_EMAIL=0 壓不住——research 腳本 main() 會
+# load_project_dotenv(override=True) 把 .env 的值蓋回來，所以改用 CLI flag。
+EMAIL_ARGS=(--bootstrap-only)
+if [[ "${SONGSHAN_FOLLOW_WATCH_EMAIL:-0}" == "1" ]]; then
+  EMAIL_ARGS=()
+fi
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/run_songshan_follow_watch.py" \
+    --branch songshan \
+    --no-refresh \
+    ${EMAIL_ARGS[@]+"${EMAIL_ARGS[@]}"} \
+    2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== launchd songshan-follow-watch 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="松山跟單觀測" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="9217 跟單 PIT 觀測失敗，當日訊號未留痕，詳見 log" \
+    --env-flag="RUN_SONGSHAN_FOLLOW_EMAIL"
+  set -e
+fi
+
+exit "${EXIT}"

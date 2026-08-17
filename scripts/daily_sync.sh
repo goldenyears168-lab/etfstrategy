@@ -24,8 +24,14 @@ ensure_python_deps() {
   fi
 }
 
-DB="${ROOT}/data/stocks.db"
-LOG_DIR="${ROOT}/logs"
+# 2026-08-10修正架構債：原本硬寫${ROOT}/data、${ROOT}/logs（git tree內），
+# 跟stock_db.DATA_DIR（可搬出git tree的GOLDENSTOCKS_DATA_DIR）不一致——發現
+# ${ROOT}/data/stocks.db是0-byte空檔（跟python程式碼走的正確DB完全脫節），
+# --holdings-report終端摘要功能($DB的sqlite3直查)因此對著空DB查，是CLAUDE.md
+# 「新程式碼讀寫DB/log一律走stock_db.DATA_DIR，不要硬寫PROJECT_ROOT/data」
+# 這條規則在bash腳本裡的漏網之魚（之前的修補都是python檔）。
+DB="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/data/stocks.db"
+LOG_DIR="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/daily_sync_$(date '+%Y%m%d').log"
 
@@ -137,7 +143,14 @@ pipe_out() {
   fi
 }
 
-if [[ -f "${ROOT}/.env" ]]; then
+# 2026-08-17 修：原本只判斷 `${ROOT}/.env`，但 mini 的 .env 在
+# ${GOLDENSTOCKS_DATA_DIR}（可搬出 git tree，見 CLAUDE.md），所以這個 guard 永遠為 false
+# ——每次 launchd run 都印「警告：未找到 .env」的假警報。launchd 路徑其實沒事
+# （daily-sync.command 已先 source 過），但 CLAUDE.md 記載的**手動**跑法
+# `SYNC_PROFILE=slim scripts/daily_sync.sh --holdings-report` 會真的完全沒載入
+# .env，TEJ/FinMind token 缺席。body 內的 shell_export_dotenv() 本來就解析正確路徑，
+# 錯的只有這個判斷式。
+if [[ -f "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" || -f "${ROOT}/.env" ]]; then
   set -a
   eval "$("$PYTHON" -c "from project_dotenv import shell_export_dotenv; print(shell_export_dotenv())")"
   set +a

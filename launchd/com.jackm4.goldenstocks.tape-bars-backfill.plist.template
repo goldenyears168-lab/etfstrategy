@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.tape-bars-backfill</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{TAPE_BARS_BACKFILL_LAUNCHER}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/tmp</string>
+	<!-- data ingest · order_capable=false · 不建立 Fubon session、不送單。
+	     旗標／祕密（FINMIND_TOKEN）一律由 launcher source
+	     ${GOLDENSTOCKS_DATA_DIR}/.env 取得，不要硬寫在這裡。 -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>PYTHONPATH</key>
+		<string>{{PROJECT_ROOT}}/src</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Weekday</key><integer>1</integer>
+			<key>Hour</key><integer>22</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>2</integer>
+			<key>Hour</key><integer>22</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>3</integer>
+			<key>Hour</key><integer>22</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>4</integer>
+			<key>Hour</key><integer>22</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+		<dict>
+			<key>Weekday</key><integer>5</integer>
+			<key>Hour</key><integer>22</integer>
+			<key>Minute</key><integer>30</integer>
+		</dict>
+	</array>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tape-bars-backfill.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/tape-bars-backfill.launchd.err.log</string>
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>
