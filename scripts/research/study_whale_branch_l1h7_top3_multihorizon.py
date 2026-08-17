@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from research.branch_exclusion import excluded_trader_ids
 from stock_db import DEFAULT_DB_PATH, connect
 
 COST, HORIZONS, DEDUP_DAYS, BETA = 0.003, (7, 14, 20), 5, 1.15
@@ -50,8 +51,8 @@ def load_mega_blacklist() -> set[str]:
 
 
 def load_market_maker_exclusion() -> set[str]:
-    data = json.loads(MARKET_MAKER_EXCLUSION_PATH.read_text(encoding="utf-8"))
-    return {s["trader_id"] for s in data["symbols"]}
+    # SSOT loader（原本此處手刻 3 行讀 symbols[].trader_id，20260817 收斂）
+    return excluded_trader_ids()
 
 
 def load_ix(conn) -> pd.DataFrame:

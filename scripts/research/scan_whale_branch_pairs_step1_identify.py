@@ -45,6 +45,8 @@ def load_mega_blacklist() -> set[str]:
 
 
 def load_market_maker_exclusion() -> set[str]:
+    # 本腳本刻意保持 standalone（不掛 src/），所以直讀 JSON 而不用
+    # research.branch_exclusion；欄位契約同該模組：symbols[].trader_id。
     data = json.loads(MARKET_MAKER_EXCLUSION_PATH.read_text(encoding="utf-8"))
     return {s["trader_id"] for s in data["symbols"]}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,7 @@ from statistics import mean, median, pstdev
 
 from copytrade.branch_signals import iter_branch_amount_buy_signals
 from copytrade.signals import group_signals_by_date
+from research.branch_exclusion import check_trader_ids, exclusion_index, format_warning
 from research.backtest.copytrade_backtest import (
     DEFAULT_SIGNAL_CAPITAL_NTD,
     count_hold_trading_days,
@@ -73,7 +75,9 @@ DEFAULT_BRANCHES: tuple[BranchSpec, ...] = (
     BranchSpec("ms-taiwan", "台灣摩根士丹利", "1470", "foreign"),
     BranchSpec("nomura", "港商野村", "1560", "foreign"),
     BranchSpec("ubs-sg", "新加坡商瑞銀", "1650", "foreign"),
-    BranchSpec("credit-suisse", "瑞士信貸", "1520", "foreign"),
+    # 1520 瑞士信貸 已移除（20260817）：CS 併入 UBS，tape 只剩 2026-05-20 起 40 天
+    # 且 net 全為 0，任何 window 都跑不出結果，留著只會每次被 min-days 濾掉一次。
+    # 該席的實際流量現已併入 1650 新加坡商瑞銀。
     # Foreign-branch completion batch (20260817): remaining 外資分點 on tape
     BranchSpec("macquarie", "港商麥格理", "1360", "foreign"),
     BranchSpec("merrill", "美林", "1440", "foreign"),
@@ -353,6 +357,13 @@ def run_fair_compare(
         ),
     }
 
+    # 排除清單是警示不是硬擋：重測既有成員合法，但必須是有意識的選擇。
+    hits = check_trader_ids([b.trader_id for b in branches])
+    if hits:
+        print(format_warning(hits), file=sys.stderr)
+    protocol["market_maker_exclusion_hits"] = [r["trader_id"] for r in hits]
+    excl_idx = exclusion_index()
+
     branch_rows: list[dict] = []
     for b in branches:
         cov = tape_coverage(
@@ -453,6 +464,10 @@ def run_fair_compare(
                 "label": b.label,
                 "trader_id": b.trader_id,
                 "style": b.style,
+                "market_maker_excluded": b.trader_id in excl_idx,
+                "market_maker_exclusion_note": (
+                    excl_idx.get(b.trader_id, {}).get("note")
+                ),
                 "coverage": cov,
                 "frozen_grid": frozen_grid,
                 "density_matched": {
@@ -581,15 +596,24 @@ def render_markdown(payload: dict) -> str:
         "",
         "## Coverage",
         "",
-        "| Branch | ID | Days | Rows | Min | Max | Style |",
-        "|---|---|---:|---:|---|---|---|",
+        "| Branch | ID | Days | Rows | Min | Max | Style | 造市排除清單 |",
+        "|---|---|---:|---:|---|---|---|---|",
     ]
     for b in payload["branches"]:
         c = b["coverage"]
+        excl = "**已列入**" if b.get("market_maker_excluded") else "—"
         lines.append(
             f"| {b['label']} | {b['trader_id']} | {c['n_days']} | {c['n_rows']} | "
-            f"{c['min_date']} | {c['max_date']} | {b['style']} |"
+            f"{c['min_date']} | {c['max_date']} | {b['style']} | {excl} |"
         )
+    hits = payload["protocol"].get("market_maker_exclusion_hits") or []
+    if hits:
+        lines += [
+            "",
+            f"> ⚠️ 本次 {len(hits)} 支分點（{', '.join(hits)}）已在造市／綜合流量排除清單內"
+            "（`reports/research/branch-footprint-screen/market_maker_branch_exclusion_v1.json`）。"
+            "清單語意是警示不是硬擋；若這次就是要重測既有成員，請在 notes 寫明理由。",
+        ]
     lines += [
         "",
         "## Notes",
