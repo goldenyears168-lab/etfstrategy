@@ -697,7 +697,17 @@ jobs:
       Full scripts/daily_sync.sh (not --holdings-only) — constituent stock
       market+institutional (sync_stock_market_daily.py, gated by
       RUN_STOCK_MARKET_SYNC=1) + chip daily + ETF holdings + tech risk +
-      RUN_*-gated RRG/VCP/Lens/Supabase steps per .env. Added 2026-08-10:
+      RUN_*-gated RRG/VCP/Lens/Supabase steps per .env。
+      ⚠️ **2026-08-18 踩到的坑：關掉「寫 Supabase」的旗標不等於關掉「讀 Supabase」。**
+      斷開 Supabase 後 daily-sync 仍然 exit=1，查出兩個漏網：
+      (a) `RUN_STRATEGY_PERF_SYNC` —— 獨立於 RUN_SUPABASE_* 的另一個旗標，
+          跑 226s 後 404（stock_research.strategy_performance_yearly 已不存在）；
+      (b) `RUN_STOCK_DAILY_LENS` —— 更隱蔽：lens **讀** Supabase 是它核心邏輯的一部分
+          （run_stock_daily_lens.py → stock_daily_lens.publish_stock_daily_highlight →
+          build_stock_daily_lens_rows → supabase_lens_sync.load_supabase_highlight_for_date），
+          **完全不受 `RUN_SUPABASE_LENS_SYNC` 控制**。關掉寫、讀還是會 404。
+      兩者已於 2026-08-18 設為 0。教訓：切斷外部依賴時，要 grep 的是**該依賴的 import 鏈**
+      （`grep -rl supabase src scripts`），不是只找名字裡有該依賴的旗標。 Added 2026-08-10:
       previously this pipeline was documented in CLAUDE.md as a manual
       "常用指令" (scripts/1630收盤雷達.command only covers --holdings-only,
       a narrower path) with no launchd automation — found stock_daily_bars

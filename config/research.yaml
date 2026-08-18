@@ -178,6 +178,72 @@ topics:
       的 build_signal_dict/permutation_test 呼叫方式，加上 prior20 新鮮度過濾與
       1槽skip-when-full gating）。
 
+  songshan-forward-falsification-watch:
+    title: 凱基松山 9217 · 前瞻證偽觀察（G1 預註記 · 非畢業路徑）
+    status: active
+    phase: forward_test
+    layer: research
+    report_dir: reports/research/branch-footprint-screen/ab58_xMega_copytrade/watch
+    run_scripts:
+      - scripts/research/run_songshan_follow_watch.py
+    launchd:
+      - nightly-expert-digest        # 平日 20:00 · 自 2026-07-17 起不中斷寫同一份報告
+      - songshan-follow-watch        # 平日 21:00 · 2026-08-17 建 · 冗餘 PIT 記錄器 · 不寄信
+    hypotheses:
+      - id: H-SSFW-1
+        statement: >
+          9217 的 scan_5d_net95 訊號（buy_5d >= 0.5億 ∩ net_ratio >= 0.95 ∩ !mega）
+          在 2026-08-18 之後的**前瞻**樣本上，L1H7 中位數超額報酬 >= 0
+        status: pending
+    methodology: >
+      **這不是畢業路徑，是證偽觀察。** 第十一輪已把 whale-branch-l1h7-discovery 的
+      G2 判為 rejected（覆蓋率補到 99.9% 後 n=88、median −3.706%、勝率 43.2%）。
+      本 topic 的存在理由是：(a) 用真正的前瞻樣本確認那個 rejection，而不是只靠回溯重算；
+      (b) 萬一我們錯了，前瞻資料是唯一能翻案的證據。
+
+      協議完全沿用既有 SSOT，不得更動：scan_5d_net95 訊號定義、L1H7（T+1 開盤進 /
+      H7 收盤出 / 30bps / stock − 1.15 × IX0001）。
+      ⚠️ 但報告時**必須同時列出無條件基準**（見 docs/research-integrity-checklist.md A16）：
+      同協議、完全不挑股不挑日的基準是 n=1,120,570、median −1.829%、勝率 36.4%。
+      任何「顯著異於零」的敘述都無意義，只有「相對基準的差距」才算數。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # 本區塊即為預註記，寫於 2026-08-18，樣本尚未累積
+        G2_oos_holdout: pending
+        G3_regime_stratification: na
+        G4_rejection_registry: na
+        G5_frozen_spec: na
+        G6_adoption_report: na
+      action: >
+        **以下判準於 2026-08-18 預先宣告，在達到 min_signal_days 之前不得修改。**
+        任何門檻變更都必須另開 v2 並重新起算前瞻期（比照 dayflip FROZEN_SPEC_V1 的紀律）。
+
+        起算日：2026-08-18（本區塊寫入日）。訊號來源：nightly-expert-digest 20:00
+        與 songshan-follow-watch 21:00 寫出的 songshan_YYYYMMDD.md（自 2026-07-17 起不中斷）。
+
+        pass_criteria（三條全部滿足才算推翻現行 rejected）：
+          min_signal_days: 20          # 以 9217 近年約 20~25 筆/年的觸發密度，約需 1 年
+          median_excess_vs_baseline: > +1.83pp   # 即 L1H7 median > 0（基準為 −1.829%）
+          win_rate_pct: >= 50          # 基準為 36.4%，這是很寬鬆的門檻
+        fail_action: >
+          維持 rejected，不調參搶救、不放寬 net_min、不改 buy_floor。
+          若 min_signal_days 在 2027-08-18 前未達 20，判定為「訊號密度不足以驗證」，
+          同樣維持 rejected（不得以「樣本還不夠」無限期延後定案）。
+
+        ⚠️ 已知會讓這個前瞻期無效的三件事，發生時必須在此註記：
+          (1) scan_5d_net95 或 L1H7 協議被更動
+          (2) stock_daily_bars 又發生大規模回補（母體會事後長大，見第十一輪）
+          (3) 20:00 / 21:00 兩支 job 中斷超過 3 個交易日
+    notes: >
+      2026-08-18 建立。動機：docs/research-integrity-checklist.md A13（G1 事後補登記 vs
+      事先預註記）——songshan-follow-watch 自 2026-08-17 起已在累積 PIT 樣本，
+      **現在訂門檻才叫預註記，晚一步就變成事後補登記**，這條線就永遠拿不到乾淨的 G2。
+      這也是第十一輪 I 組移植研究 [I-11] 標為「唯一有時效性」的那一條。
+
+      誠實預期：以第十一輪 n=88 的結果（median −3.706%）推算，前瞻樣本大概率會確認
+      rejection。訂這個契約的目的不是期待翻案，是讓「確認」這件事本身有正式的證據，
+      而不是靠回溯重算——回溯重算永遠會被質疑是看著結果挑窗口。
+
   tdcc-big-holder-forward:
     title: 集保大戶持股比變化 · 前瞻報酬預測力（存量軸首測）
     status: rejected
