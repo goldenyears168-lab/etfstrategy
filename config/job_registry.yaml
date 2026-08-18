@@ -389,6 +389,47 @@ jobs:
       second-disp-oos-accumulate／songshan-follow-watch 模式），避免彈掉常駐的 live
       tmf-channel-poll worker。
 
+  - label: futopt-fill-listener
+    category: collect
+    order_capable: false
+    status: enabled
+    enabled_since: "2026-08-18"
+    schedule: "KeepAlive 常駐（24h）· 事件驅動，無輪詢"
+    description: >
+      富邦帳戶層級成交推播 listener（set_on_futopt_filled / set_on_futopt_order /
+      set_on_order_futopt_changed）→ cache/tmf_channel/tick_seconds/
+      futopt_fill_events_{YYYY-MM-DD}.jsonl。**唯讀觀察，永不送單**；獨立
+      session，不碰 live worker 的 session pool。
+      2026-08-18 從手動 nohup 改為 launchd 管理。動機：TMF 的市價出場
+      （struct_break / trail / max_hold / pre_close_flatten，佔 60 日回放 78%
+      的出場）從來沒有在任何地方留下確認成交價，等於在最不該假設零滑價的
+      時候假設了零滑價。已量到的滑價 −0.40 pts/邊只涵蓋限價成交（2026-08-13/14
+      的 1,742 張委託裡只有 6 張市價單、且都沒配到成交），市價出場的真實
+      滑價仍是未知數，而它可能大於整條策略的毛利（見
+      reports/research/channel_lab/tmf_true_cost.json）。
+      ⚠️ 注意：本 job 只在帳戶真的有成交時才寫檔。TMF 目前
+      ORDER_TMF_CHANNEL_ENABLED=0（dry-run），所以**不會**產生 TMF 成交；
+      現階段收到的會是 dayflip-short 等其他實彈袖的成交。
+
+  - label: futopt-books-collect
+    category: collect
+    order_capable: false
+    status: enabled
+    enabled_since: "2026-08-18"
+    schedule: "KeepAlive 常駐（24h）· websocket 推播，無輪詢"
+    description: >
+      CCF/TMF/EXF/SXF/SOF/SPF 五檔（books）＋逐筆（trades）websocket 收集器
+      → cache/{root}_books/ 與 cache/{root}_trades/。**唯讀**；獨立 session。
+      2026-08-18 從手動 nohup 改為 launchd 管理，同時修掉一個會污染下游分析的
+      資料缺陷：日盤與夜盤兩路訂閱送到同一個 callback、訊息本身沒有任何欄位
+      能分辨，收盤那一側會凍結在最後一筆並每次 session 續約（約 58 分）原樣
+      重送一次（實測 336,953 列中 492 列是殭屍）。現在每列都帶
+      session（由交易所端 book_time 判定 day/night）、book_age_sec、stale
+      三個欄位，下游用欄位過濾即可，不必自己逆推。
+      實測 TMF 盤口輪廓（見 reports/research/channel_lab/
+      tmf_book_microstructure.json）：中位價差 3 點、bid1/ask1 各 3 口、
+      top-of-book 存續期中位數 0.12 秒。
+
   - label: taifex-intraday-snapshot
     category: collect
     order_capable: false
@@ -603,12 +644,20 @@ jobs:
   - label: ops-console-evening-sync
     category: webfeed
     order_capable: false
-    status: disabled
-    disabled_since: "2026-08-17"
-    schedule: "weekdays 20:40（已停用）"
+    status: enabled
+    re_enabled_since: "2026-08-18"
+    schedule: "weekdays 20:40（Supabase 推送已關閉，只跑本地 tape/panel）"
     description: >
       ops.snapshots / sleeve / holdings sync to Supabase for the website。
-      **2026-08-17 整支 launchctl disable**：使用者不再使用 Supabase、要停掉
+      **2026-08-18 重新 enable，但 Supabase 推送維持關閉**（`.env` 的
+      `RUN_OPS_CONSOLE_PUSH=0`，launcher 內三個推送步驟會 SKIP）。
+      恢復原因：2026-08-17 整支停掉後實測 8 席 by-trader 全市場 tape 當天就崩
+      ——1480 從 1,517 檔掉到 11 檔、1650 1,368→11、1560 1,056→8、5850 1,004→11、
+      984K 753→11，24 席高沖席合計覆蓋 1,103→490 檔。而該 tape 是分點籌碼研究的
+      唯一每日來源。**這支 job 的價值在前半段（本地 tape/panel），不在後半段（Supabase 推送）**，
+      兩者現在由 RUN_OPS_CONSOLE_PUSH 分離。
+      ---- 以下為 2026-08-17 停用時的紀錄（供對照）----
+      **2026-08-17 曾整支 launchctl disable**：使用者不再使用 Supabase、要停掉
       Pro Plan $25/月扣款；並在被明確告知「會一併斷掉 8 席全市場分點 tape」後
       選擇整支斷（該 8 席多為外資分點，跟單研究已判定全無 edge，見 research 線）。
       **停掉這支等於同時停掉四件事**（不只是 Supabase 推送）：
