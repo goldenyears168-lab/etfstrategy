@@ -320,5 +320,87 @@ class SessionPoolTest(unittest.TestCase):
         sess.init_realtime.assert_called_once_with()
 
 
+class WatchdogAndHeartbeatTest(unittest.TestCase):
+    """2026-08-17 incident regression: a reconcile that never returns must not
+    be able to wedge the worker silently again (see worker_loop module docstring
+    for the 3d16h / 100%-CPU / zero-log-lines postmortem)."""
+
+    def test_arm_watchdog_disarms_without_firing(self):
+        from tmf_channel import worker_loop as wl
+
+        wl._arm_watchdog(300.0, phase="unit")
+        wl._disarm_watchdog()  # must not kill the test process
+        self.assertTrue(wl.incident_path().exists())
+
+    def test_watchdog_disabled_when_env_zero(self):
+        from tmf_channel import worker_loop as wl
+
+        with mock.patch.dict(os.environ, {wl._WATCHDOG_ENV: "0"}):
+            self.assertEqual(wl._watchdog_sec(), 0.0)
+        with mock.patch.dict(os.environ, {wl._WATCHDOG_ENV: "not-a-number"}):
+            self.assertEqual(wl._watchdog_sec(), wl._WATCHDOG_DEFAULT_SEC)
+
+    def test_heartbeat_roundtrip_and_atomic_replace(self):
+        from tmf_channel import worker_loop as wl
+
+        wl.write_heartbeat({"ts": "2026-08-17T21:00:00+08:00", "phase": "reconcile_enter"})
+        payload = json.loads(wl.heartbeat_path().read_text(encoding="utf-8"))
+        self.assertEqual(payload["phase"], "reconcile_enter")
+        self.assertFalse(wl.heartbeat_path().with_suffix(".json.tmp").exists())
+
+    def test_heartbeat_write_failure_never_raises(self):
+        from tmf_channel import worker_loop as wl
+
+        with mock.patch.object(wl, "heartbeat_path", side_effect=OSError("disk full")):
+            wl.write_heartbeat({"ts": "x"})  # must swallow
+
+    def test_run_forever_arms_and_disarms_around_reconcile(self):
+        from tmf_channel import worker_loop as wl
+
+        armed: list[str] = []
+        with (
+            # Must mock: run_forever() calls load_project_dotenv(), which
+            # merges the production .env into os.environ for the whole pytest
+            # process and silently flips later tests onto live flags
+            # (ORDER_TMF_CHANNEL_NIGHT_USES_DAY_RECIPE=1 rewrites the PV16
+            # night book, breaking test_tmf_channel_pv16_book downstream).
+            mock.patch.object(wl, "load_project_dotenv"),
+            mock.patch.object(wl, "in_tmf_trade_window", return_value=True),
+            mock.patch.object(wl, "session_hhmm_now", return_value="10:00"),
+            mock.patch.object(wl, "get_fubon_session"),
+            mock.patch.object(wl, "reconcile_once", return_value={"ok": True, "reason": "reconciled"}),
+            mock.patch.object(wl, "pool_stats", return_value={}),
+            mock.patch.object(wl, "_arm_watchdog", side_effect=lambda s, phase: armed.append("arm")),
+            mock.patch.object(wl, "_disarm_watchdog", side_effect=lambda: armed.append("disarm")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            wl.run_forever(once=True)
+        self.assertEqual(armed, ["arm", "disarm"])
+
+    def test_watchdog_disarmed_even_when_reconcile_raises(self):
+        from tmf_channel import worker_loop as wl
+
+        armed: list[str] = []
+        with (
+            # Must mock: run_forever() calls load_project_dotenv(), which
+            # merges the production .env into os.environ for the whole pytest
+            # process and silently flips later tests onto live flags
+            # (ORDER_TMF_CHANNEL_NIGHT_USES_DAY_RECIPE=1 rewrites the PV16
+            # night book, breaking test_tmf_channel_pv16_book downstream).
+            mock.patch.object(wl, "load_project_dotenv"),
+            mock.patch.object(wl, "in_tmf_trade_window", return_value=True),
+            mock.patch.object(wl, "session_hhmm_now", return_value="10:00"),
+            mock.patch.object(wl, "get_fubon_session"),
+            mock.patch.object(wl, "reconcile_once", side_effect=RuntimeError("boom")),
+            mock.patch.object(wl, "reset_session_pool"),
+            mock.patch.object(wl, "pool_stats", return_value={}),
+            mock.patch.object(wl, "_arm_watchdog", side_effect=lambda s, phase: armed.append("arm")),
+            mock.patch.object(wl, "_disarm_watchdog", side_effect=lambda: armed.append("disarm")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            wl.run_forever(once=True)
+        self.assertEqual(armed, ["arm", "disarm"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,18 +15,48 @@ export TZ="${TZ:-Asia/Taipei}"
 export ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src"
 
+WORKER_PY="${ROOT}/scripts/order/run_tmf_channel_worker.py"
+
+# --- 反重跑：PID 存活判定，不用時間老化 -------------------------------------
+# 2026-08-17 事故：舊版把 lockdir 超過 120s 就當 stale 直接 rm -rf。這條規則是
+# StartInterval 冷啟動時代寫的（每輪幾秒就結束），架構改成 KeepAlive 常駐
+# worker 之後，鎖在開工兩分鐘後就自動失效 —— 等於沒有鎖。實際後果：
+# `launchctl kickstart -k` 只殺得掉 launcher shell，卡死在 Python 迴圈裡的
+# worker 收到 SIGTERM 也只是把 _STOP 旗標設起來（永遠不會被檢查到），於是
+# 舊 worker 續活、新 worker 照樣起來，同時有兩個 worker 對同一個帳戶對帳
+# ——正是 CLAUDE.md「禁止雙跑」要擋的情境，卻被鎖自己放行。
+# 改法：鎖裡存 PID，用 kill -0 判定是否真的還活著；真的活著就退出（維持
+# 單一執行路徑），確定是殘骸才清掉。另外主動收殘留的 worker 行程，避免
+# kickstart -k 殺不乾淨的漏網之魚。
 LOCKDIR="${APP_SUPPORT}/tmf-channel-poll.lockdir"
 if ! mkdir "${LOCKDIR}" 2>/dev/null; then
-  age=$(( $(date +%s) - $(stat -f %m "${LOCKDIR}" 2>/dev/null || echo 0) ))
-  if [[ "${age}" -gt 120 ]]; then
-    rm -rf "${LOCKDIR}"
+  holder="$(cat "${LOCKDIR}/pid" 2>/dev/null || echo "")"
+  if [[ -n "${holder}" ]] && kill -0 "${holder}" 2>/dev/null; then
+    echo "skip: tmf-channel worker already holding lock (pid=${holder}, alive)"
+    exit 0
   fi
+  echo "reclaiming stale lock (holder=${holder:-unknown} not alive)"
+  rm -rf "${LOCKDIR}"
   if ! mkdir "${LOCKDIR}" 2>/dev/null; then
-    echo "skip: tmf-channel worker already holding lock"
+    echo "skip: tmf-channel worker lock race lost"
     exit 0
   fi
 fi
-trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
+echo "$$" > "${LOCKDIR}/pid"
+trap 'rm -rf "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+# 收殘骸：任何不是自己的 run_tmf_channel_worker.py（含卡死不理 SIGTERM 的）
+for stale in $(pgrep -f "${WORKER_PY}" 2>/dev/null || true); do
+  [[ "${stale}" == "$$" ]] && continue
+  echo "reaping stale tmf worker pid=${stale}"
+  kill -TERM "${stale}" 2>/dev/null || true
+done
+sleep 2
+for stale in $(pgrep -f "${WORKER_PY}" 2>/dev/null || true); do
+  [[ "${stale}" == "$$" ]] && continue
+  echo "stale tmf worker pid=${stale} ignored SIGTERM → SIGKILL"
+  kill -KILL "${stale}" 2>/dev/null || true
+done
 
 STAMP="$(date '+%Y%m%d')"
 TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/tmf_channel_live_${STAMP}.log"
@@ -57,6 +87,8 @@ export ORDER_TMF_CHANNEL_DRY_RUN="${ORDER_TMF_CHANNEL_DRY_RUN:-1}"
 export ORDER_TMF_CHANNEL_AUTO_SUBMIT="${ORDER_TMF_CHANNEL_AUTO_SUBMIT:-0}"
 export ORDER_TMF_CHANNEL_WORKER_INTERVAL="${ORDER_TMF_CHANNEL_WORKER_INTERVAL:-20}"
 export ORDER_TMF_CHANNEL_WORKER_IDLE="${ORDER_TMF_CHANNEL_WORKER_IDLE:-60}"
+
+export ORDER_TMF_CHANNEL_RECONCILE_WATCHDOG_SEC="${ORDER_TMF_CHANNEL_RECONCILE_WATCHDOG_SEC:-120}"
 
 PYTHON="${ROOT}/.venv-fubon/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then

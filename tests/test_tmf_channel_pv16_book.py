@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest import mock
 
 from order.tmf_channel_config import PAPER_RECIPE, load_tmf_channel_order_config
 from order.tmf_channel_pv16_book import (
@@ -32,7 +34,12 @@ class Pv16BookTest(unittest.TestCase):
 
     def test_specialized_patches(self):
         # Cell-tune v2（2026-08-06）疊加在 SPECIALIZED_PATCHES 之後、同 key 後者勝。
-        book = specialized_cell_book()
+        # 2026-08-17: 明確清掉 NIGHT_USES_DAY_RECIPE。這支是 book 的釘樁測試，
+        # 但 specialized_cell_book() 會讀 os.environ，只要同一個 pytest process
+        # 裡有任何一支測試載入過生產 .env（該旗標為 1），night 就會整組被 day
+        # 覆蓋、這裡靜默轉紅——測試結果不該取決於執行順序或機器上的 .env。
+        with mock.patch.dict(os.environ, {"ORDER_TMF_CHANNEL_NIGHT_USES_DAY_RECIPE": "0"}):
+            book = specialized_cell_book()
         self.assertEqual(book["day"]["contract"]["hang_lo"], 10.0)
         self.assertEqual(book["day"]["contract"]["hang_hi"], 25.0)
         self.assertEqual(book["day"]["normal"]["early_fill_gamma"], 13.0)

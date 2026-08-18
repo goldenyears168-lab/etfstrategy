@@ -13,6 +13,7 @@ session=AFTERHOURS at night) was deployed.
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from order import tmf_channel_marketdata as mkt
@@ -31,6 +32,62 @@ class TickerApiSessionTest(unittest.TestCase):
         # No explicit hm: must resolve via session_hhmm_now(), not crash.
         result = mkt._ticker_api_session()
         self.assertIn(result, ("REGULAR", "AFTERHOURS"))
+
+
+class Fetch1mBarsWsFallbackTest(unittest.TestCase):
+    """2026-08-13: day-session REST candles() call now prefers a websocket
+    feed (see order.tmf_channel_ws_feed) and only falls back to REST when
+    that feed isn't fresh -- pins both branches so a regression in the
+    wiring can't silently drop the REST fallback path (the only thing
+    standing between a websocket outage and an entirely blind worker).
+
+    2026-08-17: bar timestamps are now generated from the current wall-clock
+    date. They were hardcoded to "2026-08-13T09:00" when written, and
+    fetch_1m_bars' _in_day_window() only keeps rows whose calendar date IS
+    today -- so both tests started returning 0 bars on 2026-08-14 and had
+    been red on every run since (never noticed: this work was still
+    uncommitted, so CI never saw it)."""
+
+    @staticmethod
+    def _bar_ts() -> str:
+        # 09:00 today, Asia/Taipei -- inside _in_day_window for any weekday.
+        return datetime.now(tz=mkt._TZ).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        ).isoformat(timespec="milliseconds")
+
+    def _fake_session(self, day_return, night_return=None):
+        session = MagicMock()
+        session._tmf_realtime_ok = True
+        fut = session.sdk.marketdata.rest_client.futopt
+        fut.intraday.candles.return_value = day_return
+        return session, fut
+
+    def test_ws_fresh_skips_rest_day_call(self):
+        session, fut = self._fake_session({"data": []})
+        ws_rows = [
+            {"date": self._bar_ts(), "open": 100, "high": 101, "low": 99, "close": 100.5},
+        ]
+        with patch.object(mkt, "get_day_rows_via_ws", return_value=ws_rows) as mock_ws:
+            bars = mkt.fetch_1m_bars(session, "TMFH6")
+        mock_ws.assert_called_once_with(session, "TMFH6")
+        # day candles() must NOT be called with the plain (day) signature --
+        # only the explicit session="afterhours" call is allowed through.
+        for call in fut.intraday.candles.call_args_list:
+            self.assertEqual(call.kwargs.get("session"), "afterhours")
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(bars[0]["o"], 100.0)
+
+    def test_ws_none_falls_back_to_rest_day_call(self):
+        session, fut = self._fake_session(
+            {"data": [{"date": self._bar_ts(), "open": 200, "high": 201, "low": 199, "close": 200.5}]}
+        )
+        with patch.object(mkt, "get_day_rows_via_ws", return_value=None) as mock_ws:
+            bars = mkt.fetch_1m_bars(session, "TMFH6")
+        mock_ws.assert_called_once_with(session, "TMFH6")
+        plain_calls = [c for c in fut.intraday.candles.call_args_list if "session" not in c.kwargs]
+        self.assertEqual(len(plain_calls), 1)
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(bars[0]["o"], 200.0)
 
 
 class ResolveFrontSymbolSessionParamTest(unittest.TestCase):
