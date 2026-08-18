@@ -216,7 +216,12 @@ def refresh_missing_ohlc(conn, *, asof: str, stock_ids: list[str]) -> str:
     d0 = date_cls.fromisoformat(asof)
     ok = 0
     # Prefer larger tape names first (amount proxy = shares when close missing).
-    # Cap raised: 5d research needs priced rows or signals silently vanish.
+    # ⚠️ 2026-08-18：這個 80 上限**已不再是瓶頸**。價格補檔的主要負責者是 launchd
+    # `tape-bars-backfill`（平日 22:30 · scripts/ops/backfill_active_tape_bars.py），
+    # 它把 stock_daily_bars 的有價股票數從 861 補到 2,249；補完後 9217 每日缺價
+    # 2026-08-13 為 31 檔、08-14 為 5 檔、08-17 為 0 檔，全部落在 80 以內。
+    # 本函式現在的定位是「21:00 當下的同日 fallback」（22:30 那支還沒跑），不是主力。
+    # 若哪天又看到缺價 >80，代表 22:30 那支壞了或宇宙又擴大——先查那支，不要動這個數字。
     for sid in missing[:80]:
         try:
             raw = fetch_finmind("TaiwanStockPrice", sid, d0, d0)

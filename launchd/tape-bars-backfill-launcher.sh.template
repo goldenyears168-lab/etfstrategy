@@ -80,6 +80,23 @@ else
   EXIT=${PIPESTATUS[0]}
   set -e
 
+  # 週五加跑一次「深掃」：日常模式只看近 3 個交易日活躍的標的，會漏掉
+  # 「這幾天沒動、但研究窗內出現過」的股票。每週對主要專家席各補一次完整歷史，
+  # 把研究母體的缺口壓在一週以內，而不是等到有人手動跑 --branch-id。
+  # （2026-08-17 的教訓：9217 的 tape 宇宙有 50% 沒有價格，補完後母體 n=53→88、
+  #   訊號從 +2.26% 翻成 −0.57%。缺口不補，任何統計結論都會事後變動。）
+  if [[ "$(date '+%u')" == "5" ]]; then
+    for BID in ${TAPE_BARS_DEEP_SWEEP_BRANCHES:-9217 9661 9227 9801}; do
+      echo "--- 週五深掃 branch=${BID} ---" | tee -a "${RUN_LOG}"
+      set +e
+      "${PYTHON}" "${ROOT}/scripts/ops/backfill_active_tape_bars.py" \
+        --branch-id "${BID}" --tape-since "${TAPE_BARS_DEEP_SWEEP_SINCE:-2024-07-01}" \
+        --lookback-days 820 --max-stocks "${TAPE_BARS_DEEP_SWEEP_MAX:-300}" \
+        2>&1 | tee -a "${RUN_LOG}"
+      set -e
+    done
+  fi
+
   # 補完後跑覆蓋率斷言，把結果附在同一份 log（唯讀）。
   # 刻意**不**讓斷言的 FAIL 影響本 job 的 exit code：backlog 要排幾天才會排完，
   # 每晚都告警只會變成雜訊。斷言的正式消費者是 08:30 mini-schedule 體檢。

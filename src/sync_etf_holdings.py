@@ -81,6 +81,15 @@ NOMURA_FUND_MAP: dict[str, str] = {
 NOMURA_ASSETS_URL = "https://www.nomurafunds.com.tw/API/ETFAPI/api/Fund/GetFundAssets"
 
 MIN_HOLDINGS_COUNT = 40
+# 部分 ETF 的持股檔數會隨時間結構性下降，全域門檻會變成每日假警報。
+# 00992A（群益）實測：2026-06-09 起 44→42→41→40→40→36，是真實縮減不是抓取失敗
+# （2026-06-23 之後每天 ERROR、快照凍在六月，daily-sync 因此持續 WARN）。
+# 這裡放寬到 30：仍能擋住「只抓到個位數＝解析壞掉」的真故障，但不再對正常縮減誤報。
+MIN_HOLDINGS_COUNT_BY_ETF: dict[str, int] = {"00992A": 30}
+
+
+def _min_holdings(etf_code: str) -> int:
+    return MIN_HOLDINGS_COUNT_BY_ETF.get(etf_code, MIN_HOLDINGS_COUNT)
 
 EZMONEY_HEADERS = {
     "User-Agent": (
@@ -350,10 +359,10 @@ def _parse_capitalfund_payload(
             }
         )
 
-    if len(holdings) < MIN_HOLDINGS_COUNT:
+    if len(holdings) < _min_holdings(etf_code):
         raise RuntimeError(
             f"CapitalFund {etf_code} only {len(holdings)} TW stocks "
-            f"(need >={MIN_HOLDINGS_COUNT}); incomplete portfolio?"
+            f"(need >={_min_holdings(etf_code)}); incomplete portfolio?"
         )
 
     holdings.sort(key=lambda item: item["stock_id"])
@@ -436,10 +445,10 @@ def _parse_nomura_payload(
             }
         )
 
-    if len(holdings) < MIN_HOLDINGS_COUNT:
+    if len(holdings) < _min_holdings(etf_code):
         raise RuntimeError(
             f"Nomura {etf_code} only {len(holdings)} TW stocks "
-            f"(need >={MIN_HOLDINGS_COUNT}); incomplete portfolio?"
+            f"(need >={_min_holdings(etf_code)}); incomplete portfolio?"
         )
 
     holdings.sort(key=lambda item: item["stock_id"])
