@@ -80,7 +80,16 @@ from stock_db import DATA_DIR  # noqa: E402
 TZ = ZoneInfo("Asia/Taipei")
 CACHE_DIR = DATA_DIR.parent / "cache"
 SYMBOL_CACHE_PATH = CACHE_DIR / "futures_symbol_cache.json"
-ROOTS = ["CCF", "TMF", "EXF", "SOF", "SXF", "SPF"]
+# 2026-08-19 加入 MXF（小型臺指）與 TXF（大台）：三段 walk-forward 顯示，同一個
+# 訊號在掛單距離 ×2.0 下每筆毛額是 2.86 點（三段最小），而成本結構完全取決於
+# 契約選擇——手續費是「每口 NT$X」，換算成點數要除以每點價值：
+#   微台 TMF  NT$10/點 → NT$15/邊 = 1.50 點/邊 → 來回成本 4.05 點 → 每筆 −1.19
+#   小台 MXF  NT$50/點 → NT$15/邊 = 0.30 點/邊 → 來回成本 1.65 點 → 每筆 +1.21
+# 交易稅在點數上是尺度不變的（0.924/邊），所以手續費是唯一能靠換工具大幅壓縮的
+# 項目。但上面那個 1.65 沿用了微台量到的價差與滑價，而 MXF 流動性遠優於 TMF、
+# 價差很可能更窄——在真的搬過去之前必須用**實測**取代假設，這就是把它們加進
+# 收集器的理由。TXF 一併收，作為同一指數第三個成本點的對照。
+ROOTS = ["CCF", "TMF", "MXF", "TXF", "EXF", "SOF", "SXF", "SPF"]
 RECONNECT_SLEEP_SEC = 5.0
 # 比照 tmf_channel.session_pool.get_fubon_session 的 max_age_sec=3500 ——realtime
 # token 沒有官方文件寫明存活多久，這個閾值是既有 production 程式碼驗證過的安全值，
