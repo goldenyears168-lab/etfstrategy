@@ -44,6 +44,8 @@ LABELS=(
   com.jackm4.goldenstocks.taifex-tick-accumulate
   com.jackm4.goldenstocks.momentum-rotation-poll
   com.jackm4.goldenstocks.momentum-rotation-watch
+  com.jackm4.goldenstocks.futopt-fill-listener
+  com.jackm4.goldenstocks.futopt-books-collect
 )
 
 TEMPLATES=(
@@ -70,6 +72,8 @@ TEMPLATES=(
   com.jackm4.goldenstocks.taifex-tick-accumulate.plist.template
   com.jackm4.goldenstocks.momentum-rotation-poll.plist.template
   com.jackm4.goldenstocks.momentum-rotation-watch.plist.template
+  com.jackm4.goldenstocks.futopt-fill-listener.plist.template
+  com.jackm4.goldenstocks.futopt-books-collect.plist.template
 )
 
 usage() {
@@ -137,10 +141,16 @@ LAUNCHD_COMMANDS=(
   expert-pool-chart-digest
   holdings-branch-sell-monitor
   branch-tape-prewarm
-  us-overnight-futures-sync
-  taifex-intraday-snapshot
   ops-console-evening-sync
 )
+# 2026-08-18 移除 us-overnight-futures-sync 與 taifex-intraday-snapshot：
+# 這兩支是 launcher-template 機制的 job（已安裝的 plist 指向 App Support 下的
+# .sh），從來沒有、也不需要 scripts/launchd/*.command。它們在上一個 commit
+# (9c40626) 被誤加進這個陣列，而 ensure_launchd_commands() 是整支安裝腳本的
+# **第一道檢查**且 exit 1 —— 於是 install-launchd.sh 自那次提交起完全無法執行，
+# 沒有任何人發現，因為平常不會去跑它。這是 CLAUDE.md 記載過的同一類事故
+# （2026-08-01 退役 sell-signal-radar 時，殘留的 sed 行讓整支腳本第一次 render
+# 就死）的新一例：**這個陣列只放真的有 .command 檔的 job**。
 
 ensure_launchd_commands() {
   local name path
@@ -432,6 +442,8 @@ render_template() {
       -e "s|{{WEEKLY_DEEP_LAUNCHER}}|${WEEKLY_DEEP_LAUNCHER}|g" \
       -e "s|{{NQ_ES_1M_ACCUMULATE_LAUNCHER}}|${NQ_ES_1M_ACCUMULATE_LAUNCHER}|g" \
       -e "s|{{TAIFEX_TICK_ACCUMULATE_LAUNCHER}}|${TAIFEX_TICK_ACCUMULATE_LAUNCHER}|g" \
+      -e "s|{{FUTOPT_FILL_LISTENER_LAUNCHER}}|${FUTOPT_FILL_LISTENER_LAUNCHER}|g" \
+      -e "s|{{FUTOPT_BOOKS_COLLECT_LAUNCHER}}|${FUTOPT_BOOKS_COLLECT_LAUNCHER}|g" \
       "${template}" >"${dest}"
 }
 
@@ -683,6 +695,32 @@ install_nq_es_1m_accumulate_launcher() {
   mkdir -p "${app_support}"
   render_template "${src}" "${NQ_ES_1M_ACCUMULATE_LAUNCHER}"
   chmod +x "${NQ_ES_1M_ACCUMULATE_LAUNCHER}"
+}
+
+install_futopt_fill_listener_launcher() {
+  local src="${LAUNCHD_SRC}/futopt-fill-listener-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  FUTOPT_FILL_LISTENER_LAUNCHER="${app_support}/futopt-fill-listener.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${FUTOPT_FILL_LISTENER_LAUNCHER}"
+  chmod +x "${FUTOPT_FILL_LISTENER_LAUNCHER}"
+}
+
+install_futopt_books_collect_launcher() {
+  local src="${LAUNCHD_SRC}/futopt-books-collect-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  FUTOPT_BOOKS_COLLECT_LAUNCHER="${app_support}/futopt-books-collect.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${FUTOPT_BOOKS_COLLECT_LAUNCHER}"
+  chmod +x "${FUTOPT_BOOKS_COLLECT_LAUNCHER}"
 }
 
 install_taifex_tick_accumulate_launcher() {
@@ -984,12 +1022,16 @@ install_agents() {
   WEEKLY_DEEP_LAUNCHER=""
   NQ_ES_1M_ACCUMULATE_LAUNCHER=""
   TAIFEX_TICK_ACCUMULATE_LAUNCHER=""
+  FUTOPT_FILL_LISTENER_LAUNCHER=""
+  FUTOPT_BOOKS_COLLECT_LAUNCHER=""
   sync_order_env_mirror
   install_buy_radar_launcher
   install_detach_gate_launcher
   install_leading_dip_launcher
   install_songshan_copytrade_launcher
   install_tmf_channel_launcher
+  install_futopt_fill_listener_launcher
+  install_futopt_books_collect_launcher
   install_momentum_rotation_launcher
   install_momentum_rotation_watch_launcher
   install_ep_staged_gate_launcher

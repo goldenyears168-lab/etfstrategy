@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# CCF/TMF 五檔＋逐筆收集器 · 常駐（KeepAlive）· **唯讀，無任何送單路徑**
+#
+# 2026-08-18 建立。在此之前這兩支是手動 nohup 起來的研究腳本（實測分別已跑了
+# 5 天與 3 天），機器重開或行程崩掉就靜默停止收資料，沒有任何人會發現——而
+# 它們正在收的東西（市價出場的真實滑價、乾淨的五檔歷史）是目前唯一還沒被
+# 量到、且可能大於整條策略毛利的成本項。改成 launchd 管理只多了「崩掉會自己
+# 復活」，不改變腳本本身的 session 行為。
+#
+# 刻意 24 小時常駐、不做時窗過濾：兩支腳本本來就是這樣跑了好幾天的已知行為，
+# 加時窗是新的未驗證邏輯。要改再另外驗。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+APP_SUPPORT="{{APP_SUPPORT}}"
+WORKER_PY="${ROOT}/scripts/research/collect_ccf_books_websocket.py"
+
+mkdir -p "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday" "${APP_SUPPORT}"
+mkdir -p "${HOME}/Library/Logs/com.jackm4.goldenstocks"
+
+export TZ="${TZ:-Asia/Taipei}"
+export ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/src"
+
+# --- 反重跑：PID 存活判定（不用時間老化）---------------------------------
+# 與 tmf-channel-poll-launcher 同一套。舊版那種「lockdir 超過 N 秒就當 stale」
+# 的規則對常駐行程等於沒有鎖，2026-08-17 就是這樣同時跑出三個 TMF worker。
+LOCKDIR="${APP_SUPPORT}/futopt-books-collect.lockdir"
+if ! mkdir "${LOCKDIR}" 2>/dev/null; then
+  holder="$(cat "${LOCKDIR}/pid" 2>/dev/null || echo "")"
+  if [[ -n "${holder}" ]] && kill -0 "${holder}" 2>/dev/null; then
+    echo "skip: futopt-books-collect already holding lock (pid=${holder}, alive)"
+    exit 0
+  fi
+  echo "reclaiming stale lock (holder=${holder:-unknown} not alive)"
+  rm -rf "${LOCKDIR}"
+  mkdir "${LOCKDIR}" 2>/dev/null || { echo "skip: lock race lost"; exit 0; }
+fi
+echo "$$" > "${LOCKDIR}/pid"
+trap 'rm -rf "${LOCKDIR}" 2>/dev/null || true' EXIT
+
+# 收殘骸：包含這支改成 launchd 之前手動 nohup 起來的那個行程
+# 用檔名而不是絕對路徑比對：這兩支在改成 launchd 之前是用相對路徑
+# 手動 nohup 起來的（`python scripts/research/xxx.py`），拿絕對路徑
+# pgrep 一個都抓不到 —— 2026-08-18 首次掛載時就因此變成雙跑。
+REAP_PAT="collect_ccf_books_websocket.py"
+for stale in $(pgrep -f "${REAP_PAT}" 2>/dev/null || true); do
+  [[ "${stale}" == "$$" ]] && continue
+  echo "reaping pre-existing futopt-books-collect pid=${stale}"
+  kill -TERM "${stale}" 2>/dev/null || true
+done
+sleep 2
+for stale in $(pgrep -f "${REAP_PAT}" 2>/dev/null || true); do
+  [[ "${stale}" == "$$" ]] && continue
+  echo "pid=${stale} ignored SIGTERM → SIGKILL"
+  kill -KILL "${stale}" 2>/dev/null || true
+done
+
+_load_env_file() {
+  local path="$1"; local label="$2"
+  [[ -r "${path}" ]] || return 0
+  set +e; set -a
+  # shellcheck disable=SC1090
+  source "${path}" 2>/dev/null
+  local rc=$?
+  set +a; set -e
+  [[ "${rc}" -ne 0 ]] && echo "WARN: cannot source ${label} rc=${rc} · 續用預設"
+  return 0
+}
+_load_env_file "${APP_SUPPORT}/order.env" "order.env"
+_load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
+
+STAMP="$(date '+%Y%m%d')"
+LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/futopt_books_collect_${STAMP}.log"
+
+PYTHON="${ROOT}/.venv-fubon/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing .venv-fubon python: ${PYTHON}"
+  exit 1
+fi
+
+echo "=== futopt-books-collect start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${LOG}"
+set +e
+"${PYTHON}" "${WORKER_PY}" 2>&1 | tee -a "${LOG}"
+EXIT=${PIPESTATUS[0]}
+set -e
+echo "=== futopt-books-collect end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${LOG}"
+exit "${EXIT}"
