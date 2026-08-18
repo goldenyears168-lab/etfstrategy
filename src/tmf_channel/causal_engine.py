@@ -1051,6 +1051,10 @@ def simulate(
         # tick_native.py exactly). Set explicitly to "O" | "C" | "ema".
         hang_anchor=None,
         hang_anchor_ema_n=15,
+        # Passive-fill realism for tick_native replays — see _entry_fillable.
+        # "touch" reproduces every prior result bit-for-bit; live never sets it.
+        fill_model="touch",
+        queue_ahead_lots=0.0,
         # Research overlays (default OFF) — NQ bias / near-rail early fill
         # session_side_gate: dict day→{"L","S","none"} applied when flat (night/day).
         session_side_gate=None,
@@ -1539,6 +1543,48 @@ def simulate(
             log(t, "fill", side, px, f"fixed2|{reg}")
         return True
 
+    # --- passive-fill realism (research opt-in; live is byte-identical) ------
+    # p["fill_model"]:
+    #   "touch" (default) — a resting rail fills the instant a print reaches
+    #       its price. This is the 1m-bar convention every published result for
+    #       this strategy was produced under, and it assumes the order is at
+    #       the FRONT of the queue at that price, always.
+    #   "through" — the rail only fills once a print goes strictly BEYOND it.
+    #       Rationale: when the market trades through a level it has consumed
+    #       everything resting there, so the fill is certain regardless of queue
+    #       position. Needs no depth data, so it is immune to the TX-vs-TMF
+    #       volume-proxy caveat. This is a lower bound on fills.
+    #   "queue" — fills once cumulative volume printed AT the rail price since
+    #       the rail was placed exceeds p["queue_ahead_lots"] (i.e. the queue
+    #       ahead has been eaten), or a through-print occurs. Interpolates
+    #       between the two above; queue_ahead_lots=0 degenerates to "touch".
+    # Entry fills only. Exits (opp_cover / stop / trail / struct) keep the
+    # existing convention so the measured delta is attributable to entries
+    # alone — the live order layer takes most exits with market orders anyway.
+    _queue_state: dict[str, list] = {"S": [None, 0.0], "L": [None, 0.0]}
+
+    def _entry_fillable(side: str, rail: float | None, px: float, vol: float) -> bool:
+        if rail is None:
+            return False
+        model = str(p.get("fill_model") or "touch")
+        if model == "touch":
+            return (px >= rail) if side == "S" else (px <= rail)
+        through = (px > rail) if side == "S" else (px < rail)
+        if model == "through":
+            return through
+        if model != "queue":
+            raise ValueError(f"unknown fill_model: {model!r}")
+        st_ = _queue_state[side]
+        if st_[0] != rail:  # rail moved → we lost priority, re-join at the back
+            st_[0] = rail
+            st_[1] = 0.0
+        at_price = (px == rail)
+        if at_price:
+            st_[1] += float(vol or 0.0)
+        if through:
+            return True
+        return at_price and st_[1] > float(p.get("queue_ahead_lots") or 0.0)
+
     def _bar_tick_range(t: int) -> tuple[int, int]:
         if tick_index is None or t >= len(tick_index.T):
             return (0, 0)
@@ -1593,6 +1639,7 @@ def simulate(
         em = str(p.get("exit_mode") or "opp")
         allow_opp_cover = em in ("opp", "far_opp", "hybrid_trail")
         tk_px = tick_index.tk_px
+        tk_vol = getattr(tick_index, "tk_vol", None)
 
         for k in range(start, end):
             px = tk_px[k]
@@ -1659,6 +1706,9 @@ def simulate(
             # --- entry / scale-in / opp_cover / flip checks (same tick) ---
             hit_s = short_px is not None and px >= short_px
             hit_l = long_px is not None and px <= long_px
+            tk_vol_k = tk_vol[k] if tk_vol is not None and k < len(tk_vol) else 0.0
+            entry_s = hit_s and _entry_fillable("S", short_px, px, tk_vol_k)
+            entry_l = hit_l and _entry_fillable("L", long_px, px, tk_vol_k)
             if hit_s and hit_l:
                 continue
             if hit_s:
@@ -1670,10 +1720,10 @@ def simulate(
                             open_lot(t, "S", px, "flip", reg_t, rv_t, honor_limit=True, hung_limit=hung_s)
                         short_px = short_born = None
                 elif not lots:
-                    if open_lot(t, "S", px, "enter", reg_t, rv_t, honor_limit=True, hung_limit=hung_s):
+                    if entry_s and open_lot(t, "S", px, "enter", reg_t, rv_t, honor_limit=True, hung_limit=hung_s):
                         short_px = short_born = None
                 elif lots[0]["s"] == "S":
-                    if open_lot(t, "S", px, "scale_in", reg_t, rv_t, honor_limit=True, hung_limit=hung_s):
+                    if entry_s and open_lot(t, "S", px, "scale_in", reg_t, rv_t, honor_limit=True, hung_limit=hung_s):
                         short_px = short_born = None
                     elif len(lots) >= p["max_lots"]:
                         log(t, "cancel", "S", short_px, "max_lots_rail")
@@ -1690,10 +1740,10 @@ def simulate(
                             open_lot(t, "L", px, "flip", reg_t, rv_t, honor_limit=True, hung_limit=hung_l)
                         long_px = long_born = None
                 elif not lots:
-                    if open_lot(t, "L", px, "enter", reg_t, rv_t, honor_limit=True, hung_limit=hung_l):
+                    if entry_l and open_lot(t, "L", px, "enter", reg_t, rv_t, honor_limit=True, hung_limit=hung_l):
                         long_px = long_born = None
                 elif lots[0]["s"] == "L":
-                    if open_lot(t, "L", px, "scale_in", reg_t, rv_t, honor_limit=True, hung_limit=hung_l):
+                    if entry_l and open_lot(t, "L", px, "scale_in", reg_t, rv_t, honor_limit=True, hung_limit=hung_l):
                         long_px = long_born = None
                     elif len(lots) >= p["max_lots"]:
                         log(t, "cancel", "L", long_px, "max_lots_rail")
