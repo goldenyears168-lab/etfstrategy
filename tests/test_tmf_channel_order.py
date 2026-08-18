@@ -18,7 +18,9 @@ from order.tmf_channel_ledger import load_ledger, record_actions, roll_day, save
 from order.tmf_channel_marketdata import in_tmf_trade_window
 from order.tmf_channel_order import (
     _drop_forming_last_bar,
+    check_adverse_pts_safety_net,
     check_max_hold_safety_net,
+    minutes_to_session_close,
     reconcile_once,
     synthesize_lost_tracking_protect_rail,
 )
@@ -339,6 +341,10 @@ def _dry_cfg(ledger_path: str) -> TmfChannelOrderConfig:
         product="TMF",
         kill_day_loss_pts=400.0,
         max_hold_safety_min=90.0,
+        pre_close_flatten_min=10.0,
+        adverse_pts_safety_cap=0.0,
+        trail_stop_giveback_pts=0.0,
+        trail_stop_min_hold_min=5.0,
         kill_consecutive_failures=5,
         recipe={},
         recipe_version="test",
@@ -394,7 +400,10 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
             mock.patch(
                 "order.tmf_channel_order.query_tmf_broker_net", return_value=fake_broker_pos
             ),
-            mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
         ):
             out = reconcile_once(cfg, force=True)
 
@@ -418,7 +427,10 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
                 return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
             ),
             mock.patch("order.tmf_channel_order.query_tmf_broker_net", return_value=None),
-            mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
         ):
             out = reconcile_once(cfg, force=True)
 
@@ -469,7 +481,10 @@ class KillSwitchFlattenStopgapTest(unittest.TestCase):
             mock.patch(
                 "order.tmf_channel_order.query_tmf_broker_net", return_value=fake_broker_pos
             ),
-            mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
         ):
             for m in (mock_dt_order, mock_dt_md, mock_dt_ledger):
                 m.now.return_value = fixed_now
@@ -644,6 +659,7 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                 "recipe_version": "test",
             }
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -657,7 +673,10 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                     return_value={"s": "L", "n": 1, "ep": 44990.0, "acct_symbol": "FITM"},
                 ),
                 mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -726,6 +745,7 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                 "recipe_version": "test",
             }
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -739,7 +759,10 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                     return_value={"s": "L", "n": 1, "ep": 45458.0, "acct_symbol": "FITM"},
                 ),
                 mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -806,6 +829,7 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                 "recipe_version": "test",
             }
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -819,7 +843,10 @@ class LostTrackingProtectRailTest(unittest.TestCase):
                     return_value={"s": "L", "n": 1, "ep": 44990.0, "acct_symbol": "FITM"},
                 ),
                 mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -1346,6 +1373,600 @@ class MaxHoldSafetyNetTest(unittest.TestCase):
         self.assertIsNotNone(why)
 
 
+class MinutesToSessionCloseTest(unittest.TestCase):
+    """2026-08-12: 05:00-08:45 and 13:45-15:00 are a total monitoring
+    blackout (worker_loop skips reconcile_once entirely outside the trade
+    window). Pure-function coverage for the boundary arithmetic that feeds
+    the pre-close flatten gate below."""
+
+    def test_mid_day_session(self):
+        self.assertEqual(minutes_to_session_close("10:00"), 225.0)
+
+    def test_near_day_close(self):
+        self.assertEqual(minutes_to_session_close("13:40"), 5.0)
+
+    def test_at_day_close_boundary(self):
+        self.assertEqual(minutes_to_session_close("13:45"), 0.0)
+
+    def test_early_night_session(self):
+        # 20:00 -> midnight (240min) + midnight -> 05:00 (300min)
+        self.assertEqual(minutes_to_session_close("20:00"), 540.0)
+
+    def test_late_night_wraps_past_midnight(self):
+        self.assertEqual(minutes_to_session_close("23:55"), 305.0)
+
+    def test_night_tail_near_close(self):
+        self.assertEqual(minutes_to_session_close("04:55"), 5.0)
+
+    def test_outside_any_window_before_day_open(self):
+        self.assertIsNone(minutes_to_session_close("07:00"))
+
+    def test_outside_any_window_midday_gap(self):
+        self.assertIsNone(minutes_to_session_close("14:00"))
+
+
+class PreCloseFlattenConfigTest(unittest.TestCase):
+    def test_config_default_is_ten_minutes(self):
+        cfg = load_tmf_channel_order_config()
+        self.assertEqual(cfg.pre_close_flatten_min, 10.0)
+
+    def test_config_respects_env_override(self):
+        with mock.patch.dict(
+            os.environ, {"ORDER_TMF_CHANNEL_PRE_CLOSE_FLATTEN_MIN": "15"}, clear=False
+        ):
+            cfg = load_tmf_channel_order_config()
+        self.assertEqual(cfg.pre_close_flatten_min, 15.0)
+
+
+class PreCloseFlattenTest(unittest.TestCase):
+    """2026-08-12: user-authorized ("如果沒顯著差別，可以收盤前平倉就好") --
+    no proven edge to carrying a position through the 05:00/13:45 window
+    close into the total monitoring blackout that follows, so force flat
+    instead of leaving it to ride unmanaged. Mirrors check_max_hold_safety_net's
+    flatten_why + broker_live composition (see the "if flatten_why and
+    broker_live:" branch in reconcile_once), but keyed off minutes-to-close
+    instead of elapsed hold time."""
+
+    def setUp(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        self.ledger_path = tmp.name
+        save_ledger(self.ledger_path, {
+            "schema": "tmf-channel-ledger-v1",
+            "day": trading_day_str(),
+            "api_calls_day": 0,
+            "day_pnl_pts": 0.0,
+            "killed": False,
+            "kill_reason": None,
+            "last_symbol": None,
+            "last_desired": None,
+            "actions_tail": [],
+            "broker_pos": None,
+            "consecutive_order_failures": 0,
+        })
+
+    def tearDown(self):
+        Path(self.ledger_path).unlink(missing_ok=True)
+
+    def _fake_desired(self, **overrides):
+        base = {
+            "ok": True,
+            "want_s": 45090.0,
+            "want_l": None,
+            "open_pos": None,
+            "trades": [],
+            "events": [],
+            "spot": 45050.0,
+            "last_t": "2026-08-12T04:52:00.000+08:00",
+            "regime": "contract",
+            "active_cell": {"cell": "night|contract", "session": "night", "pv": "contract", "recipe": {}},
+            "nq_gate": "none",
+            "nq_gate_error": None,
+            "recipe_version": "test",
+        }
+        base.update(overrides)
+        return base
+
+    def test_open_position_force_flattened_within_lead_window(self):
+        """8min to 05:00 close, lead=10min, real L position open -- must
+        market-close it exactly like the existing flatten_why+broker_live
+        path (over-max-lots / kill-switch), not ride into the blackout."""
+        cfg = _dry_cfg(self.ledger_path)
+        fake_desired = self._fake_desired(
+            want_s=None, want_l=None, open_pos={"s": "L", "n": 1, "ep": 45050.0}
+        )
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="04:52"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 1, "ep": 45050.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertEqual(out.get("reason"), "flatten_first")
+        self.assertIn("pre_close_flatten", str(out.get("flatten_why")))
+        self.assertEqual(mock_place.call_count, 1)
+        _session, resolved = mock_place.call_args[0]
+        self.assertEqual(resolved.buy_sell, "Sell")  # close a long by selling
+        self.assertEqual(resolved.price_type, "market")
+        self.assertEqual(resolved.order_type, "close")
+
+    def test_new_entry_blocked_within_lead_window_while_flat(self):
+        """7min to 13:45 close, flat but the cell wants a fresh entry S rail
+        -- must not open something new that would immediately face the
+        05:00-08:45 blackout the same afternoon evening; existing resting
+        rail must also get cancelled, not left standing."""
+        cfg = _dry_cfg(self.ledger_path)
+        fake_desired = self._fake_desired(want_s=45090.0, want_l=None, open_pos=None)
+        resting_short = mock.Mock(
+            symbol="FITM", status=0, buy_sell=mock.Mock(), price=45022.0,
+        )
+        resting_short.buy_sell.name = "Sell"
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="13:38"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch("order.tmf_channel_order.query_tmf_broker_net", return_value=None),
+            mock.patch(
+                "order.tmf_channel_order.get_futopt_order_results",
+                return_value=[resting_short],
+            ),
+            mock.patch("order.tmf_channel_order.cancel_futopt_order") as mock_cancel,
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertIn("pre_close_flatten", out)
+        self.assertIsNone(out.get("want_s"))
+        self.assertEqual(mock_cancel.call_count, 1)
+        self.assertEqual(mock_place.call_count, 0)
+
+    def test_outside_lead_window_unaffected(self):
+        """30min to 05:00 close (> 10min lead) -- normal reconciliation,
+        no pre_close_flatten interference."""
+        cfg = _dry_cfg(self.ledger_path)
+        fake_desired = self._fake_desired(
+            want_s=45090.0, want_l=None, open_pos={"s": "L", "n": 1, "ep": 45050.0}
+        )
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="04:30"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 1, "ep": 45050.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertNotIn("pre_close_flatten", out)
+        self.assertNotEqual(out.get("reason"), "flatten_first")
+        # want_s survives untouched (protective rail placed normally) --
+        # the pre-close gate did not null it 30min out from close.
+        self.assertEqual(out.get("want_s"), 45090.0)
+        self.assertEqual(mock_place.call_count, 1)
+        _session, resolved = mock_place.call_args[0]
+        self.assertEqual(resolved.price_type, "limit")
+
+
+class AdversePtsSafetyNetTest(unittest.TestCase):
+    """2026-08-12: sim-state-free price-based backstop, symmetric counterpart
+    to check_max_hold_safety_net -- see check_adverse_pts_safety_net's
+    docstring for why stop_pts itself never manifests as a real exit (it
+    only ever produces a resting want_s/want_l, unlike this and the max-hold
+    net which both call a real market order directly off broker_live)."""
+
+    def test_disabled_when_cap_is_zero(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=44800.0,
+            adverse_pts_safety_cap=0.0,
+        )
+        self.assertIsNone(adverse)
+        self.assertIsNone(why)
+
+    def test_disabled_when_cap_is_negative(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=44800.0,
+            adverse_pts_safety_cap=-10.0,
+        )
+        self.assertIsNone(adverse)
+        self.assertIsNone(why)
+
+    def test_no_broker_position_no_signal(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live=None, spot=44800.0, adverse_pts_safety_cap=50.0,
+        )
+        self.assertIsNone(adverse)
+        self.assertIsNone(why)
+
+    def test_zero_size_broker_live_treated_as_flat(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 0, "ep": 45000.0},
+            spot=44800.0,
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertIsNone(adverse)
+        self.assertIsNone(why)
+
+    def test_missing_spot_no_signal(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=None,
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertIsNone(adverse)
+        self.assertIsNone(why)
+
+    def test_long_under_cap_no_flatten(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=44970.0,  # -30pt adverse
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertAlmostEqual(adverse, 30.0)
+        self.assertIsNone(why)
+
+    def test_long_at_or_over_cap_flattens(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=44940.0,  # -60pt adverse
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertAlmostEqual(adverse, 60.0)
+        self.assertIsNotNone(why)
+        self.assertIn("adverse_pts_safety_net", why)
+        self.assertIn("adverse=60", why)
+        self.assertIn("cap=50", why)
+
+    def test_short_at_or_over_cap_flattens(self):
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "S", "n": 1, "ep": 45000.0},
+            spot=45060.0,  # -60pt adverse (price rose against a short)
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertAlmostEqual(adverse, 60.0)
+        self.assertIsNotNone(why)
+
+    def test_favorable_move_reports_negative_adverse_no_flatten(self):
+        """Price moving IN the position's favor is a negative 'adverse'
+        value -- must never accidentally flatten a winning position."""
+        adverse, why = check_adverse_pts_safety_net(
+            broker_live={"s": "L", "n": 1, "ep": 45000.0},
+            spot=45200.0,  # +200pt favorable
+            adverse_pts_safety_cap=50.0,
+        )
+        self.assertAlmostEqual(adverse, -200.0)
+        self.assertIsNone(why)
+
+
+class AdversePtsSafetyCapConfigTest(unittest.TestCase):
+    def test_config_default_is_disabled(self):
+        cfg = load_tmf_channel_order_config()
+        self.assertEqual(cfg.adverse_pts_safety_cap, 0.0)
+
+    def test_config_respects_env_override(self):
+        with mock.patch.dict(
+            os.environ, {"ORDER_TMF_CHANNEL_ADVERSE_PTS_SAFETY_CAP": "60"}, clear=False
+        ):
+            cfg = load_tmf_channel_order_config()
+        self.assertEqual(cfg.adverse_pts_safety_cap, 60.0)
+
+
+class AdversePtsSafetyNetIntegrationTest(unittest.TestCase):
+    """reconcile_once wiring: with a cap configured and a real broker
+    position adverse beyond it, the position must be market-flattened via
+    the SAME flatten_why+broker_live path as max_hold_safety_net and
+    pre_close_flatten -- not a resting want_s/want_l, which is exactly the
+    mechanism this backstop exists to bypass."""
+
+    def setUp(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        self.ledger_path = tmp.name
+        save_ledger(self.ledger_path, {
+            "schema": "tmf-channel-ledger-v1",
+            "day": trading_day_str(),
+            "api_calls_day": 0,
+            "day_pnl_pts": 0.0,
+            "killed": False,
+            "kill_reason": None,
+            "last_symbol": None,
+            "last_desired": None,
+            "actions_tail": [],
+            "broker_pos": None,
+            "consecutive_order_failures": 0,
+        })
+
+    def tearDown(self):
+        Path(self.ledger_path).unlink(missing_ok=True)
+
+    def _cfg_with_cap(self, cap):
+        base = _dry_cfg(self.ledger_path)
+        from dataclasses import replace
+
+        return replace(base, adverse_pts_safety_cap=cap)
+
+    def _fake_desired(self, **overrides):
+        base = {
+            "ok": True,
+            "want_s": None,
+            "want_l": None,
+            "open_pos": None,
+            "trades": [],
+            "events": [],
+            "spot": 44940.0,
+            "last_t": "2026-08-12T12:00:00.000+08:00",
+            "regime": "normal",
+            "active_cell": {"cell": "day|normal", "session": "day", "pv": "normal", "recipe": {}},
+            "nq_gate": "none",
+            "nq_gate_error": None,
+            "recipe_version": "test",
+        }
+        base.update(overrides)
+        return base
+
+    def test_adverse_position_beyond_cap_force_flattened(self):
+        cfg = self._cfg_with_cap(50.0)
+        fake_desired = self._fake_desired(spot=44940.0)  # -60pt vs ep=45000
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 1, "ep": 45000.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertEqual(out.get("reason"), "flatten_first")
+        self.assertIn("adverse_pts_safety_net", str(out.get("flatten_why")))
+        self.assertEqual(out.get("adverse_pts_from_entry"), 60.0)
+        self.assertEqual(mock_place.call_count, 1)
+        _session, resolved = mock_place.call_args[0]
+        self.assertEqual(resolved.buy_sell, "Sell")  # close a long by selling
+        self.assertEqual(resolved.price_type, "market")
+        self.assertEqual(resolved.order_type, "close")
+
+    def test_adverse_position_under_cap_unaffected(self):
+        cfg = self._cfg_with_cap(50.0)
+        fake_desired = self._fake_desired(spot=44980.0)  # -20pt vs ep=45000, under cap
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 1, "ep": 45000.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertNotEqual(out.get("reason"), "flatten_first")
+        self.assertEqual(out.get("adverse_pts_from_entry"), 20.0)
+        # A place call still happens here -- synthesize_lost_tracking_protect_
+        # rail legitimately places a normal LIMIT protective rail (want_s/
+        # want_l both None from the fake sim + real broker_live position is
+        # exactly its trigger condition). What must NOT happen is a forced
+        # MARKET close from the adverse safety net.
+        for call in mock_place.call_args_list:
+            _session, resolved = call.args
+            self.assertNotEqual(resolved.price_type, "market")
+            self.assertNotEqual(resolved.order_type, "close")
+
+    def test_disabled_cap_never_flattens_even_deep_adverse(self):
+        cfg = self._cfg_with_cap(0.0)  # disabled (production default)
+        fake_desired = self._fake_desired(spot=44700.0)  # -300pt vs ep=45000
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 1, "ep": 45000.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        self.assertNotEqual(out.get("reason"), "flatten_first")
+        self.assertIsNone(out.get("adverse_pts_from_entry"))
+        # Same as above: a normal protective-rail place call is expected and
+        # fine; a forced MARKET close (what would happen if the disabled
+        # cap were accidentally honored) must never happen.
+        for call in mock_place.call_args_list:
+            _session, resolved = call.args
+            self.assertNotEqual(resolved.price_type, "market")
+            self.assertNotEqual(resolved.order_type, "close")
+
+
+class BrokerResponseLoggingTest(unittest.TestCase):
+    """2026-08-13: live monitoring (a dedicated agent watching the real
+    worker through the 05:00 close) found every exit_market/place action in
+    the log recorded only the order INTENT (side/lot/why) and the last-
+    quoted spot before send -- place_futopt_order's own return value
+    (order_no/status/message/data, including whatever fill-price field
+    Fubon's response actually carries) was discarded at every call site.
+    This silently assumed zero slippage specifically for max_hold_safety_net/
+    adverse_pts_safety_net/trailing_stop_safety_net/pre_close_flatten exits
+    -- exactly the ones firing while price is already moving adversely, the
+    least safe place to assume that. Fixed by capturing the return value at
+    all 4 place_futopt_order call sites in reconcile_once; this locks in
+    that the broker response actually reaches out["actions"]."""
+
+    def setUp(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        self.ledger_path = tmp.name
+        save_ledger(self.ledger_path, {
+            "schema": "tmf-channel-ledger-v1",
+            "day": trading_day_str(),
+            "api_calls_day": 0,
+            "day_pnl_pts": 0.0,
+            "killed": False,
+            "kill_reason": None,
+            "last_symbol": None,
+            "last_desired": None,
+            "actions_tail": [],
+            "broker_pos": None,
+            "consecutive_order_failures": 0,
+        })
+
+    def tearDown(self):
+        Path(self.ledger_path).unlink(missing_ok=True)
+
+    def test_exit_market_action_captures_broker_response(self):
+        cfg = _dry_cfg(self.ledger_path)
+        fake_desired = {
+            "ok": True,
+            "want_s": None,
+            "want_l": None,
+            "open_pos": None,
+            "trades": [],
+            "events": [],
+            "spot": 44700.0,  # -300pt vs ep=45000, well past the 90min-independent max_hold
+            "last_t": "2026-08-13T12:00:00.000+08:00",
+            "regime": "normal",
+            "active_cell": {"cell": "day|normal", "session": "day", "pv": "normal", "recipe": {}},
+            "nq_gate": "none",
+            "nq_gate_error": None,
+            "recipe_version": "test",
+        }
+        broker_response = {
+            "status": "submitted",
+            "message": "",
+            "data": {"order_no": "A1234567", "status": "10", "filled_qty": 1},
+        }
+        with (
+            mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch(
+                "order.tmf_channel_order.resolve_front_symbol",
+                return_value=("TMFH6", "微型臺指期貨086", "2026-08-19"),
+            ),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{"t": "x"}] * 25),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=fake_desired),
+            mock.patch(
+                "order.tmf_channel_order.query_tmf_broker_net",
+                return_value={"s": "L", "n": 2, "ep": 45000.0, "acct_symbol": "FITM"},
+            ),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch(
+                "order.tmf_channel_order.place_futopt_order", return_value=broker_response,
+            ) as mock_place,
+            mock.patch(
+                "order.tmf_channel_broadcast.emit_from_summary",
+                side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+            ),
+        ):
+            out = reconcile_once(cfg, force=True)
+
+        # broker_over_max (n=2 > max_lots=1) triggers the flatten_first path.
+        self.assertEqual(out.get("reason"), "flatten_first")
+        self.assertEqual(mock_place.call_count, 1)
+        actions = out.get("actions") or []
+        self.assertEqual(len(actions), 1)
+        act = actions[0]
+        self.assertEqual(act["kind"], "exit_market")
+        self.assertTrue(act["ok"])
+        self.assertEqual(act["broker_status"], "submitted")
+        self.assertEqual(act["broker_message"], "")
+        self.assertEqual(act["broker_data"], {"order_no": "A1234567", "status": "10", "filled_qty": 1})
+
+
 class ConsecutiveOrderFailureKillTest(unittest.TestCase):
     """record_actions()'s consecutive_order_failures streak (2026-08-10):
     found live a 財力證明額度 broker rejection made the worker retry the
@@ -1450,6 +2071,10 @@ class ConsecutiveOrderFailureKillTest(unittest.TestCase):
                 product="TMF",
                 kill_day_loss_pts=400.0,
                 max_hold_safety_min=90.0,
+                pre_close_flatten_min=10.0,
+                adverse_pts_safety_cap=0.0,
+                trail_stop_giveback_pts=0.0,
+                trail_stop_min_hold_min=5.0,
                 kill_consecutive_failures=5,
                 recipe={},
                 recipe_version="test",
@@ -1470,6 +2095,11 @@ class ConsecutiveOrderFailureKillTest(unittest.TestCase):
                 "recipe_version": "test",
             }
             with (
+                # Fixed mid-day hm: reconcile_once's pre_close_flatten gate
+                # (2026-08-12) reads real wall-clock session_hhmm_now() even
+                # under force=True, so an unmocked test run within 10min of
+                # the 05:00/13:45 window close would flakily null want_s.
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -1544,6 +2174,7 @@ class BrokerQueryFailureSuppressesFreshEntryTest(unittest.TestCase):
                 "recipe_version": "test",
             }
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -1557,7 +2188,10 @@ class BrokerQueryFailureSuppressesFreshEntryTest(unittest.TestCase):
                     side_effect=RuntimeError("call id"),
                 ),
                 mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -1617,6 +2251,7 @@ class BrokerQueryFailureSuppressesFreshEntryTest(unittest.TestCase):
             )
             resting_short.buy_sell.name = "Sell"
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -1634,7 +2269,10 @@ class BrokerQueryFailureSuppressesFreshEntryTest(unittest.TestCase):
                     return_value=[resting_short],
                 ),
                 mock.patch("order.tmf_channel_order.cancel_futopt_order") as mock_cancel,
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -1701,6 +2339,7 @@ class PriceDriftAmendsInsteadOfCancelReplaceTest(unittest.TestCase):
             )
             resting_short.buy_sell.name = "Sell"
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -1718,7 +2357,10 @@ class PriceDriftAmendsInsteadOfCancelReplaceTest(unittest.TestCase):
                 ),
                 mock.patch("order.tmf_channel_order.modify_futopt_order_price") as mock_modify,
                 mock.patch("order.tmf_channel_order.cancel_futopt_order") as mock_cancel,
-                mock.patch("order.tmf_channel_order.place_futopt_order") as mock_place,
+                mock.patch(
+                "order.tmf_channel_order.place_futopt_order",
+                return_value={"status": "submitted", "message": "", "data": {}},
+            ) as mock_place,
                 mock.patch(
                     "order.tmf_channel_broadcast.emit_from_summary",
                     side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
@@ -1781,6 +2423,7 @@ class PriceDriftAmendsInsteadOfCancelReplaceTest(unittest.TestCase):
             )
             resting_short.buy_sell.name = "Sell"
             with (
+                mock.patch("order.tmf_channel_order.session_hhmm_now", return_value="12:00"),
                 mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
                 mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
                 mock.patch(
@@ -1811,3 +2454,95 @@ class PriceDriftAmendsInsteadOfCancelReplaceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TradeJournalHookTest(unittest.TestCase):
+    """2026-08-18：持倉期間每一輪都要留下可查詢的軌跡＋因子。
+
+    這支測試存在的唯一理由：journal 的鉤子包在 try/except 裡（紀錄永遠不該
+    害到對帳），所以只要作用域裡有任何一個名字打錯，它就會**靜默地永遠不寫**
+    ——正是這整輪一直在修的那種失效模式。這裡實際跑完一次 reconcile_once，
+    斷言 journal 真的落地。
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ledger_path = str(Path(self._tmp.name) / "ledger.json")
+        self.journal = Path(self._tmp.name) / "journal.jsonl"
+        self._emit_patch = mock.patch(
+            "order.tmf_channel_broadcast.emit_from_summary",
+            side_effect=lambda *a, **k: {"schema": "tmf-channel-broadcast-v1", "test": True},
+        )
+        self._emit_patch.start()
+        self._jp = mock.patch("tmf_channel.trade_journal.journal_path",
+                              return_value=self.journal)
+        self._jp.start()
+
+    def tearDown(self):
+        self._emit_patch.stop()
+        self._jp.stop()
+        self._tmp.cleanup()
+
+    def test_hold_record_written_with_factors_and_conformance(self):
+        cfg = _dry_cfg(self.ledger_path)
+        broker_pos = {"s": "L", "n": 1, "ep": 22000.0, "acct_symbol": "TMFH6"}
+        desired = {
+            "ok": True, "want_s": 22030.0, "want_l": None, "spot": 22010.0,
+            "open_pos": {"s": "L", "n": 1, "ep": 22000.0}, "regime": "normal",
+            "active_cell": {"cell": "day|normal", "recipe": {"hang_lo": 12.0}},
+            "nq_gate": "none", "nq_gate_debug": {"spread": 0.01},
+            "recipe_version": "test_v1", "last_t": "2026-08-18T10:00:00+08:00",
+        }
+        with (
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch("order.tmf_channel_order.resolve_front_symbol",
+                       return_value=("TMFH6", "微型臺指期貨086", "2026-08-19")),
+            mock.patch("order.tmf_channel_order.query_tmf_broker_net", return_value=broker_pos),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{}] * 30),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=desired),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch("order.tmf_channel_order.place_futopt_order",
+                       return_value={"status": "submitted", "message": "", "data": {}}),
+        ):
+            reconcile_once(cfg, force=True)
+
+        self.assertTrue(self.journal.exists(), "journal 沒有落地 → 鉤子靜默失效了")
+        rows = [json.loads(x) for x in self.journal.read_text().splitlines() if x.strip()]
+        holds = [r for r in rows if r.get("event") == "hold"]
+        self.assertTrue(holds, f"沒有 hold 事件；實際: {[r.get('event') for r in rows]}")
+        r = holds[-1]
+        self.assertEqual(r["position"]["s"], "L")
+        self.assertEqual(r["position"]["ep"], 22000.0)
+        self.assertEqual(r["spot"], 22010.0)
+        # 因子必須跟著交易一起被記住，而不是散在別的檔案裡
+        self.assertEqual(r["factors"]["active_cell"]["cell"], "day|normal")
+        self.assertEqual(r["factors"]["regime"], "normal")
+        self.assertEqual(r["factors"]["recipe_version"], "test_v1")
+        self.assertIn("nq_gate_debug", r["factors"])
+        # conformance 記錄但明確不可用於觸發動作
+        if r.get("conformance", {}).get("ok"):
+            self.assertFalse(r["conformance"]["actionable"])
+
+    def test_journal_failure_never_breaks_reconcile(self):
+        cfg = _dry_cfg(self.ledger_path)
+        broker_pos = {"s": "S", "n": 1, "ep": 22000.0, "acct_symbol": "TMFH6"}
+        desired = {"ok": True, "want_s": None, "want_l": 21980.0, "spot": 22005.0,
+                   "open_pos": None, "last_t": "2026-08-18T10:00:00+08:00"}
+        with (
+            mock.patch("order.tmf_channel_order.connect_fubon", return_value=object()),
+            mock.patch("order.tmf_channel_order.pick_futopt_account", return_value=object()),
+            mock.patch("order.tmf_channel_order.resolve_front_symbol",
+                       return_value=("TMFH6", "微型臺指期貨086", "2026-08-19")),
+            mock.patch("order.tmf_channel_order.query_tmf_broker_net", return_value=broker_pos),
+            mock.patch("order.tmf_channel_order.fetch_1m_bars", return_value=[{}] * 30),
+            mock.patch("order.tmf_channel_order.desired_from_simulate", return_value=desired),
+            mock.patch("order.tmf_channel_order.get_futopt_order_results", return_value=[]),
+            mock.patch("order.tmf_channel_order.place_futopt_order",
+                       return_value={"status": "submitted", "message": "", "data": {}}),
+            mock.patch("tmf_channel.trade_journal.record", side_effect=OSError("disk full")),
+        ):
+            out = reconcile_once(cfg, force=True)  # 必須不拋
+        self.assertIsInstance(out, dict)

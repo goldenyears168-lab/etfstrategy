@@ -224,6 +224,183 @@ def check_max_hold_safety_net(
     return ledger, elapsed_min, why
 
 
+def check_adverse_pts_safety_net(
+    *,
+    broker_live: dict[str, Any] | None,
+    spot: float | None,
+    adverse_pts_safety_cap: float,
+) -> tuple[float | None, str | None]:
+    """Sim-state-free, PRICE-based backstop -- mirrors check_max_hold_safety_net's
+    architecture (reads broker_live directly, never routes through simulate()'s
+    internal bookkeeping or a want_s/want_l resting order) but triggers on
+    floating-loss distance instead of elapsed time. Returns (adverse_pts_or_
+    None, flatten_why_or_None); caller ORs flatten_why into its own, same as
+    the max-hold check.
+
+    2026-08-12: found live that recipe['stop_pts'] (causal_engine.simulate()'s
+    own internal exit check) essentially never manifests as a real market
+    exit -- confirmed 3 independent ways (byte-identical trades across
+    stop_pts=80..220 in both raw simulate() and full order-layer replay).
+    Root cause: stop_pts only ever produces a "want" (a resting limit-order
+    price) that price must touch to fill, and once broker_live becomes
+    authoritative for open_pos, a fresh simulate() call replaying from
+    scratch each poll can desync from what actually happened live (the same
+    class of bug as the sim_lost_track fix earlier tonight) -- so a real
+    losing position can ride with no real stop ever firing, protected only
+    by the coarse, price-blind max_hold_safety_min timer. That asymmetry
+    (winners exit fast via price-reactive trail/struct; losers only ever
+    get cut by a blunt wall-clock timer) is why real trades this session
+    show wins averaging ~+30pt but max_hold-net exits averaging ~-125pt.
+    This function gives losers the same DIRECT, unambiguous, real-market-
+    order exit path winners already get implicitly via fast trail/struct
+    resolution -- by copying max_hold_safety_net's proven pattern (direct
+    broker_live read, real place_futopt_order call, no want_s/want_l
+    involved) instead of trying to make stop_pts itself fire differently.
+
+    Disabled by default (adverse_pts_safety_cap<=0) -- no backtest-validated
+    threshold exists yet; enabling this with an unvalidated cap would repeat
+    tonight's already-rejected mistake of shipping an unproven number.
+    """
+    if adverse_pts_safety_cap <= 0:
+        return None, None
+    if not (broker_live and broker_live.get("s") and int(broker_live.get("n") or 0) > 0):
+        return None, None
+    if spot is None:
+        return None, None
+    try:
+        ep = float(broker_live["ep"])
+    except (TypeError, ValueError):
+        return None, None
+    side = str(broker_live["s"])
+    adverse = (ep - spot) if side == "L" else (spot - ep)
+    why = None
+    if adverse >= float(adverse_pts_safety_cap):
+        why = (
+            f"adverse_pts_safety_net adverse={adverse:.0f}pt"
+            f">=cap={adverse_pts_safety_cap:.0f}pt"
+        )
+    return adverse, why
+
+
+def check_trailing_stop_safety_net(
+    ledger: dict[str, Any],
+    *,
+    broker_live: dict[str, Any] | None,
+    spot: float | None,
+    trail_giveback_pts: float,
+    min_hold_before_trail_min: float = 5.0,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any], float | None, str | None]:
+    """Sim-state-free, symmetric trailing stop -- mirrors check_max_hold_
+    safety_net's architecture (reads broker_live directly, real market exit,
+    ledger-persisted state survives restarts) but trails off the position's
+    OWN best-seen price since entry, not a fixed distance from entry
+    (unlike check_adverse_pts_safety_net) and not purely time-based (unlike
+    max_hold_safety_min). Closes once price gives back trail_giveback_pts
+    from whatever peak favorable excursion has been reached SO FAR --
+    including while the position is still net-underwater. This is different
+    from causal_engine.py's own trail_arm_pts/trail_giveback_pts, which only
+    arms once the position reaches +trail_arm_pts (50pt) profit; this net
+    has no arming threshold, it trails from entry immediately.
+
+    2026-08-12: requested after a live L@46274 position sat 65min at -130pt
+    with no protection faster than the 90min max_hold timer -- same
+    "winners exit fast via price-reactive mechanisms, losers only get cut
+    by a blunt timer" asymmetry diagnosed earlier tonight, but this design
+    (trail off peak-since-entry) is a genuinely different mechanism from
+    the three prior attempts that failed rigorous fit->holdout->recent-day
+    validation (adverse_pts_safety_net trails from ENTRY price, not peak;
+    the entry-commitment filter and max_hold tightening don't trail at all)
+    -- worth testing on its own merits via scripts/research/
+    tmf_walkforward_harness.py before considering deployment.
+
+    Disabled by default (trail_giveback_pts<=0). min_hold_before_trail_min
+    gives a new position a grace window before the trail can fire at all
+    (default 5min, per the user's "最多5分鐘" framing -- interpreted as "give
+    it up to 5min of room, then trail actively" rather than "always exit by
+    5min regardless of price," since the latter would just be a tighter
+    max_hold_safety_min, already tested and rejected tonight for reversing
+    hard on holdout).
+    """
+    if trail_giveback_pts <= 0:
+        ledger["trail_open_sig"] = None
+        ledger["trail_peak_price"] = None
+        ledger["trail_open_ts"] = None
+        return ledger, None, None
+    if not (broker_live and broker_live.get("s") and int(broker_live.get("n") or 0) > 0):
+        ledger["trail_open_sig"] = None
+        ledger["trail_peak_price"] = None
+        ledger["trail_open_ts"] = None
+        return ledger, None, None
+    if spot is None:
+        return ledger, None, None
+    now = now or datetime.now(tz=_TZ)
+    side = str(broker_live["s"])
+    try:
+        ep = float(broker_live["ep"])
+    except (TypeError, ValueError):
+        return ledger, None, None
+
+    if ledger.get("trail_open_sig") != side:
+        ledger["trail_open_sig"] = side
+        ledger["trail_peak_price"] = ep
+        ledger["trail_open_ts"] = now.isoformat()
+
+    peak = float(ledger.get("trail_peak_price") if ledger.get("trail_peak_price") is not None else ep)
+    peak = max(peak, spot) if side == "L" else min(peak, spot)
+    ledger["trail_peak_price"] = peak
+
+    open_ts_str = ledger.get("trail_open_ts")
+    try:
+        open_ts = datetime.fromisoformat(open_ts_str) if open_ts_str else now
+    except ValueError:
+        open_ts = now
+    elapsed_min = (now - open_ts).total_seconds() / 60.0
+
+    giveback = (peak - spot) if side == "L" else (spot - peak)
+    why = None
+    if elapsed_min >= float(min_hold_before_trail_min) and giveback >= float(trail_giveback_pts):
+        why = (
+            f"trailing_stop_safety_net giveback={giveback:.0f}pt"
+            f">=cap={trail_giveback_pts:.0f}pt elapsed={elapsed_min:.0f}min"
+        )
+    return ledger, giveback, why
+
+
+def minutes_to_session_close(hm: str) -> float | None:
+    """Minutes remaining until the current TX/TMF trade window closes.
+
+    Day session: 08:45-13:45 -> close is 13:45. Night session: 15:00 ->
+    05:00 next day -> close is 05:00. Returns None outside both windows
+    (the pre-close gate below simply does not fire there; reconcile_once
+    already early-returns on outside_session before reaching that gate
+    except when force=True bypasses the window check).
+
+    2026-08-12: 05:00-08:45 and 13:45-15:00 are a complete monitoring
+    blackout -- in_tmf_trade_window() being False means the worker loop
+    skips reconcile_once() entirely (see worker_loop.run_forever), so a
+    position still open the instant the window closes rides completely
+    unmanaged (no stop, no trail, no max_hold_safety_net) until the window
+    reopens. Confirmed live: no historical instance of a position open at
+    exactly window-close was found in existing logs, but the only thing
+    that has ever prevented it is max_hold_safety_min coincidentally
+    firing first -- a position opened less than max_hold_safety_min before
+    close (e.g. after ~03:30 for the 05:00 close) would not be caught.
+    """
+
+    def _mins(s: str) -> int:
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+
+    if "08:45" <= hm <= "13:45":
+        return float(_mins("13:45") - _mins(hm))
+    if hm >= "15:00":
+        return float((24 * 60 - _mins(hm)) + _mins("05:00"))
+    if hm < "05:00":
+        return float(_mins("05:00") - _mins(hm))
+    return None
+
+
 def synthesize_lost_tracking_protect_rail(
     want_s: float | None,
     want_l: float | None,
@@ -482,6 +659,20 @@ def desired_from_simulate(
     nq_side = spread_side_for_day(day, hm=hhmm_from_bar_t(bars[-1].get("t")), C=C, T=T)
     nq_gate_error = last_spread_load_error()
     nq_gate_debug = last_spread_debug()
+    # 2026-08-13健檢發現並修正：causal_engine.py的_day(ts)=str(ts)[:10]查詢
+    # nq_on[]/session_side_gate時，用的是「每根K棒自己的原始日曆日期」當key，
+    # 不是session-anchored的交易日字串。這裡原本用`day`（trading_day_str()，
+    # 跨夜盤會停在session開盤那天，例如夜盤02:30時day還是前一天）當key寫入，
+    # 造成00:00~04:59這段時間_day(T[-1])查詢的是「今天」但字典key是「昨天」，
+    # 查不到、nq_on[]/session_side_gate靜默失效——research腳本
+    # tmf_nq_conf_exit_isolated_test.py的nq_on_1m_causal()docstring原文就
+    # 明確警告過這個anti-pattern（"an earlier sibling script...keyed under a
+    # single session-open date...would silently starve nq_on[] for
+    # post-midnight minutes"），live code剛好踩到自己研究時寫下來的坑。改用
+    # 每根K棒自己的原始日曆日期（T[-1][:10]，跟causal_engine._day()同一套
+    # 邏輯）當key，日盤/一般情況下day跟這個值本來就相等，只有夜盤跨午夜後
+    # 才會不一樣——這正是需要修正的那段時間。
+    bar_real_date = str(T[-1] if T else "")[:10] or day
     if nq_side is not None:
         # Kept for the nq_gate/nq_gate_debug display fields and as a harmless
         # fallback -- nq_conf_soft_gate=True below makes causal_engine skip
@@ -492,7 +683,7 @@ def desired_from_simulate(
         # log (2026-08-11: 299 real bars with an active L/S gate while
         # night|normal was flat, zero produced a want price) and pinned by
         # tests/test_tmf_channel_order.py::NqCalibContinuousDistanceTest.
-        run_recipe["session_side_gate"] = {day: nq_side}
+        run_recipe["session_side_gate"] = {bar_real_date: nq_side}
     spread_now = (nq_gate_debug or {}).get("spread")
     if spread_now is not None:
         hm_now = hhmm_from_bar_t(bars[-1].get("t"))
@@ -505,7 +696,7 @@ def desired_from_simulate(
         # signal -> no pull -> normal cell width). Params left at
         # causal_engine's own defaults (gamma=4.0/cap=12.0/eps_nq=0.05) --
         # same %-scale as spread, not re-tuned for this signal specifically.
-        run_recipe["nq_on_1m"] = {day: {hm_now: spread_now}}
+        run_recipe["nq_on_1m"] = {bar_real_date: {hm_now: spread_now}}
         run_recipe["nq_calib"] = "always_nq"
         run_recipe["nq_calib_gamma"] = 4.0
         run_recipe["nq_calib_cap"] = 12.0
@@ -713,8 +904,17 @@ def reconcile_once(
                     "counts_api": True,
                 }
                 try:
-                    place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
+                    # 2026-08-13: capture the broker's own response instead of
+                    # discarding it -- live monitoring found exit_market
+                    # actions previously logged only the order intent, never
+                    # a confirmed fill price, silently assuming zero slippage
+                    # for exactly the exits that fire while price is already
+                    # moving hard against the position.
+                    result = place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
                     act["ok"] = True
+                    act["broker_status"] = result.get("status")
+                    act["broker_message"] = result.get("message")
+                    act["broker_data"] = result.get("data")
                 except Exception as e:
                     act["ok"] = False
                     act["error"] = str(e)[:200]
@@ -814,6 +1014,63 @@ def reconcile_once(
     )
     flatten_why = flatten_why or safety_flatten_why
     out["position_hold_min"] = round(elapsed_hold_min, 1) if elapsed_hold_min is not None else None
+
+    # Price-based safety net (2026-08-12), symmetric counterpart to the
+    # max-hold timer above -- see check_adverse_pts_safety_net's docstring
+    # for why stop_pts itself never manifests as a real exit. Disabled by
+    # default (cfg.adverse_pts_safety_cap<=0); enabling needs a backtest-
+    # validated cap first, not a guessed number.
+    adverse_pts, adverse_flatten_why = check_adverse_pts_safety_net(
+        broker_live=broker_live,
+        spot=spot,
+        adverse_pts_safety_cap=cfg.adverse_pts_safety_cap,
+    )
+    flatten_why = flatten_why or adverse_flatten_why
+    out["adverse_pts_from_entry"] = round(adverse_pts, 1) if adverse_pts is not None else None
+
+    # Symmetric trailing stop (2026-08-12), user-requested after a live
+    # L@46274 position sat 65min at -130pt with no protection faster than
+    # the 90min timer. Trails off the position's own peak-since-entry price
+    # (not entry price, not pure time) -- see check_trailing_stop_safety_net's
+    # docstring. Disabled by default (cfg.trail_stop_giveback_pts<=0); needs
+    # backtest validation via scripts/research/tmf_walkforward_harness.py
+    # before enabling with a real cap, matching tonight's established
+    # discipline (0/4 prior faster-exit ideas survived fit->holdout->recent
+    # validation intact).
+    ledger, trail_giveback, trail_flatten_why = check_trailing_stop_safety_net(
+        ledger,
+        broker_live=broker_live,
+        spot=spot,
+        trail_giveback_pts=cfg.trail_stop_giveback_pts,
+        min_hold_before_trail_min=cfg.trail_stop_min_hold_min,
+    )
+    flatten_why = flatten_why or trail_flatten_why
+    out["trail_giveback_from_peak"] = round(trail_giveback, 1) if trail_giveback is not None else None
+
+    # Pre-close flatten (2026-08-12): 05:00-08:45 and 13:45-15:00 are a total
+    # monitoring blackout (worker_loop skips reconcile_once entirely there —
+    # see minutes_to_session_close docstring). A position still open the
+    # instant the window shuts rides completely unmanaged until it reopens.
+    # User-authorized ("如果沒顯著差別，可以收盤前平倉就好" — no proven edge
+    # to carrying through the gap, so default to flat instead). Also blocks
+    # fresh entries in the lead window so we don't open something new only
+    # to immediately face the same blackout.
+    mins_to_close = minutes_to_session_close(hm)
+    pre_close_block = (
+        mins_to_close is not None and mins_to_close <= float(cfg.pre_close_flatten_min)
+    )
+    if pre_close_block:
+        want_s = None
+        want_l = None
+        out["pre_close_flatten"] = {
+            "mins_to_close": round(mins_to_close, 1),
+            "lead_min": cfg.pre_close_flatten_min,
+        }
+        if broker_live and broker_live.get("s"):
+            flatten_why = flatten_why or (
+                f"pre_close_flatten mins_to_close={mins_to_close:.0f}"
+                f"<=lead={cfg.pre_close_flatten_min:.0f}"
+            )
 
     # When broker has a position, it is authoritative for open_pos used below
     # (ledger / kill / protect). Wants still come from sim unless ghost-flat.
@@ -1011,8 +1268,13 @@ def reconcile_once(
                 "counts_api": True,
             }
             try:
-                place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
+                # 2026-08-13: capture the broker's own response -- see the
+                # kill_switch_flatten branch above for why (same gap).
+                result = place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
                 act["ok"] = True
+                act["broker_status"] = result.get("status")
+                act["broker_message"] = result.get("message")
+                act["broker_data"] = result.get("data")
                 ledger["broker_pos"] = None
             except Exception as e:
                 act["ok"] = False
@@ -1200,8 +1462,10 @@ def reconcile_once(
             "counts_api": True,
         }
         try:
-            place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
+            result = place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
             act["ok"] = True
+            act["broker_status"] = result.get("status")
+            act["broker_data"] = result.get("data")
         except Exception as e:
             act["ok"] = False
             act["error"] = str(e)
@@ -1226,8 +1490,13 @@ def reconcile_once(
         )
         act = {"kind": "exit_market", "side": side, "lot": lot, "why": "broker_flat_sim", "counts_api": True}
         try:
-            place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
+            # 2026-08-13: capture the broker's own response -- see the
+            # kill_switch_flatten branch above for why (same gap).
+            result = place_futopt_order(session, resolved, acc=acc, dry_run=cfg.dry_run)
             act["ok"] = True
+            act["broker_status"] = result.get("status")
+            act["broker_message"] = result.get("message")
+            act["broker_data"] = result.get("data")
             ledger["broker_pos"] = None
         except Exception as e:
             act["ok"] = False
@@ -1306,6 +1575,61 @@ def reconcile_once(
         "endDate": end,
         "name": name,
     }
+
+    # --- 交易軌跡與因子紀錄（唯讀·fail-safe·不影響任何下單決策）-------------
+    # live log 是「每輪一張快照」，不是「每筆交易一條軌跡」；而且五檔從來沒有
+    # 跟成交對齊過（它由另一個行程寫到另一個檔）。這裡把持倉期間每一輪的
+    # 部位狀態＋當下所有作用中的因子＋與實測 markout 基準的偏離度，寫成
+    # 一筆一行的 journal，讓「這筆交易長什麼樣、什麼因子在作用」變成可查詢的
+    # 事實而不是事後重建。conformance 的 z 值只記錄不觸發——單筆訊噪比是
+    # 0.058，拿它做出場決策就是第五次重演樣本外反轉（見 trade_journal 說明）。
+    try:
+        from tmf_channel import trade_journal as _tj
+
+        _live = broker_live or open_pos
+        if _live and _live.get("s") and _live.get("ep") is not None:
+            _open_ts = ledger.get("position_open_ts")
+            _hold = None
+            if _open_ts:
+                try:
+                    _hold = (
+                        datetime.now(tz=_TZ) - datetime.fromisoformat(str(_open_ts))
+                    ).total_seconds() / 60.0
+                except ValueError:
+                    _hold = None
+            _conf = (
+                _tj.conformance(side=str(_live["s"]), entry_px=float(_live["ep"]),
+                                spot=float(spot), hold_min=_hold)
+                if (_hold is not None and spot is not None) else None
+            )
+            _tj.record(
+                "hold",
+                {
+                    "trade_id": f"{_open_ts}|{_live.get('s')}",
+                    "symbol": sym,
+                    "hhmm": hm,
+                    "position": {"s": _live.get("s"), "n": _live.get("n"), "ep": _live.get("ep")},
+                    "sim_open_pos": open_pos,
+                    "spot": spot,
+                    "hold_min": None if _hold is None else round(_hold, 2),
+                    "adverse_pts_from_entry": adverse_pts,
+                    "trail_giveback_from_peak": trail_giveback,
+                    "want_s": want_s,
+                    "want_l": want_l,
+                    "factors": {
+                        "active_cell": desired.get("active_cell"),
+                        "regime": desired.get("regime"),
+                        "nq_gate": desired.get("nq_gate"),
+                        "nq_gate_debug": desired.get("nq_gate_debug"),
+                        "recipe_version": desired.get("recipe_version"),
+                    },
+                    "conformance": _conf,
+                    "dry_run": cfg.dry_run,
+                },
+            )
+    except Exception:  # noqa: BLE001 — 紀錄永遠不該害到對帳
+        pass
+
     save_ledger(cfg.ledger_path, ledger)
 
     out.update(

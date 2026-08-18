@@ -49,6 +49,8 @@ order.fubon_futopt_orders place / cancel
 | `aux_cache.py` | VIX / gap-bias 輔助載入的 TTL cache（避免每輪全表掃描） |
 | `cache_store.py` | TX 1m bars 的 day-lazy 快取（SQLite `bars.sqlite` SSOT + JSON fallback） |
 | `desired_cache.py` | Desired-state fingerprint 去重（memory + disk；同一根 bar 內 worker 重啟不重算） |
+| `trade_journal.py` | 持倉期間每輪的軌跡＋當下所有作用中因子（append-only JSONL）；並提供「符合預期」的兩層量化：單筆 z（訊噪比 0.058，**只記錄不觸發**）與滾動 z（n=20 · SE≈10.6 點，破 2σ 的動作是**停止開新倉**，不是砍現有部位）。對下單路徑唯讀且 fail-safe |
+| `tick_index.py` | 從 FinMind 逐筆重建 tick 索引（含每筆量與秒級時戳），供 `causal_engine` 的 `tick_native` 回放與 `fill_model` 使用。⚠️ 必須濾掉日曆價差列（見模組說明） |
 | `legacy_helpers.py` | 舊 `jack_channel_v5` 的最小 helper，讓 live import 鏈不必碰 lab 的 sys.path |
 
 ## 設定與 recipe 流向
@@ -78,6 +80,7 @@ config/order.yaml（sleeve 規格）
 | 除錯單輪 | `.venv-fubon/bin/python scripts/order/run_tmf_channel_poll.py --json` |
 | 部署新碼 | `scripts/order/tmf_cutover.sh`（preflight import → kickstart → 等首輪對帳；`--dry` 只 preflight） |
 | 看 live log | `${GOLDENSTOCKS_DATA_DIR}/logs/intraday/tmf_channel_live_YYYYMMDD.log` |
+| 看每筆交易的圖形與因子 | `PYTHONPATH=src .venv/bin/python scripts/research/tmf_trade_journal_report.py --days YYYY-MM-DD` |
 
 ## 測試
 
