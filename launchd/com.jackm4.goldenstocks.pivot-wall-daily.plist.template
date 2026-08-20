@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.pivot-wall-daily</string>
+	<!-- 研究層唯讀 job：不在 scripts/install-launchd.sh 的 LABELS 陣列裡（比照
+	     fubon-premarket-quote-collect 的慣例），安裝方式見 .command 檔頭。
+	     刻意如此：重跑 install-launchd.sh 會 bootout 全部 job 並 kickstart
+	     live 的 tmf-channel-poll，不值得為一個研究 job 承擔那個風險。 -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{PIVOT_WALL_DAILY_LAUNCHER}}</string>
+	</array>
+	<!-- 每日 06:00：夜盤 05:00 收，此時前一個日曆日的日盤與夜盤都已完整 -->
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>6</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/pivot-wall-daily.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/pivot-wall-daily.err.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>
