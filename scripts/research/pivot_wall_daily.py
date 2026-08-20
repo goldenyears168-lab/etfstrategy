@@ -54,6 +54,21 @@ LOOK_BACK_SEC = 45.0
 LOOK_FWD_SEC = 3.0
 FWD_HORIZONS = (60, 300, 600)
 
+# --- 牆事件 → 轉折 的分辨（2026-08-20 夜盤歸納出來的假設）------------------
+# 今晚 MXF 132 個牆事件：薄牆（ratio 低三分位）轉折率 63.6%、厚牆（高三分位）
+# 40.9%，落差 −22.7pp，兩側同號、前後半夜同號。方向與「找最厚的牆去掛單」相反，
+# 但與另兩份獨立資料一致：5 天 TMF 五檔研究的「牆越厚擋得越少」（−6.63→−3.43pp
+# 單調遞減），以及「≥5× 巨牆 62% 的移除是成交造成、普通檔只有 14%」——厚牆是被
+# 吃掉的，不是被尊重的。
+# 但關鍵的增量檢定（控制區間位置後，薄買方牆 +14.7pp）只有 n=14 ≈ 1.1σ。
+# 所以這裡只負責**每天記一次**，讓「薄牆勝過厚牆」跨 session-day 累積成可判的證據。
+#: 轉折＝先觸及對該牆有利方向的障礙（first-passage，不用平均報酬，避免被單邊尾巴拉走）
+TURN_BARRIER_PTS = 20.0
+TURN_HORIZON_SEC = 300.0
+#: 牆事件門檻與去重冷卻——同一堵牆連續滿足條件不重複計數
+WALL_EVENT_RATIO = 3.0
+WALL_COOLDOWN_SEC = 60.0
+
 
 def cache_dir() -> Path:
     try:
@@ -277,6 +292,97 @@ def analyse(root: str, day: str, session: str) -> dict | None:
                        for k, v in aggv.items() if len(v) >= 30},
         }
 
+    # ---- 牆事件 → 轉折：哪些牆會轉、哪些不會 ----
+    def first_passage(i: int, up_first: bool) -> bool | None:
+        """先觸 +BARRIER 還是 −BARRIER。True = 先觸對該牆有利的方向。"""
+        m0 = MID[i]
+        j = i
+        while j < len(T) and T[j] <= T[i] + TURN_HORIZON_SEC:
+            d = MID[j] - m0
+            if d >= TURN_BARRIER_PTS:
+                return up_first
+            if d <= -TURN_BARRIER_PTS:
+                return not up_first
+            j += 1
+        return None                       # 視野不足，不猜
+
+    def pos_in_range(i: int, sec: int = 1800) -> float:
+        i0 = bisect.bisect_left(T, T[i] - sec)
+        seg = MID[i0:i + 1] or [MID[i]]
+        span_ = max(seg) - min(seg)
+        return (MID[i] - min(seg)) / span_ if span_ > 0 else 0.5
+
+    events: list[dict] = []
+    last_ev = {"bids": -1e18, "asks": -1e18}
+    for i in range(len(T)):
+        if not PRE[i]:
+            continue
+        for side, base_arr in (("bids", base_b), ("asks", base_a)):
+            mx = PRE[i][side][0]
+            if base_arr[i] <= 0 or mx < WALL_EVENT_RATIO * base_arr[i]:
+                continue
+            if T[i] - last_ev[side] < WALL_COOLDOWN_SEC:
+                continue
+            last_ev[side] = T[i]
+            turn = first_passage(i, up_first=(side == "bids"))
+            if turn is None:
+                continue
+            i10 = bisect.bisect_left(T, T[i] - 600)
+            events.append({
+                "side": side, "t": T[i],
+                "ratio": mx / base_arr[i], "size": mx,
+                "tier": PRE[i][side][1] + 1,
+                "pos30": pos_in_range(i),
+                "trend10": MID[i] - MID[i10],
+                "turn": turn,
+            })
+
+    def rate(xs: list[dict]) -> float | None:
+        return round(100 * sum(1 for e in xs if e["turn"]) / len(xs), 1) if xs else None
+
+    def tercile_gap(xs: list[dict], key: str) -> dict:
+        """高三分位轉折率 − 低三分位轉折率。負值＝該特徵越大越不會轉折。"""
+        if len(xs) < 12:
+            return {"n": len(xs), "lo": None, "hi": None, "gap": None}
+        v = sorted(xs, key=lambda e: e[key])
+        k = len(v) // 3
+        lo, hi = v[:k], v[-k:]
+        rl, rh = rate(lo), rate(hi)
+        return {"n": len(xs), "n_tercile": k, "lo": rl, "hi": rh,
+                "gap": round(rh - rl, 1) if (rl is not None and rh is not None) else None}
+
+    # 隨機時刻的 first-passage 基準率（牆事件要贏過的對照）
+    base_turn: dict[str, float | None] = {}
+    for side in ("bids", "asks"):
+        hits = [first_passage(i, up_first=(side == "bids")) for i in range(0, len(T), 53)]
+        hits = [h for h in hits if h is not None]
+        base_turn[side] = round(100 * sum(hits) / len(hits), 1) if hits else None
+
+    half_t = (T[0] + T[-1]) / 2 if T else 0.0
+    wall_events = {
+        "barrier_pts": TURN_BARRIER_PTS, "horizon_sec": TURN_HORIZON_SEC,
+        "n_events": len(events),
+        "baseline_turn_pct": base_turn,
+        "by_side": {
+            s: {"n": len([e for e in events if e["side"] == s]),
+                "turn_pct": rate([e for e in events if e["side"] == s]),
+                "vs_baseline_pp": (
+                    round(rate([e for e in events if e["side"] == s]) - base_turn[s], 1)
+                    if rate([e for e in events if e["side"] == s]) is not None
+                    and base_turn[s] is not None else None),
+                "ratio_gap": tercile_gap([e for e in events if e["side"] == s], "ratio")}
+            for s in ("bids", "asks")
+        },
+        # 主假設：ratio 的三分位落差應為負（薄牆勝過厚牆）
+        "pooled_gap": {k: tercile_gap(events, k)
+                       for k in ("ratio", "size", "trend10", "pos30")},
+        # session 內分半——當日自我檢查，擋掉「只有某一段成立」
+        "split_half_ratio_gap": [
+            tercile_gap([e for e in events if (e["t"] < half_t) == (h == 0)], "ratio")["gap"]
+            for h in (0, 1)
+        ],
+    }
+
     def frac(xs: list[float], thr: float) -> float | None:
         return round(100 * sum(1 for x in xs if x >= thr) / len(xs), 2) if xs else None
 
@@ -297,6 +403,7 @@ def analyse(root: str, day: str, session: str) -> dict | None:
             **{f"pct_ge_{t:g}x": frac(ctrl_ratios, t) for t in WALL_RATIOS},
         },
         "forward": fwd,
+        "wall_events": wall_events,
         "pivots": pivot_rows,
     }
 
@@ -328,9 +435,38 @@ def report() -> int:
         print(f"\n轉折/對照 的 ≥3× 倍率：中位 {st.median(lifts):.2f}× · "
               f"n={len(lifts)} session-day · >1 的比例 "
               f"{100 * sum(1 for x in lifts if x > 1) / len(lifts):.0f}%")
-        print("跨 session-day 一致性比任何單日的 p 值都重要（2026-08-20 教訓）。")
     else:
         print("\n樣本還太少，先累積。判準：對照組扣除後跨 session-day 是否一致。")
+
+    # --- 主假設：薄牆勝過厚牆（ratio 三分位落差應為負）---
+    ws = [r for r in recs if r.get("wall_events", {}).get("n_events")]
+    if ws:
+        print(f"\n=== 牆事件 → 轉折（障礙 ±{ws[-1]['wall_events']['barrier_pts']:.0f} 點 / "
+              f"{ws[-1]['wall_events']['horizon_sec']:.0f} 秒）===")
+        print(f"{'商品':<5}{'日期':<12}{'盤別':<7}{'事件':>5}{'買方vs基準':>11}"
+              f"{'賣方vs基準':>11}{'薄→厚落差':>11}{'分半同號':>9}")
+        gaps = []
+        for r in ws:
+            w = r["wall_events"]
+            g = w["pooled_gap"]["ratio"]["gap"]
+            sh = w.get("split_half_ratio_gap") or [None, None]
+            same = ("✓" if (sh[0] is not None and sh[1] is not None
+                            and sh[0] * sh[1] > 0) else "✗")
+            if g is not None:
+                gaps.append(g)
+            bs = w["by_side"]["bids"]["vs_baseline_pp"]
+            as_ = w["by_side"]["asks"]["vs_baseline_pp"]
+            print(f"{r['root']:<5}{r['session_date']:<12}{r['session']:<7}"
+                  f"{w['n_events']:>5}{(f'{bs:+.1f}pp' if bs is not None else '—'):>11}"
+                  f"{(f'{as_:+.1f}pp' if as_ is not None else '—'):>11}"
+                  f"{(f'{g:+.1f}pp' if g is not None else '—'):>11}{same:>9}")
+        if len(gaps) >= 2:
+            neg = 100 * sum(1 for g in gaps if g < 0) / len(gaps)
+            print(f"\n薄→厚落差：中位 {st.median(gaps):+.1f}pp · n={len(gaps)} session-day · "
+                  f"為負（薄牆勝）的比例 {neg:.0f}%")
+            print("假設成立的樣子＝落差穩定為負且跨 session-day 一致；"
+                  "若在 0 附近擺盪，就是 2026-08-20 那晚的雜訊。")
+    print("\n跨 session-day 一致性比任何單日的 p 值都重要（2026-08-20 教訓）。")
     return 0
 
 
