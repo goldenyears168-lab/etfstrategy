@@ -66,6 +66,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -89,12 +90,78 @@ SYMBOL_CACHE_PATH = CACHE_DIR / "futures_symbol_cache.json"
 # 項目。但上面那個 1.65 沿用了微台量到的價差與滑價，而 MXF 流動性遠優於 TMF、
 # 價差很可能更窄——在真的搬過去之前必須用**實測**取代假設，這就是把它們加進
 # 收集器的理由。TXF 一併收，作為同一指數第三個成本點的對照。
-ROOTS = ["CCF", "TMF", "MXF", "TXF", "EXF", "SOF", "SXF", "SPF"]
+# 2026-08-20 加入 momentum-rotation 的 12 檔個股期貨：該 sleeve 的訊號完全沒有用到
+# 委託簿（無五檔、無掛單量、無買賣力道失衡、無牆壁偵測——2026-08-20 逐行核對確認，
+# 見 src/order/momentum_rotation_signal.py），而 2026-08-13 唯一一天實彈 7 筆 0 勝 7 敗
+# 的失敗形態正是「買在小尖頂／賣在小尖底」，也就是委託簿才看得見的那一類資訊。
+# **五檔無法回補**（歷史 tick CSV 只有 price/volume），所以在還沒決定要不要重做這條
+# 策略線之前就先開始累積——今天沒收的，之後任何研究都拿不回來。這是唯讀 collector
+# （job_registry `order_capable: false`），加 root 不影響任何送單路徑；新 root 若解析
+# 失敗會被 _run_once 的 per-root try/except 跳過，不會拖累既有 8 個 root。
+_MOMENTUM_ROTATION_STOCK_FUTURES = [
+    "RA",  # 3017 奇鋐
+    "KB",  # 6213 聯茂
+    "OP",  # 2345 智邦
+    "PJ",  # 2383 台光電
+    "QD",  # 3532 台勝科
+    "GU",  # 2455 全新
+    "QL",  # 3374 精材
+    "OW",  # 6488 環球晶
+    "HB",  # 2492 華新科
+    "GH",  # 2376 技嘉
+    "IP",  # 3035 智原
+    "FF",  # 2049 上銀
+]
+# 2026-08-20（同日稍晚修正）：上面那 12 檔是 momentum-rotation 的**舊** universe，而
+# 同一天做的全市場微結構篩選證明它們全都不該留——345 檔逐 tick 算「跳動單位/價格」
+# 這個成本地板，對照 broad-universe holdout 實測的損平 10.9bps，那 12 檔沒有一檔進得了
+# 前 20：最好的 6213 聯茂排 26/89，6488 環球晶 48.7bps 排 89/89（中位價 1026 元剛好
+# 跨過 1000 元的跳動級距、一跳從 1 元變 5 元），另有 5 檔連 500 tick/日 都過不了。
+# 下面這 7 檔才是篩出來的白名單（保守成本 = max(tick 成本, Roll 有效價差) < 10.9bps）。
+# 舊 12 檔**不移除**：收集成本很低，而它們是唯一有實彈成交紀錄（2026-08-13）的標的，
+# 保留著可以做「訊號 vs 真實成交」的對照。
+_TRADABLE_WHITELIST_20260820 = [
+    "PWF",  # 小型緯穎   5920 元 · 8.4bps · 1986 tick/日
+    "SFF",  # 小型台光電 5155 元 · 9.7bps · 1316 tick/日
+    "DQF",  # 群創         49 元 · 10.1bps · 16098 tick/日（全市場最密）
+    "CKF",  # 國泰金       98 元 · 10.2bps · 572 tick/日
+    "LUF",  # 臻鼎-KY     484 元 · 10.3bps · 3672 tick/日
+    "RWF",  # 小型創意   4610 元 · 10.8bps · 2216 tick/日
+    "IRF",  # 欣興        920 元 · 10.9bps · 1992 tick/日
+]
+ROOTS = [
+    "CCF", "TMF", "MXF", "TXF", "EXF", "SOF", "SXF", "SPF",
+    *_MOMENTUM_ROTATION_STOCK_FUTURES,
+    *_TRADABLE_WHITELIST_20260820,
+]
 RECONNECT_SLEEP_SEC = 5.0
 # 比照 tmf_channel.session_pool.get_fubon_session 的 max_age_sec=3500 ——realtime
 # token 沒有官方文件寫明存活多久，這個閾值是既有 production 程式碼驗證過的安全值，
 # 沿用同一個數字，主動重連而不是隻靠 disconnect 事件（token 可能悄悄過期不觸發斷線）。
 SESSION_MAX_AGE_SEC = 3500.0
+
+# 2026-08-20：這支曾經「行程活著但 33 小時沒收到任何一筆資料」（08-19 04:46 → 08-20
+# 13:57）。launchd KeepAlive 沒救它，因為 KeepAlive 只在行程*結束*時重啟，而它沒死——
+# 它卡在重連迴圈裡燒掉 2,002 分鐘 CPU、連 log 都不再寫。launcher 的 PID 鎖同樣沒救，
+# 因為那個鎖只驗「行程在不在」，不驗「行程有沒有在做事」。三個修法：
+#   (a) ws.connect() 之後一律 try/finally 收掉連線 —— 原本 "auth failed" 那條 raise
+#       走在 ws.disconnect() 之前，每失敗一次就洩漏一條連線，洩到上限就變成
+#       「Maximum number of connections reached → 認證逾時 → 再洩一條」的死亡螺旋，
+#       正是當天 log 的樣子。而且洩漏的連線各自帶著執行緒，CPU 就是這樣被燒掉的。
+#   (b) 連續失敗到上限就**主動退出行程**，讓 launchd 給一個乾淨的新行程 —— 洩漏的
+#       是原生連線與執行緒，同一個行程內清不乾淨，換行程才是可靠的釋放方式。
+#   (c) 看門狗執行緒盯「上次有進展是多久以前」，卡住就 os._exit —— (b) 的計數器只在
+#       迴圈跑得動時才前進，擋不住阻塞在某個沒有 timeout 的呼叫裡的情況，而那正是
+#       這次的實際症狀。
+MAX_CONSECUTIVE_FAILURES = 6
+RECONNECT_SLEEP_MAX_SEC = 120.0
+#: 超過這麼久沒有任何進展（沒寫到資料、也沒寫出 log）就視為卡死。
+#: 存活迴圈每 300 秒會寫一行 "alive."，所以正常的無行情時段（夜盤收盤 05:00 到
+#: 日盤開盤 08:45 之間沒有任何 book）不會誤觸發——看門狗盯的是**進展**不是**成交量**。
+WATCHDOG_STALL_SEC = 900.0
+
+#: 最近一次有進展的 monotonic 時間（寫資料或寫 log 都算）。看門狗讀它。
+_LAST_PROGRESS = {"mono": time.monotonic()}
 
 
 #: book_time 落後 wall-clock 超過這個秒數就視為收盤側的凍結重送
@@ -129,10 +196,12 @@ def _trades_out_path(root: str, now: datetime) -> Path:
 
 
 def _log(msg: str) -> None:
+    _LAST_PROGRESS["mono"] = time.monotonic()
     print(f"[{datetime.now(tz=TZ).isoformat(timespec='seconds')}] {msg}", flush=True)
 
 
 def _write_row(root: str, row: dict) -> None:
+    _LAST_PROGRESS["mono"] = time.monotonic()
     now = datetime.now(tz=TZ)
     try:
         with _out_path(root, now).open("a", encoding="utf-8") as f:
@@ -185,7 +254,7 @@ def _resolve_symbol_with_fallback(session, root: str, cache: dict[str, str]) -> 
     raise RuntimeError(f"resolve_live_futures_symbol({root!r}) returned None and no cache available")
 
 
-def _run_once() -> None:
+def _run_once() -> int:
     from fubon_neo.adapter import Mode
 
     session = connect_fubon(realtime=False)
@@ -212,6 +281,13 @@ def _run_once() -> None:
     n_rows = {root: 0 for root in ROOTS}
     n_trades = {root: 0 for root in ROOTS}
     n_stale = {root: 0 for root in ROOTS}
+    # 2026-08-20：捕獲率自動監測。trades 訊息帶交易所端的累計成交量
+    # （data.total.tradeVolume，單調遞增），拿它跟「我們實際收到的 size 合計」相比，
+    # 就能算出這條連線到底收到了市場成交的百分之幾——不必事後考古。
+    # 動機：2026-08-18 的 CCF 只收到 archive 28% 的成交量，事後才查出是
+    # 「Maximum number of connections reached」造成的反覆重連＋當天 11:32 才啟動。
+    # 破碎的資料比沒有資料更危險（看起來像完整資料），所以讓它自己叫。
+    cap = {root: {"first_cv": None, "last_cv": None, "sum_size": 0} for root in ROOTS}
 
     def on_message(raw: str) -> None:
         try:
@@ -230,7 +306,17 @@ def _run_once() -> None:
         now_iso = datetime.now(tz=TZ).isoformat(timespec="milliseconds")
 
         if channel == "trades" or "trades" in data:
-            for t in data.get("trades") or []:
+            arr = data.get("trades") or []
+            cum_vol = (data.get("total") or {}).get("tradeVolume")
+            serial = data.get("serial")
+            c = cap[root]
+            if cum_vol is not None:
+                if c["first_cv"] is None:
+                    c["first_cv"] = cum_vol      # 第一則只當基準，它的 size 不計入分子
+                else:
+                    c["sum_size"] += sum(int(t.get("size") or 0) for t in arr)
+                c["last_cv"] = cum_vol
+            for t in arr:
                 trow = {
                     "ts": now_iso,
                     "root": root,
@@ -240,6 +326,10 @@ def _run_once() -> None:
                     "bid": t.get("bid"),
                     "ask": t.get("ask"),
                     "trade_time": data.get("time"),
+                    # 下面兩個是 2026-08-20 新增的稽核欄位：cum_volume 讓下游能自己
+                    # 重算任一時段的捕獲率；serial 供偵測訊息序列不連續。
+                    "cum_volume": cum_vol,
+                    "serial": serial,
                 }
                 _write_trade_row(root, trow)
                 n_trades[root] += 1
@@ -296,43 +386,99 @@ def _run_once() -> None:
     ws.on("error", on_error)
 
     ws.connect()
-    _log(f"connected auth_status={ws.auth_status} error={ws.error}")
-    if ws.error is not None:
-        raise RuntimeError(f"auth failed: {ws.error}")
+    # 從這裡開始，無論怎麼離開都必須把連線收掉：券商端對同時連線數有上限，
+    # 洩漏一條就少一條，洩滿就再也連不上（而且每條洩漏的連線都還帶著執行緒）。
+    try:
+        _log(f"connected auth_status={ws.auth_status} error={ws.error}")
+        if ws.error is not None:
+            raise RuntimeError(f"auth failed: {ws.error}")
 
-    for symbol, root in symbol_to_root.items():
-        ws.subscribe({"channel": "books", "symbol": symbol, "afterHours": False})
-        ws.subscribe({"channel": "books", "symbol": symbol, "afterHours": True})
-        ws.subscribe({"channel": "trades", "symbol": symbol, "afterHours": False})
-        ws.subscribe({"channel": "trades", "symbol": symbol, "afterHours": True})
-        _log(f"subscribed books+trades (day + afterHours) for {root} {symbol}")
+        for symbol, root in symbol_to_root.items():
+            ws.subscribe({"channel": "books", "symbol": symbol, "afterHours": False})
+            ws.subscribe({"channel": "books", "symbol": symbol, "afterHours": True})
+            ws.subscribe({"channel": "trades", "symbol": symbol, "afterHours": False})
+            ws.subscribe({"channel": "trades", "symbol": symbol, "afterHours": True})
+            _log(f"subscribed books+trades (day + afterHours) for {root} {symbol}")
 
-    started_mono = time.monotonic()
-    last_report = time.monotonic()
-    while not disconnected["flag"]:
-        time.sleep(1.0)
-        if time.monotonic() - started_mono > SESSION_MAX_AGE_SEC:
-            _log("proactive session refresh (age limit reached)")
-            break
-        if time.monotonic() - last_report > 300:
-            _log(f"alive. books rows so far: {n_rows}")
-            last_report = time.monotonic()
+        started_mono = time.monotonic()
+        last_report = time.monotonic()
+        while not disconnected["flag"]:
+            time.sleep(1.0)
+            if time.monotonic() - started_mono > SESSION_MAX_AGE_SEC:
+                _log("proactive session refresh (age limit reached)")
+                break
+            if time.monotonic() - last_report > 300:
+                _log(f"alive. books rows so far: {n_rows}")
+                last_report = time.monotonic()
+    finally:
+        try:
+            ws.disconnect()
+        except Exception as exc:  # noqa: BLE001 -- 收線失敗不能蓋掉真正的錯誤
+            _log(f"disconnect during cleanup failed (ignored): {exc!r}")
 
-    ws.disconnect()
-    raise RuntimeError("reconnect (disconnect event or proactive age refresh)")
+    # 這一輪有沒有真的收到資料，決定 main() 要不要把連續失敗計數歸零：
+    # 「連上了但一筆都沒收到」和「根本沒連上」對資料而言是同一件事。
+    return sum(n_rows.values()) + sum(n_trades.values())
+
+
+def _start_watchdog() -> None:
+    """卡住就整個行程自殺，交給 launchd KeepAlive 重來。
+
+    用 ``os._exit`` 而不是 ``sys.exit``：卡死的情況下主執行緒可能永遠不會收到
+    例外（它正阻塞在某個沒有 timeout 的原生呼叫裡），只有硬退出保證會離開。
+    """
+
+    def _loop() -> None:
+        while True:
+            time.sleep(60.0)
+            stalled = time.monotonic() - _LAST_PROGRESS["mono"]
+            if stalled > WATCHDOG_STALL_SEC:
+                _log(
+                    f"WATCHDOG: no progress for {stalled:.0f}s "
+                    f"(> {WATCHDOG_STALL_SEC:.0f}s) -- exiting so launchd restarts clean"
+                )
+                os._exit(3)
+
+    threading.Thread(target=_loop, name="stall-watchdog", daemon=True).start()
 
 
 def main() -> int:
     _log(f"starting books+trades collector for {ROOTS} (Ctrl-C / kill to stop)")
+    _start_watchdog()
+    consecutive_failures = 0
     while True:
         try:
-            _run_once()
+            n_collected = _run_once()
         except KeyboardInterrupt:
             _log("stopped by user")
             return 0
         except Exception as exc:  # noqa: BLE001 -- must survive to reconnect
-            _log(f"error: {exc!r} -- reconnecting in {RECONNECT_SLEEP_SEC}s")
-            time.sleep(RECONNECT_SLEEP_SEC)
+            n_collected = 0
+            consecutive_failures += 1
+            # 退避：券商端「連線數已滿」需要時間讓舊連線逾時釋放，每 5 秒重試
+            # 只會讓情況更糟（每次重試又佔一條）。
+            backoff = min(RECONNECT_SLEEP_MAX_SEC, RECONNECT_SLEEP_SEC * (2 ** (consecutive_failures - 1)))
+            _log(
+                f"error: {exc!r} -- failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}, "
+                f"reconnecting in {backoff:.0f}s"
+            )
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                _log("too many consecutive failures -- exiting so launchd restarts clean")
+                return 1
+            time.sleep(backoff)
+            continue
+        if n_collected > 0:
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            _log(
+                f"session ended having collected 0 rows -- treating as failure "
+                f"{consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}"
+            )
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                _log("too many consecutive empty sessions -- exiting so launchd restarts clean")
+                return 1
+        time.sleep(RECONNECT_SLEEP_SEC)
 
 
 if __name__ == "__main__":
