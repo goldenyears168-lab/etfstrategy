@@ -69,6 +69,20 @@ TURN_HORIZON_SEC = 300.0
 WALL_EVENT_RATIO = 3.0
 WALL_COOLDOWN_SEC = 60.0
 
+# --- 覆蓋率斷言（2026-08-21 事故）------------------------------------------
+# 收集器當天 11:07:58 斷線，日盤 300 分鐘只收到 143 分鐘（52% 掉了）。而原本的
+# 門檻只有「成交 ≥500 筆、五檔 ≥2000 列」——半截的 session 照樣過關，會被當成完整
+# session 記進 ledger。這很致命，因為整套判準靠的正是**跨 session-day 一致性**：
+# 混進半截 session 等於在證據裡摻雜訊，而且看不出來。
+#
+# 更陰險的是偵測方式：一開始我用「相鄰兩列間距 > 60 秒」找缺口，回報 0 缺口——
+# 因為資料是**截斷**不是中斷，不存在「兩列之間」。檔案 mtime 還是新的（重連後的
+# 凍結重送 stale=true 照樣寫入）。所以這裡改成量**實際覆蓋到的分鐘數**，不是量缺口。
+#: 日盤 08:45–13:45＝300 分鐘；夜盤 15:00–05:00＝840 分鐘
+SESSION_MINUTES = {"day": 300, "night": 840}
+#: 低於這個覆蓋率就標記 partial；仍然寫進 ledger（資料有價值），但彙總時排除
+MIN_COVERAGE_PCT = 80.0
+
 
 def cache_dir() -> Path:
     try:
@@ -190,6 +204,18 @@ def analyse(root: str, day: str, session: str) -> dict | None:
     T, MID, PRE = _prep_books(books)
     if len(T) < 2000:
         return None
+
+    # 覆蓋率：量「有 live 五檔的分鐘數」，不是量缺口——資料被截斷時沒有「兩列之間」
+    covered = {int(ts // 60) for ts in T}
+    expected = SESSION_MINUTES[session]
+    cov_pct = round(100.0 * len(covered) / expected, 1)
+    coverage = {
+        "covered_minutes": len(covered), "expected_minutes": expected,
+        "coverage_pct": cov_pct,
+        "first_live": datetime.fromtimestamp(T[0], tz=TZ).isoformat(timespec="seconds"),
+        "last_live": datetime.fromtimestamp(T[-1], tz=TZ).isoformat(timespec="seconds"),
+        "partial": cov_pct < MIN_COVERAGE_PCT,
+    }
 
     def span(a: float, b: float) -> tuple[int, int]:
         return bisect.bisect_left(T, a), bisect.bisect_right(T, b)
@@ -389,6 +415,7 @@ def analyse(root: str, day: str, session: str) -> dict | None:
     return {
         "schema": "pivot-wall-daily-v1",
         "root": root, "session_date": day, "session": session,
+        "coverage": coverage,
         "n_trades": len(trades), "n_books_live": len(T),
         "px_range": round(max(r["price"] for r in trades) - min(r["price"] for r in trades), 1),
         "pivot_threshold_pts": PIVOT_TH,
@@ -419,15 +446,25 @@ def report() -> int:
         seen[(r["root"], r["session_date"], r["session"])] = r
     recs = sorted(seen.values(), key=lambda r: (r["root"], r["session_date"], r["session"]))
     print(f"累積 {len(recs)} 個 session-day\n")
-    print(f"{'商品':<5}{'日期':<12}{'盤別':<7}{'轉折':>5}{'轉折≥3x':>9}"
+    def partial(r: dict) -> bool:
+        return bool(r.get("coverage", {}).get("partial"))
+
+    n_partial = sum(1 for r in recs if partial(r))
+    if n_partial:
+        print(f"⚠️  其中 {n_partial} 個是**半截 session**（覆蓋率 < {MIN_COVERAGE_PCT:.0f}%），"
+              f"下方以 ! 標示、且**不計入彙總**\n")
+
+    print(f"{'商品':<5}{'日期':<12}{'盤別':<7}{'覆蓋':>7}{'轉折':>5}{'轉折≥3x':>9}"
           f"{'對照≥3x':>9}{'倍率':>7}{'區間':>7}")
     lifts = []
     for r in recs:
         pv, ct = r["pivot"].get("pct_ge_3x"), r["control"].get("pct_ge_3x")
         lift = (pv / ct) if (pv and ct) else None
-        if lift:
+        if lift and not partial(r):
             lifts.append(lift)
-        print(f"{r['root']:<5}{r['session_date']:<12}{r['session']:<7}"
+        cov = r.get("coverage", {}).get("coverage_pct")
+        cov_s = f"{cov:.0f}%!" if partial(r) else (f"{cov:.0f}%" if cov is not None else "—")
+        print(f"{r['root']:<5}{r['session_date']:<12}{r['session']:<7}{cov_s:>7}"
               f"{r['n_pivots_scored']:>5}{(f'{pv:.1f}%' if pv is not None else '—'):>9}"
               f"{(f'{ct:.1f}%' if ct is not None else '—'):>9}"
               f"{(f'{lift:.2f}x' if lift else '—'):>7}{r['px_range']:>7.0f}")
@@ -439,7 +476,8 @@ def report() -> int:
         print("\n樣本還太少，先累積。判準：對照組扣除後跨 session-day 是否一致。")
 
     # --- 主假設：薄牆勝過厚牆（ratio 三分位落差應為負）---
-    ws = [r for r in recs if r.get("wall_events", {}).get("n_events")]
+    ws = [r for r in recs
+          if r.get("wall_events", {}).get("n_events") and not partial(r)]
     if ws:
         print(f"\n=== 牆事件 → 轉折（障礙 ±{ws[-1]['wall_events']['barrier_pts']:.0f} 點 / "
               f"{ws[-1]['wall_events']['horizon_sec']:.0f} 秒）===")
@@ -499,8 +537,13 @@ def main() -> int:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             n_ok += 1
             pv, ct = rec["pivot"].get("pct_ge_3x"), rec["control"].get("pct_ge_3x")
-            print(f"{root} {day} {session}: 轉折 {rec['n_pivots_scored']} 個 · "
-                  f"≥3x 轉折 {pv}% vs 對照 {ct}% · 區間 {rec['px_range']:.0f} 點")
+            cov = rec["coverage"]
+            flag = "  ⚠️ 半截 session，彙總時會排除" if cov["partial"] else ""
+            print(f"{root} {day} {session}: 覆蓋 {cov['coverage_pct']:.0f}%"
+                  f"（{cov['covered_minutes']}/{cov['expected_minutes']} 分，"
+                  f"{cov['first_live'][11:16]}–{cov['last_live'][11:16]}）· "
+                  f"轉折 {rec['n_pivots_scored']} 個 · "
+                  f"≥3x 轉折 {pv}% vs 對照 {ct}% · 區間 {rec['px_range']:.0f} 點{flag}")
     print(f"\n寫入 {n_ok} 筆 → {out}")
     return 0 if n_ok else 1
 
