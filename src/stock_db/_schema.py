@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS stock_daily_bars (
     adj_close REAL,
     volume INTEGER,
     amount REAL,
+    shares_outstanding REAL,
     source TEXT NOT NULL DEFAULT 'finmind',
     synced_at TEXT NOT NULL,
     PRIMARY KEY (stock_id, trade_date, source)
@@ -495,6 +496,22 @@ CREATE TABLE IF NOT EXISTS signal_paper_horizons (
     PRIMARY KEY (run_id, signal_day, horizon)
 );
 
+CREATE TABLE IF NOT EXISTS cs_momentum_paper_holdings (
+    run_id TEXT NOT NULL,
+    formation_date TEXT NOT NULL,
+    stock_id TEXT NOT NULL,
+    stock_name TEXT,
+    entry_price REAL NOT NULL,
+    weight REAL NOT NULL,
+    rank_pct REAL,
+    universe_size INTEGER,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, formation_date, stock_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cs_momentum_paper_holdings_formation
+    ON cs_momentum_paper_holdings (run_id, formation_date);
+
 CREATE TABLE IF NOT EXISTS vcp_screen_scores_v2 (
     stock_id TEXT NOT NULL,
     as_of_date TEXT NOT NULL,
@@ -645,6 +662,42 @@ CREATE TABLE IF NOT EXISTS stock_lending_daily (
     PRIMARY KEY (stock_id, trade_date, source)
 );
 
+CREATE TABLE IF NOT EXISTS stock_ex_adjust_event (
+    -- 除權息還原因子。兩個來源的錨點日不同，故用 anchor_kind 標明：
+    --   TWSE TWT49U 除權除息計算結果表 → anchor_date = 除權息日（ex-date）
+    --   TPEX 日行情「次日參考價」        → anchor_date = 除權息前一交易日（cum-date）
+    -- 下游套用：ex-date 當天的總報酬 = close(ex) / ref_price - 1
+    stock_id TEXT NOT NULL,
+    anchor_date TEXT NOT NULL,
+    anchor_kind TEXT NOT NULL,    -- 'ex' | 'cum'
+    prev_close REAL,              -- 除權息前收盤價
+    ref_price REAL,               -- 除權息參考價
+    factor REAL,                  -- ref_price / prev_close
+    kind TEXT,                    -- 權 | 息 | 權息
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, anchor_date, source)
+);
+
+CREATE TABLE IF NOT EXISTS stock_sbl_fee_daily (
+    -- TWSE rwd/zh/lending/t13sa710 歷史借券成交明細 → 日彙總
+    -- 注意：與 stock_lending_daily.fee_rate（finmind）不同來源。後者存的是
+    -- 隨機一筆逐筆成交，不是日彙總，勿混用。
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    deal_type TEXT NOT NULL,      -- 定價 | 競價 | 議借 | ALL（ALL = 當日全交易方式合計）
+    volume REAL,                  -- 成交數量合計（交易單位）
+    fee_rate_vw REAL,             -- 量加權成交費率 (%)
+    fee_rate_min REAL,
+    fee_rate_max REAL,
+    tx_count INTEGER,             -- 逐筆成交筆數
+    close REAL,                   -- 成交日收盤價
+    term_days_vw REAL,            -- 量加權約定借券天數
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, deal_type, source)
+);
+
 CREATE TABLE IF NOT EXISTS stock_daytrade_daily (
     stock_id TEXT NOT NULL,
     trade_date TEXT NOT NULL,
@@ -654,6 +707,58 @@ CREATE TABLE IF NOT EXISTS stock_daytrade_daily (
     source TEXT NOT NULL,
     synced_at TEXT NOT NULL,
     PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE TABLE IF NOT EXISTS stock_lending_balance_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    prev_balance REAL,
+    borrow_volume REAL,
+    return_volume REAL,
+    lending_balance REAL,
+    close REAL,
+    market_value REAL,
+    market TEXT,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE TABLE IF NOT EXISTS stock_short_interest_daily (
+    stock_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    -- 融券（散戶信用空單）
+    short_prev REAL,
+    short_sell REAL,
+    short_buy REAL,
+    short_cash_offset REAL,
+    short_balance REAL,
+    short_limit REAL,
+    -- 借券賣出（法人真實空單 = short interest；非 TWT72U 的借券餘額）
+    sbl_prev REAL,
+    sbl_sell REAL,
+    sbl_return REAL,
+    sbl_adjust REAL,
+    sbl_balance REAL,
+    sbl_next_limit REAL,
+    note TEXT,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, trade_date, source)
+);
+
+CREATE TABLE IF NOT EXISTS stock_holding_dispersion_weekly (
+    stock_id TEXT NOT NULL,
+    as_of_date TEXT NOT NULL,
+    level TEXT NOT NULL,
+    level_lo INTEGER,
+    level_hi INTEGER,
+    people INTEGER,
+    shares REAL,
+    percent REAL,
+    source TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (stock_id, as_of_date, level, source)
 );
 
 CREATE TABLE IF NOT EXISTS stock_branch_daily (
@@ -901,6 +1006,19 @@ CREATE INDEX IF NOT EXISTS idx_stock_lending_date
 
 CREATE INDEX IF NOT EXISTS idx_stock_daytrade_date
     ON stock_daytrade_daily (trade_date, stock_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_ex_adjust_date
+    ON stock_ex_adjust_event (anchor_date, stock_id);
+CREATE INDEX IF NOT EXISTS idx_stock_sbl_fee_date
+    ON stock_sbl_fee_daily (trade_date, stock_id);
+CREATE INDEX IF NOT EXISTS idx_stock_lending_balance_date
+    ON stock_lending_balance_daily (trade_date, stock_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_short_interest_date
+    ON stock_short_interest_daily (trade_date, stock_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_holding_dispersion_date
+    ON stock_holding_dispersion_weekly (as_of_date, stock_id);
 
 CREATE INDEX IF NOT EXISTS idx_us_daily_bars_date
     ON us_daily_bars (trade_date DESC, ticker);
@@ -1278,6 +1396,11 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "stock_daily_bars",
             "amount",
             "ALTER TABLE stock_daily_bars ADD COLUMN amount REAL",
+        ),
+        (
+            "stock_daily_bars",
+            "shares_outstanding",
+            "ALTER TABLE stock_daily_bars ADD COLUMN shares_outstanding REAL",
         ),
         ("us_daily_bars", "adj_close", "ALTER TABLE us_daily_bars ADD COLUMN adj_close REAL"),
     ]
