@@ -144,6 +144,21 @@ Archived backtest 測試：`tests/research/archive/`（56 支）· production �
 
 ---
 
+## 資券籌碼日頻 null result（2026-08-20）
+
+| 項目 | 說明 |
+|------|------|
+| Topic | `chip-signal-daily-horizon`（`config/research.yaml` · **status: rejected**） |
+| 假說 | 十分位多空日頻預測力（H-CHIP-D1-SPREAD · rejected）· Δ融資是當日報酬代理（H-CHIP-D1-MARGIN-PROXY · **rejected —— 反而證明它是真訊號**）· 扣成本後為正（H-CHIP-D1-NET · rejected）· 訊號一致提高可靠度（H-CHIP-D1-CONSENSUS · rejected） |
+| Runner | `chip_daily_horizon_null_test.py`（`scripts/research/`，非 archive）· `--test spread\|control\|score\|all` · `--cases YYYY-MM-DD` 列出反向案例 |
+| 資料 | `stock_sbl_fee_daily`（本日新建 · t13sa710）· `stock_short_interest_daily`（TWT93U）· `stock_margin_daily`（含新來源 twse_mi_margn 全市場） |
+| 樣本 | 155,223 個「個股-日」· 889 檔 · 234 個交易日 · 2025-09-01~2026-08-19 |
+| Parent | `sbl-fee-cross-section`（active · 月頻橫斷面；本 topic 是它的護欄不是否證） |
+| 結論 | 訊號傾斜 0.130%/日為真但個股離散 3.13% 是它的 **24 倍**；換手成本 1.17%/日 是毛利的 **9 倍**；一致偏空的股票隔日仍有 **44.1%** 上漲。同一個 CDM DOUT 訊號月頻文獻值 t=−3.32、日頻實測 t=+0.38——**訊號存在與否是尺度相依的** |
+| 已知陷阱 | ① `stock_margin_daily` 與 `stock_daytrade_daily` 自 2026-06 起有雙 source，merge 前必須去重（未去重會讓「當日報酬隔日效果」從真值 t=0.38 變假的 t=3.88）② 評分把「當日無借券成交」算偏多，屬事後決定、偏多側數字要打折 |
+
+---
+
 ## Phase C · pipeline 簡化（2026-07-09）
 
 | 項目 | 變更 |
