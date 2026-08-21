@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.futopt-books-collect-stocks</string>
+	<!-- 個股期貨五檔收集器 · 與 futopt-books-collect（指數核心 8 檔）**分開一條連線**。
+	     2026-08-21：兩者合用一條連線時 27×4=108 個訂閱撞上券商上限，指數組日盤掉 52%。
+	     研究層唯讀 job，刻意不在 scripts/install-launchd.sh 的 LABELS 陣列裡
+	     （比照 fubon-*-quote-collect / pivot-wall-daily），安裝方式見 .command 檔頭。 -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{FUTOPT_BOOKS_COLLECT_STOCKS_LAUNCHER}}</string>
+	</array>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ExitTimeOut</key>
+	<integer>30</integer>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/futopt-books-collect-stocks.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/futopt-books-collect-stocks.err.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>
