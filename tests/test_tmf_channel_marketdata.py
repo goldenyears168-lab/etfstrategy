@@ -13,7 +13,7 @@ session=AFTERHOURS at night) was deployed.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from order import tmf_channel_marketdata as mkt
@@ -107,10 +107,14 @@ class ResolveFrontSymbolSessionParamTest(unittest.TestCase):
         return session, fut
 
     def test_passes_afterhours_session_at_night_and_resolves(self):
+        # ⚠️ 到期日不可寫死：resolve_front_symbol 會濾掉 ``end < today`` 的合約，
+        # 寫死日期會讓本測試在該日之後永久失敗（實測 2026-08-19 的 fixture 到
+        # 2026-08-21 就開始紅）。一律用相對今天的未來日。
+        future_end = (datetime.now(tz=mkt._TZ).date() + timedelta(days=30)).isoformat()
         session, fut = self._fake_session(
             {
                 "data": [
-                    {"symbol": "TMFH6", "endDate": "2026-08-19", "name": "微型臺指期貨086"},
+                    {"symbol": "TMFH6", "endDate": future_end, "name": "微型臺指期貨086"},
                 ]
             }
         )
