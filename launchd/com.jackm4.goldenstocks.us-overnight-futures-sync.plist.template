@@ -18,32 +18,36 @@
 		<key>PYTHONPATH</key>
 		<string>{{PROJECT_ROOT}}/src</string>
 	</dict>
+	<!-- ⚠️ 2026-08-19 由 14:10 改為 17:30：腳本的 _tw_trade_dates() 用 load_price_panels()
+	     取交易日曆，而那來自 stock_daily_bars——該表當日資料要等 16:35 daily-sync 才寫入。
+	     原本 14:10 跑等於永遠少抓一天（log 顯示 range 只到前一交易日）。
+	     ES/NQ 價格在 17:30 已是歷史值，晚跑不損失任何東西。 -->
 	<key>StartCalendarInterval</key>
 	<array>
 		<dict>
 			<key>Weekday</key><integer>1</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Hour</key><integer>17</integer>
+			<key>Minute</key><integer>30</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>2</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Hour</key><integer>17</integer>
+			<key>Minute</key><integer>30</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>3</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Hour</key><integer>17</integer>
+			<key>Minute</key><integer>30</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>4</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Hour</key><integer>17</integer>
+			<key>Minute</key><integer>30</integer>
 		</dict>
 		<dict>
 			<key>Weekday</key><integer>5</integer>
-			<key>Hour</key><integer>14</integer>
-			<key>Minute</key><integer>10</integer>
+			<key>Hour</key><integer>17</integer>
+			<key>Minute</key><integer>30</integer>
 		</dict>
 	</array>
 	<key>StandardOutPath</key>

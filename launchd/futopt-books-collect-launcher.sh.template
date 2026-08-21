@@ -72,8 +72,15 @@ _load_env_file() {
 _load_env_file "${APP_SUPPORT}/order.env" "order.env"
 _load_env_file "${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/.env" "project .env"
 
-STAMP="$(date '+%Y%m%d')"
-LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/futopt_books_collect_${STAMP}.log"
+# 2026-08-19 修 log 日期輪替：本 job 是 KeepAlive 長駐 worker，一個行程會活過好幾天。
+# 舊寫法 STAMP="$(date '+%Y%m%d')" 只在**啟動當下**算一次，跨日之後所有輸出仍寫進啟動
+# 那天的檔名（實測 dayflip_short 連續 6 天全寫進 *_20260813.log），害下游「讀今天的
+# log」一律讀到空檔——momentum-rotation 的監看就因此連兩天誤觸 kill switch。
+# 現在檔名一律在**寫入當下**才決定：banner 走 _tick_log()，長駐 worker 的 stdout 走
+# rotating_tee.py 逐行輪替（語義與 tee -a 相同，另會把每行轉發 stdout）。
+LOG_PREFIX="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/futopt_books_collect"
+ROTATING_TEE="${ROOT}/scripts/launchd/rotating_tee.py"
+_tick_log() { printf '%s_%s.log' "${LOG_PREFIX}" "$(date '+%Y%m%d')"; }
 
 PYTHON="${ROOT}/.venv-fubon/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then
@@ -81,10 +88,10 @@ if [[ ! -x "${PYTHON}" ]]; then
   exit 1
 fi
 
-echo "=== futopt-books-collect start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${LOG}"
+echo "=== futopt-books-collect start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$(_tick_log)"
 set +e
-"${PYTHON}" "${WORKER_PY}" 2>&1 | tee -a "${LOG}"
+"${PYTHON}" "${WORKER_PY}" 2>&1 | "${PYTHON}" "${ROTATING_TEE}" "${LOG_PREFIX}"
 EXIT=${PIPESTATUS[0]}
 set -e
-echo "=== futopt-books-collect end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${LOG}"
+echo "=== futopt-books-collect end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$(_tick_log)"
 exit "${EXIT}"

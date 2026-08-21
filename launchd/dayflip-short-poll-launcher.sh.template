@@ -38,8 +38,15 @@ if ! mkdir "${LOCKDIR}" 2>/dev/null; then
 fi
 trap 'rmdir "${LOCKDIR}" 2>/dev/null || true' EXIT
 
-STAMP="$(date '+%Y%m%d')"
-TICK_LOG="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/dayflip_short_${STAMP}.log"
+# 2026-08-19 修 log 日期輪替：本 job 是 KeepAlive 長駐 worker，一個行程會活過好幾天。
+# 舊寫法 STAMP="$(date '+%Y%m%d')" 只在**啟動當下**算一次，跨日之後所有輸出仍寫進啟動
+# 那天的檔名（實測 dayflip_short 連續 6 天全寫進 *_20260813.log），害下游「讀今天的
+# log」一律讀到空檔——momentum-rotation 的監看就因此連兩天誤觸 kill switch。
+# 現在檔名一律在**寫入當下**才決定：banner 走 _tick_log()，長駐 worker 的 stdout 走
+# rotating_tee.py 逐行輪替（語義與 tee -a 相同，另會把每行轉發 stdout）。
+LOG_PREFIX="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/logs/intraday/dayflip_short"
+ROTATING_TEE="${ROOT}/scripts/launchd/rotating_tee.py"
+_tick_log() { printf '%s_%s.log' "${LOG_PREFIX}" "$(date '+%Y%m%d')"; }
 
 _load_env_file() {
   local path="$1"
@@ -68,16 +75,16 @@ export ORDER_DAYFLIP_SHORT_WORKER_IDLE="${ORDER_DAYFLIP_SHORT_WORKER_IDLE:-60}"
 
 PYTHON="${ROOT}/.venv/bin/python"
 if [[ ! -x "${PYTHON}" ]]; then
-  echo "✗ missing venv python: ${PYTHON}" | tee -a "${TICK_LOG}"
+  echo "✗ missing venv python: ${PYTHON}" | tee -a "$(_tick_log)"
   exit 1
 fi
 
-echo "=== launchd dayflip-short-poll WORKER start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${TICK_LOG}"
+echo "=== launchd dayflip-short-poll WORKER start $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$(_tick_log)"
 
 set +e
-"${PYTHON}" "${ROOT}/scripts/order/run_dayflip_short_worker.py" 2>&1 | tee -a "${TICK_LOG}"
+"${PYTHON}" "${ROOT}/scripts/order/run_dayflip_short_worker.py" 2>&1 | "${PYTHON}" "${ROTATING_TEE}" "${LOG_PREFIX}"
 EXIT=${PIPESTATUS[0]}
 set -e
 
-echo "=== launchd dayflip-short-poll WORKER end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "${TICK_LOG}"
+echo "=== launchd dayflip-short-poll WORKER end exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$(_tick_log)"
 exit "${EXIT}"
