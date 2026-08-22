@@ -5,10 +5,18 @@
 TWT93U 借券賣出餘額與 MI_MARGN 融資融券約 21:00），本工具對尚未發布的欄位
 顯示「未發布」而不是靜默留空或誤用前一日數值。
 
-**評分口徑**：等權四訊號（S1 Δ借券賣出餘額／S2 佔股本近一年分位／
-S3 券源使用率變化／S5 借券費率 vs 近 20 筆中位），正分＝偏空。
-已剔除「融券餘額變化」——15 年實測 t=+1.75 不顯著且逐年正負反覆，是雜訊
-（見 config/research.yaml 的 chip-signal-daily-horizon）。
+**評分口徑**：等權**五**訊號，正分＝偏空——
+S1 Δ借券賣出餘額／S2 佔股本近一年分位／S3 券源使用率變化／
+S5 借券費率 vs 近 20 筆中位／**S6 分點買賣家數差**。
+已剔除「融券餘額變化」——它在 2005-2012 是強反指標（t +2.4~+7.3）但之後
+衰減，15 年 t=+1.75 不顯著、逐年正負反覆（見 config/research.yaml 的
+chip-signal-daily-horizon）。
+
+**S6 分點**（``(買超家數−賣超家數)÷分點家數`` 的當日橫斷面五分位，最高分位判
+偏空）是唯一通過 walk-forward 的增量：OOS 1,001 日 / 17 期，價差
+0.1024%→0.1159%/日、t 8.02→8.75，增量逐日差 t=+2.37。與四訊號相關僅 0.096。
+方向反直覺——買超**家數**多代表散戶分散進場，隔日偏弱；所有「主力買超金額」
+類特徵反而全部不顯著（t 0.24~1.64）。
 
 ⚠️ **評分只描述部位結構，不預測隔日方向。** 15 年 190 萬個 stock-day 實測：
 看空帶隔日超額 −0.04%、命中率 56.05%（無條件基準 55.38%，優勢 0.7 個百分點），
@@ -136,6 +144,28 @@ def fetch_day(sid: str, d: str) -> dict:
     return out
 
 
+def branch_score(sid: str, d: str) -> tuple[float, dict] | tuple[None, None]:
+    """當日分點買賣家數差 → 橫斷面五分位 → S6（正=偏空）。需全市場才能排序。"""
+    c = connect_ro()
+    q = """SELECT stock_id,
+                  SUM(CASE WHEN net>0 THEN 1 ELSE 0 END) nb,
+                  SUM(CASE WHEN net<0 THEN 1 ELSE 0 END) ns,
+                  COUNT(*) n
+             FROM stock_broker_branch_daily
+            WHERE trade_date=? AND net IS NOT NULL AND net<>0
+            GROUP BY stock_id"""
+    df = pd.read_sql_query(q, c, params=(d,))
+    if df.empty or sid not in set(df.stock_id):
+        return None, None
+    df["brdiff"] = (df.nb - df.ns) / df.n
+    df["q"] = pd.qcut(df.brdiff.rank(method="first"), 5, labels=False, duplicates="drop")
+    row = df[df.stock_id == sid].iloc[0]
+    s6 = {0: -1, 4: 1}.get(int(row.q), 0)
+    return s6, {"買超家數": int(row.nb), "賣超家數": int(row.ns),
+                "分點家數": int(row.n), "家數差比": round(row.brdiff, 3),
+                "橫斷面分位": f"Q{int(row.q)+1}/5"}
+
+
 def history(sid: str) -> pd.DataFrame:
     c = connect_ro()
     return pd.read_sql_query("""
@@ -207,6 +237,14 @@ def main() -> int:
     else:
         print("費率  當日無借券成交")
 
+    s6, binfo = branch_score(sid, d)
+    if binfo:
+        print(f"分點  買超 {binfo['買超家數']} 家 / 賣超 {binfo['賣超家數']} 家 "
+              f"（共 {binfo['分點家數']} 家）· 家數差比 {binfo['家數差比']:+.3f} "
+              f"· {binfo['橫斷面分位']}")
+    else:
+        print("分點  未發布或無資料（2021-06 起才有）")
+
     # 評分（缺欄位就標明無法計分）
     if s.get("sbl") and len(h):
         b = s["sbl"]
@@ -220,10 +258,12 @@ def main() -> int:
         S2 = 1 if pr >= 0.8 else (-1 if pr <= 0.2 else 0)
         S3 = 1 if util > prev_util else -1
         S5 = (1 if (s.get("fee") and med == med and s["fee"]["vw"] > med) else -1)
-        net = S1 + S2 + S3 + S5
+        s6v = int(s6) if s6 is not None else 0
+        net = S1 + S2 + S3 + S5 + s6v
         band = "看空帶" if net >= 2 else ("看多帶" if net <= -2 else "中性帶")
-        print(f"\n評分  S1 {S1:+d} · S2 {S2:+d} · S3 {S3:+d} · S5 {S5:+d} "
-              f"→ 淨 {net:+d} / ±4 → **{band}**")
+        s6txt = f" · S6 {s6v:+d}" if s6 is not None else " · S6 無資料"
+        print(f"\n評分  S1 {S1:+d} · S2 {S2:+d} · S3 {S3:+d} · S5 {S5:+d}{s6txt} "
+              f"→ 淨 {net:+d} / ±{5 if s6 is not None else 4} → **{band}**")
         print("      ⚠️ 只描述部位結構。15 年實測看空帶隔日超額 −0.04%、"
               "命中率優勢 0.7pp，個股離散 σ≈3%")
     else:
