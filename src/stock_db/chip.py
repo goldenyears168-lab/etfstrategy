@@ -289,3 +289,139 @@ def upsert_stock_block_trade(conn: sqlite3.Connection, rows: list[dict]) -> int:
     conn.executemany(sql, payload)
     conn.commit()
     return len(payload)
+
+
+def upsert_stock_lending_balance_daily(
+    conn: sqlite3.Connection, rows: list[dict]
+) -> int:
+    """TWSE TWT72U 借券餘額合計表 → stock_lending_balance_daily。"""
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_lending_balance_daily (
+            stock_id, trade_date, prev_balance, borrow_volume, return_volume,
+            lending_balance, close, market_value, market, source, synced_at
+        ) VALUES (
+            :stock_id, :trade_date, :prev_balance, :borrow_volume, :return_volume,
+            :lending_balance, :close, :market_value, :market, :source, :synced_at
+        )
+        ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
+            prev_balance=excluded.prev_balance,
+            borrow_volume=excluded.borrow_volume,
+            return_volume=excluded.return_volume,
+            lending_balance=excluded.lending_balance,
+            close=excluded.close,
+            market_value=excluded.market_value,
+            market=excluded.market,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def upsert_stock_holding_dispersion_weekly(
+    conn: sqlite3.Connection, rows: list[dict]
+) -> int:
+    """FinMind TaiwanStockHoldingSharesPer 股權分散表 → 週頻大戶／散戶結構。"""
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_holding_dispersion_weekly (
+            stock_id, as_of_date, level, level_lo, level_hi,
+            people, shares, percent, source, synced_at
+        ) VALUES (
+            :stock_id, :as_of_date, :level, :level_lo, :level_hi,
+            :people, :shares, :percent, :source, :synced_at
+        )
+        ON CONFLICT(stock_id, as_of_date, level, source) DO UPDATE SET
+            level_lo=excluded.level_lo,
+            level_hi=excluded.level_hi,
+            people=excluded.people,
+            shares=excluded.shares,
+            percent=excluded.percent,
+            synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)
+
+
+def refresh_daytrade_ratio(
+    conn: sqlite3.Connection,
+    *,
+    stock_ids: list[str] | None = None,
+    start_date: str | None = None,
+) -> int:
+    """用 stock_daily_bars.volume 當分母補算現沖比例。
+
+    FinMind ``TaiwanStockDayTrading`` 只給當沖成交股數，全日總量得自己接。
+    現沖比例＝當沖量／全日成交量，是判斷「這檔的量有多少會沉澱成籌碼」的
+    關鍵分母；比例站上 50% 時，任何依賴成交量的籌碼訊號都應降權。
+    """
+    where = ["d.daytrade_volume IS NOT NULL", "b.volume IS NOT NULL", "b.volume > 0"]
+    params: list[object] = []
+    if stock_ids:
+        where.append(f"d.stock_id IN ({','.join('?' * len(stock_ids))})")
+        params.extend(stock_ids)
+    if start_date:
+        where.append("d.trade_date >= ?")
+        params.append(start_date)
+    sql = f"""
+        UPDATE stock_daytrade_daily AS d
+           SET total_volume = b.volume,
+               daytrade_ratio_pct = ROUND(d.daytrade_volume * 100.0 / b.volume, 2)
+          FROM stock_daily_bars AS b
+         WHERE b.stock_id = d.stock_id
+           AND b.trade_date = d.trade_date
+           AND {' AND '.join(where)}
+    """
+    cur = conn.execute(sql, params)
+    conn.commit()
+    return cur.rowcount
+
+
+def upsert_stock_short_interest_daily(
+    conn: sqlite3.Connection, rows: list[dict]
+) -> int:
+    """TWSE TWT93U 信用額度總量管制餘額表 → 融券 ＋ 借券賣出餘額。
+
+    ``sbl_balance``（借券賣出當日餘額）才是對應學術文獻 short interest 的欄位；
+    ``stock_lending_balance_daily.lending_balance``（TWT72U 借券餘額）包含 ETF
+    造市／避險／套利等非方向性用途，2408 在 2026-08 期間只有 47~63% 是真放空，
+    且該比例逐日下滑 —— 直接拿它當空單代理會給出反向訊號。
+    """
+    if not rows:
+        return 0
+    synced_at = utc_now_iso()
+    sql = """
+        INSERT INTO stock_short_interest_daily (
+            stock_id, trade_date, short_prev, short_sell, short_buy,
+            short_cash_offset, short_balance, short_limit,
+            sbl_prev, sbl_sell, sbl_return, sbl_adjust, sbl_balance,
+            sbl_next_limit, note, source, synced_at
+        ) VALUES (
+            :stock_id, :trade_date, :short_prev, :short_sell, :short_buy,
+            :short_cash_offset, :short_balance, :short_limit,
+            :sbl_prev, :sbl_sell, :sbl_return, :sbl_adjust, :sbl_balance,
+            :sbl_next_limit, :note, :source, :synced_at
+        )
+        ON CONFLICT(stock_id, trade_date, source) DO UPDATE SET
+            short_prev=excluded.short_prev, short_sell=excluded.short_sell,
+            short_buy=excluded.short_buy,
+            short_cash_offset=excluded.short_cash_offset,
+            short_balance=excluded.short_balance, short_limit=excluded.short_limit,
+            sbl_prev=excluded.sbl_prev, sbl_sell=excluded.sbl_sell,
+            sbl_return=excluded.sbl_return, sbl_adjust=excluded.sbl_adjust,
+            sbl_balance=excluded.sbl_balance,
+            sbl_next_limit=excluded.sbl_next_limit,
+            note=excluded.note, synced_at=excluded.synced_at
+    """
+    payload = [{**r, "synced_at": synced_at} for r in rows]
+    conn.executemany(sql, payload)
+    conn.commit()
+    return len(payload)

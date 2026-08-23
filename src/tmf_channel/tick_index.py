@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-_TICK_DIR_NAME = "finmind_tx_tick_by_day"
+#: 每個商品一個目錄，格式一致（FinMind TaiwanFuturesTick 的原始列）。
+#: 2026-08-19 參數化：先前寫死 TX，而 Grinold 的基本定律 IR = IC × √N 說
+#: 廣度是乘性槓桿——同一套管線必須能套到其他商品，才問得出「這個 edge 是
+#: TX 特有的還是市場結構性的」。
+def _tick_dir_name(product: str = "TX") -> str:
+    return f"finmind_{product.lower()}_tick_by_day"
 
 
 @dataclass
@@ -55,14 +60,14 @@ class TickIndex:
     n_bars_with_ticks: int = 0
 
 
-def tick_dir() -> Path:
+def tick_dir(product: str = "TX") -> Path:
     try:
         import stock_db
 
         root = Path(stock_db.DATA_DIR).parent
     except Exception:  # noqa: BLE001
         root = Path.home() / "goldenstocks-data"
-    return root / "cache" / "tmf_channel" / _TICK_DIR_NAME
+    return root / "cache" / "tmf_channel" / _tick_dir_name(product)
 
 
 @lru_cache(maxsize=8)
@@ -81,7 +86,7 @@ def _load_raw(day: str, product: str = "TX") -> tuple[tuple[str, float, float, i
     Front month = the highest-volume outright (no "/") that day, which rolls
     automatically — the same heuristic the taifex-intraday-snapshot job uses.
     """
-    path = tick_dir() / f"{day}.json"
+    path = tick_dir(product) / f"{day}.json"
     if not path.exists():
         return ()
     try:
@@ -121,11 +126,11 @@ def _load_raw(day: str, product: str = "TX") -> tuple[tuple[str, float, float, i
     return tuple(out)
 
 
-def available_days() -> list[str]:
-    return sorted(p.stem for p in tick_dir().glob("*.json"))
+def available_days(product: str = "TX") -> list[str]:
+    return sorted(p.stem for p in tick_dir(product).glob("*.json"))
 
 
-def build_tick_index(T: list[str]) -> TickIndex | None:
+def build_tick_index(T: list[str], product: str = "TX") -> TickIndex | None:
     """Build an index covering bar timestamps ``T`` (full ISO, Asia/Taipei).
 
     ``T`` may span two calendar dates (a night session runs 15:00 → 05:00), so
@@ -138,7 +143,7 @@ def build_tick_index(T: list[str]) -> TickIndex | None:
     days = sorted({str(t)[:10] for t in T})
     by_minute: dict[str, list[tuple[float, float, int]]] = {}
     for day in days:
-        for minute_key, px, vol, sec in _load_raw(day):
+        for minute_key, px, vol, sec in _load_raw(day, product):
             by_minute.setdefault(minute_key, []).append((px, vol, sec))
     if not by_minute:
         return None

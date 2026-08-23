@@ -2479,10 +2479,17 @@ class TradeJournalHookTest(unittest.TestCase):
         self._jp = mock.patch("tmf_channel.trade_journal.journal_path",
                               return_value=self.journal)
         self._jp.start()
+        # 時鐘必須釘死：不釘的話 13:35-13:45／04:50-05:00 這兩段真實時間跑，
+        # pre_close_flatten 會讓 reconcile_once 在寫 journal 前就 early-return，
+        # 測試變成一天有 20 分鐘會紅（2026-08-23 13:40 實際踩到）。
+        self._clock = mock.patch("order.tmf_channel_order.session_hhmm_now",
+                                 return_value="12:00")
+        self._clock.start()
 
     def tearDown(self):
         self._emit_patch.stop()
         self._jp.stop()
+        self._clock.stop()
         self._tmp.cleanup()
 
     def test_hold_record_written_with_factors_and_conformance(self):

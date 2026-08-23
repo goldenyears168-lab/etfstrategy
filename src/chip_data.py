@@ -121,20 +121,17 @@ def parse_daytrade_rows(stock_id: str, raw: list[dict]) -> list[dict]:
         trade_date = str(item.get("date") or item.get("Date") or "")[:10]
         if not trade_date:
             continue
+        # FinMind TaiwanStockDayTrading 的 ``Volume`` 就是當沖成交股數，不是全日總量。
+        # ``total_volume`` / ``daytrade_ratio_pct`` 這個 dataset 給不了，改由
+        # ``refresh_daytrade_ratio()`` 用 stock_daily_bars.volume 當分母補算。
         dt_vol = _float_or_none(
-            item.get("DayTradingVolume") or item.get("day_trading_volume")
+            item.get("Volume")
+            or item.get("volume")
+            or item.get("DayTradingVolume")
+            or item.get("day_trading_volume")
         )
-        total = _float_or_none(
-            item.get("Volume") or item.get("volume") or item.get("Trading_Volume")
-        )
-        buy_amt = _float_or_none(item.get("BuyAmount") or item.get("buy_amount"))
-        sell_amt = _float_or_none(item.get("SellAmount") or item.get("sell_amount"))
+        total = None
         ratio = None
-        if buy_amt is not None and sell_amt is not None and max(buy_amt, sell_amt) > 0:
-            ratio = round(min(buy_amt, sell_amt) / max(buy_amt, sell_amt) * 100.0, 2)
-        flag = str(item.get("BuyAfterSale") or item.get("buy_after_sale") or "").strip().upper()
-        if ratio is None and flag == "Y":
-            ratio = 100.0
         rows.append(
             {
                 "stock_id": stock_id,

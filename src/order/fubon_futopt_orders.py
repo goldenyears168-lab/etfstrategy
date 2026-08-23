@@ -206,6 +206,34 @@ def cancel_futopt_order(
     return {"ok": True, "status": "cancelled", "data": _serialize(getattr(res, "data", None))}
 
 
+def modify_futopt_order_price(
+    session: FubonSession,
+    order_res: Any,
+    new_price: float,
+    *,
+    acc: Any | None = None,
+    dry_run: bool = True,
+    session_date: str | None = None,
+) -> dict[str, Any]:
+    """Amend a resting order's price in place (sdk.futopt.modify_price).
+
+    2026-08-10: reconcile_once's price-drift rehang used to always
+    cancel + place a fresh order (two API round trips, a window with zero
+    resting order in between). This does the same "same side, new price"
+    outcome in one call via Fubon's native modify_price/make_modify_price_obj.
+    """
+    account = acc or pick_futopt_account(session)
+    if dry_run:
+        return {"ok": True, "status": "dry_run_modify_price", "data": _serialize(order_res)}
+    assert_live_submit_allowed(session_date=session_date)
+    modify_obj = session.sdk.futopt.make_modify_price_obj(order_res, price=str(new_price))
+    res = session.sdk.futopt.modify_price(account, modify_obj)
+    ok = _result_ok(res)
+    if not ok:
+        raise RuntimeError(getattr(res, "message", "") or "futopt modify_price failed")
+    return {"ok": True, "status": "modified", "data": _serialize(getattr(res, "data", None))}
+
+
 def get_futopt_order_results(
     session: FubonSession,
     *,
@@ -216,6 +244,49 @@ def get_futopt_order_results(
     res = session.sdk.futopt.get_order_results(account, market_type)
     data = _result_data(res)
     return list(data or [])
+
+
+def fetch_real_fill_price(
+    session: FubonSession,
+    order_no: str,
+    *,
+    acc: Any | None = None,
+    market_type: FutOptMarketType = FutOptMarketType.Future,
+    max_attempts: int = 4,
+    delay_sec: float = 0.5,
+) -> float | None:
+    """2026-08-13新增：市價單place_futopt_order回傳的price/after_price在下單當下
+    幾乎都是0（尚未撮合），momentum-rotation原本直接拿理論觸發價/最後觀察tick價
+    當ret_pct計算依據，2026-08-13早上真實比對broker權威成交價後發現**四筆全部
+    方向判斷正確、但實際結果跟ledger自報的ret_pct正負號都對不上**——這裡補上
+    查真實成交價的函式，讓呼叫端可以用broker回報的實際filled price取代理論價。
+
+    ``get_order_results_detail`` 的細節（details）陣列裡才有真正的成交紀錄
+    （status=50那筆的after_price），下單當下該筆可能還沒進去，所以這裡做有限次數
+    重試（市價IOC單通常sub-second內就會撮合，見2026-08-13實測約780ms）。找不到
+    就回傳None，呼叫端要自己決定fallback，不在這裡靜默回傳理論價掩蓋掉查不到
+    這件事本身。
+    """
+    import time
+
+    account = acc or pick_futopt_account(session)
+    for attempt in range(max_attempts):
+        try:
+            detail = session.sdk.futopt.get_order_results_detail(account, market_type)
+            rows = _result_data(detail) or []
+        except Exception:  # noqa: BLE001
+            rows = []
+        for r in rows:
+            if str(getattr(r, "order_no", "") or "") != str(order_no):
+                continue
+            for d in (getattr(r, "details", None) or []):
+                if getattr(d, "status", None) == 50:
+                    price = getattr(d, "after_price", None)
+                    if price:
+                        return float(price)
+        if attempt < max_attempts - 1:
+            time.sleep(delay_sec)
+    return None
 
 
 def _bs_to_side(buy_sell: Any) -> str | None:
@@ -529,6 +600,16 @@ def query_tmf_single_position_pnl(
 
 # Never call dir()/vars() on Fubon Neo SDK objects — dir() on some handles
 # walks native graphs and can hang / balloon RSS (seen 2026-08-05 open poll).
+# 2026-08-13: added avg/deal/filled/executed/matched price + date/time
+# variants -- live monitoring found exit_market (max_hold_safety_net /
+# pre_close_flatten / adverse_pts / trailing_stop) actions log only the
+# order INTENT and the last-quoted spot before send, never a confirmed
+# fill price, which silently assumes zero slippage for exactly the exits
+# that fire while price is already moving hard against the position (the
+# single least safe place to assume that). getattr()+hasattr() per key
+# below is a bounded, safe allowlist scan (not dir()/vars()) -- extending
+# it with unconfirmed candidate key names costs nothing if Fubon's actual
+# field name differs; whichever ones exist will show up in future logs.
 _SERIALIZE_KEYS = (
     "order_no",
     "orderNo",
@@ -541,6 +622,18 @@ _SERIALIZE_KEYS = (
     "quantity",
     "filled_qty",
     "filledQty",
+    "avg_price",
+    "avgPrice",
+    "deal_price",
+    "dealPrice",
+    "filled_price",
+    "filledPrice",
+    "executed_price",
+    "executedPrice",
+    "matched_price",
+    "matchedPrice",
+    "after_price",
+    "afterPrice",
     "status",
     "status_code",
     "statusCode",
@@ -556,6 +649,10 @@ _SERIALIZE_KEYS = (
     "priceType",
     "market_type",
     "marketType",
+    "date",
+    "time",
+    "last_time",
+    "lastTime",
 )
 
 

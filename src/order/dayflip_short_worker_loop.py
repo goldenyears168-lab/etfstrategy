@@ -31,9 +31,14 @@ _STOP = False
 # launcher 只負責啟動 worker 一次、不會逐 tick 檢查輸出，寄信責任因此搬進這裡，
 # 觸發條件維持完全一致。
 _ALERT_ACTIONS = frozenset(
-    {"entered", "entry_failed", "force_closed", "entry_exception", "force_close_exception"}
+    {
+        "entered", "entry_failed", "force_closed", "entry_exception",
+        "force_close_exception", "entry_exception_limit_reached",
+    }
 )
-_FAILURE_ACTIONS = frozenset({"entry_failed", "entry_exception", "force_close_exception"})
+_FAILURE_ACTIONS = frozenset(
+    {"entry_failed", "entry_exception", "force_close_exception", "entry_exception_limit_reached"}
+)
 
 
 def _on_signal(signum: int, _frame: Any) -> None:

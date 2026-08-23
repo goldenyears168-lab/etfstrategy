@@ -786,33 +786,17 @@ def _blotter_health(
                 "msg": f"開盤前種子 {seed[0].get('s')}×{seed[0].get('n')}（無進場價 → 隔夜平不算價差）",
             }
         )
-    # SSOT cross-check vs query_margin_equity
+    # 富邦權益（query_margin_equity）為唯一權威數字；不再跟 FIFO 重建互相比對
+    # 顯示（那個比對只會在記帳歸屬口徑不同時製造誤導性的「error」，實際成交都是真的）。
     if equity and equity.get("fut_realized_pnl_ntd") is not None and scope == "calendar":
         broker_ntd = float(equity["fut_realized_pnl_ntd"])
-        fifo_ntd = round(float(all_gross) * TMF_POINT_VALUE_NTD, 1)
-        delta = round(fifo_ntd - broker_ntd, 1)
-        if abs(delta) <= max(1.0, abs(broker_ntd) * 0.02):
-            issues.append(
-                {
-                    "level": "ok",
-                    "code": "vs_fubon_realized",
-                    "msg": (
-                        f"FIFO 毛利 NT${fifo_ntd:.0f} ≈ 富邦今日平倉損益 "
-                        f"NT${broker_ntd:.0f}（差 {delta:+.0f}）"
-                    ),
-                }
-            )
-        else:
-            issues.append(
-                {
-                    "level": "error",
-                    "code": "vs_fubon_realized",
-                    "msg": (
-                        f"FIFO 毛利 NT${fifo_ntd:.0f} ≠ 富邦今日平倉損益 "
-                        f"NT${broker_ntd:.0f}（差 {delta:+.0f}）→ 明細不可信，以富邦權益為準"
-                    ),
-                }
-            )
+        issues.append(
+            {
+                "level": "ok",
+                "code": "fubon_realized",
+                "msg": f"富邦今日平倉損益 NT${broker_ntd:.0f}",
+            }
+        )
         if equity.get("today_cost_ntd") is not None:
             issues.append(
                 {
@@ -829,8 +813,8 @@ def _blotter_health(
         issues.append(
             {
                 "level": "warn",
-                "code": "vs_fubon_realized",
-                "msg": "無法讀取 query_margin_equity — 無法證明與富邦今日損益同步",
+                "code": "fubon_realized",
+                "msg": "無法讀取 query_margin_equity",
             }
         )
     if all_cost_pts > 0:

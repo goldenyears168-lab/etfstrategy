@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from order.fubon_session import FubonSession
+from order.tmf_channel_ws_feed import get_day_rows_via_ws
 
 _TZ = ZoneInfo("Asia/Taipei")
 _CACHE: dict[str, Any] = {"sym": None, "ts": 0.0}
@@ -139,8 +140,10 @@ def fetch_1m_bars(session: FubonSession, symbol: str) -> list[dict[str, Any]]:
     _ensure_realtime_once(session)
     fut = session.sdk.marketdata.rest_client.futopt
     today = datetime.now(tz=_TZ).date()
-    day_res = fut.intraday.candles(symbol=symbol, timeframe="1")
-    day_raw = list(day_res.get("data") or []) if isinstance(day_res, dict) else list(day_res or [])
+    day_raw = get_day_rows_via_ws(session, symbol)
+    if day_raw is None:
+        day_res = fut.intraday.candles(symbol=symbol, timeframe="1")
+        day_raw = list(day_res.get("data") or []) if isinstance(day_res, dict) else list(day_res or [])
     try:
         night_res = fut.intraday.candles(symbol=symbol, timeframe="1", session="afterhours")
         night_raw = (

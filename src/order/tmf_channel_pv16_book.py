@@ -49,6 +49,7 @@ research may re-export from here later.
 """
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from typing import Any
 
@@ -166,6 +167,21 @@ def freeze_cell_book() -> dict[str, dict[str, dict[str, Any]]]:
     return book
 
 
+def _night_uses_day_recipe() -> bool:
+    """2026-08-13 user-requested, backtest-validated override: night session
+    uses the day session's per-PV8-state recipe book verbatim instead of
+    night's own. Validated via tmf_walkforward_harness fit->holdout->recent
+    (the FIRST idea tonight, out of 8 tested, to survive all three stages in
+    the same direction): FIT -606.0->-302.0 (+304), HOLDOUT -395.9->-174.9
+    (+221), RECENT +251.0->+915.0 (+664). Env-gated (default off) so it can
+    be reverted instantly without a redeploy if tonight's real session
+    disagrees with the backtest.
+    """
+    return os.environ.get("ORDER_TMF_CHANNEL_NIGHT_USES_DAY_RECIPE", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def specialized_cell_book() -> dict[str, dict[str, dict[str, Any]]]:
     book = freeze_cell_book()
     for sess, reg, upd in SPECIALIZED_PATCHES:
@@ -174,6 +190,8 @@ def specialized_cell_book() -> dict[str, dict[str, dict[str, Any]]]:
         book[sess][reg].update(deepcopy(upd))
     # CELL_TUNE_V3_PATCHES intentionally NOT applied here — see its own
     # comment above and the module docstring: evaluated, not adopted.
+    if _night_uses_day_recipe():
+        book["night"] = deepcopy(book["day"])
     return book
 
 

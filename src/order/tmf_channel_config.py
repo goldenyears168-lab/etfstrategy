@@ -95,6 +95,10 @@ class TmfChannelOrderConfig:
     product: str
     kill_day_loss_pts: float
     max_hold_safety_min: float
+    pre_close_flatten_min: float
+    adverse_pts_safety_cap: float
+    trail_stop_giveback_pts: float
+    trail_stop_min_hold_min: float
     kill_consecutive_failures: int
     recipe: dict[str, Any]
     recipe_version: str
@@ -159,6 +163,40 @@ def load_tmf_channel_order_config(cfg: dict[str, Any] | None = None) -> TmfChann
         max_hold_safety_min=_env_float(
             "ORDER_TMF_CHANNEL_MAX_HOLD_SAFETY_MIN",
             float(block.get("max_hold_safety_min", 90.0)),
+        ),
+        # 2026-08-12: force-flat before the 05:00/13:45 window close instead
+        # of letting a position ride into the total monitoring blackout
+        # (05:00-08:45, 13:45-15:00 — worker_loop skips reconcile_once
+        # entirely outside the trade window). User-authorized: no proven
+        # edge to carrying through, so default to flat.
+        pre_close_flatten_min=_env_float(
+            "ORDER_TMF_CHANNEL_PRE_CLOSE_FLATTEN_MIN",
+            float(block.get("pre_close_flatten_min", 10.0)),
+        ),
+        # 2026-08-12: sim-state-free price-based safety net, symmetric
+        # counterpart to max_hold_safety_min -- see check_adverse_pts_
+        # safety_net's docstring in tmf_channel_order.py. Disabled by
+        # default (<=0): no backtest-validated cap exists yet, and this
+        # session's own research tonight twice showed guessed numbers
+        # (stop_pts sweep, max_hold_safety_min sweep) do not survive
+        # out-of-sample validation -- do not enable with a guessed value.
+        adverse_pts_safety_cap=_env_float(
+            "ORDER_TMF_CHANNEL_ADVERSE_PTS_SAFETY_CAP",
+            float(block.get("adverse_pts_safety_cap", 0.0)),
+        ),
+        # 2026-08-12: symmetric trailing stop off peak-since-entry (not a
+        # fixed distance from entry like adverse_pts_safety_cap) -- see
+        # check_trailing_stop_safety_net's docstring. Disabled by default
+        # (<=0): needs backtest validation via tmf_walkforward_harness.py
+        # before enabling with a real cap, same discipline as every other
+        # exit-side experiment tonight (0/4 prior ones survived intact).
+        trail_stop_giveback_pts=_env_float(
+            "ORDER_TMF_CHANNEL_TRAIL_STOP_GIVEBACK_PTS",
+            float(block.get("trail_stop_giveback_pts", 0.0)),
+        ),
+        trail_stop_min_hold_min=_env_float(
+            "ORDER_TMF_CHANNEL_TRAIL_STOP_MIN_HOLD_MIN",
+            float(block.get("trail_stop_min_hold_min", 5.0)),
         ),
         kill_consecutive_failures=_env_int(
             "ORDER_TMF_CHANNEL_KILL_CONSECUTIVE_FAILURES",

@@ -34,18 +34,19 @@ _MEGA_PATH = (
 
 def _dayflip_fgap_min() -> float:
     """FGAP_MIN 讀 config/order.yaml 的 strategies.dayflip-futures-short.fgap_min，
-    缺 key 或讀取失敗時 fallback 回原本寫死的 0.06（2026-08-08 SSOT缺口修正，
-    理由同 dayflip_short_order.py 的 _dayflip_yaml_block()）。其餘門檻常數
+    缺 key 或讀取失敗時 fallback 回 0.07（2026-08-10 從 0.06 調整，見
+    config/order.yaml 該策略 notes「fgap_min 6%→7%」段落；fallback 值同步更新，
+    避免 yaml 讀取失敗時靜默退回已經不打算用的舊數字 0.06）。其餘門檻常數
     （MIN_BUY_NTD/ADV_MIN_LOTS/ACC_*/HIGH_FLIP_MIN）屬於 FROZEN_SPEC_V1.json
     凍結研究規格的一部分，不是下單層執行參數，刻意不搬進 order.yaml。"""
     cfg = load_order_config()
     block = (cfg.get("strategies") or {}).get("dayflip-futures-short")
     if not isinstance(block, dict):
-        return 0.06
+        return 0.07
     try:
-        return float(block.get("fgap_min") or 0.06)
+        return float(block.get("fgap_min") or 0.07)
     except (TypeError, ValueError):
-        return 0.06
+        return 0.07
 
 
 FGAP_MIN = _dayflip_fgap_min()
@@ -129,13 +130,74 @@ def resolve_futures_symbol(stock_id: str, as_of: str) -> tuple[str, float] | Non
     return None
 
 
+_PIT_FLIP_PATH = (
+    stock_db.PROJECT_ROOT
+    / "reports/research/branch-footprint-screen/dayflip_gapup_short/pit_seat_flip_latest.json"
+)
+_PIT_FLIP_MAX_AGE_DAYS = 14  # 週五自動刷新（run_dayflip_weekly_seat_refresh.py）；超過這個天數視為沒人在維護，fail-closed
+_PIT_FLIP_MAX_FUTURE_SLACK_DAYS = 5  # 見 _load_pit_flip docstring「age_days 可以是小幅負值」的說明
+
+
+def _load_pit_flip(as_of: str) -> dict[str, float]:
+    """PIT-safe 席位 flip 表（HIGH_FLIP_MIN 門檻真正該用的來源）。
+
+    2026-08-13 健檢發現：build_candidates() 原本讀 FROZEN_SPEC_V1.json 的
+    seat_flip_table_frozen，那是全樣本中位數——spec 自己的 caveat 欄位承認
+    「含輕微look-ahead...以PIT版為上線基準」，但live code從08-07上線後一直
+    讀的是前者，不是spec指定的PIT版本。這裡改讀
+    run_dayflip_weekly_seat_refresh.py 每週五算的 pit_seat_flip_latest.json
+    （expanding-window中位數，只用「T0+1資料已經發生」的完整歷史事件，見該
+    script同日新增的計算段落）。
+
+    age_days = as_of − computed_at（見下方公式）可以是小幅負值：live 呼叫時
+    as_of＝T0（昨天），但實際下單決策發生在「今天」（T0+1早上）——如果
+    computed_at 剛好是「今天」（例如本次健檢當天現算的），age_days 會是
+    -1，這不是look-ahead，是正常的「用今天算好的表評估昨天的T0訊號、今天
+    決定要不要進場」，決策當下（今天）table本身並沒有偷看到未來。真正的
+    look-ahead風險是相反方向：as_of 是很久以前的歷史日期（例如backtest重放
+    2025-01-01），但 computed_at 是最近才算的（今天），這種情況table裡混進
+    了2025-01-01之後才會發生的事件，拿來評估2025-01-01的決策才是真的偷看
+    未來——用 _PIT_FLIP_MAX_FUTURE_SLACK_DAYS 擋掉這個方向（只放行小幅負值，
+    不放行「as_of遠早於computed_at」的組合）。
+
+    fail-closed：檔案不存在、格式異常、或 age_days 超出
+    [-_PIT_FLIP_MAX_FUTURE_SLACK_DAYS, _PIT_FLIP_MAX_AGE_DAYS] 範圍（代表
+    週五排程可能壞了很久沒更新，或呼叫端拿現在的表去評估太久以前的日期，
+    比照 futures_daily_cache.json 08-08那次靜默停更3週的教訓）——一律回傳
+    空字典，讓呼叫端所有席位的 flip 值都退回 0（=一律不合格），不能悄悄
+    fallback 回 frozen 表，那樣等於沒修。單一席位在PIT表裡是 None（樣本
+    <30筆）的，一樣視為不合格，不特別處理。
+    """
+    try:
+        payload = json.loads(_PIT_FLIP_PATH.read_text())
+    except (OSError, ValueError):
+        return {}
+    computed_at = str(payload.get("computed_at") or "")
+    try:
+        age_days = (date.fromisoformat(as_of) - date.fromisoformat(computed_at)).days
+    except ValueError:
+        return {}
+    if age_days < -_PIT_FLIP_MAX_FUTURE_SLACK_DAYS or age_days > _PIT_FLIP_MAX_AGE_DAYS:
+        return {}
+    values = payload.get("values")
+    if not isinstance(values, dict):
+        return {}
+    return {tid: float(v) for tid, v in values.items() if isinstance(v, (int, float))}
+
+
 def build_candidates(as_of: str, *, db_path: str | None = None) -> list[Candidate]:
     """T0=as_of 收盤後可算的候選清單（分點+席位過濾，尚未套用跳空條件）。
 
     as_of: 'YYYY-MM-DD'，須為已收盤的交易日（T0）。
     """
     spec = _load_spec()
+    # static_flip：只用來源自 FROZEN_SPEC_V1.json 的「24席名單」本身（哪些tid要
+    # 追蹤），不再用它的數值做 HIGH_FLIP_MIN 門檻判定——見 flip_gate 的說明。
     static_flip: dict[str, float] = dict(spec["seat_flip_table_frozen"]["values"])
+    # flip_gate：HIGH_FLIP_MIN 門檻真正要比對的數值來源（PIT-safe），缺門檻/
+    # 讀取失敗的席位一律不在字典裡，下面 `.get(e["tid"], 0)` 會自然當成
+    # 0（不合格），這就是 fail-closed 的實作方式。
+    flip_gate: dict[str, float] = _load_pit_flip(as_of)
     manual = {tuple(x) for x in spec["signal"]["step2_seat_filters"]["manual_pair_exclusion"]}
     manual |= EXTRA_MANUAL_PAIRS
     mega = _load_mega()
@@ -211,7 +273,7 @@ def build_candidates(as_of: str, *, db_path: str | None = None) -> list[Candidat
                 if nr is not None and nr >= ACC_NET_RATIO_MAX:
                     continue
                 keep.append(e)
-            if not keep or not any(static_flip.get(e["tid"], 0) >= HIGH_FLIP_MIN for e in keep):
+            if not keep or not any(flip_gate.get(e["tid"], 0) >= HIGH_FLIP_MIN for e in keep):
                 continue
             m = fut_cache.get(sid) or {}
             ds = sorted(m)
@@ -237,7 +299,7 @@ def build_candidates(as_of: str, *, db_path: str | None = None) -> list[Candidat
                 seats=tuple(sorted({e["tid"] for e in keep})),
                 n_seats=len({e["tid"] for e in keep}),
                 total_amt_ntd=sum(e["amt"] for e in keep),
-                max_flip=max(static_flip.get(e["tid"], 0) for e in keep),
+                max_flip=max(flip_gate.get(e["tid"], 0) for e in keep),
             ))
     finally:
         con.close()

@@ -13,6 +13,8 @@
 
 單一交易日狀態機（存於 data/order/dayflip_short_ledger.json）：
   idle → (08:45 觸發) → no_signal | entered → covered | force_closed
+  任何非終態時刻，dayflip-short-watch 都可能寫 kill switch 旗標把它轉成
+  halted（idle 時）或提前 force_closed（entered 時）——見 kill_switch_reason()。
 """
 
 from __future__ import annotations
@@ -45,8 +47,28 @@ from order.fubon_session import FubonSession
 from order.json_state import atomic_write_json, load_json_or_default
 
 _TZ = ZoneInfo("Asia/Taipei")
-_LEDGER_PATH = stock_db.PROJECT_ROOT / "data/order/dayflip_short_ledger.json"
+# 2026-08-09 修正架構債：原本寫死 PROJECT_ROOT / "data/..."（git tree 內），
+# 跟 detach-gate/leading-dip 等其餘 sleeve 用 stock_db.DATA_DIR（可搬出 git tree
+# 的 GOLDENSTOCKS_DATA_DIR）不一致，違反 CLAUDE.md「新程式碼讀寫 DB／log／ledger
+# 一律走 stock_db.DATA_DIR，不要硬寫 PROJECT_ROOT / "data"」的原則。舊路徑的
+# ledger 內容本來就是『當日重置』設計（load_ledger 比對 date!=today 就丟棄），
+# 沒有需要遷移的歷史狀態，直接切換路徑安全。
+_LEDGER_PATH = stock_db.DATA_DIR / "order" / "dayflip_short_ledger.json"
 _TRUE = frozenset({"1", "true", "yes", "on"})
+# 2026-08-13 補上（比照 momentum_rotation_order.py 的既有設計）：dayflip-short-watch
+# 盤中每2分鐘讀log/ledger的headless claude agent，判斷「跟已知劇本不符」時寫這個檔案，
+# reconcile_once下一輪poll（≈20秒後）就會讀到並強制平倉/擋新進場——AI只負責「判斷+
+# 寫旗標」，實際平倉沿用既有 place_futopt_order 路徑，不讓AI直接呼叫下單API。用date
+# 欄位自然過期，不用在狀態機裡刪檔案。
+_KILL_SWITCH_PATH = stock_db.DATA_DIR / "order" / "dayflip_short_kill_switch.json"
+
+
+def kill_switch_reason() -> str | None:
+    payload = load_json_or_default(_KILL_SWITCH_PATH, {})
+    if payload.get("date") != _today():
+        return None
+    reason = payload.get("reason")
+    return str(reason) if reason else None
 
 
 def _dayflip_yaml_block() -> dict[str, Any]:
@@ -79,7 +101,31 @@ FORCE_CLOSE_HHMM = str(_DAYFLIP_YAML.get("force_close_at") or "13:40")
 # 把散落在 dayflip_short_signal.py／本檔的門檻常數濃縮成一條可稽核、可grep的字串，
 # 寫進 ledger 每一列，讓事後複盤能直接知道「這筆記錄是在哪組門檻下產生的」。任何門檻
 # 常數變動時，連帶把版本號(dfs<N>)遞增——不做語意比對，純粹靠人工同步維護。
-FREEZE_RULE = "dfs1_g6_buy30m_adv800_acc60r30_hf40_m30w_l1_cov2_e0845-0905_fc1340"
+# 2026-08-10：fgap_min 0.06→0.07（見config/order.yaml notes「fgap_min 6%→7%」），
+# 版本號依docstring慣例遞增dfs1→dfs2、g6→g7。
+# 2026-08-10（同日第二次）：pick_signal() 排序法則從純「跳空最小」改成
+# GAP_RANK_WEIGHT=0.75 的跳空/席數加權混合（見 pick_signal() docstring 完整
+# caveat）——版本號再遞增dfs2→dfs3，新增 rank075 token 標記這次排序法則變更。
+# 2026-08-10（同日第四次）：新增FGAP_MAX=0.09漲停鎖死風控上限（見pick_signal()
+# docstring）——版本號再遞增dfs3→dfs4，新增 gmax9 token。
+# 2026-08-10（同日第五次）：新增ENTRY_FAILURE_LIMIT=5連續entry_exception熔斷
+# （見該常數docstring，源自使用者發現當天券商帳戶額度問題導致worker整個
+# 進場窗口內對API打了44次注定失敗的重試）——版本號再遞增dfs4→dfs5，新增
+# ef5 token。
+# 2026-08-13：margin_cap_twd 30萬→17萬（使用者明確指示，實際準備資金只有
+# 17萬，見config/order.yaml notes「margin_cap_twd 30萬→17萬」段落）——版本號
+# 再遞增dfs5→dfs6，新增 cap170k token。
+# 2026-08-13（同日第二次）：新增kill_switch_reason()（比照momentum_rotation_
+# order.py既有設計）——使用者要求盤中每2分鐘AI監看，判斷「跟已知劇本不符」
+# 時可以強制平倉+暫停，見dayflip-short-watch-prompt.txt。idle時轉halted、
+# entered時立刻平倉（不等13:40）——版本號再遞增dfs6→dfs7，新增 ks token。
+# 2026-08-13（同日第三次·健檢後修正）：dayflip_short_signal.py的
+# build_candidates()改用pit_seat_flip_latest.json做HIGH_FLIP_MIN門檻判定，
+# 不再用FROZEN_SPEC_V1.json的seat_flip_table_frozen（spec自己承認含
+# look-ahead的全樣本表）——見該檔案_load_pit_flip() docstring跟
+# config/order.yaml notes「高沖分點門檻改讀PIT表」段落——版本號再遞增
+# dfs7→dfs8，新增 pitflip token。
+FREEZE_RULE = "dfs8_g7_gmax9_ef5_rank075_cap170k_ks_pitflip_buy30m_adv800_acc60r30_hf40_m30w_l1_cov2_e0845-0905_fc1340"
 
 
 def _hm_now() -> str:
@@ -122,7 +168,7 @@ def sleeve_auto_submit_enabled() -> bool:
 @dataclass
 class LedgerState:
     date: str
-    status: str = "idle"  # idle|no_signal|entered|covered|force_closed|error
+    status: str = "idle"  # idle|no_signal|entered|covered|force_closed|error|halted
     stock_id: str | None = None
     futures_symbol: str | None = None
     entry_order_no: str | None = None
@@ -135,6 +181,7 @@ class LedgerState:
     last_action: str | None = None
     updated_at: str | None = None
     rule_version: str | None = None  # FREEZE_RULE at time of write，供事後複盤歸因
+    entry_failure_count: int = 0  # 2026-08-10新增：連續entry_exception次數，見ENTRY_FAILURE_LIMIT
 
 
 def load_ledger() -> LedgerState:
@@ -234,12 +281,54 @@ def fetch_last_price(session: FubonSession, live_symbol: str) -> float | None:
     return float(bars[-1]["c"])
 
 
+GAP_RANK_WEIGHT = 0.75  # 2026-08-10：跳空最小為主、席數當同分決勝（見下方docstring）
+FGAP_MAX = float(_DAYFLIP_YAML.get("fgap_max") or 0.09)  # 2026-08-10：漲停鎖死風控上限（見下方docstring），非報酬優化參數
+# 2026-08-10：連續entry_exception（下單本身拋例外，非結構化ok=False回應）達此次數
+# 就停止當天重試，轉terminal「error」狀態。背景：2026-08-10實測券商回傳
+# 「交易額度超過資(財)力證明額度(後檯)」，這種帳戶層級問題不會在同一個交易日
+# 內自己消失，worker原本每20秒無限重試到09:05進場窗口關閉，一天內對富邦API
+# 打了44次幾乎必定失敗的請求——沒有實際好處，純粹增加無謂的API呼叫量。
+# entry_failed（下單API有回應但ok=False）路徑不受影響：那條路徑本來就已經
+# 在第一次失敗後直接轉error、不會重試，不需要另外設限。
+ENTRY_FAILURE_LIMIT = int(_DAYFLIP_YAML.get("entry_failure_limit") or 5)
+
+
 def pick_signal(session: FubonSession, candidates: list[Candidate], t0: str) -> dict[str, Any] | None:
-    """對每個候選解析即時月合約代碼、查開盤價、算 fgap，回傳「跳空最小且保證金
-    <=上限」的合格候選。scored 項目的 live_symbol 才是後續下單要用的代碼。
+    """對每個候選解析即時月合約代碼、查開盤價、算 fgap，回傳合格候選中排序分數
+    最佳者。scored 項目的 live_symbol 才是後續下單要用的代碼。
 
     排序理由：single-pick 研究（GAPUP_SHORT_SIZING.md）顯示「跳空最小」的合格標的
     在 11 種排序法則中勝率最高(74.3%)、MaxDD 最小(-8.9%)，優於隨機/其餘任何排序。
+    2026-08-10 加權混合：combined_score = GAP_RANK_WEIGHT×gap_rank(跳空由小到大)
+    + (1-GAP_RANK_WEIGHT)×seat_rank(席數由多到少)，取最小者——w=0.75 walk-forward
+    test期sharpe 1.329→1.422，bootstrap贏純跳空最小比例66.0%，但90% CI下緣卡在
+    0.000（邊界顯著）、train期兩者sharpe完全相同（0.942，差異只來自test期20天裡
+    跳空幾近打平、席數才派上用場當決勝的少數幾天）、且是5個w值一次掃出來的
+    （5選1有多重比較風險）——證據不夠紮實但使用者已知悉此caveat並明確指示上線
+    （見 config/order.yaml 該策略notes）。本質仍是跳空最小為主排序，席數只在
+    跳空接近時當決勝，不是拿席數取代跳空（純席數最多單獨當主排序已測更差，
+    bootstrap贏率僅26.3%，未採用）。
+
+    2026-08-10（同日第三次）加FGAP_MAX=0.09風控上限：使用者提醒「例如今天你挑
+    放空的就漲停板，這樣很危險」。查歷史46筆fgap>=9%候選，開盤價幾乎全部落在
+    理論漲停價(T0收盤×1.10)的99-100.7%內——不是單純跳空大，是當天期貨已經開在
+    自己的漲停鎖死區。現行部署(floor7%+blend)過去52個成交日裡有12天(23%)實際
+    選中fgap>=9%候選，其中11天當天只有這一檔合格候選（不選就整天不交易）。
+    ⚠️ 這條風控刻意不是靠回測報酬數字決定的——這46筆歷史紀錄的模擬淨報酬其實
+    不差（多為-0.05%打平出場或+1.95%停利，最差約-1%），但backtest用的是
+    FROZEN_SPEC_V1.json「exit_fallback: 未觸價則13:45收盤平倉」這個假設
+    （收盤價一定能成交平倉）；真實世界若期貨當天鎖死在漲停完全無對手單，
+    回補不了、可能被迫扛倉到隔天，這是執行/流動性風險，不是backtest能測到
+    的東西——不能用「歷史報酬沒有比較差」當作安全的證據。此上限會讓約
+    21%(11/52)原本會成交的訊號日變成不交易，是使用者知悉並接受的風控代價，
+    不是研究證明的報酬改善。
+    ⚠️ 2026-08-13健檢發現並訂正：這段原本誤寫成「backtest假設13:40收盤價
+    一定能成交」——backtest實際假設的是13:45（規格書原文如上），不是13:40。
+    FORCE_CLOSE_HHMM本身維持13:40不變（刻意提前5分鐘送出，是執行安全邊際：
+    真的等到13:45市場關閉那一刻才送市價單，有可能來不及成交或被拒單，這是
+    合理的工程判斷，不是bug），但因此產生一個誠實記錄的殘留落差：真實強制
+    平倉價格基準是13:40當下市價，backtest驗證用的是13:45收盤價，兩者理論
+    上可能有幾檔跳動的差異，沒有單獨驗證過這個價差本身對報酬的影響幅度。
     """
     account = pick_futopt_account(session)
     scored = []
@@ -260,6 +349,8 @@ def pick_signal(session: FubonSession, candidates: list[Candidate], t0: str) -> 
         fgap = open_px / t0_close - 1
         if fgap < FGAP_MIN:
             continue
+        if fgap >= FGAP_MAX:
+            continue  # 漲停鎖死風控上限，見上方docstring——不追這種可能回補不了的極端跳空
         real_margin = query_real_margin_ntd(session, account, live_symbol)
         margin = real_margin if real_margin is not None else estimate_margin_ntd(open_px)
         margin_source = "broker_api" if real_margin is not None else "estimate_fallback"
@@ -270,8 +361,13 @@ def pick_signal(session: FubonSession, candidates: list[Candidate], t0: str) -> 
                            margin_source=margin_source))
     if not scored:
         return None
-    scored.sort(key=lambda s: s["fgap"])
-    return scored[0]
+    n = len(scored)
+    gap_order = sorted(range(n), key=lambda i: scored[i]["fgap"])
+    gap_rank = {i: r + 1 for r, i in enumerate(gap_order)}
+    seat_order = sorted(range(n), key=lambda i: -scored[i]["candidate"].n_seats)
+    seat_rank = {i: r + 1 for r, i in enumerate(seat_order)}
+    best_i = min(range(n), key=lambda i: GAP_RANK_WEIGHT * gap_rank[i] + (1 - GAP_RANK_WEIGHT) * seat_rank[i])
+    return scored[best_i]
 
 
 def _place_cover_order(
@@ -317,10 +413,6 @@ def reconcile_once(
     live = (not dry_run) if dry_run is not None else sleeve_auto_submit_enabled()
     result: dict[str, Any] = {"hm": hm, "state_before": state.status, "live": live}
 
-    if state.status in ("no_signal", "covered", "force_closed", "error"):
-        result["action"] = "noop_terminal"
-        return result
-
     def _acquire_session() -> FubonSession:
         nonlocal session
         if session is not None:
@@ -334,6 +426,51 @@ def reconcile_once(
 
         session = connect_fubon()
         return session
+
+    # 2026-08-13：kill switch 檢查放在 noop_terminal 判斷之前——已經是終態的話
+    # (no_signal/covered/force_closed/error/halted) 這一步是 no-op、無害，只有
+    # idle（還沒進場）或 entered（真倉位持有中）才需要真正動作。idle 轉 halted
+    # （今天不再嘗試進場）；entered 立刻比照 13:40 force-close 的同一套下單路徑
+    # 強制平倉，不等原訂時間。AI watch agent 只負責判斷+寫這個檔案，這裡才是
+    # 真正呼叫下單API的地方，AI 不會直接下單。
+    ks_reason = kill_switch_reason()
+    if ks_reason and state.status not in ("no_signal", "covered", "force_closed", "error", "halted"):
+        if state.status == "entered":
+            session = _acquire_session()
+            account = pick_futopt_account(session)
+            close_order = FutOptResolvedOrder(
+                symbol=state.futures_symbol, buy_sell="Buy", lot=LOTS,
+                price=None, price_type="market", time_in_force="ioc",
+                order_type="Close", market_type="future", user_def="dfshortks",
+                session_date=_today(),
+            )
+            try:
+                close_res = place_futopt_order(session, close_order, acc=account, dry_run=not live)
+            except Exception as ex:  # noqa: BLE001
+                # 平倉單本身失敗——status 刻意維持 entered（絕不誤標成
+                # force_closed），下一次 poll 會重試（kill switch 檔案還在，
+                # date 沒過期），跟 force-close 那條路徑同一套 fail-safe 邏輯。
+                state.last_action = f"kill_switch_close_exception:{ex}"
+                save_ledger(state)
+                result["action"] = "kill_switch_close_exception"
+                result["error"] = str(ex)
+                result["kill_switch_reason"] = ks_reason
+                return result
+            state.status = "force_closed"
+            state.last_action = f"kill_switch_closed:{ks_reason}"
+            save_ledger(state)
+            result.update(action="closed_by_kill_switch", close_res=close_res, kill_switch_reason=ks_reason)
+            return result
+        # idle：還沒進場，直接轉 halted，今天不再嘗試新進場。
+        state.status = "halted"
+        state.last_action = f"kill_switch_halted:{ks_reason}"
+        save_ledger(state)
+        result.update(action="halted_by_kill_switch", kill_switch_reason=ks_reason)
+        return result
+
+    if state.status in ("no_signal", "covered", "force_closed", "error", "halted"):
+        result["action"] = "noop_terminal"
+        return result
 
     if state.status == "idle":
         if hm < ENTRY_WINDOW_START:
@@ -378,14 +515,30 @@ def reconcile_once(
             entry_res = place_futopt_order(session, entry_order, acc=account, dry_run=not live)
         except Exception as ex:  # noqa: BLE001
             # 進場單送出本身拋例外（尚未寫入任何持倉欄位）——維持 idle 讓下一次
-            # poll 重新嘗試是安全的。刻意不 raise：讓整個 process 因未捕捉例外
-            # 崩潰，會讓 shell launcher 的 email alert 比對不到任何已知 action
-            # 字串而完全靜默（見 launcher template 的告警邏輯，已同步修正成
-            # 非零 exit 也會通知，但這裡仍以不崩潰為第一道防線）。
-            state.last_action = f"entry_order_exception:{ex}"
+            # poll 重新嘗試是安全的，因為多數例外是暫時性的（網路抖動、券商API
+            # 瞬斷）。刻意不 raise：讓整個 process 因未捕捉例外崩潰，會讓 shell
+            # launcher 的 email alert 比對不到任何已知 action 字串而完全靜默
+            # （見 launcher template 的告警邏輯，已同步修正成非零 exit 也會通知，
+            # 但這裡仍以不崩潰為第一道防線）。
+            # 2026-08-10：但「暫時性」的假設對帳戶層級問題不成立（見
+            # ENTRY_FAILURE_LIMIT docstring）——連續失敗達門檻就停止重試，轉
+            # terminal「error」，不再對券商API做注定失敗的無謂重試。
+            state.entry_failure_count += 1
+            if state.entry_failure_count >= ENTRY_FAILURE_LIMIT:
+                state.status = "error"
+                state.last_action = (
+                    f"entry_order_exception_limit_reached({state.entry_failure_count}x):{ex}"
+                )
+                save_ledger(state)
+                result["action"] = "entry_exception_limit_reached"
+                result["error"] = str(ex)
+                result["entry_failure_count"] = state.entry_failure_count
+                return result
+            state.last_action = f"entry_order_exception({state.entry_failure_count}/{ENTRY_FAILURE_LIMIT}):{ex}"
             save_ledger(state)
             result["action"] = "entry_exception"
             result["error"] = str(ex)
+            result["entry_failure_count"] = state.entry_failure_count
             return result
 
         state.stock_id = c.stock_id

@@ -17,6 +17,10 @@ class EngineImportTest(unittest.TestCase):
         from pathlib import Path
 
         lab = Path(__file__).resolve().parents[1] / "reports" / "research" / "channel_lab"
+        # reports/* 是 gitignored（.gitignore:13）—— 這支 shim 只存在於 mini 本機的
+        # 研究側，CI checkout 永遠拿不到。缺席時跳過，不是讓 CI 紅。
+        if not (lab / "hang_anchor_causal_lab.py").exists():
+            self.skipTest("channel_lab shim 不在 checkout 內（reports/* 為 gitignored）")
         sys.path.insert(0, str(lab))
         import hang_anchor_causal_lab as shim  # noqa: WPS433
 
@@ -351,6 +355,122 @@ class SessionSideGatePerBarKeyTest(unittest.TestCase):
         for tr in trades:
             entry_t = tr.get("et")
             self.assertIn(entry_t, T[:5], "entries must only occur inside the overridden window")
+
+
+class NqCalibContinuousDistanceTest(unittest.TestCase):
+    """2026-08-11: user asked for "always something resting, farther away
+    when unsure, closer when the signal is strong" instead of the old
+    binary session_side_gate block/allow. Wired via nq_calib="always_nq" +
+    nq_conf_soft_gate=True (both pre-existing causal_engine.py params, never
+    exercised with real data before -- see nq_hang_adj()). nq_conf_soft_gate
+    skips the ssg block section entirely; cell.block (session_pv_book's
+    per-cell hard block, e.g. night|normal's block=["L","S"]) is a
+    completely separate code path (unconditional, runs earlier) that must
+    keep holding regardless -- that's the one property this MUST NOT break.
+    """
+
+    @staticmethod
+    def _synthetic_day_bars(day: str, n: int = 200, start_px: float = 44000.0):
+        O, H, L, C, V, T = [], [], [], [], [], []
+        px = start_px
+        for i in range(n):
+            hh = 8 + (45 + i) // 60
+            if hh >= 14:
+                break
+            mm = (45 + i) % 60
+            drift = 15.0 if (i // 10) % 2 == 0 else -15.0
+            noise = 5.0 if i % 2 == 0 else -5.0
+            o = px
+            c = px + drift + noise
+            h = max(o, c) + 3.0
+            lo = min(o, c) - 3.0
+            v = 1000.0 + (i % 7) * 500.0
+            O.append(o)
+            H.append(h)
+            L.append(lo)
+            C.append(c)
+            V.append(v)
+            T.append(f"{day}T{hh:02d}:{mm:02d}:00.000+08:00")
+            px = c
+        return O, H, L, C, V, T
+
+    def _recipe(self, *, all_cells_blocked: bool = False):
+        from copy import deepcopy
+
+        from order.tmf_channel_config import PAPER_RECIPE
+        from order.tmf_channel_pv16_book import specialized_cell_book
+
+        recipe = deepcopy(PAPER_RECIPE)
+        recipe["hang_anchor"] = "O"
+        book = specialized_cell_book()
+        if all_cells_blocked:
+            for sess in book.values():
+                for cell in sess.values():
+                    cell["block"] = ["L", "S"]
+        recipe["session_pv_book"] = book
+        return recipe
+
+    def test_cell_block_holds_under_soft_gate_regardless_of_signal(self):
+        """Every cell blocked both sides + nq_conf_soft_gate=True + a strong
+        directional spread every bar -- must still produce zero trades. This
+        is the one property that must never regress: cell.block always wins,
+        independent of whatever the continuous nq_calib pull is doing."""
+        from tmf_channel.causal_engine import simulate
+
+        day = "2026-08-06"
+        O, H, L, C, V, T = self._synthetic_day_bars(day)
+        recipe = self._recipe(all_cells_blocked=True)
+        recipe["session_side_gate"] = {day: "L"}
+        recipe["nq_conf_soft_gate"] = True
+        recipe["nq_calib"] = "always_nq"
+        recipe["nq_on_1m"] = {day: {t[11:16]: 0.5 for t in T}}  # strong, constant signal
+
+        trades, *_ = simulate(O, H, L, C, V, T, recipe, vix_delta={})
+        self.assertEqual(trades, [])
+
+    def test_soft_gate_off_by_default_everywhere_else(self):
+        """Recipes that don't set nq_conf_soft_gate/nq_calib (every existing
+        caller: research scripts, other tests, backtests) must be completely
+        unaffected -- both default to off/none."""
+        from order.tmf_channel_config import PAPER_RECIPE
+
+        self.assertEqual(PAPER_RECIPE.get("nq_conf_soft_gate", False), False)
+        self.assertIn(PAPER_RECIPE.get("nq_calib", "none"), ("none", "", "off"))
+
+    def test_strong_signal_pulls_favored_side_closer_than_no_signal(self):
+        """always_nq mode: a strong positive spread should tighten the S
+        rail toward spot vs. no signal at all (adj>0 -> closer short, per
+        nq_hang_adj's own docstring) -- confirms the continuous pull is
+        actually wired end to end, not just present and inert."""
+        from tmf_channel.causal_engine import simulate
+
+        day = "2026-08-06"
+        O, H, L, C, V, T = self._synthetic_day_bars(day)
+
+        recipe_none = self._recipe()
+        recipe_none["nq_conf_soft_gate"] = True
+        recipe_none["nq_calib"] = "none"
+        _, _, ws_none, _, *_ = simulate(O, H, L, C, V, T, recipe_none, vix_delta={})
+
+        recipe_strong = self._recipe()
+        recipe_strong["nq_conf_soft_gate"] = True
+        recipe_strong["nq_calib"] = "always_nq"
+        recipe_strong["nq_on_1m"] = {day: {t[11:16]: 0.5 for t in T}}
+        _, _, ws_strong, _, *_ = simulate(O, H, L, C, V, T, recipe_strong, vix_delta={})
+
+        # Compare at bars where both are flat-state resting quotes (not None,
+        # not mid-trade) -- the S rail should be strictly closer to spot
+        # (smaller offset from anchor) under the strong pull than under none,
+        # at at least one comparable bar.
+        found_tighter = False
+        for i in range(len(T)):
+            a, b = ws_none[i], ws_strong[i]
+            if a is None or b is None:
+                continue
+            if b < a:  # S rail pulled down/closer under the strong signal
+                found_tighter = True
+                break
+        self.assertTrue(found_tighter, "expected at least one bar where the strong signal tightened the S rail")
 
 
 if __name__ == "__main__":
