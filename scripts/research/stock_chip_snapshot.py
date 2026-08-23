@@ -5,22 +5,30 @@
 TWT93U 借券賣出餘額與 MI_MARGN 融資融券約 21:00），本工具對尚未發布的欄位
 顯示「未發布」而不是靜默留空或誤用前一日數值。
 
-**評分口徑**：等權**五**訊號，正分＝偏空——
-S1 Δ借券賣出餘額／S2 佔股本近一年分位／S3 券源使用率變化／
-S5 借券費率 vs 近 20 筆中位／**S6 分點買賣家數差**。
-已剔除「融券餘額變化」——它在 2005-2012 是強反指標（t +2.4~+7.3）但之後
-衰減，15 年 t=+1.75 不顯著、逐年正負反覆（見 config/research.yaml 的
-chip-signal-daily-horizon）。
+**評分口徑（v4 連續版）**：五個訊號先轉成 z 型變數（±2.5），做硬收縮
+``s = z if |z|>=0.1 else 0``，相加後取**當日全市場分位**切三帶（最低/最高 20%）。
 
-**S6 分點**（``(買超家數−賣超家數)÷分點家數`` 的當日橫斷面五分位，最高分位判
-偏空）是唯一通過 walk-forward 的增量：OOS 1,001 日 / 17 期，價差
-0.1024%→0.1159%/日、t 8.02→8.75，增量逐日差 t=+2.37。與四訊號相關僅 0.096。
-方向反直覺——買超**家數**多代表散戶分散進場，隔日偏弱；所有「主力買超金額」
-類特徵反而全部不顯著（t 0.24~1.64）。
+| | 訊號 | 尺度基準 |
+|---|---|---|
+| z1 | Δ借券賣出餘額 相對自身近 60 日的 z 值 | 個股自適應 |
+| zp | 佔股本近 243 日分位 →(分位−0.5)×4 | 個股自適應 |
+| zu | Δ券源使用率 相對自身近 60 日的 z 值 | 個股自適應 |
+| zf | 借券費率 自身近 60 筆分位；**當日無成交 → 0** | 個股自適應 |
+| z6 | 分點(買超家數−賣超家數)÷家數 的**當日橫斷面**分位 | 橫斷面 |
 
-⚠️ **評分只描述部位結構，不預測隔日方向。** 15 年 190 萬個 stock-day 實測：
-看空帶隔日超額 −0.04%、命中率 56.05%（無條件基準 55.38%，優勢 0.7 個百分點），
-而個股單日離散 σ≈3%。不要拿它當進場訊號。
+三個設計依據（皆實測）：保留連續值不壓成 ±1（t 8.02→10.48）；hard 收縮優於
+soft（soft 會把極端值也減掉）；死區只用 0.1（k∈[0,0.2] 平坦、k>0.3 變差）。
+
+**已剔除**「融券餘額變化」——2005-2012 是強反指標但之後衰減，15 年 t=+1.75。
+
+⚠️ **效果量與時間結構**：OOS 1,001 日（2022-07~2026-08）多空價差 0.1670%/日、
+t=10.48。但**優勢集中在近兩年**（分年逐日差 t：2022 0.53／2023 1.26／2024 1.54／
+2025 2.68／2026 5.87）。本工具採用「近期習慣為主」的解釋，以 2025-2026 的
+水準為準。**否證檢定**：2026-09 之後若差 t 掉回 1.5 以下，該解釋即被推翻。
+橫斷面已驗：隨機切半 t=3.84/4.29、市值三層 t=4.74/3.40/2.42 全部成立。
+
+⚠️ **仍不可當進場訊號**：即使用 2026 的 0.392%/日，換手成本 1.17%/日 仍是 3 倍、
+個股單日離散 σ≈3% 是 8 倍，看空帶隔日仍約 43% 上漲。
 
 用法::
 
@@ -144,6 +152,69 @@ def fetch_day(sid: str, d: str) -> dict:
     return out
 
 
+def market_scores(d: str, hist_days: int = 320) -> pd.DataFrame | None:
+    """算出當日**全市場**的 v4 連續分數（需要全市場才能取分位切帶）。
+
+    從 DB 取近 ``hist_days`` 個交易日的借券／費率，算個股自適應的滾動 z；
+    分點則直接查當日全市場。當日資料若尚未進 DB，由呼叫端先補上。
+    """
+    c = connect_ro()
+    hist = pd.read_sql_query(
+        """SELECT s.stock_id, s.trade_date, s.sbl_balance, s.sbl_next_limit,
+                  s.short_limit, f.fee_rate_vw
+             FROM stock_short_interest_daily s
+             LEFT JOIN (SELECT stock_id, trade_date, fee_rate_vw FROM stock_sbl_fee_daily
+                         WHERE deal_type='ALL') f
+               ON f.stock_id=s.stock_id AND f.trade_date=s.trade_date
+            WHERE s.trade_date <= ? AND s.trade_date >= date(?, '-500 day')""",
+        c, params=(d, d))
+    if hist.empty:
+        return None
+    h = hist.sort_values(["stock_id", "trade_date"]).copy()
+    h["shares"] = (h.short_limit * 4).replace(0, np.nan)
+    h["sbl_pct"] = h.sbl_balance / h.shares
+    h["util"] = h.sbl_balance / (h.sbl_balance + h.sbl_next_limit)
+    g = h.groupby("stock_id", group_keys=False)
+    h["d_sbl"] = g.sbl_balance.diff()
+    h["d_util"] = g.util.diff()
+
+    def zself(col, win=60):
+        mu = g[col].transform(lambda x: x.rolling(win, min_periods=30).mean())
+        sd = g[col].transform(lambda x: x.rolling(win, min_periods=30).std())
+        return (h[col] - mu) / sd.replace(0, np.nan)
+
+    h["z1"] = zself("d_sbl")
+    h["zu"] = zself("d_util")
+    h["zp"] = ((g.sbl_pct.transform(lambda x: x.rolling(243, min_periods=60).rank(pct=True))
+                - 0.5) * 4)
+    h["zf"] = ((g.fee_rate_vw.transform(lambda x: x.rolling(60, min_periods=10).rank(pct=True))
+                - 0.5) * 4)
+    cur = h[h.trade_date == d].copy()
+    if cur.empty:
+        return None
+
+    br = pd.read_sql_query(
+        """SELECT stock_id,
+                  SUM(CASE WHEN net>0 THEN 1 ELSE 0 END) nb,
+                  SUM(CASE WHEN net<0 THEN 1 ELSE 0 END) ns, COUNT(*) n
+             FROM stock_broker_branch_daily
+            WHERE trade_date=? AND net IS NOT NULL AND net<>0
+            GROUP BY stock_id""", c, params=(d,))
+    if not br.empty:
+        br["brdiff"] = (br.nb - br.ns) / br.n
+        br["z6"] = (br.brdiff.rank(pct=True) - 0.5) * 4
+        cur = cur.merge(br[["stock_id", "z6", "nb", "ns", "n"]], on="stock_id", how="left")
+    else:
+        cur["z6"] = np.nan
+
+    for z in ("z1", "zp", "zu", "zf", "z6"):
+        cur[z] = cur[z].fillna(0).clip(-2.5, 2.5)
+        cur[f"s_{z}"] = np.where(cur[z].abs() >= 0.1, cur[z], 0.0)
+    cur["score"] = cur[[f"s_{z}" for z in ("z1", "zp", "zu", "zf", "z6")]].sum(axis=1)
+    cur["pctile"] = cur.score.rank(pct=True) * 100
+    return cur
+
+
 def branch_score(sid: str, d: str) -> tuple[float, dict] | tuple[None, None]:
     """當日分點買賣家數差 → 橫斷面五分位 → S6（正=偏空）。需全市場才能排序。"""
     c = connect_ro()
@@ -166,9 +237,11 @@ def branch_score(sid: str, d: str) -> tuple[float, dict] | tuple[None, None]:
                 "橫斷面分位": f"Q{int(row.q)+1}/5"}
 
 
-def history(sid: str) -> pd.DataFrame:
+def history(sid: str, before: str | None = None) -> pd.DataFrame:
+    """該股的歷史序列。``before`` 給定時**排除該日**——否則「Δ vs 前一日」會拿
+    當天自己當前一日，算出恆為 0 的假變動（當日資料一旦進 DB 就會發生）。"""
     c = connect_ro()
-    return pd.read_sql_query("""
+    df = pd.read_sql_query("""
         SELECT s.trade_date, p.close, p.volume/1000.0 vol,
                s.sbl_balance/1000.0 bal, s.sbl_next_limit/1000.0 lim,
                s.short_limit/1000.0*4 shares, f.fee_rate_vw fee
@@ -179,6 +252,7 @@ def history(sid: str) -> pd.DataFrame:
                       WHERE deal_type='ALL') f
                ON f.stock_id=s.stock_id AND f.trade_date=s.trade_date
          WHERE s.stock_id=? ORDER BY s.trade_date""", c, params=(sid,))
+    return df[df.trade_date < before] if before else df
 
 
 def main() -> int:
@@ -198,7 +272,7 @@ def main() -> int:
     print(f"價格  開 {p['open']} 高 {p['high']} 低 {p['low']} 收 {p['close']} "
           f"· 量 {(p['volume'] or 0)/1000:,.0f} 張" + ("  [上櫃]" if s.get("otc") else ""))
 
-    h = history(sid)
+    h = history(sid, before=d)
     K = 1000.0
     if s.get("sbl"):
         b = s["sbl"]
@@ -245,29 +319,19 @@ def main() -> int:
     else:
         print("分點  未發布或無資料（2021-06 起才有）")
 
-    # 評分（缺欄位就標明無法計分）
-    if s.get("sbl") and len(h):
-        b = s["sbl"]
-        shares = (b["short_lim"] or 0) * 4 / K
-        bal, lim = b["bal"] / K, b["lim"] / K
-        util = bal / (bal + lim) if (bal + lim) else np.nan
-        prev_util = h.bal.iloc[-1] / (h.bal.iloc[-1] + h.lim.iloc[-1])
-        pr = ((h.bal / h.shares).tail(243) < (bal / shares)).mean()
-        med = h.fee.dropna().tail(20).median()
-        S1 = 1 if bal > h.bal.iloc[-1] else -1
-        S2 = 1 if pr >= 0.8 else (-1 if pr <= 0.2 else 0)
-        S3 = 1 if util > prev_util else -1
-        S5 = (1 if (s.get("fee") and med == med and s["fee"]["vw"] > med) else -1)
-        s6v = int(s6) if s6 is not None else 0
-        net = S1 + S2 + S3 + S5 + s6v
-        band = "看空帶" if net >= 2 else ("看多帶" if net <= -2 else "中性帶")
-        s6txt = f" · S6 {s6v:+d}" if s6 is not None else " · S6 無資料"
-        print(f"\n評分  S1 {S1:+d} · S2 {S2:+d} · S3 {S3:+d} · S5 {S5:+d}{s6txt} "
-              f"→ 淨 {net:+d} / ±{5 if s6 is not None else 4} → **{band}**")
-        print("      ⚠️ 只描述部位結構。15 年實測看空帶隔日超額 −0.04%、"
-              "命中率優勢 0.7pp，個股離散 σ≈3%")
-    else:
-        print("\n評分  借券資料未發布，無法計分")
+    # ── v4 連續評分（需全市場才能取分位）──
+    mk = market_scores(d)
+    if mk is None or sid not in set(mk.stock_id):
+        print("\n評分  當日借券資料未進 DB，無法計分（DB 通常隔日才有）")
+        return 0
+    r = mk[mk.stock_id == sid].iloc[0]
+    band = ("看空帶" if r.pctile >= 80 else ("看多帶" if r.pctile <= 20 else "中性帶"))
+    print(f"\n評分（v4 連續 · 全市場 {len(mk):,} 檔）")
+    print(f"  z1 Δ借券 {r.s_z1:+.2f} · zp 佔股本 {r.s_zp:+.2f} · zu Δ使用率 {r.s_zu:+.2f} "
+          f"· zf 費率 {r.s_zf:+.2f} · z6 分點 {r.s_z6:+.2f}")
+    print(f"  總分 {r.score:+.2f} → 當日全市場分位 {r.pctile:.0f}% → **{band}**")
+    print("  ⚠️ 只描述部位結構。看空帶隔日仍約 43% 上漲；2026 年價差 0.392%/日，"
+          "而換手成本 1.17%/日 是它的 3 倍")
     return 0
 
 
