@@ -29,6 +29,7 @@ LABELS=(
   com.jackm4.goldenstocks.tmf-sim-server
   com.jackm4.goldenstocks.expert-pool-staged-gate
   com.jackm4.goldenstocks.nightly-expert-digest
+  com.jackm4.goldenstocks.chip-daily-brief
   com.jackm4.goldenstocks.second-disp-expert-pool-watch
   com.jackm4.goldenstocks.songshan-follow-watch
   com.jackm4.goldenstocks.tape-bars-backfill
@@ -57,6 +58,7 @@ TEMPLATES=(
   com.jackm4.goldenstocks.tmf-sim-server.plist.template
   com.jackm4.goldenstocks.expert-pool-staged-gate.plist.template
   com.jackm4.goldenstocks.nightly-expert-digest.plist.template
+  com.jackm4.goldenstocks.chip-daily-brief.plist.template
   com.jackm4.goldenstocks.second-disp-expert-pool-watch.plist.template
   com.jackm4.goldenstocks.songshan-follow-watch.plist.template
   com.jackm4.goldenstocks.tape-bars-backfill.plist.template
@@ -92,6 +94,8 @@ usage() {
     tmf-sim-server          KeepAlive（TMF paper UI :8770 · 不下單 · PYTHONPATH=src 用新引擎）
     expert-pool-staged-gate 週一至五 09:00／01／05／25（專家池 gap→05→25 漏斗閘門 · 預設 dry-run）
     nightly-expert-digest  週一至五 20:00（專家池+松山+新店 輕量 digest · 不下單）
+    chip-daily-brief       週一至五 21:00（籌碼 v4 偏多/偏空名單 + 今日回顧 + 提醒 · 唯讀 · 不下單
+                           休市日自行靜默跳過；開關 .env RUN_CHIP_DAILY_BRIEF）
     second-disp-expert-pool-watch  週一至五 20:35（處置股專家池跟單 · T0濾網 · 不下單）
     songshan-follow-watch      週一至五 21:00（9217 凱基松山跟單 PIT 留痕 · observe only ·
                                預設不寄信〔20:00 digest 已寄同內容〕· 不下單）
@@ -418,6 +422,7 @@ render_template() {
       -e "s|{{MOMENTUM_ROTATION_WATCH_LAUNCHER}}|${MOMENTUM_ROTATION_WATCH_LAUNCHER}|g" \
       -e "s|{{EP_STAGED_GATE_LAUNCHER}}|${EP_STAGED_GATE_LAUNCHER}|g" \
       -e "s|{{NIGHTLY_EXPERT_DIGEST_LAUNCHER}}|${NIGHTLY_EXPERT_DIGEST_LAUNCHER}|g" \
+      -e "s|{{CHIP_DAILY_BRIEF_LAUNCHER}}|${CHIP_DAILY_BRIEF_LAUNCHER}|g" \
       -e "s|{{SECOND_DISP_EXPERT_LAUNCHER}}|${SECOND_DISP_EXPERT_LAUNCHER}|g" \
       -e "s|{{SONGSHAN_FOLLOW_WATCH_LAUNCHER}}|${SONGSHAN_FOLLOW_WATCH_LAUNCHER}|g" \
       -e "s|{{TAPE_BARS_BACKFILL_LAUNCHER}}|${TAPE_BARS_BACKFILL_LAUNCHER}|g" \
@@ -578,6 +583,19 @@ install_ep_staged_gate_launcher() {
   APP_SUPPORT="${app_support}"
   render_template "${src}" "${EP_STAGED_GATE_LAUNCHER}"
   chmod +x "${EP_STAGED_GATE_LAUNCHER}"
+}
+
+install_chip_daily_brief_launcher() {
+  local src="${LAUNCHD_SRC}/chip-daily-brief-launcher.sh.template"
+  local app_support="${HOME}/Library/Application Support/com.jackm4.goldenstocks"
+  CHIP_DAILY_BRIEF_LAUNCHER="${app_support}/chip-daily-brief.sh"
+  if [[ ! -f "${src}" ]]; then
+    echo "✗ 缺少 ${src}" >&2
+    exit 1
+  fi
+  mkdir -p "${app_support}"
+  render_template "${src}" "${CHIP_DAILY_BRIEF_LAUNCHER}"
+  chmod +x "${CHIP_DAILY_BRIEF_LAUNCHER}"
 }
 
 install_nightly_expert_digest_launcher() {
@@ -998,6 +1016,7 @@ install_agents() {
   MOMENTUM_ROTATION_WATCH_LAUNCHER=""
   EP_STAGED_GATE_LAUNCHER=""
   NIGHTLY_EXPERT_DIGEST_LAUNCHER=""
+  CHIP_DAILY_BRIEF_LAUNCHER=""
   SECOND_DISP_EXPERT_LAUNCHER=""
   SONGSHAN_FOLLOW_WATCH_LAUNCHER=""
   TAPE_BARS_BACKFILL_LAUNCHER=""
@@ -1036,6 +1055,7 @@ install_agents() {
   install_momentum_rotation_watch_launcher
   install_ep_staged_gate_launcher
   install_nightly_expert_digest_launcher
+  install_chip_daily_brief_launcher
   install_second_disp_expert_launcher
   install_songshan_follow_watch_launcher
   install_tape_bars_backfill_launcher

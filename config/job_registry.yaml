@@ -526,6 +526,22 @@ jobs:
     schedule: "weekdays 20:00"
     description: "Expert-pool + 松山/新店 buy-side consensus digest, email only (formerly winbond-/specialty-expert-pool-watch)"
 
+  - label: chip-daily-brief
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 21:00"
+    description: >-
+      籌碼 v4 每日簡報：偏多／偏空各 10 檔 ＋ 今日五分位回顧 ＋ 固定提醒，email only。
+      唯讀研究、不下單。跑 scripts/research/run_chip_daily_brief.py，會先補當日
+      借券賣出餘額／借券費率／上市＋上櫃全市場日線（分點由 18:30 branch-tape-prewarm 負責）。
+      為何 21:00：TWSE 的 TWT93U／t13sa710／MI_MARGN 實測約 20:40 才可取得，21:00 留餘裕。
+      休市日靜默跳過（判準＝當日有無日線成交）。開關：.env RUN_CHIP_DAILY_BRIEF（預設 1）。
+      ⚠️ 信中名單**不是買賣建議**：可執行邊際（開→收五分位價差）+0.051%/日，
+      低於來回成本 0.12–0.15%，照名單交易期望值為負。風險段落 SSOT 在該腳本的 CAVEATS。
+      同時把當日結果寫進 chip_score_forward_track（前瞻樣本外紀錄，設計凍結 2026-08-23，
+      否證條件 H-CHIP-BRANCH-INCREMENT 見 config/research.yaml）。
+
   - label: second-disp-expert-pool-watch
     category: research
     order_capable: false

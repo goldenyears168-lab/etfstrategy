@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# 由 install-launchd.sh 安裝至 ~/Library/Application Support/com.jackm4.goldenstocks/
+# 週一至五 21:00 · 籌碼 v4 每日簡報（偏多/偏空名單 + 今日回顧 + 提醒）· 唯讀 · 不下單
+#
+# 開關：.env 的 RUN_CHIP_DAILY_BRIEF（預設 1；設 0 可停信但不必卸載 launchd）
+# 收件人沿用 .env 的 GMAIL_NOTIFY_TO；祕密不寫進 plist。
+#
+# ⚠️ 這封信寄的是**研究名單**，不是買賣建議。信裡固定附風險段落：可執行邊際
+#    （開→收五分位價差）+0.051%/日 仍低於來回成本，照名單交易期望值為負。
+#    要改那段話請改 scripts/research/run_chip_daily_brief.py 的 CAVEATS。
+
+set -euo pipefail
+
+ROOT="{{PROJECT_ROOT}}"
+STAMP="$(date '+%Y%m%d')"
+DATA_DIR="${GOLDENSTOCKS_DATA_DIR:-${ROOT}}"
+RUN_LOG="${DATA_DIR}/logs/chip_daily_brief_${STAMP}.log"
+LOCK_DIR="${DATA_DIR}/logs/.chip-daily-brief.lock"
+
+mkdir -p "${DATA_DIR}/logs"
+
+_load_env_file() {
+  [[ -r "$1" ]] || return 0
+  set +e; set -a
+  # shellcheck disable=SC1090
+  source "$1" 2>/dev/null
+  set +a; set -e
+}
+_load_env_file "${DATA_DIR}/.env"
+
+if [[ "${RUN_CHIP_DAILY_BRIEF:-1}" == "0" ]]; then
+  echo "chip-daily-brief skipped: RUN_CHIP_DAILY_BRIEF=0"
+  exit 0
+fi
+
+# 補檔會打 TWSE 好幾分鐘；重疊執行只會互相 rate-limit。
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  echo "chip-daily-brief skipped: 另一輪仍在執行（${LOCK_DIR}）"
+  exit 0
+fi
+trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+
+echo "=== chip daily brief 開始 $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+export PYTHONPATH="${ROOT}/src"
+PYTHON="${ROOT}/.venv/bin/python"
+
+EXIT=0
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "✗ missing venv python: ${PYTHON}"
+  EXIT=1
+else
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/research/run_chip_daily_brief.py" \
+    --skip-if-market-closed 2>&1 | tee "${RUN_LOG}"
+  EXIT=${PIPESTATUS[0]}
+  set -e
+fi
+
+echo "=== chip daily brief 結束 exit=${EXIT} $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+if [[ "${EXIT}" -ne 0 && -x "${PYTHON}" ]]; then
+  set +e
+  "${PYTHON}" "${ROOT}/scripts/notify_job_result.py" \
+    --subject-prefix="籌碼每日簡報" \
+    --exit-code="${EXIT}" \
+    --log-path="${RUN_LOG}" \
+    --extra="籌碼簡報失敗，今日無名單信，詳見 log"
+  set -e
+fi
+
+exit "${EXIT}"

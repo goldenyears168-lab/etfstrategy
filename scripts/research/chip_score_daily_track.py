@@ -44,9 +44,10 @@ MIN_CLOSE = 10.0
 
 
 def _score_module():
-    sys.path.insert(0, "scripts/research")
+    # 絕對路徑：launchd 的 cwd 不在 repo，相對路徑會 FileNotFoundError。
     from importlib.machinery import SourceFileLoader
-    return SourceFileLoader("snap", "scripts/research/stock_chip_snapshot.py").load_module()
+    here = Path(__file__).resolve().parent
+    return SourceFileLoader("snap", str(here / "stock_chip_snapshot.py")).load_module()
 
 
 def prev_trading_date(d: str) -> str | None:
