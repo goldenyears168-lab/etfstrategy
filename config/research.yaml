@@ -12125,6 +12125,7 @@ topics:
       - scripts/research/branch_features.py               # 分點 2.24 億列 → 每日個股特徵
       - scripts/research/chip_branch_walkforward.py       # 分點增量的 walk-forward（passed）
       - scripts/research/stock_chip_snapshot.py           # 單檔五訊號籌碼全貌（含 S6 分點）
+      - scripts/research/chip_score_daily_track.py        # 每日前瞻紀錄（設計凍結 2026-08-23）
       - scripts/research/sbl_fee_cross_section_panel.py   # 2011-2026 全市場面板（含除權息還原）
     report_dir: reports/research/sbl-fee-cross-section
     context: >
@@ -12463,7 +12464,34 @@ topics:
           但兩個設計原則成立且值得記住：**hard 收縮全面優於 soft**（soft 會把
           資訊最多的極端值也一起縮小），且**最佳「分數=0」佔比約 5~6%**——
           v2 的 27% 太寬、純連續的 2% 太窄。
+      - id: H-CHIP-FORWARD-TRACK
+        statement: >
+          設計凍結（2026-08-23）後累積的真正樣本外，能維持 2025-2026 的效果水準
+          ——多空價差的 t 不低於 1.5。
+        status: pending
+        preregistered_before_run: true
+        note: >
+          **這是本研究線唯一還乾淨的檢定。** 其餘所有比較都已用過全部歷史資料，
+          無法區分「機制真的變了」與「在同一份資料上調參」。
+
+          紀錄工具 ``scripts/research/chip_score_daily_track.py``，輸出
+          ``reports/research/chip-signal-daily-horizon/daily_track.csv``，
+          以 ``regime`` 欄區分 forward／backfill，兩者不可混算。
+          判準：累積 60~120 個 forward 交易日後重測。
+
+          **單日結果一律不得用來調整看法。** 單日多空價差（收→收）的歷史
+          標準差 0.456%、平均僅 +0.115%、**60.5% 的日子為正**——落在 80 百分位
+          跟丟銅板連對兩次差不多。
+
+          第 1 天（2026-08-24）：多空價差 收→收 +0.5853%、開→收 +0.1398%，
+          標的 265 檔。同日以較寬鬆篩選（405 檔）手算為 +0.453%／+0.171%，
+          落在歷史 81／66 百分位（z=+0.74／+0.33）——方向對但完全在雜訊內。
+          當日兩個失效：偏空 Top 10 平均超額 **+0.70%（方向反了）**，被光鼎單檔
+          +9.91% 翻轉；跳空回歸低開側也反向（−0.261%，歷史 +0.245%）。
     do_not:
+      - 不要用單日結果判斷這套規則。單日多空價差歷史標準差 0.456%、60.5% 的
+        日子為正——「今天賺錢」與「訊號有效」是兩件事。用
+        chip_score_daily_track.py 累積 60 日以上再看。
       - 不要把「連續化」與「加新來源」當成兩個獨立的小改善分開評估。實測合併
         效果是相加的兩倍（④ 比 ② 和 ③ 各自顯著更好，t=5.03／4.52）——新來源
         必須也用連續值，否則它的強度資訊一樣被 ±1 壓掉。
