@@ -662,6 +662,25 @@ CREATE TABLE IF NOT EXISTS stock_lending_daily (
     PRIMARY KEY (stock_id, trade_date, source)
 );
 
+CREATE TABLE IF NOT EXISTS chip_score_forward_track (
+    -- v4 籌碼評分的每日前瞻紀錄。設計凍結於 2026-08-23，之後每一天都是真正的
+    -- 樣本外——本研究線的乾淨 hold-out 已在合併測試時燒掉，這是唯一還乾淨的
+    -- 檢定。regime 區分 forward（凍結後）／backfill，兩者不可混算。
+    -- 產生者：scripts/research/chip_score_daily_track.py
+    return_date TEXT NOT NULL,
+    signal_date TEXT NOT NULL,
+    regime TEXT NOT NULL,          -- forward | backfill
+    n INTEGER,                     -- 當日可評分標的數
+    mkt_cc REAL,                   -- 當日全市場平均收→收報酬 %
+    spread_cc REAL,                -- 多空價差（Q1−Q5）收→收 %
+    spread_oc REAL,                -- 多空價差 開→收（可執行口徑）%
+    q1_cc REAL,
+    q5_cc REAL,
+    gap_rev REAL,                  -- 跳空回歸對照（低開組−高開組的開→收超額）%
+    synced_at TEXT NOT NULL,
+    PRIMARY KEY (return_date)
+);
+
 CREATE TABLE IF NOT EXISTS stock_ex_adjust_event (
     -- 除權息還原因子。兩個來源的錨點日不同，故用 anchor_kind 標明：
     --   TWSE TWT49U 除權除息計算結果表 → anchor_date = 除權息日（ex-date）

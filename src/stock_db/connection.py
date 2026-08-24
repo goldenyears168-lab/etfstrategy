@@ -9,7 +9,7 @@ from stock_db._schema import _SCHEMA, _migrate_schema
 
 # Bump SCHEMA_VERSION whenever _SCHEMA, _migrate_schema, or the copytrade
 # schema (ensure_copytrade_schema) changes, so connect() re-runs the DDL.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _TIMEOUT_SEC = 60.0
 _BUSY_TIMEOUT_MS = 60_000

@@ -33,9 +33,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from stock_db import connect_ro
+from stock_db import connect, connect_ro
 
 FREEZE_DATE = "2026-08-23"
+# SSOT 存 DB（reports/ 在 .gitignore 裡，紀錄不能只活在被忽略的檔案）；
+# CSV 只是方便人眼檢視的匯出。
 OUT = Path("reports/research/chip-signal-daily-horizon/daily_track.csv")
 MIN_VOL_LOTS = 500
 MIN_CLOSE = 10.0
@@ -93,6 +95,34 @@ def record(d: str) -> dict | None:
     }
 
 
+def upsert(row: dict) -> None:
+    from stock_db.util import utc_now_iso
+    conn = connect()
+    conn.execute(
+        """INSERT INTO chip_score_forward_track (
+               return_date, signal_date, regime, n, mkt_cc, spread_cc, spread_oc,
+               q1_cc, q5_cc, gap_rev, synced_at
+           ) VALUES (
+               :return_date, :signal_date, :regime, :n, :mkt_cc, :spread_cc,
+               :spread_oc, :q1_cc, :q5_cc, :gap_rev, :synced_at)
+           ON CONFLICT(return_date) DO UPDATE SET
+               signal_date=excluded.signal_date, regime=excluded.regime, n=excluded.n,
+               mkt_cc=excluded.mkt_cc, spread_cc=excluded.spread_cc,
+               spread_oc=excluded.spread_oc, q1_cc=excluded.q1_cc, q5_cc=excluded.q5_cc,
+               gap_rev=excluded.gap_rev, synced_at=excluded.synced_at""",
+        {**row, "synced_at": utc_now_iso()})
+    conn.commit()
+    conn.close()
+
+
+def load_track() -> pd.DataFrame:
+    # connect() 才會跑 DDL；connect_ro() 不會。開場先觸發一次確保表存在，
+    # 否則首次執行會死在「no such table」。
+    connect().close()
+    return pd.read_sql_query(
+        "SELECT * FROM chip_score_forward_track ORDER BY return_date", connect_ro())
+
+
 def summary(df: pd.DataFrame) -> None:
     pd.set_option("display.width", 200)
     for regime in ("forward", "backfill"):
@@ -125,7 +155,7 @@ def main() -> int:
     ap.add_argument("--summary", action="store_true", help="只印累積結果，不記錄新日期")
     args = ap.parse_args()
 
-    df = pd.read_csv(args.out) if args.out.exists() else pd.DataFrame()
+    df = load_track()
     if not args.summary:
         d = args.date or connect_ro().execute(
             "SELECT MAX(trade_date) FROM stock_daily_bars WHERE source='finmind'").fetchone()[0]
@@ -136,10 +166,10 @@ def main() -> int:
             if row is None:
                 print(f"{d} 資料不足，未記錄（籌碼或價格尚未進 DB？）")
             else:
-                df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-                df = df.sort_values("return_date").drop_duplicates("return_date", keep="last")
+                upsert(row)
+                df = load_track()
                 args.out.parent.mkdir(parents=True, exist_ok=True)
-                df.to_csv(args.out, index=False)
+                df.to_csv(args.out, index=False)     # 人眼檢視用的匯出
                 print(f"已記錄 {d}（{row['regime']}）：多空價差 收→收 {row['spread_cc']:+.4f}% · "
                       f"開→收 {row['spread_oc']:+.4f}% · 標的 {row['n']} 檔")
     if not df.empty:
