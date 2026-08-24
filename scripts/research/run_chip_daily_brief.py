@@ -337,7 +337,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date", default=None, help="報酬日／訊號日（預設 DB 最新交易日）")
-    ap.add_argument("--top", type=int, default=10)
+    # 30 檔/邊 ≈ 全市場 478 檔的 6.3%，仍落在五分位最極端那一段內
+    # （單邊 20% 才是回測的分位邊界），不會稀釋掉訊號強度。
+    ap.add_argument("--top", type=int, default=30)
     ap.add_argument("--no-refresh", action="store_true", help="不補檔，只用 DB 現有資料")
     ap.add_argument("--dry-run", action="store_true", help="印出內容，不寄信")
     ap.add_argument("--skip-if-market-closed", action="store_true",
