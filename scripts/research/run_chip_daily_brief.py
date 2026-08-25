@@ -80,6 +80,8 @@ def refresh(d: str, log: list[str]) -> None:
         ("上櫃全市場日線", [
             PY, str(ROOT / "scripts" / "backfill_tpex_daily_prices.py"),
             "--start", since, "--end", d]),
+        ("集保股權分散（週）", [
+            PY, str(ROOT / "scripts" / "backfill_tdcc_dispersion.py"), "--weekly"]),
     ]
     for label, cmd in steps:
         try:
@@ -136,6 +138,45 @@ def names() -> dict[str, str]:
     return out
 
 
+def holding_structure(d: str) -> pd.DataFrame:
+    """集保持股結構。散戶＝級距 1–8（<50 張）、大戶＝12–15（>400 張）。
+
+    ⚠️ PIT：as_of_date 是週五結算，集保下週一二才公布 → 只取
+    ``as_of_date <= d − 4 天`` 的最新一週，否則會用到當下還看不到的資料。
+    """
+    cutoff = (date.fromisoformat(d) - timedelta(days=4)).isoformat()
+    c = connect_ro()
+    # ⚠️ 表的 PK 含 source，同一檔同一週可能同時有 tdcc 與 finmind 兩列。
+    # 直接 SUM 會把百分比加成兩倍（實測大戶出現 191%），而且只有回補過
+    # finmind 的 893 檔會被雙計、其餘 3,141 檔不會 —— 排名被系統性扭曲。
+    # 必須先選定單一 source（tdcc 為全市場權威來源，優先）再聚合。
+    df = pd.read_sql_query(
+        """WITH pick AS (
+              SELECT stock_id, as_of_date, source,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY stock_id
+                       ORDER BY as_of_date DESC,
+                                CASE source WHEN 'tdcc' THEN 0 ELSE 1 END) AS rn
+                FROM (SELECT DISTINCT stock_id, as_of_date, source
+                        FROM stock_holding_dispersion_weekly
+                       WHERE as_of_date <= ?))
+           SELECT p.stock_id, p.as_of_date AS as_of,
+                  SUM(CASE WHEN w.level IN ('1','2','3','4','5','6','7','8')
+                           THEN w.percent ELSE 0 END) AS ret_pct,
+                  SUM(CASE WHEN w.level IN ('12','13','14','15')
+                           THEN w.percent ELSE 0 END) AS big_pct
+             FROM pick p
+             JOIN stock_holding_dispersion_weekly w
+               ON w.stock_id=p.stock_id AND w.as_of_date=p.as_of_date
+              AND w.source=p.source
+            WHERE p.rn = 1
+            GROUP BY p.stock_id, p.as_of_date""", c, params=(cutoff,))
+    bad = df[(df.ret_pct + df.big_pct) > 101]
+    if len(bad):
+        raise RuntimeError(f"持股結構百分比異常（{len(bad)} 檔 >101%），疑似仍在雙計")
+    return df[df.ret_pct > 0]
+
+
 def freshness() -> dict[str, str | None]:
     c = connect_ro()
     def mx(t, extra=""):
@@ -169,6 +210,9 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
     m = m[~m.stock_id.str.startswith("00")]
     if len(m) < 50:
         return pd.DataFrame(), pd.DataFrame(), {"n": len(m)}
+    hold = holding_structure(sig_d)
+    m = m.merge(hold, on="stock_id", how="left")
+    m["ret_rank"] = m.ret_pct.rank(pct=True) * 100
     m["pct"] = m.score.rank(pct=True) * 100
     m["nm"] = m.stock_id.map(names()).fillna("")
 
@@ -189,7 +233,12 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
         "zero_frac": (m.score.abs() < 1e-9).mean() * 100,
         "avg_active": m.n_active.mean(),
         "comp_cover": {COMPONENTS[c]: (m[c].abs() > 1e-9).mean() * 100 for c in comp},
+        "hold_cover": m.ret_pct.notna().mean() * 100,
+        "hold_asof": m.as_of.dropna().max() if "as_of" in m else None,
     }
+    # 散戶持股最低 —— 這是本研究線唯一淨值為正的組態（見 C 段第 2 條）
+    hl = m.dropna(subset=["ret_pct"]).sort_values("ret_pct").head(top).copy()
+    stats["retail_low"] = hl
     return s.head(top).copy(), s.tail(top).iloc[::-1].copy(), stats
 
 
@@ -211,38 +260,50 @@ def _tbl(df: pd.DataFrame, side: str) -> str:
     if df.empty:
         return "<p>（無）</p>"
     head = ("<tr><th>代號</th><th>名稱</th><th>收盤</th><th>分數</th>"
-            "<th>百分位</th><th>主要驅動</th><th>有效項</th></tr>")
+            "<th>百分位</th><th>主要驅動</th><th>有效項</th>"
+            "<th>散戶持股%</th><th>分位</th></tr>")
+    def _f(v, fmt="{:.1f}"):
+        return "—" if pd.isna(v) else fmt.format(v)
     rows = "".join(
         f"<tr><td>{r.stock_id}</td><td>{r.nm}</td><td align=right>{r.close:.2f}</td>"
         f"<td align=right>{r.score:+.2f}</td><td align=right>{r.pct:.0f}</td>"
-        f"<td>{r.driver}</td><td align=center>{int(r.n_active)}/5</td></tr>"
+        f"<td>{r.driver}</td><td align=center>{int(r.n_active)}/5</td>"
+        f"<td align=right>{_f(r.ret_pct)}</td><td align=right>{_f(r.ret_rank, '{:.0f}')}</td></tr>"
         for r in df.itertuples())
     return (f"<table border=1 cellpadding=4 cellspacing=0 "
             f"style='border-collapse:collapse;font-size:13px'>{head}{rows}</table>")
 
 
 CAVEATS = """
-<b>1. 這不是買賣建議。</b> 可執行邊際（開→收的五分位價差）歷史平均
-<b>+0.051%/日</b>，來回成本約 0.12–0.15%——<b>照名單交易的期望值是負的</b>。
-它的用途是「同樣要買/賣時偏哪一邊」，不是「因為它而交易」。
+<b>1. B 段名單的預測力，在風險中性後是零。</b> 2026-08-26 檢定（45 萬 stock-day）：
+v4 五項對波動／跳空／市值中性化後 <b>t = −0.92（連方向都沒有）</b>；
+表面上好看的收→收 t=+10.55 有 <b>96% 消失在開盤那一瞬間</b>——
+Δ借券、Δ使用率、分點家數三項貢獻的全是隔夜跳空，你拿不到。
+<b>先前信中「可執行邊際 +0.051%/日」的說法已被否證</b>，那個數字是波動曝險。
+B 段保留是為了持續累積前瞻紀錄，<b>它只描述部位結構，不預測漲跌</b>。
 
-<b>2. 單日對錯不代表任何事。</b> 多空價差單日標準差 0.456%，平均只有 +0.115%，
-<b>歷史上 60.5% 的日子為正</b>。單日落在 80 百分位跟丟銅板連對兩次差不多。
+<b>2. B2 段是唯一淨值為正的組態，但幅度小到不構成生意。</b>
+只做多、散戶持股最低 5.8%：中性後 +0.058%/日、t=+2.61、換手 11%，
+損益兩平成本 0.528% vs 多頭腿來回 0.471% → <b>淨 +1.6%/年</b>，
+扣掉滑價大概就沒了；且前半 t=2.56 → 後半 t=1.43 <b>正在衰減</b>，
+樣本只有 535 天（集保資料起於 2024-06）、一個多頭週期，
+而那一輪同時測了 9 個因子，多重檢定會讓 t 看起來比實際強。
 
-<b>3. 個股離散度是整體傾斜的 23 倍。</b> 名單裡任一檔的個別事件就能蓋過整組傾斜。
-實例：2026-08-24 偏空 Top10 平均 +0.70%，但那是<b>光鼎單檔 +9.91% 一檔翻正的</b>，
-10 檔裡其實有 7 檔在跌。<b>照名單押單檔＝押雜訊。</b>
+<b>3. 真正在解釋隔日報酬的是兩個非籌碼效應。</b>
+低波動 − 高波動（開→收）+0.334%/日 t=+7.03；跳空回歸（低開−高開）
++0.278%/日 t=+11.03。兩者獨立且加乘，高波動×高開那格是 −0.633%/日。
+機制：高波動股平均跳空 +0.471% 後開高走低，收→收 反而是 −0.093%——
+<b>純日內現象</b>。但兩者換手都近 100%，一樣付不起 1.17%/日 的成本。
 
-<b>4. 訊號只在 2025-2026 顯著，更早期無效。</b> 可能是「近期習慣」，也可能是過度配適。
-否證條件已登錄（H-CHIP-BRANCH-INCREMENT）：累積 60–120 個前瞻日後
-多空價差 t 若掉回 1.5 以下，此解釋即被推翻。
+<b>4. 個股離散度是整體傾斜的 20 倍以上。</b> 名單裡任一檔的個別事件就能蓋過整組傾斜。
+實例：2026-08-25 偏空 Top30 平均 +1.125%，但<b>中位數是 −0.362%</b>——
+靠台虹 +10.00%、光鼎 +9.87%、富世達 +7.89% 三檔翻正。<b>照名單押單檔＝押雜訊。</b>
 
-<b>5. 跳空回歸比籌碼訊號大 10 倍，但一樣付不起成本。</b> 低開組−高開組的開→收
-超額約 +0.49%/日。<b>要做多找低開、要放空找高開</b>——但這同樣不足以覆蓋來回成本，
-只作為「已經決定要下單時」的進場時點參考。
+<b>5. 單日對錯不代表任何事。</b> 多空價差單日標準差 0.456%，歷史上 60.5% 的日子為正。
+單日落在 80 百分位跟丟銅板連對兩次差不多。
 
-<b>6. 分點資料若當日未補齊，S6 會退為 0</b>——分數仍算得出來，但少掉唯一通過
-walk-forward 的那一項，當日名單的參考價值會明顯下降。信頭的資料新鮮度表會標明。
+<b>6. 集保資料是週頻且落後。</b> as_of 是週五結算、下週一二才公布，本信已扣 4 天緩衝。
+它反映的是<b>已完成的過戶結果</b>，不是盤中籌碼；適合週～月尺度，不適合當隔日訊號。
 """
 
 
@@ -276,7 +337,8 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
             f"<p>用 {row['signal_date']} 的分數對 {row['return_date']} 實際報酬驗算"
             f"（{row['n']} 檔）：<br>"
             f"多空價差 收→收 <b>{row['spread_cc']:+.4f}%</b>（歷史平均 +0.115%）"
-            f"　·　開→收 <b>{row['spread_oc']:+.4f}%</b>（歷史平均 +0.051%）<br>"
+            f"　·　開→收 <b>{row['spread_oc']:+.4f}%</b>"
+            f"（歷史平均 +0.051%，<b>但風險中性後為零</b>）<br>"
             f"　Q1 偏多組 {row['q1_cc']:+.4f}%　·　Q5 偏空組 {row['q5_cc']:+.4f}%"
             f"　·　大盤 {row['mkt_cc']:+.4f}%<br>"
             f"跳空回歸（低開−高開）<b>{row['gap_rev']:+.4f}%</b>（歷史 +0.493%）</p>"
@@ -300,6 +362,25 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     parts += [f"<h3>B. 明日名單（訊號日 {sig_d}）</h3>",
               f"<p><b>偏多 Top {top}</b>（分數最低）</p>", _tbl(bull, "多"),
               f"<p style='margin-top:12px'><b>偏空 Top {top}</b>（分數最高）</p>", _tbl(bear, "空")]
+    hl = stats.get("retail_low")
+    if hl is not None and not hl.empty:
+        rows = "".join(
+            f"<tr><td>{r.stock_id}</td><td>{r.nm}</td><td align=right>{r.close:.2f}</td>"
+            f"<td align=right>{r.ret_pct:.1f}</td><td align=right>{r.big_pct:.1f}</td>"
+            f"<td align=right>{r.score:+.2f}</td></tr>" for r in hl.itertuples())
+        parts.append(
+            f"<h3>B2. 散戶持股最低 Top {top}（訊號日 {sig_d}）</h3>"
+            "<p style='font-size:13px'>這是本研究線<b>唯一淨值為正</b>的組態："
+            "只做多、散戶持股最低那 5.8%，風險中性後 +0.058%/日（t=+2.61）、"
+            "換手僅 11%。<b>但淨值只有 +1.6%/年，而且在衰減</b>"
+            "（前半 t=2.56 → 後半 t=1.43）。列在這裡是為了累積前瞻紀錄，不是建議。</p>"
+            "<table border=1 cellpadding=4 cellspacing=0 style='border-collapse:collapse;"
+            "font-size:13px'><tr><th>代號</th><th>名稱</th><th>收盤</th>"
+            "<th>散戶持股%</th><th>大戶持股%</th><th>v4分數</th></tr>" + rows + "</table>")
+        if stats.get("hold_asof"):
+            parts.append(f"<p style='font-size:12px;color:#555'>集保資料週別 "
+                         f"{stats['hold_asof']}（週五結算，已扣 4 天公布緩衝）　·　"
+                         f"覆蓋 {stats.get('hold_cover', 0):.0f}%</p>")
     if stats.get("comp_cover"):
         cov = "　".join(f"{k} {v:.0f}%" for k, v in stats["comp_cover"].items())
         parts.append(f"<p style='font-size:12px;color:#555'>分項覆蓋率：{cov}<br>"
@@ -326,7 +407,8 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     for lab, df in (("偏多", bull), ("偏空", bear)):
         if not df.empty:
             txt.append(f"{lab}：" + "、".join(f"{r.stock_id} {r.nm}" for r in df.itertuples()))
-    txt.append("這不是買賣建議：可執行邊際 +0.051%/日 仍低於來回成本 0.12-0.15%。")
+    txt.append("這不是買賣建議：B 段名單在風險中性後 t=-0.92（無預測力）；"
+               "B2 段是唯一淨值為正的組態，但只有 +1.6%/年且在衰減。")
     return "\n".join(txt), html
 
 

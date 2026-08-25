@@ -677,6 +677,14 @@ CREATE TABLE IF NOT EXISTS chip_score_forward_track (
     q1_cc REAL,
     q5_cc REAL,
     gap_rev REAL,                  -- 跳空回歸對照（低開組−高開組的開→收超額）%
+    -- 2026-08-26 新增。原始價差已證實幾乎全是波動／跳空曝險（v4 中性後 t=−0.92），
+    -- 因此同時記錄「對波動/跳空/市值五分位虛擬變數迴歸取殘差」後的版本；
+    -- 只看原始欄位會讓 60 天後的判斷仍建立在被污染的數字上。
+    v4_oc_n REAL,                  -- v4 多空價差 開→收 · 風險中性後 %
+    retail_sp_oc REAL,             -- 散戶持股水位 多空價差 開→收（原始）%
+    retail_sp_oc_n REAL,           -- 同上 · 風險中性後 %
+    retail_long_n REAL,            -- 只做多腿（散戶持股最低）· 中性後超額 %
+    hold_asof TEXT,                -- 當日採用的集保結算週別（PIT 追溯用）
     synced_at TEXT NOT NULL,
     PRIMARY KEY (return_date)
 );
@@ -1380,6 +1388,18 @@ def _drop_retired_execution_tables(conn: sqlite3.Connection) -> None:
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """既有 DB 補欄位（CREATE IF NOT EXISTS 不會自動 ALTER）。"""
     migrations: list[tuple[str, str, str]] = [
+        # 2026-08-26：前瞻紀錄改記「風險中性後」的價差。原始欄位已證實幾乎
+        # 全是波動／跳空曝險，只留原始欄位會讓 60 天後的判斷仍建立在被污染的
+        # 數字上（v4 中性後 t=−0.92）。
+        *[
+            ("chip_score_forward_track", col,
+             f"ALTER TABLE chip_score_forward_track ADD COLUMN {col} {typ}")
+            for col, typ in (
+                ("v4_oc_n", "REAL"), ("retail_sp_oc", "REAL"),
+                ("retail_sp_oc_n", "REAL"), ("retail_long_n", "REAL"),
+                ("hold_asof", "TEXT"),
+            )
+        ],
         (
             "stock_fundamental",
             "eps_latest_q",
