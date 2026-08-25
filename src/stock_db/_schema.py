@@ -685,6 +685,10 @@ CREATE TABLE IF NOT EXISTS chip_score_forward_track (
     retail_sp_oc_n REAL,           -- 同上 · 風險中性後 %
     retail_long_n REAL,            -- 只做多腿（散戶持股最低）· 中性後超額 %
     hold_asof TEXT,                -- 當日採用的集保結算週別（PIT 追溯用）
+    -- HS = 25% zp + 75% 散戶持股（橫斷面 rank）。散戶單獨用在 2025-08 後已翻負
+    -- （t=+1.20、淨值 −4.62%/年），加 zp 後兩個半段都穩（t≈+2.99）。
+    hs_sp_oc_n REAL,               -- HS 多空價差 開→收 · 中性後 %
+    hs_long_n REAL                 -- HS 只做多腿（分數最低 5.8%）· 中性後 %
     synced_at TEXT NOT NULL,
     PRIMARY KEY (return_date)
 );
@@ -1397,7 +1401,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             for col, typ in (
                 ("v4_oc_n", "REAL"), ("retail_sp_oc", "REAL"),
                 ("retail_sp_oc_n", "REAL"), ("retail_long_n", "REAL"),
-                ("hold_asof", "TEXT"),
+                ("hold_asof", "TEXT"), ("hs_sp_oc_n", "REAL"),
+                ("hs_long_n", "REAL"),
             )
         ],
         (

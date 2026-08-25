@@ -40,6 +40,7 @@ from stock_db import connect_ro
 ROOT = Path(__file__).resolve().parents[2]
 PY = str(ROOT / ".venv" / "bin" / "python")
 
+HS_W_ZP = 0.25          # 綜合分數裡 zp 的權重（其餘給散戶持股）
 MIN_VOL_LOTS = 500
 MIN_CLOSE = 10.0
 # 價格多來源；同一 stock-day 取排名最小者（finmind 最完整、其餘補全市場）
@@ -236,9 +237,21 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
         "hold_cover": m.ret_pct.notna().mean() * 100,
         "hold_asof": m.as_of.dropna().max() if "as_of" in m else None,
     }
-    # 散戶持股最低 —— 這是本研究線唯一淨值為正的組態（見 C 段第 2 條）
-    hl = m.dropna(subset=["ret_pct"]).sort_values("ret_pct").head(top).copy()
-    stats["retail_low"] = hl
+    # ---- 綜合分數 HS = 25% zp + 75% 散戶持股（橫斷面 rank z，越大越偏空）----
+    # 2026-08-26 檢定：散戶持股單獨用在後半段已翻負（t=+1.20、淨值 −4.62%/年），
+    # 加入 zp（借券佔股本水位，v4 裡唯一有持續性的分項）後兩個半段都穩
+    # （t=+2.99 / +2.98、淨值 +4.07% / +6.92%）。w=0.15~0.35 全區間為正，
+    # 是高原不是尖峰，故取中段 0.25。
+    # ⚠️ 不可改用整包 v4：它會把多頭腿換手從 12.3% 炸到 47.2%，一年虧 35.8%。
+    hs = m.dropna(subset=["ret_pct"]).copy()
+    if len(hs) >= 60:
+        for src, dst in (("s_zp", "_nzp"), ("ret_pct", "_nret")):
+            hs[dst] = (hs[src].rank(pct=True) - 0.5) * 2
+        hs["hs"] = HS_W_ZP * hs._nzp + (1 - HS_W_ZP) * hs._nret
+        hs["hs_pct"] = hs.hs.rank(pct=True) * 100
+        stats["hs_low"] = hs.sort_values("hs").head(top).copy()
+    else:
+        stats["hs_low"] = pd.DataFrame()
     return s.head(top).copy(), s.tail(top).iloc[::-1].copy(), stats
 
 
@@ -282,12 +295,13 @@ v4 五項對波動／跳空／市值中性化後 <b>t = −0.92（連方向都�
 <b>先前信中「可執行邊際 +0.051%/日」的說法已被否證</b>，那個數字是波動曝險。
 B 段保留是為了持續累積前瞻紀錄，<b>它只描述部位結構，不預測漲跌</b>。
 
-<b>2. B2 段是唯一淨值為正的組態，但幅度小到不構成生意。</b>
-只做多、散戶持股最低 5.8%：中性後 +0.058%/日、t=+2.61、換手 11%，
-損益兩平成本 0.528% vs 多頭腿來回 0.471% → <b>淨 +1.6%/年</b>，
-扣掉滑價大概就沒了；且前半 t=2.56 → 後半 t=1.43 <b>正在衰減</b>，
-樣本只有 535 天（集保資料起於 2024-06）、一個多頭週期，
-而那一輪同時測了 9 個因子，多重檢定會讓 t 看起來比實際強。
+<b>2. B2 段是唯一淨值為正的組態，但樣本只有一個多頭週期。</b>
+綜合分數 HS ＝ 25% 借券佔股本水位（zp）＋ 75% 散戶持股水位，只做多最低 5.8%：
+中性後 +0.086%/日、t=+4.23、多頭腿換手 13.5% → <b>淨值 +5.4%/年</b>。
+兩個半段 t=+2.99／+2.98 穩定。<b>但 535 天樣本、一個多頭週期</b>，
+且 +5.4%/年 扣掉滑價與衝擊成本後所剩無幾。
+權重 0.15~0.35 全區間淨值為正（是高原不是尖峰），故取中段 0.25。
+<b>切勿改用整包 v4</b>：那會把多頭腿換手從 12.3% 炸到 47.2%，一年虧 35.8%。
 
 <b>3. 真正在解釋隔日報酬的是兩個非籌碼效應。</b>
 低波動 − 高波動（開→收）+0.334%/日 t=+7.03；跳空回歸（低開−高開）
@@ -362,21 +376,28 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     parts += [f"<h3>B. 明日名單（訊號日 {sig_d}）</h3>",
               f"<p><b>偏多 Top {top}</b>（分數最低）</p>", _tbl(bull, "多"),
               f"<p style='margin-top:12px'><b>偏空 Top {top}</b>（分數最高）</p>", _tbl(bear, "空")]
-    hl = stats.get("retail_low")
+    hl = stats.get("hs_low")
     if hl is not None and not hl.empty:
         rows = "".join(
             f"<tr><td>{r.stock_id}</td><td>{r.nm}</td><td align=right>{r.close:.2f}</td>"
-            f"<td align=right>{r.ret_pct:.1f}</td><td align=right>{r.big_pct:.1f}</td>"
+            f"<td align=right>{r.hs:+.3f}</td><td align=right>{r.ret_pct:.1f}</td>"
+            f"<td align=right>{r.big_pct:.1f}</td><td align=right>{r.zp:+.2f}</td>"
             f"<td align=right>{r.score:+.2f}</td></tr>" for r in hl.itertuples())
         parts.append(
-            f"<h3>B2. 散戶持股最低 Top {top}（訊號日 {sig_d}）</h3>"
-            "<p style='font-size:13px'>這是本研究線<b>唯一淨值為正</b>的組態："
-            "只做多、散戶持股最低那 5.8%，風險中性後 +0.058%/日（t=+2.61）、"
-            "換手僅 11%。<b>但淨值只有 +1.6%/年，而且在衰減</b>"
-            "（前半 t=2.56 → 後半 t=1.43）。列在這裡是為了累積前瞻紀錄，不是建議。</p>"
+            f"<h3>B2. 綜合分數最低 Top {top}（訊號日 {sig_d}）</h3>"
+            f"<p style='font-size:13px'>綜合分數 HS ＝ <b>{HS_W_ZP:.0%} 借券佔股本水位"
+            f"（zp）＋ {1 - HS_W_ZP:.0%} 散戶持股水位</b>，兩者皆轉成橫斷面 rank，"
+            "分數越低越偏多。<b>這是本研究線唯一淨值為正的組態</b>："
+            "只做多、取最低那 5.8%，風險中性後 +0.086%/日（t=+4.23）、"
+            "多頭腿換手僅 13.5% → <b>淨值 +5.4%/年</b>。<br>"
+            "兩個半段分別 t=+2.99／+2.98（淨值 +4.07%／+6.92%），"
+            "比單用散戶持股（後半 t=+1.20、淨值 <b>−4.62%</b>）穩定得多。<br>"
+            "<b>仍不是建議</b>：僅 535 天樣本、一個多頭週期，且 +5.4%/年 扣掉"
+            "滑價與衝擊成本後所剩無幾。列出是為了累積前瞻紀錄。</p>"
             "<table border=1 cellpadding=4 cellspacing=0 style='border-collapse:collapse;"
-            "font-size:13px'><tr><th>代號</th><th>名稱</th><th>收盤</th>"
-            "<th>散戶持股%</th><th>大戶持股%</th><th>v4分數</th></tr>" + rows + "</table>")
+            "font-size:13px'><tr><th>代號</th><th>名稱</th><th>收盤</th><th>HS分數</th>"
+            "<th>散戶持股%</th><th>大戶持股%</th><th>zp</th><th>v4分數</th></tr>"
+            + rows + "</table>")
         if stats.get("hold_asof"):
             parts.append(f"<p style='font-size:12px;color:#555'>集保資料週別 "
                          f"{stats['hold_asof']}（週五結算，已扣 4 天公布緩衝）　·　"

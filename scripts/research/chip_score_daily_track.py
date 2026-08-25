@@ -117,7 +117,9 @@ def record(d: str) -> dict | None:
     p0 = pd.read_sql_query(
         """SELECT stock_id, close AS c0, volume/1000.0 AS v0 FROM stock_daily_bars
             WHERE trade_date=? AND source='finmind'""", c, params=(sig_d,))
-    m = mk[["stock_id", "score"]].merge(p0, on="stock_id").merge(px, on="stock_id")
+    # s_zp 是 HS 綜合分數的一半原料，必須一起帶下來（否則 KeyError）
+    keep = ["stock_id", "score"] + (["s_zp"] if "s_zp" in mk.columns else [])
+    m = mk[keep].merge(p0, on="stock_id").merge(px, on="stock_id")
     m = m[(m.v0 >= MIN_VOL_LOTS) & (m.c0 >= MIN_CLOSE) & m.open.notna()]
     if len(m) < 100:
         return None
@@ -155,7 +157,20 @@ def record(d: str) -> dict | None:
     m["oc_n"] = _risk_neutral(m)
     hold = brief.holding_structure(sig_d)
     m = m.merge(hold, on="stock_id", how="left")
+    # HS = 25% zp + 75% 散戶持股（與簡報 B2 同一定義，權重 SSOT 在 brief.HS_W_ZP）
+    hs = m.dropna(subset=["ret_pct", "s_zp"]).copy()
+    if len(hs) >= 60:
+        for src, dst in (("s_zp", "_nzp"), ("ret_pct", "_nret")):
+            hs[dst] = (hs[src].rank(pct=True) - 0.5) * 2
+        hs["hs"] = brief.HS_W_ZP * hs._nzp + (1 - brief.HS_W_ZP) * hs._nret
+        k = max(3, int(round(len(hs) * 0.058)))
+        srt = hs.sort_values("hs")
+        hs_long = round(srt.oc_n.head(k).mean() * 100, 4)
+        hs_sp = _spread(hs, "hs", "oc_n")
+    else:
+        hs_long = hs_sp = None
     extra = {
+        "hs_sp_oc_n": hs_sp, "hs_long_n": hs_long,
         "v4_oc_n": _spread(m, "score", "oc_n"),
         "retail_sp_oc": _spread(m, "ret_pct", "oc"),
         "retail_sp_oc_n": _spread(m, "ret_pct", "oc_n"),
@@ -187,11 +202,12 @@ def upsert(row: dict) -> None:
         """INSERT INTO chip_score_forward_track (
                return_date, signal_date, regime, n, mkt_cc, spread_cc, spread_oc,
                q1_cc, q5_cc, gap_rev, v4_oc_n, retail_sp_oc, retail_sp_oc_n,
-               retail_long_n, hold_asof, synced_at
+               retail_long_n, hold_asof, hs_sp_oc_n, hs_long_n, synced_at
            ) VALUES (
                :return_date, :signal_date, :regime, :n, :mkt_cc, :spread_cc,
                :spread_oc, :q1_cc, :q5_cc, :gap_rev, :v4_oc_n, :retail_sp_oc,
-               :retail_sp_oc_n, :retail_long_n, :hold_asof, :synced_at)
+               :retail_sp_oc_n, :retail_long_n, :hold_asof, :hs_sp_oc_n,
+               :hs_long_n, :synced_at)
            ON CONFLICT(return_date) DO UPDATE SET
                signal_date=excluded.signal_date, regime=excluded.regime, n=excluded.n,
                mkt_cc=excluded.mkt_cc, spread_cc=excluded.spread_cc,
@@ -200,6 +216,7 @@ def upsert(row: dict) -> None:
                retail_sp_oc=excluded.retail_sp_oc,
                retail_sp_oc_n=excluded.retail_sp_oc_n,
                retail_long_n=excluded.retail_long_n, hold_asof=excluded.hold_asof,
+               hs_sp_oc_n=excluded.hs_sp_oc_n, hs_long_n=excluded.hs_long_n,
                synced_at=excluded.synced_at""",
         {**row, "synced_at": utc_now_iso()})
     conn.commit()
@@ -226,7 +243,9 @@ def summary(df: pd.DataFrame) -> None:
                               ("v4_oc_n", "★v4 開→收 中性後", 0.000),
                               ("retail_sp_oc", "散戶持股 多空 原始", 0.219),
                               ("retail_sp_oc_n", "★散戶持股 多空 中性後", 0.099),
-                              ("retail_long_n", "★散戶最低腿 中性後", 0.058),
+                              ("retail_long_n", "散戶最低腿 中性後", 0.058),
+                              ("hs_sp_oc_n", "★HS 多空 中性後", 0.115),
+                              ("hs_long_n", "★HS 只做多腿 中性後", 0.086),
                               ("gap_rev", "跳空回歸（低−高）", 0.493)):
             v = s[col].dropna()
             # n 很小時 t 值毫無意義：兩個相近的值會讓標準誤趨近 0，
