@@ -227,7 +227,6 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
     m["driver"] = m.apply(driver, axis=1)
     m["n_active"] = (m[comp].abs() > 1e-9).sum(axis=1)
 
-    s = m.sort_values("score")
     stats = {
         "n": len(m), "n_etf": n_all - len(m),
         "score_sd": m.score.std(),
@@ -249,10 +248,11 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
             hs[dst] = (hs[src].rank(pct=True) - 0.5) * 2
         hs["hs"] = HS_W_ZP * hs._nzp + (1 - HS_W_ZP) * hs._nret
         hs["hs_pct"] = hs.hs.rank(pct=True) * 100
-        stats["hs_low"] = hs.sort_values("hs").head(top).copy()
-    else:
-        stats["hs_low"] = pd.DataFrame()
-    return s.head(top).copy(), s.tail(top).iloc[::-1].copy(), stats
+        srt = hs.sort_values("hs")
+        stats["hs_n"] = len(hs)
+        return srt.head(top).copy(), srt.tail(top).iloc[::-1].copy(), stats
+    stats["hs_n"] = 0
+    return pd.DataFrame(), pd.DataFrame(), stats
 
 
 # ---------------------------------------------------------------- 回顧
@@ -272,52 +272,50 @@ def review(ret_d: str) -> tuple[dict | None, pd.DataFrame]:
 def _tbl(df: pd.DataFrame, side: str) -> str:
     if df.empty:
         return "<p>（無）</p>"
-    head = ("<tr><th>代號</th><th>名稱</th><th>收盤</th><th>分數</th>"
-            "<th>百分位</th><th>主要驅動</th><th>有效項</th>"
-            "<th>散戶持股%</th><th>分位</th></tr>")
-    def _f(v, fmt="{:.1f}"):
-        return "—" if pd.isna(v) else fmt.format(v)
+    head = ("<tr><th>代號</th><th>名稱</th><th>收盤</th><th>HS分數</th><th>百分位</th>"
+            "<th>散戶持股%</th><th>大戶持股%</th><th>zp</th>"
+            "<th>v4分數</th><th>v4主要驅動</th></tr>")
     rows = "".join(
         f"<tr><td>{r.stock_id}</td><td>{r.nm}</td><td align=right>{r.close:.2f}</td>"
-        f"<td align=right>{r.score:+.2f}</td><td align=right>{r.pct:.0f}</td>"
-        f"<td>{r.driver}</td><td align=center>{int(r.n_active)}/5</td>"
-        f"<td align=right>{_f(r.ret_pct)}</td><td align=right>{_f(r.ret_rank, '{:.0f}')}</td></tr>"
-        for r in df.itertuples())
+        f"<td align=right>{r.hs:+.3f}</td><td align=right>{r.hs_pct:.0f}</td>"
+        f"<td align=right>{r.ret_pct:.1f}</td><td align=right>{r.big_pct:.1f}</td>"
+        f"<td align=right>{r.zp:+.2f}</td><td align=right>{r.score:+.2f}</td>"
+        f"<td>{r.driver}</td></tr>" for r in df.itertuples())
     return (f"<table border=1 cellpadding=4 cellspacing=0 "
             f"style='border-collapse:collapse;font-size:13px'>{head}{rows}</table>")
 
 
 CAVEATS = """
-<b>1. B 段名單的預測力，在風險中性後是零。</b> 2026-08-26 檢定（45 萬 stock-day）：
-v4 五項對波動／跳空／市值中性化後 <b>t = −0.92（連方向都沒有）</b>；
-表面上好看的收→收 t=+10.55 有 <b>96% 消失在開盤那一瞬間</b>——
-Δ借券、Δ使用率、分點家數三項貢獻的全是隔夜跳空，你拿不到。
-<b>先前信中「可執行邊際 +0.051%/日」的說法已被否證</b>，那個數字是波動曝險。
-B 段保留是為了持續累積前瞻紀錄，<b>它只描述部位結構，不預測漲跌</b>。
+<b>1. 只有偏多側有證據，偏空側沒有。</b> 風險中性後（對波動／跳空／市值五分位
+虛擬變數迴歸取殘差）：多頭腿 +0.086%/日 t=+4.23、換手 13.5% → 淨值 <b>+5.5%/年</b>；
+空頭腿 +0.028%/日 <b>t=+1.30（不顯著）</b>，加計借券費後淨值 <b>−12.2%/年</b>。
+多空合計也是負的（−6.7%/年）。<b>照偏空名單放空是虧的。</b>
 
-<b>2. B2 段是唯一淨值為正的組態，但樣本只有一個多頭週期。</b>
-綜合分數 HS ＝ 25% 借券佔股本水位（zp）＋ 75% 散戶持股水位，只做多最低 5.8%：
-中性後 +0.086%/日、t=+4.23、多頭腿換手 13.5% → <b>淨值 +5.4%/年</b>。
-兩個半段 t=+2.99／+2.98 穩定。<b>但 535 天樣本、一個多頭週期</b>，
-且 +5.4%/年 扣掉滑價與衝擊成本後所剩無幾。
-權重 0.15~0.35 全區間淨值為正（是高原不是尖峰），故取中段 0.25。
-<b>切勿改用整包 v4</b>：那會把多頭腿換手從 12.3% 炸到 47.2%，一年虧 35.8%。
+<b>2. 舊的 v4 五項分數已被否證，不再用於排序。</b> 2026-08-26 檢定（45 萬 stock-day）：
+v4 中性化後 t=−0.92，多頭腿甚至是 −0.037%/日。它表面好看的收→收 t=+10.55 有
+<b>96% 消失在開盤那一瞬間</b>——Δ借券、Δ使用率、分點家數三項貢獻的全是隔夜跳空。
+v4 分數與其驅動項仍列在表格內<b>供對照</b>，不參與排序。
 
-<b>3. 真正在解釋隔日報酬的是兩個非籌碼效應。</b>
-低波動 − 高波動（開→收）+0.334%/日 t=+7.03；跳空回歸（低開−高開）
-+0.278%/日 t=+11.03。兩者獨立且加乘，高波動×高開那格是 −0.633%/日。
-機制：高波動股平均跳空 +0.471% 後開高走低，收→收 反而是 −0.093%——
-<b>純日內現象</b>。但兩者換手都近 100%，一樣付不起 1.17%/日 的成本。
+<b>3. 權重是測出來的，不是設計的。</b> zp 權重 0.15~0.35 全區間淨值為正
+（+2.7%~+5.4%/年），是高原不是尖峰，取中段 0.25。<b>切勿改用整包 v4</b>：
+那會把多頭腿換手從 12.3% 炸到 47.2%，一年虧 35.8%。單用散戶持股也不行：
+後半段 t 掉到 +1.20、淨值 −4.6%/年，加上 zp 才兩個半段都穩（t≈+2.99）。
 
-<b>4. 個股離散度是整體傾斜的 20 倍以上。</b> 名單裡任一檔的個別事件就能蓋過整組傾斜。
-實例：2026-08-25 偏空 Top30 平均 +1.125%，但<b>中位數是 −0.362%</b>——
-靠台虹 +10.00%、光鼎 +9.87%、富世達 +7.89% 三檔翻正。<b>照名單押單檔＝押雜訊。</b>
+<b>4. 樣本只有 535 天、一個多頭週期。</b> 集保資料起於 2024-06，沒經歷過空頭。
+且這一輪測了 9 個因子與 12 個權重值，多重檢定會讓 t 看起來比實際強。
+<b>+5.5%/年 扣掉滑價與市場衝擊成本後所剩無幾</b>，這不是一門生意。
 
-<b>5. 單日對錯不代表任何事。</b> 多空價差單日標準差 0.456%，歷史上 60.5% 的日子為正。
-單日落在 80 百分位跟丟銅板連對兩次差不多。
+<b>5. 真正在解釋隔日報酬的是兩個非籌碼效應。</b>
+低波動 − 高波動（開→收）+0.334%/日 t=+7.03；跳空回歸（低開−高開）+0.278%/日
+t=+11.03。兩者獨立且加乘。<b>要做多找低開、要放空找高開</b>——但兩者換手都近 100%，
+一樣付不起成本，只作為「已經決定要下單時」的進場時點參考。
 
-<b>6. 集保資料是週頻且落後。</b> as_of 是週五結算、下週一二才公布，本信已扣 4 天緩衝。
-它反映的是<b>已完成的過戶結果</b>，不是盤中籌碼；適合週～月尺度，不適合當隔日訊號。
+<b>6. 個股離散度是整體傾斜的 20 倍以上。</b> 名單裡任一檔的個別事件就能蓋過整組傾斜。
+實例：2026-08-25 偏空 Top30 平均 +1.125%，但<b>中位數是 −0.362%</b>，
+靠三檔漲停級翻正。<b>照名單押單檔＝押雜訊。</b>
+
+<b>7. 集保資料是週頻且落後。</b> as_of 是週五結算、下週一二才公布，本信已扣 4 天緩衝。
+它反映<b>已完成的過戶結果</b>，不是盤中籌碼。單日對錯不代表任何事。
 """
 
 
@@ -373,35 +371,26 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     else:
         parts.append("<p>今日無法驗算（價格或籌碼未進 DB）。</p>")
 
-    parts += [f"<h3>B. 明日名單（訊號日 {sig_d}）</h3>",
-              f"<p><b>偏多 Top {top}</b>（分數最低）</p>", _tbl(bull, "多"),
-              f"<p style='margin-top:12px'><b>偏空 Top {top}</b>（分數最高）</p>", _tbl(bear, "空")]
-    hl = stats.get("hs_low")
-    if hl is not None and not hl.empty:
-        rows = "".join(
-            f"<tr><td>{r.stock_id}</td><td>{r.nm}</td><td align=right>{r.close:.2f}</td>"
-            f"<td align=right>{r.hs:+.3f}</td><td align=right>{r.ret_pct:.1f}</td>"
-            f"<td align=right>{r.big_pct:.1f}</td><td align=right>{r.zp:+.2f}</td>"
-            f"<td align=right>{r.score:+.2f}</td></tr>" for r in hl.itertuples())
-        parts.append(
-            f"<h3>B2. 綜合分數最低 Top {top}（訊號日 {sig_d}）</h3>"
-            f"<p style='font-size:13px'>綜合分數 HS ＝ <b>{HS_W_ZP:.0%} 借券佔股本水位"
-            f"（zp）＋ {1 - HS_W_ZP:.0%} 散戶持股水位</b>，兩者皆轉成橫斷面 rank，"
-            "分數越低越偏多。<b>這是本研究線唯一淨值為正的組態</b>："
-            "只做多、取最低那 5.8%，風險中性後 +0.086%/日（t=+4.23）、"
-            "多頭腿換手僅 13.5% → <b>淨值 +5.4%/年</b>。<br>"
-            "兩個半段分別 t=+2.99／+2.98（淨值 +4.07%／+6.92%），"
-            "比單用散戶持股（後半 t=+1.20、淨值 <b>−4.62%</b>）穩定得多。<br>"
-            "<b>仍不是建議</b>：僅 535 天樣本、一個多頭週期，且 +5.4%/年 扣掉"
-            "滑價與衝擊成本後所剩無幾。列出是為了累積前瞻紀錄。</p>"
-            "<table border=1 cellpadding=4 cellspacing=0 style='border-collapse:collapse;"
-            "font-size:13px'><tr><th>代號</th><th>名稱</th><th>收盤</th><th>HS分數</th>"
-            "<th>散戶持股%</th><th>大戶持股%</th><th>zp</th><th>v4分數</th></tr>"
-            + rows + "</table>")
-        if stats.get("hold_asof"):
-            parts.append(f"<p style='font-size:12px;color:#555'>集保資料週別 "
-                         f"{stats['hold_asof']}（週五結算，已扣 4 天公布緩衝）　·　"
-                         f"覆蓋 {stats.get('hold_cover', 0):.0f}%</p>")
+    parts += [
+        f"<h3>B. 明日名單（訊號日 {sig_d}）</h3>",
+        f"<p style='font-size:13px'>唯一排序分數 <b>HS ＝ {HS_W_ZP:.0%} 借券佔股本水位"
+        f"（zp）＋ {1 - HS_W_ZP:.0%} 散戶持股水位</b>（集保 &lt;50 張），"
+        "兩者各自轉成當日橫斷面 rank，分數越低越偏多。</p>",
+        "<p style='background:#e8f4e8;padding:8px;border-left:4px solid #2a2'>"
+        f"<b>偏多 Top {top}</b>（HS 最低）　·　多頭腿風險中性後 +0.086%/日 · t=+4.23 · "
+        "換手 13.5% → <b>淨值 +5.5%/年</b>。這是本研究線唯一有證據支撐的一側。</p>",
+        _tbl(bull, "多"),
+        "<p style='background:#fff3d0;padding:8px;border-left:4px solid #d90;"
+        "margin-top:12px'>"
+        f"<b>偏空 Top {top}</b>（HS 最高）　·　⚠️ <b>空頭腿沒有證據支撐</b>："
+        "風險中性後 +0.028%/日、<b>t=+1.30（不顯著）</b>，加計借券費後"
+        "<b>淨值 −12.2%/年</b>。列出僅供對照與累積紀錄，<b>不要照著放空</b>。</p>",
+        _tbl(bear, "空")]
+    if stats.get("hold_asof"):
+        parts.append(f"<p style='font-size:12px;color:#555'>集保資料週別 "
+                     f"{stats['hold_asof']}（週五結算，已扣 4 天公布緩衝）　·　"
+                     f"覆蓋 {stats.get('hold_cover', 0):.0f}%　·　"
+                     f"可評分 {stats.get('hs_n', 0)} 檔</p>")
     if stats.get("comp_cover"):
         cov = "　".join(f"{k} {v:.0f}%" for k, v in stats["comp_cover"].items())
         parts.append(f"<p style='font-size:12px;color:#555'>分項覆蓋率：{cov}<br>"
@@ -428,8 +417,10 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     for lab, df in (("偏多", bull), ("偏空", bear)):
         if not df.empty:
             txt.append(f"{lab}：" + "、".join(f"{r.stock_id} {r.nm}" for r in df.itertuples()))
-    txt.append("這不是買賣建議：B 段名單在風險中性後 t=-0.92（無預測力）；"
-               "B2 段是唯一淨值為正的組態，但只有 +1.6%/年且在衰減。")
+    txt.append(f"分數 HS = {HS_W_ZP:.0%} 借券佔股本水位 + {1 - HS_W_ZP:.0%} 散戶持股水位。"
+               "偏多側有證據（+0.086%/日 t=+4.23 淨值 +5.5%/年）；"
+               "偏空側 t=+1.30 不顯著、淨值 -12.2%/年，不要照著放空。"
+               "樣本僅 535 天、一個多頭週期。")
     return "\n".join(txt), html
 
 
