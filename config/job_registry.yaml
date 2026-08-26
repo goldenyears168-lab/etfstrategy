@@ -340,6 +340,20 @@ jobs:
     schedule: "weekdays ~08:59 onward"
     description: "Intraday quote collection via Fubon Neo"
 
+  - label: futopt-books-collect-stocks
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "KeepAlive 常駐（獨立於 futopt-books-collect 的第二條 websocket 連線）"
+    description: "個股期貨 19 檔五檔＋逐筆 · 唯讀 · 2026-08-21 建立。與指數核心 8 檔分開跑：合用一條連線時 27×4=108 個訂閱撞上券商上限，當天指數組日盤掉 52%。刻意不在 install-launchd.sh 的 LABELS 陣列，安裝方式見 scripts/launchd/futopt-books-collect-stocks.command 檔頭"
+
+  - label: pivot-wall-daily
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "Tue–Sat 06:00（處理前一個日曆日的日盤＋夜盤）"
+    description: "轉折處是否有 order book wall 的每日累積 · 唯讀 · 對照組＋波動分層 · ledger 在 reports/research/channel_lab/pivot_wall_ledger.jsonl。刻意不在 install-launchd.sh 的 LABELS 陣列（比照 fubon-*-quote-collect），安裝方式見 scripts/launchd/pivot-wall-daily.command 檔頭"
+
   - label: branch-tape-prewarm
     category: collect
     order_capable: false
@@ -454,7 +468,7 @@ jobs:
     category: collect
     order_capable: false
     status: enabled
-    schedule: "weekdays 14:10"
+    schedule: "weekdays 17:30"
     description: >
       ES/NQ 隔夜快照同步（Yahoo ES=F / NQ=F）→ us_futures_overnight_snapshot。
       2026-08-10 新增：該表過去無任何排程、2026-07-13 後停更，而它是 us_tw_* 研究線

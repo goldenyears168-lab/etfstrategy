@@ -136,6 +136,90 @@ strategies:
       因此從固定字串 "ss5d" 改成完整 client_intent_id（例：ss5d_20260721_0925_2492），
       不影響任何既有 consumer（未見其他程式碼比對這個欄位的固定值）。
 
+  momentum-rotation:
+    pool_id: momentum-rotation
+    strategy_id: momentum-rotation
+    enabled: true
+    dry_run: true  # dry-run-first 預設（比照 leading-dip/songshan/expert-pool/detach-gate，
+    # 不是 dayflip-futures-short 那種例外）；ORDER_MOMENTUM_ROTATION_AUTO_SUBMIT 需另外
+    # 明確設1才會送真單，見下方 notes
+    auto_submit: false
+    instrument: individual_stock_futures
+    universe: ["3017","6213","2345","2383","3532","2455","3374","6488","2492","2376","3035","2049"]
+    breakout_pct: 0.5
+    trail_pct: 1.0
+    vol_confirm_mult: 1.5
+    rearm_pct: 0.25
+    min_overshoot_pct: 0.15
+    min_vol_ratio: 1.5
+    preempt_mult: 2.0
+    max_consecutive_entry_failures: 5  # 2026-08-12補上：比照dayflip-short-poll 2026-08-10真實事故（券商帳戶額度問題連續打44次API）的教訓，進場端連續失敗達此次數即halted=True，今天不再嘗試新進場；出場端刻意不設上限（放棄=留孤兒曝險，見src/order/momentum_rotation_order.py _close_position docstring）
+    daily_loss_limit_pct: -3.0  # 2026-08-12新增：trades_today的ret_pct加總<=此值即halted=True，且立刻強制平掉當下持倉（不等13:40）
+    lots: 1  # 2026-08-12 使用者決策：第一階段固定1口，不按保證金打滿（見下方notes）
+    margin_budget_twd: 110000  # 2026-08-12 使用者指定；第一階段僅供未來「打滿口數」模式參考，lots 固定1口時不生效
+    entry_at: "08:45"
+    force_close_at: "13:40"
+    stop_loss: trail_1pct  # 移動停利，非固定停損
+    signal: reports/research/momentum_breakout_expert_pool_futures_summary.md
+    ledger: data/order/momentum_rotation_ledger.json
+    broadcast: data/order/momentum_rotation_broadcast.json  # schema momentum-rotation-broadcast-v1
+    poll_script: scripts/order/run_momentum_rotation_worker.py
+    launchd: com.jackm4.goldenstocks.momentum-rotation-poll
+    monitor_ui: TBD  # port 8770 儀表板新分頁，尚未確認服務程式碼位置，見 notes
+    notes: >
+      2026-08-12 研究脈絡：12檔標的池（流動性≥300tick/日 + 借券餘額≤200 雙重篩選）、
+      開盤±0.5%突破+量能≥1.5x中位數確認進場、1%移動停利、同檔一天可多次觸發（出場
+      後需回檔到開盤價±0.25%才重新武裝）、單槽位輪動+動態搶佔（新訊號分數≥持倉
+      進場分數2倍時提前平倉換股，2.0倍為掃參數得出的甜蜜點）。4段獨立市場狀態
+      （漲盤/跌盤/盤整/全新未觸碰窗口）方向一致；擾動測試（6/6通過）、出場價逐筆
+      核對（136筆抽查3筆有落差、方向混合非系統性偏袒、判斷為秒級時間戳雜訊）、
+      報酬集中度檢查（拿掉表現最好前30筆/前5天仍為正）三項code audit均未發現bug。
+
+      ⚠️ 回測「保證金打滿」版本日均報酬高達90%/天、連續75天無虧損日——已確認
+      不可信（真實市場不會有策略連續75天不虧一天；壓力測試對成本不敏感本身就是
+      不真實訊號）。
+
+      ⚠️⚠️ 2026-08-13重大發現，取代下面所有舊估計（含曾經引用過的「3.58%/天」
+      「+7%~+22%/天」都已知過時、不可信，見
+      reports/research/momentum_breakout_expert_pool_futures_summary.md開頭
+      的完整說明）：`simulate_portfolio_day`原本`fill`（算報酬用）無條件記成
+      理論trigger價，但`overshoot`（算分數/決定搶不搶）用的是訊號當下真實tick
+      價——兩者對不上，尤其preemption進場score越高代表overshoot越大，backtest
+      卻假裝零滑價精準買在trigger，現實不可能。2026-08-13已直接修好SSOT本身
+      （fill改用訊號當下實際tick價），重新驗證：
+
+      · 4窗口(IS漲盤/OOS拉回/W3盤整/W4)合併75天/1273筆：gross日均**+1.669%**
+        （不是+22.8%），**四個獨立窗口勝率全部在35.7%~43.7%，沒有一個超過50%**
+      · 損益兩平來回成本只要**約9.8bps**——文件自己記錄的Roll(1984)成本範圍是
+        5~29bps：只有成本落在最樂觀的5bps才勉強是正的(+0.82%/天)，10bps以上
+        （仍在文件記錄範圍內）就翻負
+      · 完整數字見reports/research/momentum_rotation_cost_adjusted_reaudit.json
+        （腳本：scripts/research/momentum_rotation_cost_adjusted_reaudit.py，
+        可重跑）
+
+      **結論：這不是bug層級可以修好的問題，是目前這套規格（12檔UNIVERSE、0.5%
+      突破、1%移動停利、2.0x搶佔倍數）在真實成交假設下，扣掉文件自己認定合理的
+      成本區間就站不住腳。** 2026-08-13當天真人真金上線後4筆交易全虧
+      （-2.77%naive加總），跟這個修復後的回測結論一致，不是live執行運氣不好。
+      `ORDER_MOMENTUM_ROTATION_AUTO_SUBMIT`已改回0（dry-run），要重新上線前
+      必須先重新設計規則本身（拉高品質門檻、放棄高頻搶佔、或收斂到真正低成本
+      的標的），不是修bug就能恢復。
+
+      ⚠️ 台指期同步校正版測試顯示約2/3報酬來自個股跟隨大盤同步走勢的系統性beta，
+      非market-neutral（這個發現不受上面fill-price修復影響，仍然成立）。
+
+      ⚠️ 回測用逐筆tick資料判斷突破/量能；即時執行2026-08-13已改用富邦
+      intraday.trades()逐筆成交（不再是1分K近似，見
+      src/order/momentum_rotation_tick_marketdata.py），這個粒度落差本身已解決，
+      但上面fill-price的問題獨立於這個粒度問題、不受影響。
+
+      2026-08-12分階段上線決策（已知過時，見上面2026-08-13發現）：第一階段
+      dry-run觀察，固定1口/檔；第二階段視觀察結果決定是否開AUTO_SUBMIT——
+      2026-08-13實際上線一天後又改回dry-run，就是這個「先上線觀察」流程本身
+      發揮作用的例子。安全閥：ORDER_MASTER_ENABLED（總開關）+
+      ORDER_MOMENTUM_ROTATION_AUTO_SUBMIT（本袖旗標，2026-08-13起預設0）+
+      固定1口（不依保證金打滿）。
+
   dayflip-futures-short:
     pool_id: dayflip-futures-short
     strategy_id: dayflip-futures-short
@@ -144,15 +228,16 @@ strategies:
     auto_submit: true
     instrument: individual_stock_futures  # 非 TX/TMF，透過同一套 fubon_futopt API
     lots: 1
-    margin_cap_twd: 300000  # 硬上限；估算保證金超過即跳過該候選
+    margin_cap_twd: 170000  # 2026-08-13使用者明確指示：實際準備資金只有17萬，先設17萬對齊(不是30萬)，若順利之後再加——硬上限，估算/真實保證金超過即跳過該候選
     signal: reports/research/branch-footprint-screen/dayflip_gapup_short/FROZEN_SPEC_V1.json
     entry_at: "08:45"
     entry_window_end: "09:05"
     cover_target_pct: 0.02  # 進場價 x0.98 限價回補
     force_close_at: "13:40"
     stop_loss: none  # 研究已證實加停損反而變差，故意不設
-    fgap_min: 0.06
-    pick_rule: smallest_qualifying_gap  # ⚠️見下方notes：11種排序法研究對照組結果
+    fgap_min: 0.07  # 2026-08-10定案：從0.06改為0.07，見下方notes「fgap_min 6%→7%」段落——bootstrap驗證+呼應GAPUP_SHORT_SIZING.md原始建議
+    fgap_max: 0.09  # 2026-08-10新增：漲停鎖死風控上限，見下方notes「2026-08-10漲停風控上限」段落——風控參數非報酬優化，比照fgap_min同一套SSOT讀取(src/order/dayflip_short_order.py的FGAP_MAX，缺key時fallback 0.09)
+    pick_rule: gap_seat_rank_blend_w075  # 2026-08-10從smallest_qualifying_gap改為跳空75%+席數25%加權混合，見下方notes「2026-08-10排序法則加權混合」段落
     single_trade_per_day: true  # 只做一筆，不分散多檔
     ledger: data/order/dayflip_short_ledger.json
     poll_script: scripts/order/run_dayflip_short_worker.py  # 2026-08-08 起；舊 run_dayflip_short_poll.py 只剩手動測試用
@@ -194,6 +279,816 @@ strategies:
       scripts/order/dayflip_short_cutover.sh；寄信告警邏輯搬進 worker 內
       _maybe_alert()（原本 shell launcher 逐 tick grep stdout 的做法在常駐 process
       下不再適用）。
+
+      2026-08-13 margin_cap_twd 30萬→17萬（使用者明確指示：實際只準備17萬，
+      先對齊這個數字，順利再往上加）：
+      · 背景：程式碼原本的 MARGIN_CAP_NTD 只是「單筆交易願意接受的保證金
+        上限」，不會檢查使用者實際帳戶有多少可動用資金——如果只準備17萬、
+        但當天候選的真實保證金落在17萬~30萬之間，程式仍會嘗試送單，結果
+        會是被富邦以資金不足拒單（跟08-10財力證明額度被拒是類似性質但
+        不同原因）。降低這個上限讓程式自己的保證金檢查先擋掉超過17萬的
+        候選，不必等券商拒單才發現。
+      · 空單目前只做「單筆交易」（single_trade_per_day），跟做多那邊的
+        300,000共用池是兩個獨立設定，這次只改空單自己的margin_cap_twd，
+        沒有動 dayflip-post-dump-long 的 total_capital_ntd。
+      · 已修改：src/order/dayflip_short_order.py 的 FREEZE_RULE 版本號
+        dfs5→dfs6，新增 cap170k token。
+
+      2026-08-13 高沖分點門檻改讀PIT表（健檢發現+使用者要求「動手改好」）：
+      · 發現：FROZEN_SPEC_V1.json的caveat欄位自己承認「高沖席以全樣本flip
+        界定，含輕微look-ahead；PIT擴張窗版本...以PIT版為上線基準」，但
+        build_candidates()從08-07上線後一直讀seat_flip_table_frozen（全樣本
+        中位數），不是spec自己指定該上線用的PIT版本——用今天(08-13)真實
+        資料重算兩版對照，24席裡有2席在0.40門檻兩側交叉（920F低→高、9661
+        高→低），代表這不只是理論風險，實際會改變候選名單。
+      · 修法：run_dayflip_weekly_seat_refresh.py（既有週五排程）新增計算
+        pit_seat_flip_latest.json（expanding-window中位數，只用「T0+1資料
+        已經發生」的完整歷史事件，數學上保證PIT-safe）；
+        dayflip_short_signal.py新增_load_pit_flip()改讀這份檔案做
+        HIGH_FLIP_MIN門檻判定，seat_flip_table_frozen只留著當「追蹤哪24席」
+        的名單來源，不再拿它的數值做門檻判定。
+      · fail-closed設計：PIT檔案缺失/格式異常/computed_at超過14天沒更新
+        （週五排程可能壞了）/ as_of早於computed_at超過5天（backtest誤用
+        現在的表評估太久以前的日期）——任一情況都讓所有席位flip退回0（一律
+        不合格），不會悄悄fallback回有問題的frozen表。
+      · 已用45個既有測試+3個新smoke test驗證（fail-closed邊界、正常區間、
+        build_candidates()在最近幾個交易日都能正常回傳候選）。
+      · ⚠️殘留：pit_seat_flip_latest.json只靠週五排程更新，跟
+        futures_daily_cache.json同一種「排程可能靜默停擺」風險模式，已用
+        14天fail-closed擋住最壞情況，但沒有另外做主動監控排程本身是否還在跑。
+
+      2026-08-10 fgap_min 6%→7%（使用者明確指示「請把下單層調到7%」後定案）：
+      · 觸發點：使用者問「6%門檻該不該自適應校正」，先測了VIX水位/VIX變動/
+        0050超額跳空/台指期夜盤動能/台指期08:45-09:05即時進場窗——六種市場
+        regime訊號，再加上多agent工作流跑的5種自適應family（股票個體特徵、
+        binary regime switch、VIX+夜盤組合、夜盤非線性轉換、分點翻倉率）共
+        900+組參數，全部沒有通過permutation test/樣本外驗證，一致判定
+        NOT_SUPPORTED（詳見 reports/research/_trial_registry/
+        dayflip_short_gapup_short.jsonl 對應topic_id）。
+      · 過程中意外發現：對pick_rule=smallest_qualifying_gap本身做固定門檻
+        掃描（3/4/5/6/7/8/9/10/12%），7%在walk-forward訓練期(sharpe 0.942)
+        跟測試期(sharpe 1.329)都優於現行6%(訓練0.606/測試0.763)；自適應
+        搜尋自己收斂到「不需要任何regime調整，7%固定最好」；5000次block
+        bootstrap重抽驗證：7%贏過6%(sharpe更高)的比例92.2%，全樣本(74天)
+        sharpe 1.067 vs 0.654——但90%信賴區間[-0.065,+1.081]差一點沒完全
+        排除0，不是壓倒性證據。
+      · 這個發現呼應本notes前段（2026-08-08）已經記載過的落差：
+        GAPUP_SHORT_SIZING.md原始研究文件用的就是7%，不是現在部署的6%——
+        今天等於是用獨立的bootstrap方法重新驗證了原始建議可能是對的，不是
+        全新臆測。
+      · 已修改：config/order.yaml本欄位fgap_min從0.06改0.07；
+        src/order/dayflip_short_signal.py的_dayflip_fgap_min() fallback
+        預設值同步從0.06改0.07（避免yaml讀取失敗時靜默退回舊值）；
+        src/order/dayflip_short_order.py的FREEZE_RULE版本號依既有慣例
+        遞增 dfs1_g6→dfs2_g7。三處已用python直接驗證FGAP_MIN==0.07、
+        FREEZE_RULE字串正確、ruff lint通過、import preflight通過。
+      · ⚠️ 誠實殘留風險：bootstrap信賴區間沒有完全排除0，這不是像
+        「fgap_min本身完全沒被驗證過」那種從0到1的改善，是在「已知原始
+        研究就建議7%、只是被之前的實作沿用成6%」這個背景下，把一個
+        本來就有理由存疑的6%改回更早、更有根據的7%——但仍然只有74筆
+        歷史交易的證據基礎，不是大樣本驗證過的結論，明天起實際運作的
+        數字才是真正的檢驗。
+
+      2026-08-10 排序法則加權混合（同日稍晚，使用者問「為什麼不是席次最多跟
+      跳空最小加權採納」後測試、明確指示「直接改下單層」）：
+      · 背景：7%門檻定案後，另外測了「席數最多」單獨取代「跳空最小」當主排序
+        （結果更差：bootstrap贏率僅26.3%，train期sharpe 0.734 vs 0.942 明顯
+        輸——維持跳空最小）、以及「7-8%區間/回落8%成交」「序列式一天多次
+        進場」兩個獨立設計提案（前者bootstrap贏率0%~有計算異常不可信、後者
+        贏率僅6.7%）——四個都沒採用。
+      · 加權混合改用rank-based：gap_rank(跳空由小到大)、seat_rank(席數由多到少)，
+        combined_score = w×gap_rank + (1-w)×seat_rank，掃w∈{0,0.25,0.5,0.75,1.0}。
+        w=0.75（跳空為主、席數當同分決勝）：全樣本sharpe 1.089 vs 現行(w=1.0)
+        1.067、test期sharpe 1.422 vs 1.329、bootstrap贏現行比例66.0%，
+        90% CI [0.000, +0.070]。
+      · ⚠️ 誠實殘留風險（比7%門檻那次更薄）：train期w=0.75跟w=1.0的sharpe
+        完全相同(0.942)，差異只來自test期20天裡跳空幾乎打平、席數才派上
+        用場當決勝的少數幾天——test樣本本身就薄，少數幾天換了candidate就能
+        讓sharpe從1.329跳到1.422。CI下緣卡在0.000，是邊界顯著不是壓倒性。
+        且w是5選1掃出來的，有多重比較風險。使用者已被告知此caveat仍選擇
+        直接上線，非我單方面判斷證據已經足夠。
+      · 已修改：本檔pick_rule欄位；src/order/dayflip_short_order.py新增
+        GAP_RANK_WEIGHT=0.75常數、pick_signal()排序邏輯從單純sort(fgap)
+        改成rank-blend後取min；FREEZE_RULE版本號dfs2→dfs3、新增rank075
+        token。尚待：worker重啟讓新碼生效（scripts/order/dayflip_short_
+        cutover.sh）。
+
+      2026-08-10 漲停風控上限（同日第三次，使用者提醒「例如今天你挑放空的就
+      漲停板，這樣很危險」）：
+      · 查歷史46筆fgap>=9%候選，開盤價幾乎全部落在理論漲停價(T0收盤×1.10)的
+        99-100.7%內——這些不是單純跳空大，是期貨當天已經開在自己的漲停鎖死區。
+        現行部署(floor7%+blend排序)過去52個成交日裡有12天(23%)實際選中
+        fgap>=9%候選，其中11天當天只有這一檔合格候選（不選當天就不交易）。
+      · ⚠️ 刻意不是用回測報酬數字證成的：這46筆歷史模擬淨報酬其實不差
+        （多為-0.05%打平出場、+1.95%停利，最差約-1%），但backtest假設13:40
+        收盤價一定能成交平倉；真實世界若期貨當天鎖死漲停完全無對手單，回補
+        不了、可能被迫扛倉到隔天甚至更久——這是執行/流動性風險，backtest
+        看不到，不能拿「歷史報酬沒有比較差」當安全的證據。這是風控決策，
+        不是報酬優化決策。
+      · 新增 fgap_max=0.09 硬上限（跟fgap_min同一套SSOT讀取：src/order/
+        dayflip_short_order.py 的 FGAP_MAX，讀 config/order.yaml 失敗時
+        fallback 0.09），pick_signal() 加一道 fgap>=FGAP_MAX 就跳過該候選。
+        FREEZE_RULE版本號dfs3→dfs4、新增gmax9 token。
+      · 已知代價（使用者已被告知並接受）：過去52個成交日裡有11天(21%)會
+        變成完全不交易，因為那天唯一合格候選就在9%以上——這是接受少賺
+        換取避開回補不了的尾部風險，不是研究證明報酬會更好。
+
+      2026-08-10 排程層修復（使用者要求「把排程都修理順好，下載分點資料，
+      計算好，更新到html的流程完善」）：根查發現主收盤同步scripts/daily_sync.sh
+      （完整版，非--holdings-only；covers RUN_STOCK_MARKET_SYNC=1閘門下的
+      sync_stock_market_daily.py，是stock_daily_bars的來源）從未掛過launchd
+      自動排程——CLAUDE.md只把它列在「常用指令」要手動觸發，唯一有自動跑的
+      是ops-console-evening-sync裡一個只查5檔watchlist的窄範圍呼叫。某天
+      沒人手動跑，個股期貨宇宙251檔裡192檔(76%)當天完全查無收盤價，導致
+      build_candidates()把大部分候選誤判成「查無資料」而非「不合格」跳過。
+      已修復：
+      1) 新增launchd job com.jackm4.goldenstocks.daily-sync（週一至五16:35，
+         見config/job_registry.yaml），跑完整scripts/daily_sync.sh --holdings-
+         report，不限縮成--holdings-only。
+      2) 順手修正scripts/daily_sync.sh自己的架構債：bash層的$DB變數原本硬寫
+         ${ROOT}/data/stocks.db（0-byte空檔，跟python程式碼走的
+         stock_db.DATA_DIR完全脫節），改成${GOLDENSTOCKS_DATA_DIR:-${ROOT}}/
+         data/stocks.db；$LOG_DIR同步修正。這是CLAUDE.md「新程式碼一律走
+         stock_db.DATA_DIR」規則在bash腳本裡的漏網之魚（之前的修補都是
+         python檔）。
+      3) 手動補跑一次完整同步，backfill今天(08-10)的資料，避免明天08:44
+         候選判斷還是吃到殘缺資料。
+
+      ⚠️ 2026-08-10 同日發現第二個更嚴重的缺口：即使stock_daily_bars補齊，
+      儀表板/build_candidates()仍顯示0候選。追查發現ADV流動性濾網讀的
+      futures_daily_cache.json只靠dayflip-seat-weekly-refresh（週五21:30）
+      更新，最新資料停在上週五(08-07)——對一個每天都要判斷跳空的策略，週更新
+      頻率完全不夠。fail-closed設計把「當天不在快取」一律當「查無流動性資料」
+      排除，導致當天分點確實有訊號的12檔候選全部被靜默擋掉（手動跑
+      scripts/research/refresh_dayflip_futures_daily_cache.py補上今天資料後，
+      build_candidates('2026-08-10')從0變12檔：2344/2408/3481/6213/3037/8358/
+      2337/8046/6274/4958/6770/3105）。這代表**過去任何一天只要沒人手動跑過
+      這支refresh腳本，dayflip-short/-long的候選判斷都可能是假陰性，不是真的
+      沒訊號**——嚴重程度比stock_daily_bars那個缺口更高，因為後者只影響部分
+      候選定價，這個是直接讓濾網把全部候選判死刑。
+      已修復：把refresh_dayflip_futures_daily_cache.py併進新增的daily-sync
+      launchd job（週一至五16:35，見scripts/launchd/daily-sync.command），
+      改成跟stock_daily_bars同一時間點每日更新，不再只靠週五。
+
+      ⚠️ 2026-08-10 同日第三個發現：使用者問「連續失敗五次就自動休息了嗎」，
+      查src/order/dayflip_short_worker_loop.py後確認**這個機制原本不存在**——
+      worker是每20秒無限重試，沒有失敗計數或休息邏輯，直到09:05進場窗口關閉
+      才停。查今天實際log發現這不是假設性問題：08:45-09:05這21分鐘內，worker
+      正確找到候選（跟稍早驗證的12檔一致）、也正確送出委託，但富邦**連續44次**
+      回傳同一個帳戶層級錯誤「交易額度超過資(財)力證明額度(後檯)[8481329]」，
+      每次都當成暫時性例外重試，一路打到窗口關閉——這是券商帳戶額度問題，
+      不是今晚任何資料修復能解決的，需要使用者直接跟富邦確認財力證明/信用
+      額度狀態。
+      已新增：src/order/dayflip_short_order.py 的 ENTRY_FAILURE_LIMIT=5
+      （可透過本檔entry_failure_limit覆寫）——LedgerState新增
+      entry_failure_count欄位，entry_exception路徑連續達5次就轉terminal
+      「error」狀態停止當天重試，不再對已知會失敗的帳戶問題做無謂API呼叫。
+      entry_failed（API有結構化回應但ok=False）路徑不受影響，本來就已經
+      第一次失敗就停。FREEZE_RULE版本號dfs4→dfs5，新增ef5 token。
+      ⚠️ 這個熔斷器解決的是「無謂重試」的效率/穩健性問題，不解決根本的
+      帳戶額度問題本身——如果額度問題不解決，明天一樣會在5次內就停止
+      交易，不會有任何一筆真的成交。
+
+      2026-08-10 儀表板候選清單t0計算錯誤修正（使用者發現：晚上10點多
+      reports/research/channel_lab/live_v6_sim_server.py 的 /api/dayflip-
+      candidates 還顯示上週五(08-07)的候選，應該是當天(08-10)收盤後的）：
+      根因是_dayflip_candidates_payload()借用了dayflip_short_order.
+      _prior_trading_day()，但那個函式故意排除「今天」（trade_date<today）
+      ——這對它原本的盤中下單用途是對的（決策當下今天還沒收盤），但儀表板
+      是盤後才顯示，今天已收盤、資料已進DB時還排除今天會少算一天。已改成
+      直接查stock_daily_bars最新日期（不排除今天），資料驅動不用猜收盤
+      時間；同時payload的note文字補上fgap_max_pct(9%)說明，原本只提
+      fgap_min。已驗證：t0正確變成2026-08-10、dashboard(tmf-sim-server)
+      已重啟。
+
+  # ⚠️ 2026-08-09：規格草稿，尚未實作——沒有 order/dayflip_post_dump_long_order.py、
+  # 沒有 ledger、沒有 poll_script、沒有 launchd job。enabled/dry_run/auto_submit
+  # 三個旗標目前純粹是文件用途，還沒有任何程式碼會讀這個區塊。要能真的下單，
+  # 得先比照 dayflip-futures-short 建好對應的 order 模組 + worker + launchd。
+  dayflip-post-dump-long:
+    pool_id: dayflip-post-dump-long
+    strategy_id: dayflip-post-dump-long
+    enabled: true
+    dry_run: false  # ⚠️ 2026-08-09 使用者明確指示：不比照dry-run-first慣例，程式碼一寫完直接送實單，見下方notes
+    auto_submit: true
+    instrument: individual_stock_futures  # 做多，跟 dayflip-futures-short 同一套候選股、相反方向
+    side: buy
+    signal: reports/research/branch-footprint-screen/dayflip_gapup_short/FROZEN_SPEC_V1.json  # 同一套分點T0買超候選（見 dayflip-futures-short）
+    benchmark: tx_1m_tick_built_582d  # 2026-08-09更新：改用真實台指期1分K（bars.sqlite, source=tx_1m_tick_built_582d, sess=day, DB=~/goldenstocks-data/cache/tmf_channel/bars.sqlite）；兩份獨立重驗證(見notes)方向與0050代理版一致，故取代之。0050僅為早期原型驗證備查，非最終基準
+    fgap_min: 0.04  # 2026-08-11從共用短邊的7%改成獨立4%，見下方notes「2026-08-11 fgap_min獨立化」段落
+    stock_whitelist: ["2327", "3189", "3481", "6274", "8046"]  # 2026-08-12新增3檔(2327/3189/3481)+同日擴大2檔(6274/8046)，見下方notes——後兩檔樣本極薄(fgap>=4%各僅3/5筆)，是使用者在被告知證據不足後的明確知情選擇，不是研究證實
+    entry:
+      method: rolling_relative_dip  # 個股 vs 大盤，滾動窗口局部相對弱勢訊號（不是個股自己價格、不是累積落後）；已在真實TX資料上獨立重驗證兩次，門檻沿用同一組（未重掃）
+      rolling_window_min: 15
+      lag_threshold_pct: 0.3  # 滾動窗口內個股落後大盤達此門檻才算「有賣壓痕跡」；真TX重驗證僅沿用此值做樣本外測試，未重新掃描門檻本身
+      confirm_minutes: 10  # 落後段結束後，回檔幅度收斂到剩一半以下才確認
+      fallback_if_no_signal: none  # 當天沒觸發訊號就不進場（跟做空的 close_fallback 不同，做多目前沒有補進場規則）
+    exit:
+      method: trailing_stop
+      trail_pct: 5.0  # 進場以來最高收盤回檔達此幅度出場；固定停利/當天賣/多腳分段都測過更差，故意不設
+      max_hold_days: 10  # 時間停損兜底
+    position_sizing:
+      total_capital_ntd: 300000  # 2026-08-09 改定案：使用者明確選擇「先放30萬試跑一段時間，不要一次放200萬」的試點規模——取代先前2,000,000草案，見下方notes「30萬試點規劃」段落
+      lots_per_position: 1  # 定案：固定1口/部位，不放大到用滿保證金上限（曾測300k/部位放大約8口，回檔沒有改善，見notes）
+      margin_rate: 0.135  # 概估，非官方逐檔試算表，跟 estimate_margin_ntd() 同一套
+      lot_shares: 2000
+      priority_on_capital_conflict: n_seats_desc  # 同一天多訊號搶資金時，觸發分點數多的優先；已驗證跟FIFO打平，保留純因簡單可重現，非證實最優
+      risk_controls: single_name_cap  # 2026-08-11改回single_name_cap（同日第二次修正）：使用者要求「去頭去尾」看資金規劃後，發現15%→25%之間有斷崖式的max_dd跳躍（-15.6%→-46.6%），去頭去尾(winsorize 1/2/5%)後這個斷崖依然存在，不是極端值造成的假象；加硬止損(嚴謹逐日重算版，非近似法)也只能把100%上限下的max_dd從-45.9%改善到約-41%~-42%，追不上15%上限的-15.6%——證據一致指向15%仍是唯一穩健的設定，使用者確認改回。
+      single_name_notional_cap_pct: 15  # 2026-08-11改回15（同日第二次修正，見上方risk_controls備註與下方notes「單股上限取消後又改回」段落）
+      accepted_max_drawdown_pct: -21  # 2026-08-11改回15%上限對應的歷史回撤約-21.1%（見2026-08-09原始驗證）
+    cost_assumption:
+      round_trip_bps: 5  # 沿用 GAPUP_SHORT_SIZING.md 的個股期貨假設，未經真實滑價實測
+    ledger: data/order/dayflip_post_dump_long_ledger.json  # src/order/dayflip_post_dump_long_order.py 首次寫入時建立
+    poll_script: scripts/order/run_dayflip_post_dump_long_worker.py  # 2026-08-09 建置完成
+    launchd: com.jackm4.goldenstocks.dayflip-post-dump-long-poll  # ⚠️ plist/launcher模板已建（launchd/），但實際安裝到~/Library/LaunchAgents/的步驟被permission classifier擋下，需要使用者手動執行安裝指令，見notes「實作完成狀態」段落
+    broker_tagging: short_literal_tag_not_full_client_intent_id  # ⚠️ 2026-08-09修正：fubon_futopt_orders.build_futopt_order()會把user_def截斷成10字，build_client_intent_id()的完整ID(如dfpdlong_20260810_0925_2330F6，29字)送到broker只會剩前10碼——broker端user_def改用短literal(dfpdlong=進場/dfpdlongx=出場)，完整可稽核ID只留在本地ledger的position_id欄位，見notes
+    user_def_prefix: dfpdlong  # 跟 dayflip-futures-short 的 dfshort/dfshortcv/dfshortfc 系列明確區分；出場另用 dfpdlongx
+    notes: >
+      2026-08-08~09 研究產出（使用者提問「賺賠有沒有共同特徵」延伸出的完整研究線），
+      全部驗證細節見 reports/research/_trial_registry/dayflip_short_gapup_short.jsonl
+      的 post-dump-* / rolling-window-relative-dip-signal / relative-strength-filter-*
+      等 topic_id。核心發現：這批分點T0買超候選股，T0+1隔日沖倒貨後，個股相對大盤
+      （非個股自己）的『局部滾動窗口』弱勢訊號可以抓到後續1-5個交易日的反彈，
+      walk-forward樣本外驗證：進場訊號(rolling_relative_dip) sharpe_like 0.341
+      勝過純看個股價格版本(0.258)；移動停利(trailing_stop) 全部2-8%門檻樣本外都
+      贏過純抱滿基準線，固定停利/當天出場/多腳分段來回進場全部測試後確認更差
+      （分別記在 post-dump-long-takeprofit-sweep-vs-baseline、post-dump-long-sameday-exit、
+      post-dump-long-multileg-reentry，皆 rejected）。用真實個股期貨日OHLCV
+      （futures_daily_cache.json）驗證過 basis 極小（跟現貨報酬相關係數0.99+）、
+      流動性足夠（期貨量中位數5,980口/日）。
+
+      ⚠️ 採納前必須補的（誠實列出，不要假裝已經驗證完）：
+      1) 0050代理台指期非完美替代，理想上要用真的台指期資料重驗。
+      2) 13.5%保證金為概估，非官方逐檔試算表。
+      3) 5bps期貨成本未經真實滑價實測。
+      4) n_seats優先排序規則沒有單獨驗證是否優於FIFO/隨機。
+      5) 沒有模擬保證金追繳(margin call)機制。
+      6) 所有 walk-forward 驗證都在同一份 in-sample 候選股清單（FROZEN_SPEC_V1.json
+         篩出的221筆歷史交易）上做時間切分，不是真正全新的樣本外資料；候選股篩選
+         規則本身（分點T0買超≥3000萬等）沒有在這條研究線裡重新驗證，直接沿用
+         dayflip-futures-short 已採納的規格。
+      7) 沒有實作：order 模組、ledger、poll_script、launchd job 全部從零開始，
+         這份 yaml 純粹是規格草稿，不是可執行設定。
+
+      2026-08-09 五路並行驗證更新（trial registry topic_id：tx-real-rolling-dip-signal-v1／
+      -v2、capital-sim-with-margin-call、capital-priority-rule-sweep、
+      cost-sensitivity-breakeven）：
+      · 缺口1（0050代理）→ 已部分關閉。兩組獨立實作改用真實台指期1分K
+        (bars.sqlite, source=tx_1m_tick_built_582d, sess=day) 重建 rolling_relative_dip，
+        方向一致確認0050代理版結論：v1 樣本外n=80 勝率51% sharpe_like=0.335
+        mean_ret=+5.798%；v2（獨立盲建）樣本外n=77 勝率53% sharpe_like=0.371
+        mean_ret=+6.042%、日聚集版sharpe_like=0.451。兩者對照0050代理版基準
+        （sharpe 0.341、勝率52%、n=77）數字接近、方向相同，非大幅分歧——予以「確認」
+        而非「推翻」。惟仍是部分關閉：門檻(0.3%)、窗口(15分)、確認窗(10分)三個
+        超參數皆沿用舊值、未在真TX資料上重掃；v2作者自陳非100%blind實作（讀過參考
+        腳本），且日盤時窗TX(~08:45-13:44)比個股(09:00-13:30)寬，兩者交集用窄的一邊。
+      · 缺口3（5bps成本未實測）→ 已關閉（風險方向）。用短邊已知「13~76bps」滑價區間
+        做壓力測試：cost=5bps時mean_net_ret=+5.913%／sharpe_like=0.341，
+        cost=76bps時仍為+5.203%／sharpe_like=0.300（僅衰退~12%），線性外推打平點
+        ≈596bps，遠高於76bps上限。結論：策略對成本不敏感，5bps假設偏樂觀但不影響
+        方向性結論。
+      · 缺口4（n_seats排序未驗證）→ 已關閉，結論為負向。n_seats_desc 與 fifo
+        在2,000,000 NTD規模下完全打平（總報酬386.6%、Sharpe2.233，同一組7筆訊號
+        因資金不足被跳過，只是佇列順序不同不影響NAV）；random(10 seeds)平均
+        總報酬362.3%（std10.1，範圍351.6~385.1%）略遜於兩個固定規則。即
+        n_seats本身沒有比「不排序」更好，但「用某個固定、可重現規則」優於隨機——
+        建議 priority_on_capital_conflict 保留現行值僅因簡單／可重現，不是因為
+        n_seats已被證明是最優排序。
+      · 缺口5（無margin call模擬）→ 已關閉，結論為負向、推翻原本2,000,000 NTD
+        甜蜜點主張的穩健性。加入依回檔門檻(15/20/25/30%)強制砍倉未實現損益最負
+        部位的模擬後：2,000,000 NTD在20%回檔門檻下總報酬從+393%驟降至+42.8%、
+        Sharpe從2.599降至0.956、最大回檔反而惡化至-36.5%（因砍倉騰出保證金讓
+        排程器在同一段相關性高的壞行情多接訊號，加深回檔而非止血）。2,000,000 NTD
+        僅在5個受測情境中的2個仍是Sharpe最佳資金規模，其餘情境最佳資金規模
+        不穩定地飄向1M或5M。position_sizing.total_capital_ntd 的『甜蜜點』標註
+        現在不能視為穩健結論，需要在保留（或設計）某種margin call防護機制的前提
+        下重新選規模，本yaml的2000000數字暫時保留但已不再具備先前notes宣稱的
+        穩健性佐證，採納前必須重新評估。
+      · 缺口6、7維持全開，本次五路驗證未觸及候選股篩選規則重驗或任何order模組/
+        ledger/poll_script/launchd實作。
+
+      2026-08-09 資金風控收尾（trial registry topic_id：tx-native-hyperparameter-sweep、
+      proactive-capital-sizing-rule、capital-300k-margin-cap-convention-test、
+      300k-per-position-margin-cap-capital-plan、entry-rate-limit-vs-capital-rules）：
+      · 超參數原生TX重掃：60組合(窗口10/15/20/30分×門檻0.2-1.0%×確認窗5/10/15分)
+        全數樣本數過關，訓練期選出「確認窗5分」比現行10分樣本外sharpe_like更高
+        (0.40 vs 0.37)，但單次walk-forward、60組合無多重比較校正，僅為「有跡象」，
+        本yaml保留confirm_minutes=10（較保守、驗證次數較多的設定），5分是未來
+        可考慮的優化候選，非本次定案內容。
+      · 資金風控四輪嘗試，全數未能把最大回檔壓到15%追繳警戒區以下，因此定案為
+        risk_controls: none（不設任何機制，見上方position_sizing）：
+        (a) 被動式margin call（見缺口5段落）——強砍反而讓回檔更差，已否決。
+        (b) 主動式限倉/資金緩衝（同時在場口數上限5-30口、資金使用率50-80%，
+            2M/5M資金規模組合測試）——沒有任何組合避開15-20%警戒區，根因是
+            回檔以%計算，部位/資金等比例縮小不會讓相關性虧損的%佔比下降。
+        (c) 每部位30萬保證金上限（比照dayflip-futures-short的margin_cap_twd，
+            放大到約8口/部位）配3-20個部位對應的90萬-600萬總資金——Sharpe不差
+            (3.0-3.2)但最大回檔仍全數落在24-36%，600萬/20部位仍有-24.3%。
+        (d) 限制新進場速率（過去5/10/20日內最多開3-15個新部位，超過就跳過
+            n_seats較低的候選）——結果比不限制更差：擋掉部分訊號並未降低
+            留下的部位彼此的相關性，同一波壞行情打過來時留下的部位一樣同時
+            受傷，還少了分散/平均雜訊的機會，多數情境Sharpe與回檔雙雙惡化。
+      · 結論：最大回檔集中在同幾個「壞日子」是這批分點T0買超訊號本身的相關性
+        結構（分點事件不是隨機分散的），不是資金/部位/速率規則能化解的，四個
+        角度都驗證過。定案：以「小規模衛星倉位」定位這個策略——
+        2,000,000 NTD（四種無風控機制情境中最佳風險調整報酬：Sharpe約2.6，
+        歷史最大回檔約-30%，接近但不是唯一的最佳選擇，僅代表已測試範圍內
+        風險報酬平衡點），不疊加任何額外風控機制，明確接受-30%量級的回檔
+        為此策略的固有特徵。若未來要放大規模，需要的不是更精細的資金規則，
+        是跟這個訊號源不相關的其他alpha疊加做真分散，或是接受此策略永遠
+        只能是小倉位配置，這兩者都超出本條研究線範圍。
+
+      2026-08-09 日報酬追查發現單一標的集中度問題（trial registry topic_id：
+      post-dump-long-single-name-concentration-cap）：使用者問「日報酬是多少」
+      時，用2,000,000 NTD情境算出日均報酬+0.75%、日std5.33%、最差單日-27.7%
+      （2026-02-02）。追查該單日發現：8299同一檔股票疊了兩筆部位，保證金合計
+      1,170,210 NTD（佔總資金58.5%），名目曝險（保證金/0.135≈7.4倍槓桿）約
+      867萬NTD對200萬本金；週末過後股價從波段高點2410回落到2170，未實現獲利
+      蒸發才是-27.7%的主因，不是四筆出場當天的已實現損益（合計僅-30,390 NTD）。
+      這代表run_simulation()完全沒有「單一標的名目曝險上限」，同一檔股票連續
+      觸發訊號會無上限疊倉。
+      補測「單一標的累計保證金／總資金」上限（10/15/20/30/50%/無上限）後，
+      發現這是五種風控嘗試中第一個「真的有改善」的（前四種margin call/
+      同時在場口數上限/資金緩衝/新進場速率限制全部沒改善或更差，見上方
+      「資金風控收尾」段落）：
+      · 20%上限：total_ret 386.6%→315.3%、Sharpe 2.233→2.820（不降反升）、
+        max_dd -31.1%→-28.1%、日std 5.33%→3.41%、最差單日-27.7%→-10.5%。
+      · 10%上限（更保守）：total_ret降到208.0%、Sharpe 2.807、max_dd -17.7%
+        （目前測過最好的回檔數字）、日std2.64%、最差單日-11.4%。
+      · 30%以上跟無上限差異不大（max_dd仍卡在-28~-31%區間），代表上限要設在
+        20%以下才有實質效果。
+      跟前四種風控嘗試的關鍵差異：前四種（margin call、同時在場口數、資金緩衝、
+      進場速率）都是「事後」或「總量」限制，沒有處理「同一訊號源反覆命中同一
+      標的」這個真正造成尾部風險的集中度問題；單一標的上限直接切斷這個管道，
+      所以有效。⚠️限制：全樣本一次性掃描非walk-forward（機制性風控，非配適
+      參數）；8299這個極端案例樣本內只出現一次，無法排除其他標的未來出現類似
+      情境的機率；集中度只算同一標的，沒算同產業/相關標的跨股集中度。
+      本yaml目前risk_controls仍維持none、accepted_max_drawdown_pct仍是-30，
+      因為single_name_notional_cap_pct該設多少（10%犧牲近半報酬換最低回檔，
+      20%報酬砍剩約81%換中等回檔改善）尚未由使用者定案，同時也跟尚未解決的
+      total_capital_ntd（2M vs 300k）問題互相牽動，不應該在那題定案前先鎖定
+      這題。
+
+      2026-08-09 高頻拆單測試（使用者提議「期貨成本不高，把跨日策略拆成很多個
+      數十分鐘短波段」，trial registry topic_id：post-dump-long-intraday-capital-
+      scheduler、post-dump-long-intraday-multileg-decompose）——兩項都已關閉，
+      結論皆為負向，維持現行多日trailing_stop出場規則不變：
+      · 資金分鐘級排程（不動訊號/出場邏輯，只把資金重新分配從『日』精細化到
+        『分鐘』）：203筆可分析交易中，同一天內完成進出場的組合是0筆——多日
+        持有的結構天生讓進出場分散在不同日子，分鐘級排程沒有系統性優於日級
+        （2,000,000情境分鐘級成交數反而更少188 vs 196、總報酬更低378.2% vs
+        385.9%，因為嚴格時間排序打散了原本n_seats優先序）。結論：這條策略的
+        資金效率瓶頸不是排程時間解析度，是持倉本身要跨好幾天才平倉。
+      · 拆成數十分鐘短波段（同一批已知結果的202筆多日交易，在同一個[進場日,
+        出場日]窗口內，改用縮小版rolling_relative_dip（5分鐘窗口/0.2%門檻/
+        5分鐘確認）搭配固定停利1%/停損0.5%/60分鐘時間停損反覆進出，跟原始
+        單次多日抱單配對比較，平均每筆拆出13.2腳）：原始多日抱單平均淨報酬
+        +4.575%（std16.0%）、拆解版平均只有+0.983%（std4.5%）——拆解版波動
+        大幅降低但報酬砍掉近8成，配對差異-3.592%、日聚集後（70個不同訊號日）
+        僅40%的日子拆解較優。結論：多日抱單的報酬主要來自少數真正走出整段
+        1-5日反彈的大波段（右尾肥），數十分鐘的固定停利/停損結構性地捕捉不到
+        這種大波段，只能抓到平均而言小很多的短波動。這跟已拒絕的same-day-exit
+        （日級）、day級multi-leg-reentry方向結論一致——即使換成分鐘級資料
+        重新驗證過，「拆短」這個方向在這個訊號源上依然沒有改善，反而系統性
+        更差。⚠️限制：兩項都只測了一組固定超參數（非sweep）、用個股1分K×
+        當日basis比例近似重建期貨分鐘價（無盤中basis波動）、沒有做完整資金/
+        NAV模擬——結論方向明確但精細度有限。
+
+      2026-08-09 分鐘級『追蹤精度』測試（使用者指出：分鐘級資料的價值不在多做
+      交易，是同一條5%移動停利規則能不能更早抓到觸發點——trial registry
+      topic_id：post-dump-long-intraday-exit-precision）：跟前兩項高頻拆單測試
+      不同，這裡完全不改變交易筆數/持倉結構，只把5%移動停利的『檢查頻率』從
+      現行的『每日收盤價檢查一次』(EOD-only)換成『整個持有期間逐分鐘連續追蹤』，
+      同一條規則、同一個5%門檻，比較出場執行精度。結果是**負向但有重要細節**：
+      · 177筆可配對交易：EOD-only平均淨報酬+5.191%(std16.6%，平均持有4.4天)；
+        分鐘級連續追蹤平均+3.606%(std12.3%，平均持有2.2天)；配對差異(分鐘級-
+        EOD)平均-1.584%，日聚集後(66個不同訊號日)平均-2.301%、僅61%的日子
+        分鐘級較優。
+      · 但交易層級的『分鐘級較優比例』其實是65%（多數個別交易分鐘級略優），
+        平均卻是負的——典型『多數小贏、少數大輸拖累平均』分布：67%(119/177)
+        的交易分鐘級提早出場，這批提早出場的交易平均反而損失-4.389%（提早
+        停損/停利躲過的下跌，遠不及錯過的『收盤前價格拉回』機會多）。
+      · 關鍵解讀：現行5%門檻是用EOD-only檢查『校準』出來的（trailing_stop
+        sweep那輪驗證2-8%門檻時全程都是逐日收盤檢查），等於EOD-only版本的
+        5%其實是『比較寬鬆的5%』（盤中觸及5%但收盤前拉回不算數）；換成連續
+        追蹤用同樣5%數字，等同變相收緊了停利門檻，不是公平的『同規則不同精度』
+        比較。真正該測的是『連續追蹤+重新校準過的門檻（可能要更寬，例如7-10%）』
+        vs『EOD-only+5%』，這條路目前還沒測，是誠實的未竟之處。
+      · 結論：目前不建議把exit檢查頻率從EOD-only改成連續追蹤（除非同時放寬
+        trail_pct），現行exit規格（trailing_stop 5%、EOD-only檢查）維持不變。
+        ⚠️限制同前：個股1分K×日basis比例近似、無盤中basis波動、未評估下單層
+        輪詢頻率的可行性。
+
+      2026-08-09 30萬試點規劃（使用者明確定案：「不想直接放200萬，只想放30萬
+      測試一段時間」——position_sizing.total_capital_ntd/single_name_notional_
+      cap_pct/accepted_max_drawdown_pct已同步改為300000/15/-21，取代先前2,000,000
+      草案）：
+      · 用今天才發現的『單一標的名目曝險上限』重新在300,000 NTD規模掃過
+        10/15/20/30/50%/無上限，15%是這個規模下風險調整報酬最好的設定：
+        max_dd-21.1%(本組最佳)、Sharpe1.689、總報酬111.0%（71/221筆訊號成交，
+        20筆因資金不足跳過、112筆因單股集中度上限跳過）。10%看似更保守但因
+        4.5萬→3萬的單股上限太緊、多數訊號進不去，總報酬砍到37.2%、Sharpe
+        腰斬到0.992、max_dd反而更差(-26.5%)——小資金規模下『上限設太緊』
+        本身會製造風險（該進的部位進不去，剩下能進的反而集中在少數幸運通過
+        門檻的訊號），不是越保守越好。20%以上max_dd明顯惡化到-32%~-57%。
+      · 交易頻率：71筆/約15個月回測窗口 ≈ 每月4.7筆、大約每週1筆，試點期間
+        要有心理準備這不是高頻策略，統計顯著性需要時間累積。
+      · 建議試點時程（呼應這條研究線一路沿用的MIN_TRAIN_N=30樣本數門檻）：
+        (a) 累積到約n=30筆實單交易大約需要6-7個月，這是做「要不要放大規模」
+            決策前的最低合理觀察期，之前少於這個樣本數的任何評估都跟這條
+            研究線自己抓到的『n=4小樣本overfitting』教訓一樣不可信。
+        (b) 3個月左右（n≈14）做一次中期檢查，目的只是抓執行面bug（訊號有沒有
+            準時觸發、進出場價格跟回測模型差多少），不是用來決定放大或砍掉。
+      · 實作時程（現況poll_script/ledger/launchd皆為null，尚未動工）：
+        Phase 0 建置：仿dayflip-futures-short的模組結構寫
+        order/dayflip_post_dump_long_order.py，broker_tagging用
+        oms_lifecycle.build_client_intent_id（見上方「策略來源標記」段落）；
+        ⚠️注意：本策略需要追蹤『跨日持倉中』的部位（最長10個交易日），跟
+        dayflip-futures-short『當日一定平倉』的ledger假設不同，不能直接複製
+        短邊ledger schema，要先確認TMF或其他多日策略的ledger模式能不能沿用。
+        Phase 1 dry-run：dry_run:true/auto_submit:false，跑實際排程但不送單，
+        驗證訊號觸發時機、進出場價格是否符合回測預期，抓實作落差。
+        Phase 2 30萬實單：確認dry-run無誤後，dry_run:false/auto_submit:true，
+        搭配跟短邊同款的三重鎖（.env旗標/launchctl disable防重裝復活/
+        ORDER_MASTER_ENABLED總開關）。
+        Phase 3（約6-7個月後、n≈30）：比較實單Sharpe/勝率/回檔跟回測預期
+        （Sharpe1.689、max_dd-21.1%）的落差，才是決定要不要放大規模、要不要
+        改用不同single_name_notional_cap_pct、或直接收掉的时间点，不要提早
+        用n<30的樣本做這個決定。
+      · 尚未整合的既有發現（留給Phase 3之後考慮，不影響現在的30萬試點決策）：
+        short-long-shared-capital-handoff那輪驗證顯示，如果30萬試點跑穩之後，
+        改成跟dayflip-futures-short既有的300,000共用同一筆保證金（而非兩邊
+        各自準備300,000、合計60萬），資金效率可能再翻倍——但那需要broker端
+        netting行為先確認清楚（見該topic_id的notes限制4），現階段不建議
+        現在就合併，先讓這30萬獨立試點跑出真實績效再說。
+
+      2026-08-09 策略來源標記（下單層必須記得交易來自什麼策略）：
+      現況confirm——dayflip-futures-short（src/order/dayflip_short_order.py）目前用
+      固定字面字串標記broker可見的user_def欄位：New單"dfshort"、平倉"dfshortcv"、
+      強平"dfshortfc"（皆為literal，非動態產生），跟leading-dip／songshan-copytrade／
+      detach-gate採用的oms_lifecycle.build_client_intent_id(strategy_id=...,
+      session_date=..., poll_minute=..., symbol=...) 動態帶strategy_id的模式不同。
+      這件事本身不是bug（dayflip-futures-short目前只有單一策略單一方向，固定字串
+      不會混淆），但dayflip-post-dump-long一旦真的實作，會跟dayflip-futures-short
+      對同一檔個股期貨合約同時持有反方向部位（短邊放空隔日沖倒貨、長邊做多反彈），
+      若long邊也用固定字面字串（或更糟、沿用short邊字串），broker回報/對帳/ledger
+      查詢時將無法區分兩腳部位分別屬於哪個策略——因此本yaml定案（見上方
+      broker_tagging / user_def_prefix 欄位）：dayflip-post-dump-long未來實作時
+      MUST呼叫oms_lifecycle.build_client_intent_id(strategy_id="dayflip-post-dump-long",
+      ...)產生client_intent_id、並以此（或其衍生的固定前綴dfpdlong）作為broker
+      user_def欄位的來源，不得沿用dayflip-futures-short的literal字串模式，也不得
+      跟short邊共用任何字面前綴，確保逐筆委託單可回溯歸屬到正確策略。此為實作時
+      硬性要求，不是可選的程式風格偏好。
+
+      ⚠️ 上一段（2026-08-09稍早）曾記錄total_capital_ntd在2,000,000 vs 300,000
+      之間尚未定案——已由使用者明確解決，見下方「30萬試點規劃」與「實作完成
+      狀態」兩段，本欄位定案值為300,000，不要再讀成待決事項。
+
+      2026-08-09 實作完成狀態（使用者指示「寫進下單層，明天早上開始一起跑，
+      總共30萬保證金」「同一筆30萬切換使用」後動工）：
+      · 已建立：src/order/dayflip_post_dump_long_signal.py（rolling_relative_dip
+        即時版偵測器）、src/order/dayflip_post_dump_long_order.py（多部位/跨日
+        持倉狀態機、共用保證金池邏輯）、src/order/dayflip_post_dump_long_worker_loop.py
+        （KeepAlive worker loop）、scripts/order/run_dayflip_post_dump_long_worker.py
+        （launchd進入點）、launchd/com.jackm4.goldenstocks.dayflip-post-dump-long-poll.plist.template
+        + launchd/dayflip-post-dump-long-poll-launcher.sh.template（KeepAlive，
+        比照dayflip-short-poll同一套手法）。全部檔案已通過ruff lint、import
+        preflight（PYTHONPATH=src:scripts/research .venv/bin/python -c "import
+        order.dayflip_post_dump_long_worker_loop, order.dayflip_post_dump_long_order,
+        order.dayflip_post_dump_long_signal"）。
+      · 共用保證金池實作：available_pool_ntd() = 300,000 - 本sleeve在場部位保證金
+        - dayflip-short-poll今天在場那一筆的保證金（單向讀取dayflip_short_ledger.json，
+        不修改dayflip_short_order.py本身，避免動到已經在跑的既有系統）。⚠️已知
+        殘留風險：短邊完全不知道長邊用了多少，短邊自己的300,000上限檢查不會因
+        長邊已用掉一部份而縮小，兩腿同一天都觸發時合計可能短暫超過名義上的
+        300,000——刻意接受的風險，非遺漏，短邊本來就很少真的逼近上限。
+      · 已修正一個實作中發現的真實bug：fubon_futopt_orders.build_futopt_order()
+        會把user_def截斷成10字，原本計畫直接把build_client_intent_id()的完整ID
+        當user_def送出會被無意義截斷——已改用短literal（進場dfpdlong/出場
+        dfpdlongx），完整ID只留在本地ledger的position_id欄位。
+      · 2026-08-09 launchd安裝完成：使用者遠端明確授權後，plist/launcher已
+        渲染安裝到 ~/Library/LaunchAgents/ 並 launchctl bootstrap，驗證
+        state=running、pid穩定、never exited、worker_start log正常（週日
+        idle sleep中，預期週一08:44自動開始輪詢，不需要再手動操作）。
+        install-launchd.sh的LABELS/TEMPLATES陣列沒有納入這個新job（比照
+        dayflip-short-poll本身也不在該陣列裡的既有現況，兩者都是手動渲染
+        安裝，非這次新增的缺口）；config/job_registry.yaml已新增條目
+        （status: enabled, enabled_since: 2026-08-09）。
+      · 還沒做（誠實列出，不是遺漏）：完全沒有任何實盤/dry-run驗證（使用者
+        已明確知情並選擇跳過）——第一次真的送單會發生在週一開盤後，屆時
+        才會知道即時API串接（resolve_live_futures_symbol/fetch_1m_bars/
+        rolling_relative_dip live版）實際運作是否跟預期一致。
+
+      2026-08-09 使用者要求「請回測，看看會不會打架，再次檢查」後的複查結果
+      （trial registry topic_id：short-long-final-deployed-rules-conflict-check）：
+      · 發現並修正一個真的空隙：_check_entries()原本完全沒排除短邊當天正在
+        持有的那一檔股票——broker端同一帳戶同時掛同一張個股期貨合約的多單+
+        空單會怎麼處理（自動軋平/兩筆獨立部位/直接拒單）完全沒驗證過，賭
+        這個未知行為的代價太高。已加上short_side_open_stock_id_today()同股
+        互斥guard：短邊持有某股期間，長邊完全跳過那一檔，等短邊平倉、
+        stock_id從ledger消失後下一輪poll才會再考慮。用74筆短邊歷史交易回測
+        guard的機會成本：59筆本來就在短邊出場後才觸發（不受影響），15筆
+        guard介入（短邊出場前訊號就已觸發），其中6筆延後重新掃仍找得到訊號、
+        9筆當天直接跳過——純機會成本，不是風險，可接受。
+      · 更重要的發現：回測用粗估公式(價格×2000×13.5%)算短邊74筆歷史交易的
+        保證金時，8299多次出現340k~786k的估計值，遠超短邊自己的300,000硬
+        上限，但這些交易確實出現在短邊真實歷史紀錄裡——代表粗估公式對高價股
+        嚴重高估真實保證金（個股期貨保證金並非簡單的『價格×固定%』，粗估
+        用線性關係假設本身有問題）。這個粗估公式正是長邊_check_entries()原本
+        唯一使用的保證金來源，拿明顯不準的數字做300,000共用池/15%單股上限
+        這種真金白銀判斷風險太高。已修正：比照短邊pick_signal()的做法，
+        優先呼叫query_real_margin_ntd()查富邦真實保證金API，查不到（非交易
+        時段/API異常）才退回粗估，並在Position新增margin_source欄位
+        （broker_api|estimate_fallback）供事後稽核。
+      · 兩項修正都已完成、通過ruff lint與import preflight，並在週日盤後
+        （不影響任何在場部位）用launchctl kickstart -k重啟已安裝的worker
+        兩次（一次吃guard、一次吃真實保證金查詢），確認state=running、pid
+        穩定、無crash loop。
+      · pool overflow數字（回測輸出裡的具體金額）因為使用粗估公式，不能
+        當作『guard生效後還會超額多少』的可信估計——真實保證金查得到時
+        會用broker_api的準確數字，超額量級預期遠低於回測顯示的數字，但
+        沒有重新拿真實保證金API重跑這個回測（週日非交易時段，API查詢會
+        查無報價），這是誠實的殘留限制，等週一實跑才能真的驗證。
+
+      2026-08-09 使用者要求回放「最近一個月」後發現長邊0成交，追問「增加
+      保證金有幫助嗎，還是要延後進場」引出的兩項發現：
+      · 增加保證金不會有幫助：最近一個月回放裡skipped_cap=0、
+        skipped_pool=0——資金池從未真的被用滿，0成交的原因跟資金多寡完全
+        無關，是同股互斥guard(6/6訊號日全中)+回放用的DB個股1分K只到
+        2026-07-30(擋掉15次候選)兩個原因造成的，跟增加300,000無關。
+      · 「延後進場」本來就是系統設計的行為，不需要額外實作：guard只在
+        _check_entries()每次poll當下重新判斷（if short_stock_id==c.stock_id:
+        continue），不是『整天封鎖』的持久狀態——短邊一平倉，下一輪poll
+        （≤60秒後）guard自然解除、find_rolling_dip_signal對整天累積資料
+        重新掃描，只要pattern存在於當天任何時段（含guard生效期間），
+        都會被抓到。但這裡發現並修正一個相關的真bug：sig.price是『訊號
+        被偵測到那一刻』的價格，下的卻是市價單——正常情況(沒被guard/資金
+        擋過)兩者只差≤一個poll interval可忽略，但一旦真的被guard擋過一陣子
+        才解除，sig.price可能是幾十分鐘前的舊價格，跟市價單實際成交價脫節，
+        會讓entry_price/peak_price(移動停利起點)失真。已修正：改用送單當下
+        fetch_last_price()查到的即時報價當entry_price/peak_price基準，
+        sig只當『確認型態存在』的觸發條件，不當價格來源。修正後已重啟
+        worker（launchctl kickstart -k，週日idle窗口、無在場部位、零風險）。
+      · 「最近一個月長邊掛零」裡15/21次不可評估是回放方法本身的限制
+        （個股1分K DB表沒同步到最新，只到07-30），不是live系統的限制——
+        正式worker即時呼叫富邦API拿報價(fetch_1m_bars)，不查那張DB表，
+        不受這個資料缺口影響。換句話說，這次回放低估了明天實際上線後
+        長邊可能出現的訊號數量，不能直接當「明天大概也會掛零」的預測。
+      · 6/6同股guard全中維持觀察中：15個月完整回放的guard觸發率約三成
+        （65次/約230次候選檢查），這個月6/6是小樣本巧合還是新的常態，
+        需要更多實際交易天數才能判斷，不是現在就要改設計的訊號。
+
+      2026-08-09 進場改marketable limit（使用者問「你建議都用限價單嗎」後
+      定案，非全部改限價）：對照短邊的既有慣例（進場market、計畫性出場
+      (2%停利)limit、強制出場(13:40)market），長邊原本進出場都是market，
+      判斷不一致——已修正為：
+      · 進場：改price_type="limit"、price=現價×(1+0.3%)、time_in_force="ioc"
+        （ENTRY_LIMIT_BUFFER_PCT常數）。理由：個股期貨流動性通常比短邊標的
+        薄，市價單滑價風險較高，這個策略單筆預期報酬不算大(約5-6%)，滑價
+        佔比相對有感；掛一個『幾乎一定成交但有價格上限』的marketable limit
+        可以控制最壞滑價，用IOC是因為這個價位『幾乎一定會成交』，萬一沒成交
+        寧可下一輪poll用新的即時價重新判斷，不留過時價位的resting單。
+      · 出場（移動停利/滿10天）：維持market不變——這兩種出場都是『時效到
+        必須出』，跟短邊force_close同一類別，不能冒限價掛著不成交、隔天
+        還抱著部位的風險，回測驗證的規則本身也假設用收盤附近價格出場。
+      已通過ruff lint、import preflight，並重啟worker（launchctl kickstart -k，
+      週日idle窗口、無在場部位）。
+
+      2026-08-09 個股1分K資料缺口已回填：live-ta-kbar-sync（原本負責同步
+      stock_kbar_1m）已於2026-08-01退役，此後這張表沒有排程寫入，停在
+      07-30。這張表只有研究/回測會用到（dayflip_post_dump_long_signal.py
+      的live版本走富邦即時API、不查這張DB表，不影響下單），但既然用來做
+      回放/未來研究，已用scripts/backfill_live_ta_universe_kbar.py針對
+      dayflip候選股清單（21檔：2301/2327/2337/2344/2408/2492/3037/3105/
+      3189/3481/4958/5347/6147/6213/6239/6274/6488/6770/8046/8299/8358）
+      補到2026-08-07（200個股票-日缺口、47,609筆bar、0錯誤）。這是針對
+      候選股清單的targeted補檔，不是重裝live-ta-kbar-sync這個已退役job，
+      之後這張表會繼續累積缺口除非另外排程或手動補。
+
+      2026-08-09 修復架構債（使用者明確指示「請修復架構債，一次徹底做好」）：
+      dayflip_short_order.py 跟 dayflip_post_dump_long_order.py 的 ledger
+      路徑原本都寫死 stock_db.PROJECT_ROOT / "data/order/..."（git tree內），
+      跟 detach-gate/leading-dip 等其餘 sleeve 用 stock_db.DATA_DIR（可搬出
+      git tree的GOLDENSTOCKS_DATA_DIR）不一致，違反CLAUDE.md「新程式碼讀寫
+      DB／log／ledger一律走stock_db.DATA_DIR」的原則——這個問題其實不是這次
+      新增的，dayflip-futures-short從2026-08-07上線就一直是這樣，這次順便
+      一起修掉。
+      · 改動：兩檔的_LEDGER_PATH都改成`stock_db.DATA_DIR / "order" /
+        "<sleeve>_ledger.json"`；長邊讀短邊ledger用的_SHORT_LEDGER_PATH
+        同步改成一致路徑（已用assert驗證兩者相等，確保共用資金池機制不會
+        因為路徑改變而讀錯檔案）。
+      · 安全性驗證：舊路徑的ledger本來就是『當日重置』設計（load_ledger()
+        比對date!=today就丟棄整份重建），沒有需要遷移的歷史狀態，直接切
+        路徑安全；新路徑`$GOLDENSTOCKS_DATA_DIR/data/order/`目錄已存在且
+        可寫入（跟detach-gate等sleeve共用同一個目錄）；load_ledger()對
+        不存在的檔案只會回傳全新狀態、不會意外寫入，已實測確認。
+      · 兩檔都通過ruff lint、import preflight。**這是今天第一次重啟已經在
+        跑一整週的短邊worker**（之前每次重啟都只碰新的長邊）——已用
+        launchctl kickstart -k分別重啟短邊跟長邊，兩者都state=running、
+        pid穩定、worker_start log正常寫出、launchd stderr無例外堆疊，
+        確認過才視為完成。
+      · 舊路徑`/Users/jackm4/goldenstocks/data/order/dayflip_short_ledger.json`
+        （git tree內、Friday 08/07留下的舊檔）當時判斷是孤兒檔案、刻意保留
+        沒刪除。後續使用者要求「該移除就移除，乾淨清楚」，已刪除該檔案＋
+        空的data/order/目錄。
+
+      2026-08-09 刪除舊ledger後發現的連鎖問題（已修復）：
+      reports/research/channel_lab/live_v6_sim_server.py（:8770監控UI，
+      「隔日沖空單」分頁的資料來源）裡有一個獨立寫死的`_DAYFLIP_LEDGER =
+      ROOT / "data" / "order" / "dayflip_short_ledger.json"`（ROOT=git tree
+      根目錄），指向的正是剛被刪除的那個舊路徑——這個UI消費者在改路徑當下
+      沒有一併檢查到，刪除舊檔後UI的/api/dayflip-short端點會讀不到資料
+      （不會crash，因為原本就有try/except包住json.loads，但畫面上該分頁
+      會顯示空白/無資料，即使短邊worker其實正常運作）。
+      · 已修復：改用`stock_db.DATA_DIR`（跟dayflip_short_order.py實際寫入
+        位置一致，用assert驗證過完全相等），並重啟tmf-sim-server
+        （launchctl kickstart -k）讓修正生效。
+      · 驗證：curl http://localhost:8770/api/dayflip-short 回傳200、
+        JSON正確（today:null，因為現在是週日還沒有ledger資料，這是預期
+        行為；recent歷史快照正常顯示，因為那組資料來自另一個獨立目錄
+        reports/order/snapshots/，沒有受影響）。
+      · 教訓：改一個被多處消費的檔案路徑時，只grep `src/` 找引用是不夠的，
+        `reports/`底下的監控/儀表板類程式碼也可能硬寫同一個路徑，需要一併
+        搜尋（這次是先做完整個改動才在使用者回報「html顯示不順利」時發現，
+        比較理想的做法應該是改路徑當下就做全repo搜尋，不只搜src/）。
+
+      2026-08-10 新增「隔日候選」監控面板（使用者要求「將隔日候選的內容每日
+      更新到html，並且知道每個行動代表多少保證金跟預計價值」）：
+      · reports/research/channel_lab/live_v6_sim_server.py 新增
+        `_dayflip_candidates_payload()` + `/api/dayflip-candidates` 端點，
+        直接呼叫order.dayflip_short_signal.build_candidates()（正式
+        production函式，短邊/長邊兩個sleeve共用同一份，不是另外重寫近似版）。
+      · 用T0（交易日）當cache key，換日才重新查詢——build_candidates()本身
+        要掃200天分點資料，不適合像主要TMF payload一樣每6秒重算，前端輪詢
+        間隔設60秒（其餘既有面板是6秒，這個刻意設較長間隔，因為候選本來
+        就是日頻率資料）。
+      · 每檔顯示：分點數、總買超金額(億)、T0收盤價、估計保證金、估計名目
+        價值——保證金/名目價值用T0收盤價概估（跟長邊order模組同一套
+        estimate_margin_ntd公式），⚠️明確標註是粗估、不是官方逐檔試算表或
+        即時報價，對高價股會嚴重高估（已知問題，見本區塊前段8299案例）。
+      · 候選清單本身『尚未套用跳空門檻』（build_candidates的設計就是這樣，
+        跳空需要T0+1即時開盤價才能算，這個面板用T0收盤價概算是給人看的
+        參考，不是真的能不能進場的判斷），payload裡的note欄位已明確寫出
+        這個限制。
+      · 已用curl直接測試新端點3次確認穩定回傳（首次重啟後第一次呼叫曾經
+        失敗，重試後穩定，判斷是重啟瞬間的短暫問題，非真的bug）、ruff
+        lint通過（唯一殘留錯誤是預先存在、跟這次改動無關的`LAB`未定義名稱）、
+        python ast.parse()確認全檔語法正確、重啟tmf-sim-server後主頁面
+        HTML跟舊功能（隔日沖空單分頁、TMF主面板）都還正常。
+
+      2026-08-10~11 訊號來源改回現貨、fgap_min獨立化（使用者兩點指示：
+      「你應該要拿個股現貨來研究，下單才改期貨」、後續「做多只要超過4%呢」）：
+      · 現貨/期貨修正：dayflip_post_dump_long_signal.py模組docstring原本
+        就承認rolling_relative_dip即時版改用個股期貨1分K（非回測驗證用的
+        現貨1分K）「預期影響很小，但沒有專門重驗過」——使用者指出這點後
+        改回跟回測一致：新增_fetch_stock_spot_1m_bars()（複用
+        ops_live_ta.fetch_fubon_candles的個股現貨API），訊號偵測改用現貨，
+        entry_price_basis/實際下單symbol維持期貨不變。連帶修正一個關聯bug：
+        entry_price_basis原本查不到即時期貨價時會fallback回sig.price，但
+        sig.price現在是現貨價，混用會讓期貨單的價格基準跟期貨市場脫節——
+        改成查不到即時期貨價就直接跳過該候選(fail-closed)，不用現貨價頂替。
+      · fgap_min獨立化：原本直接import短邊dayflip_short_signal.FGAP_MIN
+        (7%，兩邊共用同一個常數)。使用者問「做多不一定要7%才對」，先用
+        單筆平均驗證：fgap>=7%子集(n=111) mean+6.71%/median+3.19%/win55.9%
+        決定性贏過fgap<7%子集(n=466) mean+2.33%/median-2.99%/win39.7%，
+        bootstrap贏率僅0.3%——證實現行7%前提雖是繼承自共用資料管線非獨立
+        驗證，但確有必要，不建議拿掉。使用者接著問4%門檻，單筆平均一樣是
+        7%更好(bootstrap 4%贏7%僅26.4%)。使用者再問「n比較多，可以都做嗎，
+        資金衝突才排序」——這是資金池層級問題，改用capital_simulation.py
+        同款逐日資金排程模擬（300,000 NTD、單股上限15%）比較組合表現：
+        現行(>=7%) 111合格/48進場(63筆因資金不足跳過)，總報酬+90.8%/
+        最大回撤-11.0%/Sharpe_like0.218；提案(>=4%) 219合格/80進場(139跳過)，
+        總報酬+120.8%/最大回撤-15.6%/Sharpe_like0.183。關鍵發現：資金
+        常態性吃緊(現行7%門檻下57%合格訊號因資金不足被跳過)，不是原先
+        假設的資金閒置情境，4%門檻的額外訊號會跟7%以上強訊號搶同一筆
+        資金。使用者知悉「總報酬較高、Sharpe較低、回撤較深」這個風險/
+        報酬取捨後選擇採納4%。
+      · 已修改：src/order/dayflip_post_dump_long_order.py新增獨立
+        FGAP_MIN_LONG常數(讀本檔fgap_min，缺key時fallback 0.04)取代原本
+        import的短邊FGAP_MIN，兩邊從此各自獨立可調；FREEZE_RULE版本號
+        dfpdlong1→dfpdlong2，新增g4 token。
+      · ⚠️ 資金衝突時的優先序：現行程式碼透過build_candidates()回傳順序
+        (已按n_seats由多到少排序)決定，不是額外新增的邏輯——這點跟研究
+        腳本(用fgap排序當簡化代理)不完全一致，但機制本質相同(較強訊號
+        優先搶資金)，未特地為此改動既有排序邏輯。
+      2026-08-11 單股上限取消（使用者觀察6274真實保證金645,165元遠超單股
+      上限45,000後，明確指示「沒有45000這個限制，就是30萬的限制而已」）：
+      · ⚠️ 誠實揭露：這直接推翻2026-08-09已經用真實資金模擬驗證過的結論——
+        當時比較過single_name_notional_cap_pct=10/15/20/30/50%/無上限，
+        15%(4.5萬)是測過的最佳點：max_dd從none情境的-31.1%壓到-21.1%、
+        Sharpe從低值拉到1.689，是「資金風控收尾」四種嘗試(margin call/
+        同時在場口數上限/資金緩衝/新進場速率限制)裡唯一真的有改善的一個。
+        取消它會讓「同一訊號源反覆命中同一標的」的集中度風險回到2026-08-09
+        發現8299案例的那種情境（單日-27.7%、未實現虧損集中在單一標的）。
+      · 使用者是在看到「6274真實保證金645,165遠超45,000」這個具體案例後
+        做的決定，理解上是「45,000這個數字對某些高股價標的完全不現實，
+        乾脆拿掉」，不是重新驗證過「拿掉子上限後風險調整報酬更好」——
+        這題沒有像今天稍早fgap門檻那樣先跑資金池模擬驗證，是知情但未經
+        重新驗證的選擇，記錄清楚讓之後回頭複盤時知道這點。
+      · 已修改：single_name_notional_cap_pct 15→100（=100%，只受300,000
+        總池約束，等同無額外子上限）、risk_controls: single_name_cap→none。
+        程式碼面src/order/dayflip_post_dump_long_order.py的per_name_cap_ntd()
+        本身不用改（公式沿用TOTAL_CAPITAL_NTD×SINGLE_NAME_CAP_PCT/100，
+        改配置值即可生效）。
+      2026-08-11 單股上限取消後又改回15%（同日第三次修正）：使用者要求「去頭
+      去尾，告訴我準備多少資金」重新檢驗100%上限的決定。發現：
+      · single_name_notional_cap_pct在15%→25%之間有斷崖式跳躍（max_dd
+        -15.6%→-46.6%），winsorize(1%/2%/5%縮尾)後這個斷崖依然存在，不是
+        極端值造成的假象——代表100%上限的巨額回撤不是少數異常交易導致，
+        是資金規則本身在15%以上就讓少數高價股吃下過大部位的結構性後果。
+      · 加硬止損能否補救：先用近似法(事後把最終結果比停損點差的交易clamp
+        到停損價)測出止損越緊、報酬/風險越單調變好的表格——這個結果不合理
+        （真實世界不可能無代價地全面改善），改用嚴謹逐日重算版（每天同時
+        檢查硬止損跟原本移動停利，誰先觸發用誰，觸發後續反彈真的追不到）
+        重測，3%止損下100%上限的max_dd只從-45.9%改善到-42.3%，仍然遠不如
+        15%上限的-15.6%——止損能小幅改善但解決不了根本的集中度風險問題。
+      · 結論：single_name_notional_cap_pct改回15%、risk_controls改回
+        single_name_cap、accepted_max_drawdown_pct改回-21。fgap_min維持
+        4%不變（這題本身沒有被這輪去頭去尾分析推翻）。
+
+      2026-08-11 外資淨買賣超過濾器——測試後撤回（重要的PIT紀律教訓）：
+      使用者問「外資淨空單呢，籌碼面有沒有線索」，先用entry_day當天的
+      foreign_net欄位測出Spearman IC=0.217、permutation test p=0.001（212/
+      219筆可比對），看起來是今晚少數通過嚴格驗證的訊號。**使用者立刻指出
+      三大法人買賣超通常收盤後下午才公布，entry_day當天(08:44-13:20進場
+      窗口內)這筆資料根本還沒公布，是用了未來資訊**——改用T0(進場前一天，
+      收盤後已公布、下單當下真的拿得到)重測後，IC變成-0.111、p=0.106，
+      兩個permutation test都不顯著，方向甚至反過來。**這個過濾器完全撤回，
+      不採用**——記錄下來是因為這是今晚一個重要的方法論教訓：任何籌碼面
+      資料要當「同一天」的即時過濾條件用之前，必須先確認官方公布時間點
+      是否早於下單決策時間，不能只看trade_date欄位對不對得上；下次遇到
+      類似資料源(法人買賣超、融資融券餘額等收盤後才公布的資料)都要先查
+      公布時間再用，不能想當然爾。
+
+      2026-08-12 daily-sync自動排程的殘留bug（使用者截圖回報8/12儀表板
+      候選顯示0檔，追查發現）：昨晚(08-10)新增的daily-sync job（週一至五
+      16:35）8/11第一次自動執行，log確認確實有跑
+      scripts/research/refresh_dayflip_futures_daily_cache.py，回報「0檔
+      更新、83檔已是最新」——但實際查快取，最新資料還是停在08-10，08-11
+      完全沒補進去。根因：這支腳本的抓取結束日期原本寫死`yesterday`
+      （today-1），是為了某個「隔天一早跑、當天資料還沒公布」的排程情境
+      設計的舊邏輯；併進16:35（收盤後2小時，FinMind當天資料早就有了）的
+      daily-sync後，「today-1」變成永遠補不進「今天自己」，導致隔天(08-12)
+      08:45候選判斷會重演跟08-10同一晚一模一樣的問題（fail-closed排除
+      全部候選，因為build_candidates()的ADV流動性檢查查不到當天快取）。
+      已修復：`scripts/research/refresh_dayflip_futures_daily_cache.py`
+      抓取結束日期從`yesterday`改成`today`；已手動補跑一次backfill今天
+      的08-11資料（83檔全數更新），驗證build_candidates('2026-08-11')
+      從0檔變回真實的12檔（2327/2408/8358/2344/6274/4958/6239/6147/
+      6213/8046/3189/3481），並重啟tmf-sim-server讓儀表板反映正確資料。
+      **教訓**：把一支腳本從「原本的排程情境」搬到「新的排程時間點」時，
+      腳本內部寫死的日期邊界(today-1/yesterday這類)要重新檢查是否仍然
+      合理，不能只看「有沒有跑成功、有沒有回報錯誤」——這次腳本回報
+      「0檔更新」聽起來完全正常，掩蓋了「其實一直沒有真的補進當天資料」
+      這個問題，是靜默的邏輯錯誤不是crash，特別難發現。
+
+      2026-08-12 個股白名單（使用者要求「只交易過去會贏的，過去容易輸的先
+      排除掉」，指定2327/3189/3481三檔）：
+      · 先做個股層級賺賠拆解(描述性統計，fgap>=4%子集219筆)：2327(n=14)
+        均報酬+22.41%/勝率78.6%，是樣本數最多、表現最一致的常勝軍；3189
+        (n=12) +9.30%/66.7%；3481(n=8) +12.97%/62.5%。表現最差：2481
+        (n=3) −6.64%/0%勝率、8150、6770、8358反覆較差。
+      · walk-forward驗證(避免全樣本cherry-pick的多重比較陷阱)：只用train
+        期(153筆,2025-08~2026-05)資料選出前3名(6274/2327/2492)，在完全
+        沒看過的test期(66筆,2026-05~2026-07)均報酬+7.50%/勝率80.0%，
+        明顯贏過其餘股票(均+2.88%/勝率50.8%)——方向持續，不是本晚常見的
+        「train顯著、test消失」假訊號模式。使用者指定的2327/3189/3481
+        個別在test期也都是正報酬(+7.50%/+7.18%/+13.43%，勝率50-80%)。
+      · ⚠️ 誠實殘留風險：test期樣本仍薄（三檔合計僅13筆），是目前驗證過
+        的發現裡證據較強的一個，但不是大樣本鐵證；40檔股票裡選3檔本身
+        還是有「多重比較」的先天風險(即使做了walk-forward)，之後應該
+        持續追蹤這3檔的實際表現，不是一次驗證後就永久鎖定不重新檢視。
+      · 已修改：src/order/dayflip_post_dump_long_order.py新增
+        LONG_STOCK_WHITELIST常數(讀本檔stock_whitelist，空清單時預設不
+        套用白名單以維持原行為，避免忘記設定時意外清空整個候選池)，
+        _check_entries()候選迴圈加一道白名單過濾。
+
+      2026-08-12（同日第二次）個股白名單擴大到5檔（使用者要求「放進去
+      一起排」，明確指定新增6274/8046，目的是想增加每天交易的n）：
+      · 先測過「降低門檻但只套用在白名單」——結果單調變差(門檻4%→0%，
+        全樣本均報酬+15.56%→+8.50%、勝率70.6%→51.2%；walk-forward
+        test期同方向：4%門檻test勝率69.2%、0%門檻掉到44.4%)，判定不能
+        降門檻，改成「維持4%門檻、擴大白名單廣度」的方向。
+      · 6274/8046在fgap>=4%子集裡全樣本表現極佳(6274: n=3,均+33.05%,
+        勝率100%；8046: n=5,均+17.71%,勝率80%)，但**樣本數<6，連
+        train/test切分做walk-forward都做不到**——已明確告知使用者這是
+        小樣本噪音風險，不是驗證過的edge。
+      · 併入白名單整體測(5檔 vs 原3檔)：test期n只從11筆增加到13筆
+        （+2筆），均報酬+9.40%→+10.04%、勝率72.7%→69.2%（微幅下降，
+        沒有明顯提升）——代表這2檔加進來對整體品質沒有實質貢獻，主要
+        是把兩筆極薄樣本的運氣併入樣本池。
+      · ⚠️ 這是使用者在被完整告知「樣本太薄、無法walk-forward、併入後
+        test期品質沒有提升」後的明確知情選擇（"放進去一起排"），不是
+        研究證實了6274/8046有edge——記錄以供之後回頭檢視：如果這兩檔
+        實際上線後拖累整體白名單表現，第一個該檢查的就是這裡。
+      · FREEZE_RULE版本號dfpdlong5→dfpdlong6，wl3→wl5 token。
+
+      2026-08-13健檢後修正：本檔案更早的內容曾混入一段屬於rrg-mono-swap-accel/
+      c18acc策略的大段文字(pool_id/chase_gate/spread_gate/evidence等)，因為
+      縮排比這個notes折疊字串本身淺一階但仍比parent key深，被silently吞進
+      dayflip-post-dump-long的notes字串裡且覆蓋掉這裡原本的內容(YAML重複key
+      後者蓋前者，不會報錯)——已修正：把那段內容移出去、還原成獨立的
+      rrg-mono-swap-accel頂層key(見下方)，這裡的notes也恢復成正確內容。
 
   rrg-mono-swap-accel:
     pool_id: rrg-mono-swap-accel
@@ -297,6 +1192,32 @@ strategies:
       Desired-state reconciler · Final v1.3.0 PV16 cell-tune v2（O-anchor）· engine=tmf_channel.causal_engine
       · launchd KeepAlive worker（重用 Fubon session；INTERVAL≈20s）。
       實彈須四鎖全開。超額／孤兒持倉會先 flatten。近月自動解析；日盤+夜盤窗。
+
+      2026-08-09 使用者截圖回報「現在非交易時間，明顯有問題」（週日21:46，
+      監控UI :8770顯示「夜盤進行中」「LIVE送單中」）——查證後確認：
+      · **真正下單worker完全正常、沒有安全風險**：tmf_channel_live_20260809.log
+        根本不存在（最新一筆是08/08 00:25，Friday夜盤尾段），worker process
+        CPU 0.0%，這一整個週末worker都正確idle，沒有嘗試對已收盤的交易所送出
+        任何委託。真正的下單判斷邏輯 src/order/tmf_channel_marketdata.py 的
+        in_tmf_trade_window() 早在2026-08-08就修過weekday-aware判斷（見該
+        函式docstring記載的Saturday login-thrash事件），這次沒有重蹈覆轍。
+      · **問題出在監控UI本身、獨立的一個顯示bug**：reports/research/
+        channel_lab/live_v6_sim_server.py 的 _session_phase() 只查HH:MM、
+        沒查星期幾——跟已修過的in_tmf_trade_window()是同一類bug、但是
+        獨立、沒被那次修復涵蓋到的另一份程式碼，直到這次使用者截圖才發現。
+        已修正：改用in_tmf_trade_window()當唯一真相來源判斷是否真的在開盤，
+        週末/非交易時段改顯示「已收盤（週六/週日）· 等待MM/DD 08:45日盤開盤」。
+        已用今天(週日21:50)/明天週一同一時間/週六02:00(週五夜盤尾段仍應算
+        開盤)三組時間點測試通過，重啟tmf-sim-server後用curl驗證/api/state
+        的phase欄位確認修正生效。
+      · **「今日總損益NT$+6,623」這個數字沒有進一步查證是否也有標示問題**：
+        _trading_day_str()/trading_day_str()對hour>=5一律回傳當天日曆日期
+        （不查星期幾），這個+6,623很可能是週五(08/07)最後一次真實交易session
+        的損益、被富邦帳戶API或ledger以「還沒被下一個交易日覆蓋」的方式
+        延續顯示，標籤上顯示2026-08-09（今天日曆日期字面正確，但這個數字
+        實質上是週五的結果，不是今天真的發生的交易）——這比較可能是合理的
+        『沿用最後一次已知狀態』行為，不是新bug，但也沒有深入驗證broker
+        API或ledger的確切邏輯，留給使用者知悉、非必要不動它。
 
 # ABC pyramid_add · retired with ABC Order（2026-07-15）· stub only
 pyramid_add:

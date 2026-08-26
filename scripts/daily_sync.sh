@@ -501,6 +501,20 @@ if [[ "$HOLDINGS" -eq 1 ]]; then
     log_line "  SKIP（RUN_CHIP_SYNC=0；設 1 啟用融資融券/借券/當沖）"
   fi
 
+  # 借券餘額：FinMind 的 TaiwanStockSecuritiesLending 只有逐筆借出、沒有還券，
+  # 累加推估不出餘額（實測 34 天誤差 +86% 且方向相反）。改抓 TWSE TWT72U，
+  # 它是「一個 request 回全市場」，所以成本跟追蹤幾檔無關 —— 每天 1 次即可。
+  if [[ "${RUN_LENDING_BALANCE_SYNC:-1}" != "0" ]]; then
+    run_step_optional "borrow/lending balance 全市場 (TWSE TWT72U)" \
+      "$PYTHON" "${ROOT}/scripts/backfill_stock_chip_extras.py" \
+      --stock-ids ALL \
+      --recent-days "${LENDING_BALANCE_LOOKBACK_DAYS:-7}" \
+      --skip-dispersion --skip-daytrade-fix
+  else
+    log_line "--- borrow/lending balance 全市場 (TWSE) ---"
+    log_line "  SKIP（RUN_LENDING_BALANCE_SYNC=0）"
+  fi
+
   if [[ "${RUN_SCREENER_DATA_SYNC:-0}" == "1" ]]; then
     run_step_optional "screener shareholding (30d)" \
       "$PYTHON" "${SRC}/sync_stock_shareholding_daily.py" \

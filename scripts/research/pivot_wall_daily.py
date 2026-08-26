@@ -128,6 +128,17 @@ BREAK_HORIZONS = (30, 60)
 TAX_BPS_ROUNDTRIP = 4.0
 #: ③ 的外部參照。相關係數一併記進 ledger，恆等式才看得出來
 REF_ROOTS = ("MXF", "EXF", "SPF")
+# 2026-08-21：先前只量 5 秒是選錯尺度。實測對 MXF 的相關隨尺度單調上升——
+#   EXF 電子期  5秒 0.295 → 30秒 0.574 → 1分 0.684 → 5分 0.835 → 15分 0.871
+#   SPF 標普500 5秒 0.048 → 30秒 0.084 → 1分 0.183 → 5分 0.398 → 15分 0.580
+#   CCF 聯電    5秒 0.147 → 30秒 0.280 → 1分 0.348 → 5分 0.486
+#   TXF/TMF     每個尺度都 ≥0.98（恆等式，任何尺度都不能用）
+# 也就是說「SPF 5 秒相關 0.048」代表的是**那個尺度上是雜訊**，不是「獨立訊號」——
+# 我先前把它讀成後者，用它當同方向確認等於擲硬幣，這解釋了 ③ 單獨用時方向為反。
+# 可用區間是「高到有共同資訊、低到不是恆等式」：EXF 在 1 分（0.684）、
+# 個股期貨對台指期在 1–5 分（0.35–0.49）。而個股期貨的牆撐 282 秒，正好匹配分鐘尺度。
+# 所以三個尺度都記，讓資料自己說哪個對。
+REF_HORIZONS_SEC = (5.0, 60.0, 300.0)
 #: 要跑破牆分析的商品（比 pivot 分析廣：個股期貨才是這條線的主線）
 BREAK_ROOTS = ("TMF", "MXF", "TXF", "CCF", "DQF", "PWF", "SFF", "CKF",
                "LUF", "RWF", "IRF", "RA", "KB", "OP", "PJ", "QD", "GU",
@@ -603,7 +614,8 @@ def analyse_breaks(root: str, day: str, session: str,
                    "vol_ratio": (v3 / (v60 / 20.0)) if v60 > 0 else None,
                    "range60_bps": (max(seg) - min(seg)) / px * 1e4}
             for k in REF_ROOTS:
-                rec[f"m_{k.lower()}"] = refmom(k, tb)
+                for lb in REF_HORIZONS_SEC:
+                    rec[f"m_{k.lower()}_{int(lb)}"] = refmom(k, tb, lb)
             for hz in BREAK_HORIZONS:
                 jj = bisect.bisect_left(T, tb + hz)
                 rec[f"run{hz}"] = (((px - MID[jj]) if side == "bids" else (MID[jj] - px))
@@ -650,16 +662,17 @@ def analyse_breaks(root: str, day: str, session: str,
     }
     # ③ 外部參照：單獨用（硬判準 b）與三層疊（硬判準 a），一起記才判得了
     for k in REF_ROOTS:
-        kk = f"m_{k.lower()}"
-        have = [e for e in ok if e.get(kk) is not None]
-        if len(have) < 20:
-            continue
-        out["ref"][k] = {
-            "n_matched": len(have),
-            "solo_same": stats([e for e in have if e[kk] * e["dir"] > 0]),
-            "solo_opp": stats([e for e in have if e[kk] * e["dir"] < 0]),
-            "f123": stats([e for e in f12 if e.get(kk) is not None and e[kk] * e["dir"] > 0]),
-        }
+        for lb in REF_HORIZONS_SEC:
+            kk = f"m_{k.lower()}_{int(lb)}"
+            have = [e for e in ok if e.get(kk) is not None]
+            if len(have) < 20:
+                continue
+            out["ref"][f"{k}@{int(lb)}s"] = {
+                "n_matched": len(have),
+                "solo_same": stats([e for e in have if e[kk] * e["dir"] > 0]),
+                "solo_opp": stats([e for e in have if e[kk] * e["dir"] < 0]),
+                "f123": stats([e for e in f12 if e.get(kk) is not None and e[kk] * e["dir"] > 0]),
+            }
     return out
 
 

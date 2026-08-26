@@ -90,22 +90,13 @@ def min_age_mode(min_age: timedelta | None):
         nq_signal.NQ_ES_1H_MIN_AGE = prev
 
 
-def continuous_gate_for_day(day: str, T: list[str]) -> dict[str, str]:
-    bundle = nq_gate_mod.get_cached("nq_futures_1h", 1800.0, nq_gate_mod._load_futures_bundle)
-    nq_1h, es_1h, nq_d, es_d, us_dates = bundle
-    from zoneinfo import ZoneInfo
-
-    tz = ZoneInfo("Asia/Taipei")
-    out = {}
-    for t in T:
-        dt_tw = datetime.fromisoformat(t).astimezone(tz)
-        snap = nq_signal.futures_overnight_at(
-            dt_tw, nq_1h=nq_1h, es_1h=es_1h, nq_d=nq_d, es_d=es_d, us_dates=us_dates
-        )
-        nq = None if snap is None else snap.get("nq_overnight_pct")
-        side = nq_signal.bias_side(nq)
-        out[t] = {"up": "L", "down": "S"}.get(side, "none")
-    return out
+# 2026-08-11: this file used to carry its OWN copy of continuous_gate_for_day()
+# that predated the source-aware timestamp fix (no `source=` kwarg, no
+# assert_real_timestamps guard). The mass fix updated the call site below but
+# missed this stale local def, so the script died with TypeError. Use the
+# canonical fixed implementation instead of re-duplicating it -- same body,
+# plus the fail-closed guard.
+from tmf_continuous_gate_vs_frozen_anchor import continuous_gate_for_day  # noqa: E402
 
 
 def run_day(day: str, recipe_base: dict, vix: dict) -> dict:

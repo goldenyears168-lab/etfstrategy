@@ -1,4 +1,5 @@
 yfinance>=0.2.40
+databento>=0.83.0  # NQ real-time (CME Globex) research collector, see scripts/research/nq_databento_live_collector.py
 scikit-learn>=1.3.0
 lightgbm>=4.0
 scipy>=1.11.0

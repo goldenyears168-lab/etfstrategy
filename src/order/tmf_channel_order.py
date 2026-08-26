@@ -1281,7 +1281,19 @@ def reconcile_once(
                 act["error"] = str(e)
             actions.append(act)
 
-        api_n = sum(1 for a in actions if a.get("counts_api") and a.get("ok"))
+        # 2026-08-25：dry_run 的動作**不計入日 API 額度**。
+        # 它們沒有打到券商——`broker_status == "dry_run"` 表示這一筆只是預覽，
+        # 沒有真的送出 place/cancel。但因為 dry-run 下券商端不會留著任何委託，
+        # 每一輪 reconcile 都會「重新掛一次」，於是計數器暴衝：2026-08-25 當天
+        # 累積到 1,353，而 config/order.yaml 的 max_api_per_day 是 400。
+        # 結果是 .env 被設成 ORDER_TMF_CHANNEL_MAX_API_DAY=0（＝不限）才能讓
+        # dry-run 跑得完一天——**那等於把實彈的日額度保險絲也一起關掉了**，
+        # 而那道保險絲觸發時會 killed=True 停掉整天，是風控機制本身。
+        # 正確的修法是讓計數只反映真實的券商呼叫，這樣 400 可以還原，
+        # dry-run 也不會被自己的預覽動作打死。
+        api_n = sum(1 for a in actions
+                    if a.get("counts_api") and a.get("ok")
+                    and a.get("broker_status") != "dry_run")
         ledger["last_symbol"] = sym
         ledger["last_desired"] = {
             "want_s": want_s,

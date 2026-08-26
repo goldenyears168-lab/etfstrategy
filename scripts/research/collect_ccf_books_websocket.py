@@ -129,11 +129,26 @@ _TRADABLE_WHITELIST_20260820 = [
     "RWF",  # 小型創意   4610 元 · 10.8bps · 2216 tick/日
     "IRF",  # 欣興        920 元 · 10.9bps · 1992 tick/日
 ]
-ROOTS = [
-    "CCF", "TMF", "MXF", "TXF", "EXF", "SOF", "SXF", "SPF",
+#: 指數期貨核心組——TMF/MXF/TXF 是成本線與牆研究的標的，其餘四檔是既有對照。
+_INDEX_CORE = ["CCF", "TMF", "MXF", "TXF", "EXF", "SOF", "SXF", "SPF"]
+
+# 2026-08-21 暫時縮回核心 8 檔（原本是 8 + 12 + 7 = 27）。
+# 起因：今日 11:08 出現「Maximum number of connections reached → authentication
+# timeout」，8 roots 的舊行程已連續乾淨跑了 21 小時，所以**不是 root 數造成的原始
+# 失敗**；但重啟後載入 27 roots 的新版之後，復原花了 2 小時 48 分、48 個重啟循環才
+# 成功（11:11 → 13:59），而同一段時間正好是日盤，實測掉了 11:08–13:45 共 157 分鐘
+# ＝ 300 分鐘日盤的 52%。27 roots × 4 訂閱（books/trades × 日盤/夜盤）＝ 108 個訂閱，
+# 是復原困難最合理的解釋。
+#
+# 這是**暫時**措施，不是否定那 19 檔的價值——白名單本身有完整篩選理據（345 檔逐 tick
+# 算跳動成本地板、對照 broad-universe holdout 的 10.9bps 損平），兩個清單都原樣留著。
+# 要恢復請連同解決訂閱數上限一起做，例如：分成兩個 launchd job 各自持有一條連線、
+# 或只訂 trades 不訂 books、或分時段輪流訂閱。直接把它們加回 ROOTS 會重現今天的事故。
+_STOCK_FUTURES_PAUSED_20260821 = [
     *_MOMENTUM_ROTATION_STOCK_FUTURES,
     *_TRADABLE_WHITELIST_20260820,
 ]
+ROOTS = list(_INDEX_CORE)
 RECONNECT_SLEEP_SEC = 5.0
 # 比照 tmf_channel.session_pool.get_fubon_session 的 max_age_sec=3500 ——realtime
 # token 沒有官方文件寫明存活多久，這個閾值是既有 production 程式碼驗證過的安全值，
@@ -162,6 +177,30 @@ WATCHDOG_STALL_SEC = 900.0
 
 #: 最近一次有進展的 monotonic 時間（寫資料或寫 log 都算）。看門狗讀它。
 _LAST_PROGRESS = {"mono": time.monotonic()}
+
+# 2026-08-25：08-21 我把故障歸因於「27 roots × 4 訂閱 = 108 個訂閱撞上限」，並把
+# 個股期貨拆成第二條連線。**那個診斷是錯的**——今天兩支收集器**同時**失敗
+# （指數組 297 次、個股組 472 次「Maximum number of connections reached」），
+# 拆開並沒有隔離任何東西，反而多佔一條連線。
+#
+# 真正的限制是**帳號層級的同時連線數**。mini 上同時持有 Fubon realtime 連線的行程
+# 至少有：tmf-channel worker、momentum-rotation worker、dayflip-short worker、
+# dayflip-post-dump-long worker、futopt-fill-listener、tmf/unf second-quote collector、
+# websocket-candle-shadow，再加這兩支收集器 —— 八到十條。
+#
+# 而 order.fubon_session 沒有 logout()，連線只能靠**行程結束**釋放。這使得原本
+# 「連續失敗 6 次就退出讓 launchd 重啟」的設計在這個錯誤上**幫倒忙**：退出→30 秒後
+# 重啟→再試 6 次，今天兩支合計嘗試了 769 次連線，每一次都在跟**實彈 order worker**
+# 搶同一個帳號的連線額度。研究層收集器沒有理由跟送單路徑搶資源。
+#
+# 所以這個錯誤要跟其他錯誤分開處理：認出它 → 長時間退讓 → 不要快速重啟。
+_CONN_LIMIT_MARK = "Maximum number of connections reached"
+#: 撞到帳號連線上限時退讓多久（秒）。刻意設長：等別的行程自然釋放，而不是硬搶。
+CONN_LIMIT_BACKOFF_SEC = 600.0
+#: 撞上限的次數要累積到這麼多才考慮退出行程（一般錯誤是 6 次）
+CONN_LIMIT_MAX_FAILURES = 30
+#: 由 ws error callback 設定，讓 main() 知道這一輪的失敗屬於「額度被別人佔滿」
+_HIT_CONN_LIMIT = {"flag": False}
 
 
 #: book_time 落後 wall-clock 超過這個秒數就視為收盤側的凍結重送
@@ -287,7 +326,12 @@ def _run_once() -> int:
     # 動機：2026-08-18 的 CCF 只收到 archive 28% 的成交量，事後才查出是
     # 「Maximum number of connections reached」造成的反覆重連＋當天 11:32 才啟動。
     # 破碎的資料比沒有資料更危險（看起來像完整資料），所以讓它自己叫。
-    cap = {root: {"first_cv": None, "last_cv": None, "sum_size": 0} for root in ROOTS}
+    # ⚠️ tradeVolume 是「該 session 內」的累計量，日盤→夜盤交替時會歸零重算。
+    # 第一版寫成 last−first，遇到歸零就變負數、被 `delta <= 0` 靜默跳過，結果 CCF/TMF
+    # 明明在成交卻整個從報告裡消失——跟這支收集器要監測的問題同一類錯（靜默丟棄）。
+    # 改成偵測到 cum 下降就當作 session 重置、把上一段的量結算進累加器再重新起算。
+    # key = (root, quote_type)；日盤與夜盤各自一條流，見 trades handler 的說明。
+    cap: dict[tuple[str, str], dict] = {}
 
     def on_message(raw: str) -> None:
         try:
@@ -309,13 +353,38 @@ def _run_once() -> int:
             arr = data.get("trades") or []
             cum_vol = (data.get("total") or {}).get("tradeVolume")
             serial = data.get("serial")
-            c = cap[root]
-            if cum_vol is not None:
-                if c["first_cv"] is None:
-                    c["first_cv"] = cum_vol      # 第一則只當基準，它的 size 不計入分子
+            # 日盤(FUTURE)與夜盤(FUTURE_AH)是**兩條獨立的流**，各自有自己的
+            # tradeVolume 累計與 serial 序號空間。2026-08-20 實測 SXF 在同一秒
+            # 收到 (cum=12,serial=382190) 與 (cum=17,serial=140724) 兩列——把兩者
+            # 混進同一個累加器，計數器會來回跳、一直觸發「session 重置」分支，
+            # 算出 SOF 4% / SXF 20% 這種假的低捕獲率。必須按 session 分開記。
+            qtype = data.get("type") or "?"
+            key = (root, qtype)
+            c = cap.setdefault(
+                key, {"prev_cv": None, "base_cv": None, "exch_total": 0,
+                      "recv_total": 0, "prev_serial": None}
+            )
+            # 收盤側的凍結重送：books 那邊已知每次 session 續約（約 58 分）會把
+            # 最後一筆原樣重送（見下方 books 分支的說明），trades 有**同樣**的
+            # 問題但先前沒處理——2026-08-20 觀測到 SXF/SOF 在 21:55:57 與
+            # 22:02:33 送出 serial/cum 完全相同的列。沿用 books 的原則
+            # 「標記而不丟棄」：寫 stale=True 讓下游能過濾，但不吃掉資料。
+            is_dup = (
+                serial is not None
+                and c["prev_serial"] == serial
+                and c["prev_cv"] == cum_vol
+            )
+            if cum_vol is not None and not is_dup:
+                if c["base_cv"] is None:
+                    c["base_cv"] = cum_vol       # 第一則只當基準，它的 size 不計入分子
+                elif cum_vol < c["prev_cv"]:
+                    # session 重置：把上一段結算進累加器，從這一則重新起算
+                    c["exch_total"] += c["prev_cv"] - c["base_cv"]
+                    c["base_cv"] = cum_vol
                 else:
-                    c["sum_size"] += sum(int(t.get("size") or 0) for t in arr)
-                c["last_cv"] = cum_vol
+                    c["recv_total"] += sum(int(t.get("size") or 0) for t in arr)
+                c["prev_cv"] = cum_vol
+            c["prev_serial"] = serial
             for t in arr:
                 trow = {
                     "ts": now_iso,
@@ -330,6 +399,8 @@ def _run_once() -> int:
                     # 重算任一時段的捕獲率；serial 供偵測訊息序列不連續。
                     "cum_volume": cum_vol,
                     "serial": serial,
+                    "quote_type": qtype,   # FUTURE=日盤 / FUTURE_AH=夜盤，兩條獨立的流
+                    "stale": is_dup,       # 收盤側凍結重送，標記而不丟棄
                 }
                 _write_trade_row(root, trow)
                 n_trades[root] += 1
@@ -379,6 +450,8 @@ def _run_once() -> int:
         disconnected["flag"] = True
 
     def on_error(err) -> None:
+        if _CONN_LIMIT_MARK in str(err):
+            _HIT_CONN_LIMIT["flag"] = True
         _log(f"ws error: {err}")
 
     ws.on("message", on_message)
@@ -409,6 +482,25 @@ def _run_once() -> int:
                 break
             if time.monotonic() - last_report > 300:
                 _log(f"alive. books rows so far: {n_rows}")
+                # 捕獲率報告：只報有成交在跑的 root（交易所累計量有推進的）。
+                # 低於 95% 就明確標 LOW，讓覆蓋率不足變成看得見的告警而不是靜默劣化。
+                parts, quiet = [], []
+                for (r_, q_), c_ in cap.items():
+                    exch = c_["exch_total"]
+                    if c_["base_cv"] is not None and c_["prev_cv"] is not None:
+                        exch += c_["prev_cv"] - c_["base_cv"]
+                    tag = f"{r_}{'/AH' if q_.endswith('_AH') else ''}"
+                    if exch <= 0:
+                        # 明確列出來，不要靜默省略——「沒成交」跟「訂閱死掉」
+                        # 在報告上必須長得不一樣，否則等於沒監測。
+                        quiet.append(tag)
+                        continue
+                    pct = c_["recv_total"] / exch * 100.0
+                    parts.append(f"{tag} {pct:.0f}%{' LOW' if pct < 95 else ''}")
+                if parts:
+                    _log("capture rate (received/exchange cumulative): " + "  ".join(parts))
+                if quiet:
+                    _log(f"capture rate: no exchange volume seen for {' '.join(quiet)}")
                 last_report = time.monotonic()
     finally:
         try:
@@ -455,8 +547,20 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 -- must survive to reconnect
             n_collected = 0
             consecutive_failures += 1
-            # 退避：券商端「連線數已滿」需要時間讓舊連線逾時釋放，每 5 秒重試
-            # 只會讓情況更糟（每次重試又佔一條）。
+            hit_limit = _HIT_CONN_LIMIT["flag"]
+            _HIT_CONN_LIMIT["flag"] = False
+            if hit_limit:
+                # 帳號連線額度被佔滿：退出行程不會生出額度，只會多送一輪連線請求去跟
+                # 實彈 order worker 搶。改成長時間退讓，並用獨立的、寬鬆得多的上限。
+                if consecutive_failures >= CONN_LIMIT_MAX_FAILURES:
+                    _log(f"connection limit persisted {consecutive_failures} rounds -- "
+                         f"exiting so launchd restarts clean")
+                    return 1
+                _log(f"error: {exc!r} -- ACCOUNT CONNECTION LIMIT "
+                     f"({consecutive_failures}/{CONN_LIMIT_MAX_FAILURES}), "
+                     f"yielding to order workers for {CONN_LIMIT_BACKOFF_SEC:.0f}s")
+                time.sleep(CONN_LIMIT_BACKOFF_SEC)
+                continue
             backoff = min(RECONNECT_SLEEP_MAX_SEC, RECONNECT_SLEEP_SEC * (2 ** (consecutive_failures - 1)))
             _log(
                 f"error: {exc!r} -- failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}, "

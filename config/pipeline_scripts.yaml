@@ -138,6 +138,17 @@ scripts:
     purpose: T-1 探針雷達 · archived topic · manual only
     report_dir: reports/daily/regime
 
+  backfill_stock_chip_extras:
+    path: scripts/backfill_stock_chip_extras.py
+    layer: pipeline
+    pipeline: daily_close
+    module: src/stock_db/chip.py
+    env_flag: RUN_LENDING_BALANCE_SYNC
+    purpose: >-
+      借券餘額（TWSE TWT72U · 一 request 回全市場）＋股權分散大戶結構
+      （FinMind TaiwanStockHoldingSharesPer）＋現沖比例重算。
+      FinMind 沒有借券還券側，餘額只能來自 TWSE。
+
   backfill_probe_kbar:
     path: scripts/research/archive/backfill_probe_kbar.py
     layer: research
