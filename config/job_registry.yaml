@@ -556,6 +556,20 @@ jobs:
       同時把當日結果寫進 chip_score_forward_track（前瞻樣本外紀錄，設計凍結 2026-08-23，
       否證條件 H-CHIP-BRANCH-INCREMENT 見 config/research.yaml）。
 
+  - label: chip-loud-accum-track
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 22:15"
+    description: >-
+      高調吸貨前瞻紀錄（topic chip-loud-accum-forward · 凍結規格 2026-08-28）：
+      FinMind by-stock 抓全宇宙（close>=10·20日均量>300k·四碼）分點日報 ~950 req，
+      算買賣家數差與 top1/top2_5 集中度，買賣兩側各 30 檔寫 DB 表
+      chip_loud_accum_forward，並回填到期事件的 T+1/T+10 outcome。唯讀研究、
+      不下單、不寄名單信（失敗才通知）。60 個訊號日後依預註記判準結算
+      （NW t>=3 才可談採納、t<1.5 判過擬合）。開關：.env RUN_CHIP_LOUD_ACCUM_TRACK（預設 1）。
+      為何 22:15：錯開 21:00 chip-daily-brief 的 TWSE 補檔與 FinMind quota（6000/hr）。
+
   - label: second-disp-expert-pool-watch
     category: research
     order_capable: false
