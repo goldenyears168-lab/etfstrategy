@@ -424,6 +424,70 @@ topics:
         實測方向相反——增幅事件後橫斷面報酬是負的。覆核順帶揪出兩個一般性
         資料坑（見 notes 末段），已另立 memory。
 
+  chip-orthogonal-rebuild:
+    title: 籌碼因子依「單獨顯著→正交→AND 合併」規則重建（使用者方法論裁決）
+    status: active
+    phase: is_sweep
+    registered: 2026-08-27
+    layer: research
+    report_dir: reports/research/chip-orthogonal-rebuild
+    run_scripts:
+      - scripts/research/chip_rebuild_panel.py
+      - scripts/research/chip_rebuild_solo_test.py
+      - scripts/research/chip_rebuild_and_gate.py
+    context: >
+      使用者 2026-08-27 裁決的因子建構規則：「同類相加就要有效；相乘之前應該
+      正交、各自都有顯著差異，才進行相乘、採納後才合併，而不是隨便亂做。」
+      這條規則可以事後解釋本線三個既有失敗：v4 五項有四項同源（借券系統），
+      等權平均以 4:1 稀釋唯一正交的 s_z6（單獨 t=−7.11，合成後整體 t=+0.29）；
+      融券變化 t=+1.75 不顯著卻曾入列，剔除後價差 +15%；HS 的 25% zp 權重是
+      「修衰減」修出來的，而 zp 風險中性後 t=+0.55 根本無資格入場。
+    hypotheses:
+      - id: H-REBUILD-1
+        statement: >
+          八個候選籌碼因子中，風險中性（波動×跳空×週轉率）後 |t|>=3 的
+          因子數 >= 2，且存在至少一對正交（|rho|<0.5 且不同資料源）的存活者。
+        status: open
+      - id: H-REBUILD-2
+        statement: >
+          存活正交因子的 AND 閘門合成（雙偏多格 vs 雙偏空格）的多空價差
+          優於最好的單一成分因子（價差更大且 t 不低於單因子的 80%）。
+          合成若沒贏過最好的成分，合成就不該存在。
+        status: open
+    methodology: >
+      候選因子（跑之前固定，全部沿用既有 pipeline 定義、不重新發明）：
+      F1 z1 Δ借券賣出餘額(自身60日z)、F2 zp 借券佔股本243日分位、
+      F3 zu Δ券源使用率(自身60日z)、F4 zf 借券費率60筆分位——以上同源「借券系統」；
+      F5 z6 分點買賣家數差(當日橫斷面分位；僅 2024-07-01~2026-07-16 有效段)；
+      F6 retail 集保<50張持股比水位(週頻，PIT=資料日後第2交易日)；
+      F7 margin Δ融資餘額/股本(來源去重 twse_mi_margn 優先)；
+      F8 inst 三大法人合計買超/成交量(來源去重 twse_t86 優先)。
+      共同規格：宇宙 close>=10 且 20日均量>300k 股；窗 2024-07-01~2026-08-26
+      （F5 至 2026-07-16 截斷）；報酬 open(T+1)→close(T+1) 可執行口徑；
+      交易日曆排除幽靈日（官方來源列數>500 才算交易日，含 2026-07-10）；
+      風險中性 = Fama-MacBeth 逐日橫斷面回歸控 vol60/當日跳空/週轉率，
+      t 用日係數序列的 Newey-West；另附五分位價差原始值對照。
+      判準：單因子存活 = 中性後 |t|>=3；正交 = 因子日內橫斷面 rank 兩兩
+      |Spearman|<0.5 且不同資料源，同源群只留 |t| 最大者；AND 閘門 =
+      存活正交對的「兩因子皆落偏多分位」對「皆落偏空分位」，基準 =
+      最好的單一成分之五分位價差。雙實作驗證：兩個獨立 agent 各寫一套
+      實作，八因子 t 值互差 >10% 即判 FLAWED 重查。成本 30bps 照列
+      （已知日頻換手成本牆 1.17%/日，本題交付物是正確的公式排序，非可交易宣稱）。
+    notes: >
+      預註記於 2026-08-27。誠實預期：借券系四項中性後大概率只有 0~1 個過 t>=3
+      （zp 已知 t=+0.55、z1 可執行口徑已知 −2.41）；margin 控制後 t=3.54 是
+      邊緣候選；z6 與 retail 是最可能的存活對。AND 閘門的風險是格子樣本數
+      驟減（兩個 20% 分位交集 ~4%），breadth 不足時 t 自然掉——結果須同時
+      報 n/日。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed
+        G2_oos_holdout: pending
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: na
+        G6_adoption_report: na
+
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
     status: active
