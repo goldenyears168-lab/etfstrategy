@@ -447,13 +447,13 @@ topics:
         statement: >
           八個候選籌碼因子中，風險中性（波動×跳空×週轉率）後 |t|>=3 的
           因子數 >= 2，且存在至少一對正交（|rho|<0.5 且不同資料源）的存活者。
-        status: open
+        status: passed  # 2026-08-27：存活 5/8（F1 z1 −5.20、F2 zp −3.29 壓線且實作脆弱、F6 retail −4.56、F7 margin +8.52 帶子集偏誤、F8 inst +3.75 控制依賴型）；正交存活集 {F1,F6,F7,F8} 兩兩 |rho|<0.5（最大 −0.326）且資料源各異。⚠️ 最重要的陣亡者：F5 z6 家數差 raw +3.41 但「跳空」單控就翻負 −2.55——它是跳空代理，與 chip-score-is-vol-gap-proxy 同病；先前 walk-forward passed 的是「未中性化的增量」口徑，兩結果不矛盾但採信本口徑
       - id: H-REBUILD-2
         statement: >
           存活正交因子的 AND 閘門合成（雙偏多格 vs 雙偏空格）的多空價差
           優於最好的單一成分因子（價差更大且 t 不低於單因子的 80%）。
           合成若沒贏過最好的成分，合成就不該存在。
-        status: open
+        status: partial  # 2026-08-27：六個正交對唯一過贏規則的是 F1×F6（+0.2348%/日、t=4.88=F6 的 109%、23.8 檔/日、剔除 top10 貢獻股仍 +0.211%/t=4.50）；其餘五對敗於格子 breadth（含 F7 的對 150~433 日跳過）或 raw 空間無價差（F8）。⚠️ 誠實對照：同樣本等權平均 t=5.80、OR t=5.59 皆高於 AND 的 4.88——「合成優於最好成分」成立、「AND（相乘）優於相加」未被證明，AND 贏在價差密度不在統計強度
     methodology: >
       候選因子（跑之前固定，全部沿用既有 pipeline 定義、不重新發明）：
       F1 z1 Δ借券賣出餘額(自身60日z)、F2 zp 借券佔股本243日分位、
@@ -481,12 +481,24 @@ topics:
       報 n/日。
     graduation:
       gates:
-        G1_preregistered_hypothesis: passed
-        G2_oos_holdout: pending
+        G1_preregistered_hypothesis: passed  # commit 95d9884 早於一切結果
+        G2_oos_holdout: pending  # 本設計未切 holdout（全窗 523 日估計）；前瞻驗證掛在 chip_score_forward_track 型的紀錄，60 個 forward 交易日後重測 F1/F6/F1×F6
         G3_regime_stratification: na
-        G4_rejection_registry: pending
+        G4_rejection_registry: passed  # F3/F4/F5 明確不存活；F5 z6=跳空代理是本輪最重要的否定
         G5_frozen_spec: na
         G6_adoption_report: na
+      action: >
+        結論（2026-08-27 · 覆核 TRUSTWORTHY · 三路徑獨立重算互差 <1~6%）：
+        依使用者規則重建後的正確排序是——最穩單因子 F6 散戶持股（−4.56，
+        A/B 盲實作互差僅 3.9%）；名目最強 F7 Δ融資（+8.52）但由 finmind
+        ~121 檔/日子集時代主導、全市場段 56/60 日窗 t=+3.24/+2.77 跨判準線，
+        代表性未證明；唯一過贏規則的合成 F1×F6（Δ借券賣出 × 散戶持股，
+        +0.235%/日）。先前認定的最佳因子 z6 家數差被降級為跳空代理。
+        等權平均在存活正交集上勝過 AND 閘門——使用者規則的「先篩後合」
+        被證實，「合併用乘不用加」則否。維持不可交易定位（毛價差 0.235%/日
+        vs 換手牆 1.17%/日）；G2 前瞻驗證 pending。覆核附帶保留：F7 窗敏感
+        兩實作跨線未在主報告揭露（保守方向）、部分佐證數字是 note 硬編碼
+        （已獨立重算吻合）、F1×F6 有中度日集中（top20 日佔 47%）。
 
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
