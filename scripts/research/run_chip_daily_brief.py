@@ -28,7 +28,7 @@ import argparse
 import os
 import subprocess
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -40,7 +40,31 @@ from stock_db import connect_ro
 ROOT = Path(__file__).resolve().parents[2]
 PY = str(ROOT / ".venv" / "bin" / "python")
 
-HS_W_ZP = 0.25          # 綜合分數裡 zp 的權重（其餘給散戶持股）
+# 2026-08-27：排序基準從「全市場截面」改為「同業相對」，權重同步重選。
+# 借券費率/借券水位有強烈的產業結構差異（半導體/金融/傳產的券源市場天差地遠），
+# 全市場排序主要在排**產業**不是排個股。框架層級檢定：11 個籌碼因子事先固定
+# 方向全測，平均超額 −0.85% → +3.56%，8/11 變好，Wilcoxon 配對 p=0.0137。
+# 換基準後重掃 w：0.5~0.8 是高原（+24~29%/年），取等權點 0.50（非曲線上挑的）。
+#   w=0.25 舊值 +20.35%/年 IR 1.66 t=+1.80（前半 t 僅 +0.65）
+#   w=0.50 新值 +29.04%/年 IR 2.39 t=+2.59（前半 +1.57、後半 +2.06 都穩）
+#
+# ⚠️ 誠實的帳（上線前必讀，別把下面的數字當成淨 alpha）：
+# 簡報實際取前 30/467 ≈ 6%，比研究驗證的 20% 窄得多。在 6% 寬度下：
+#                        對同層等權       對「各檔自己的產業」
+#   全市場截面（舊）        +19.26% t=1.25   +22.50% t=+1.58
+#   同業內重排（新）        +43.92% t=2.62   +31.28% t=+1.81
+#                        差 24.7pp        差  8.8pp
+# → 改善**約 2/3 來自科技偏離**（科技權重 94.6% vs 宇宙 75.3%，+19.3pp），
+#   只有 1/3 是真正的同業內選股。超額沒消失但只到邊緣顯著（t=+1.81）。
+#   名單會系統性偏向電子/半導體 —— 這是已知且刻意接受的性質，不是 bug。
+# ⚠️ 合成分數的 OOS 只涵蓋 2025–2026（集保資料起始較晚，250 日暖身吃掉 2024），
+#   而這兩年都是台股科技大年。樣本很薄。
+#
+# 另測過但未採用：「全市場百分位 − 同業均值」（無組大小偏誤，理論上較乾淨），
+# 6% 寬度 +35.35% t=+2.18、產業配對 +25.07% t=+1.48 —— 三項都輸同業內重排，故不用。
+HS_W_ZP = 0.50          # 綜合分數裡 zp 的權重（其餘給散戶持股）
+MIN_IND_N = 3           # 產業內少於此檔數退回全市場排序（n=1 時組內 rank 恆為 1.0）
+IND_CACHE_DAYS = 30
 MIN_VOL_LOTS = 500
 MIN_CLOSE = 10.0
 # 價格多來源；同一 stock-day 取排名最小者（finmind 最完整、其餘補全市場）
@@ -137,6 +161,41 @@ def names() -> dict[str, str]:
         except Exception:  # noqa: BLE001
             pass
     return out
+
+
+def industry() -> pd.DataFrame:
+    """stock_id → 產業別（FinMind TaiwanStockInfo，快取於 DATA_DIR）。
+
+    產業分類極少變動，故快取 30 天。抓不到時回空表 → 呼叫端自動退回全市場排序。
+    """
+    from stock_db import DATA_DIR
+    cache = Path(DATA_DIR) / "cache" / "stock_industry.parquet"
+    if cache.exists():
+        age = (datetime.now().timestamp() - cache.stat().st_mtime) / 86400
+        if age < IND_CACHE_DAYS:
+            return pd.read_parquet(cache)
+    try:
+        import requests
+        r = requests.get("https://api.finmindtrade.com/api/v4/data",
+                         params={"dataset": "TaiwanStockInfo",
+                                 "token": os.environ.get("FINMIND_TOKEN", "")}, timeout=120)
+        r.raise_for_status()
+        df = pd.DataFrame(r.json()["data"])[["stock_id", "industry_category"]]
+        df = df.drop_duplicates("stock_id").rename(columns={"industry_category": "ind"})
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(cache)
+        return df
+    except Exception:
+        return pd.read_parquet(cache) if cache.exists() else pd.DataFrame(columns=["stock_id", "ind"])
+
+
+def _ind_rank(df: pd.DataFrame, col: str) -> pd.Series:
+    """同業內百分位；產業檔數 < MIN_IND_N 的退回全市場百分位。"""
+    mkt = df[col].rank(pct=True)
+    if "ind" not in df.columns or df["ind"].nunique() < 2:
+        return mkt
+    ind = df.groupby("ind")[col].rank(pct=True)
+    return ind.where(df.groupby("ind")["ind"].transform("size") >= MIN_IND_N, mkt)
 
 
 def holding_structure(d: str) -> pd.DataFrame:
@@ -244,12 +303,20 @@ def build_lists(sig_d: str, top: int) -> tuple[pd.DataFrame, pd.DataFrame, dict]
     # ⚠️ 不可改用整包 v4：它會把多頭腿換手從 12.3% 炸到 47.2%，一年虧 35.8%。
     hs = m.dropna(subset=["ret_pct"]).copy()
     if len(hs) >= 60:
+        ind = industry()
+        if len(ind):
+            hs = hs.merge(ind, on="stock_id", how="left")
+            hs["ind"] = hs["ind"].fillna("未分類")
         for src, dst in (("s_zp", "_nzp"), ("ret_pct", "_nret")):
-            hs[dst] = (hs[src].rank(pct=True) - 0.5) * 2
+            hs[dst] = (_ind_rank(hs, src) - 0.5) * 2
         hs["hs"] = HS_W_ZP * hs._nzp + (1 - HS_W_ZP) * hs._nret
         hs["hs_pct"] = hs.hs.rank(pct=True) * 100
         srt = hs.sort_values("hs")
         stats["hs_n"] = len(hs)
+        if "ind" in hs.columns:
+            big_ind = hs.groupby("ind")["ind"].transform("size") >= MIN_IND_N
+            stats["ind_cover"] = big_ind.mean() * 100
+            stats["ind_n"] = hs["ind"].nunique()
         return srt.head(top).copy(), srt.tail(top).iloc[::-1].copy(), stats
     stats["hs_n"] = 0
     return pd.DataFrame(), pd.DataFrame(), stats
@@ -286,7 +353,15 @@ def _tbl(df: pd.DataFrame, side: str) -> str:
 
 
 CAVEATS = """
-<b>1. 訊號是真的，但淨值站不住。</b> 2026-08-26 對抗檢定：
+<b>0. ⚠️ 下面第 1、2 點是替「全市場截面」舊基準寫的，2026-08-27 已改為同業相對。</b>
+新基準在回測上確實改善（前 6% 寬度：對同層等權 +19.26%→+43.92%／年，t 1.25→2.62），
+<b>但那些控制檢定（週轉率、股價、檔數敏感度）尚未在新基準上重跑</b>，
+所以第 1、2 點的具體數字不再對應現行名單，其「參數脆弱」的警告則仍應假設成立。
+已在新基準上做的檢定：對「各檔自己的產業」為基準 +31.28%／年 <b>t=+1.81（僅邊緣顯著）</b>；
+改善約 <b>2/3 來自科技偏離</b>（科技權重 94.6% vs 宇宙 75.3%）、1/3 才是同業內選股；
+OOS 僅涵蓋 2025–2026 兩個科技大年。<b>結論不變：不要照著交易。</b>
+
+<b>1. 訊號是真的，但淨值站不住。</b>（以下為舊基準的測定值）2026-08-26 對抗檢定：
 HS 通過了自我相關（HAC t=+4.25 vs 一般 +4.23）、產業中性化（t 反升到 +4.45）、
 PIT 緩衝拉到 14 天（t=+3.92）、開→收與收→收皆成立（+0.086%／+0.093%）、
 81% 的月份為正（剔除最好那月仍 t=+3.79）。
@@ -378,7 +453,14 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
         f"<h3>B. 明日名單（訊號日 {sig_d}）</h3>",
         f"<p style='font-size:13px'>唯一排序分數 <b>HS ＝ {HS_W_ZP:.0%} 借券佔股本水位"
         f"（zp）＋ {1 - HS_W_ZP:.0%} 散戶持股水位</b>（集保 &lt;50 張），"
-        "兩者各自轉成當日橫斷面 rank，分數越低越偏多。</p>",
+        "兩者各自轉成 <b>同業內</b>百分位（產業檔數 &lt; "
+        f"{MIN_IND_N} 的退回全市場），分數越低越偏多。"
+        f"{'（本日 %.0f%% 用同業相對、%d 個產業）' % (stats['ind_cover'], stats['ind_n']) if stats.get('ind_cover') else ''}"
+        "<br>2026-08-27 起由全市場截面改為同業相對：借券水位有強烈產業結構差異，"
+        "全市場排序主要在排產業不是排個股。"
+        "<b>已知性質</b>：名單會偏向電子/半導體（科技權重約 95% vs 宇宙 75%），"
+        "回測改善約 2/3 來自這個偏離、1/3 是同業內選股；對產業配對基準的 t=+1.81"
+        "（邊緣顯著），且 OOS 只涵蓋 2025–2026 兩個科技大年。</p>",
         "<p style='background:#fff3d0;padding:8px;border-left:4px solid #d90'>"
         f"<b>偏多 Top {top}</b>（HS 最低）　·　訊號是真的，<b>但淨值站不住</b>："
         "只控波動／跳空／市值時 +0.086%/日 t=+4.23（淨 +5.4%/年）；"
@@ -424,10 +506,13 @@ def compose(d: str, sig_d: str, bull, bear, stats, row, track, fresh, log, top):
     for lab, df in (("偏多", bull), ("偏空", bear)):
         if not df.empty:
             txt.append(f"{lab}：" + "、".join(f"{r.stock_id} {r.nm}" for r in df.itertuples()))
-    txt.append(f"分數 HS = {HS_W_ZP:.0%} 借券佔股本水位 + {1 - HS_W_ZP:.0%} 散戶持股水位。"
-               "訊號是真的但淨值站不住：加控週轉率與股價後 gross 掉到 +0.052%/日，"
-               "低於損益兩平 0.064%/日（淨 -2.9%/年）；全控下 10~150 檔沒有任一檔數為正。"
-               "偏空側 t=+1.30 不顯著、淨值 -12.2%/年。不要照著交易。")
+    txt.append(f"分數 HS = {HS_W_ZP:.0%} 借券佔股本水位 + {1 - HS_W_ZP:.0%} 散戶持股水位"
+               f"（同業內百分位，產業 < {MIN_IND_N} 檔退回全市場）。"
+               "⚠️ 控制檢定（週轉率/股價/檔數）是在舊的全市場截面基準上做的，"
+               "尚未於新基準重跑，其「參數脆弱」警告仍應假設成立。"
+               "新基準已做的：對各檔自己的產業為基準 +31.28%/年 t=+1.81（僅邊緣顯著），"
+               "改善約 2/3 來自科技偏離、1/3 才是同業內選股，OOS 僅 2025-2026 兩個科技大年。"
+               "不要照著交易。")
     return "\n".join(txt), html
 
 
