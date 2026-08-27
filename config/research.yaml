@@ -323,6 +323,82 @@ topics:
         快取已落檔（holding_shares_per_futures_universe.csv，251 檔 × 4 個大戶門檻），
         重啟時不需重抓。
 
+  chip-street-canon:
+    title: 街頭籌碼派三個未測元素（集中度增幅 · 主力成本線 · 中實戶級距）
+    status: active
+    phase: is_sweep
+    registered: 2026-08-27
+    layer: research
+    report_dir: reports/research/chip-street-canon
+    run_scripts:
+      - scripts/research/street_canon_a_conc_momentum.py
+      - scripts/research/street_canon_b_cost_line.py
+      - scripts/research/street_canon_c_midtier.py
+    context: >
+      2026-08-27 檢視網路主流籌碼分析（籌碼K線六大指標體系：主力買賣超、買賣家數差、
+      籌碼集中度、千張大戶、佔股本比重、主力成本線）後逐條對照本 repo 已測結果：
+      主力買賣超（t=0.24~1.64 null）、家數差（唯一通過 walk-forward，t=-7.11，已進 S6）、
+      集中度水位（t=-0.06 null）、千張大戶週變化（tdcc-big-holder-forward rejected）、
+      散戶持股水位（HS，真訊號但為低週轉溢酬代理）、法人買事件（稅吃 90%）、
+      融資券（文獻正面證偽）。真正沒測過的只剩三個元素，本主題一次預註記測完。
+
+      資料前提（2026-08-27 實測）：stock_broker_branch_daily 為全市場 tape
+      2021-06-01~2026-08-26、每日 2,163~2,316 檔（舊 memory「44 檔視角」不成立）；
+      該表無金額欄，主力成本只能以「日淨買超張數 × 當日個股 VWAP(amount/volume)」
+      近似——與街頭工具同款近似，其誤差方向不明，列為 B 線先天限制。
+      集保快取 holding_shares_per_futures_universe.csv（251 檔 × 週頻 2024-06-07 起、
+      pct_100/200/400/1000 累計制）已落檔，中實戶級距 = pct_100 - pct_400。
+    hypotheses:
+      - id: H-STREET-A
+        statement: >
+          籌碼集中度的「增幅」（二階量）帶有水位（一階量，已測 null）沒有的預測力：
+          conc5 = 5 日 top15 淨買超合計 ÷ 5 日成交量，事件 = conc5 連續遞增 >= N 日
+          且 conc20(T) > conc20(T-5)（雙尺度共振），事件後橫斷面去均值報酬為正。
+        status: open
+        grid: "連續遞增 N∈{2,3} × 持有期 h∈{2,5,10 交易日} = 6 格，BH-FDR 後判定"
+      - id: H-STREET-B
+        statement: >
+          主力成本線與現價的交互有預測力：cost20 = 過去 20 日 top15 淨買超分點
+          合計淨張數的 VWAP 加權平均成本；在家數差集中前提（5 日均家數差 < 0）下，
+          現價上穿 cost20 後為正（支撐）、下穿後為負（停損潮）。
+        status: open
+        grid: "{上穿, 下穿} × 持有期 h∈{5,10 交易日} = 4 格；另報 (close-cost20)/cost20 五分位單調性（描述性）"
+      - id: H-STREET-C
+        statement: >
+          中實戶級距（100–400 張 = pct_100 - pct_400）連續 N 週上升可預測前瞻
+          相對報酬（周依晴 2020 的顯著級距；千張大戶已 rejected、本線不重測）。
+        status: open
+        grid: "連續週數 N∈{2,3} × 持有期 {2,4 週} = 4 格；重疊與不重疊版本並列"
+    methodology: >
+      共同規格（跑之前寫死）：宇宙 = close>=10 且 20 日均量 > 300,000 股；
+      A/B 線窗 2024-07-01~2026-08-26（與既有分點研究窗一致；2021-2024 段留作
+      穩健性附註不作主判準）；C 線窗 = 快取全窗 2024-06-07 起。
+      Holdout 三線統一：2026-01-01 之後。
+      PIT：分點資料 T 日盤後可得 → open(T+1) 進場、close(T+h) 出場；
+      集保為週五資料下週一可得 → 資料日後第 2 個交易日進場。
+      報酬口徑：橫斷面去均值（減同日/同週宇宙均值）為主，另附無條件原始均值對照
+      （tdcc-big-holder-forward 的教訓：升降兩組同號 = 混淆非方向，直接判 reject）。
+      成本：來回 30bps，事件制下攤入持有期。判準：t>=3.0（HAC/Newey-West 於重疊
+      持有期），各線格子 BH-FDR 校正，禁止事後加格子；千張 40-70% 甜蜜區
+      （非單調假說）僅做描述性附錄不設假說。
+      面板護欄（全部沿用已知教訓）：stock_daily_bars 顯式指定 source；
+      shift 類前瞻一律驗證「下一列 = 次一交易日」（91.2% 坑）；
+      分層抽樣變數不得與應變數同源（9661 循環論證坑）；
+      事件重疊用 Newey-West lag>=h 或不重疊子抽樣並列。
+    notes: >
+      預註記於 2026-08-27（結果未跑先 commit 定錨）。誠實預期：A 線是集中度的
+      動量版，一階量已 null、二階量先驗不高；B 線的近似成本誤差可能淹沒訊號；
+      C 線有外部文獻正向支持（周依晴 2020：顯著的是中實戶不是千張），三線中
+      先驗最高。任何一格通過都須經對抗覆核（lookahead / 雙來源 / 選格）才算數。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # 本 commit 即預註記
+        G2_oos_holdout: pending
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: na
+        G6_adoption_report: na
+
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
     status: active
