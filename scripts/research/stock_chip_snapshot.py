@@ -51,6 +51,12 @@ import pandas as pd
 
 from stock_db import connect_ro
 
+# 分點 tape 深度斷言門檻（2026-08-27，見 memory chip-street-canon-rejected）：
+# 2026-07-17 起 tape 深度崩壞（每股分點數 median 212→4），深度不足時
+# z6/S6 的橫斷面 rank 是垃圾，一律停用而非靜默算雜訊。
+MIN_BRANCH_DEPTH_MEDIAN = 40   # 當日全市場「每股分點數」中位數低於此 → 整欄停用
+MIN_BRANCH_DEPTH_STOCK = 20    # 個股分點數低於此 → 該股不進 rank
+
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.twse.com.tw/"}
 _CTX = ssl.create_default_context()
 _CTX.verify_flags &= ~ssl.VERIFY_X509_STRICT
@@ -200,11 +206,19 @@ def market_scores(d: str, hist_days: int = 320) -> pd.DataFrame | None:
              FROM stock_broker_branch_daily
             WHERE trade_date=? AND net IS NOT NULL AND net<>0
             GROUP BY stock_id""", c, params=(d,))
-    if not br.empty:
+    # ⚠️ 深度斷言（2026-08-27）：分點 tape 自 2026-07-17 起深度崩壞——檔數還在
+    # （~1,700/日）但每股分點數 median 212→4，能算出有意義家數差的只剩 ~44 檔。
+    # 深度不足時整個橫斷面 rank 都是垃圾，寧可整欄 NaN（→ s_z6=0）也不要靜默算雜訊。
+    if not br.empty and br.n.median() >= MIN_BRANCH_DEPTH_MEDIAN:
+        br = br[br.n >= MIN_BRANCH_DEPTH_STOCK].copy()   # 個股層級也要有深度才進 rank
         br["brdiff"] = (br.nb - br.ns) / br.n
         br["z6"] = (br.brdiff.rank(pct=True) - 0.5) * 4
         cur = cur.merge(br[["stock_id", "z6", "nb", "ns", "n"]], on="stock_id", how="left")
     else:
+        if not br.empty:
+            print(f"⚠️ z6 已停用：{d} 分點深度 median={br.n.median():.0f} "
+                  f"< {MIN_BRANCH_DEPTH_MEDIAN}（tape 深度崩壞，見 memory "
+                  f"chip-street-canon-rejected）", file=sys.stderr)
         cur["z6"] = np.nan
 
     for z in ("z1", "zp", "zu", "zf", "z6"):
@@ -227,6 +241,13 @@ def branch_score(sid: str, d: str) -> tuple[float, dict] | tuple[None, None]:
             GROUP BY stock_id"""
     df = pd.read_sql_query(q, c, params=(d,))
     if df.empty or sid not in set(df.stock_id):
+        return None, None
+    if df.n.median() < MIN_BRANCH_DEPTH_MEDIAN:   # tape 深度崩壞 → 拒算（見檔頭門檻註解）
+        print(f"⚠️ S6 已停用：{d} 分點深度 median={df.n.median():.0f} "
+              f"< {MIN_BRANCH_DEPTH_MEDIAN}", file=sys.stderr)
+        return None, None
+    df = df[df.n >= MIN_BRANCH_DEPTH_STOCK].copy()
+    if sid not in set(df.stock_id):
         return None, None
     df["brdiff"] = (df.nb - df.ns) / df.n
     df["q"] = pd.qcut(df.brdiff.rank(method="first"), 5, labels=False, duplicates="drop")
