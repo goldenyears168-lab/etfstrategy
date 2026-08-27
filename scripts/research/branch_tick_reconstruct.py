@@ -68,7 +68,9 @@ def analyse(lv: pd.DataFrame, tk: pd.DataFrame) -> dict | None:
         "buy_inner": wm("inner_ratio", "buy"),               # 買在內盤主導的價位嗎
         "sell_inner": wm("inner_ratio", "sell"),
         "mkt_inner": (j.inner.sum() / tot_mv) if tot_mv else np.nan,
-        "buy_share": j.buy.sum() / tot_mv,
+        # ⚠️ 分價的 buy 是「股」、逐筆的 mv 是「張」，差 1000 倍。
+        # 這個 bug 讓兩個 agent 各自算出「佔當日量 578%」「171%」。
+        "buy_share": j.buy.sum() / 1000.0 / tot_mv,
         "n_lvl": len(j),
     }
 
