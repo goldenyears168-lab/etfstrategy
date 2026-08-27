@@ -524,6 +524,69 @@ topics:
         margin 入式條件維持：twse_mi_margn 全市場段滿 120 交易日重驗。
         G2 前瞻清單：F1、F6、F1×F6、三因子等權（兩口徑分記）。
 
+  chip-loud-accum-forward:
+    title: 高調吸貨 10 日續抱 · 前瞻驗證（凍結規格 2026-08-28）
+    status: active
+    phase: forward_validation
+    registered: 2026-08-28
+    layer: research
+    report_dir: reports/research/chip-street-canon
+    run_scripts:
+      - scripts/research/chip_loud_accum_forward_track.py   # 每晚 22:15 launchd 抓數＋記錄＋回填
+    context: >
+      2026-08-27/28 探索鏈的收斂（全部 in-sample，故本 topic 只做前瞻）：
+      大戶集中買（每日買賣家數差最低 30 檔）＝動能方非逆向方（事件日均 +4.72%、
+      29% 漲停；8/27 實測最大買超分點付 +0.91% 溢價追買）。隔日跳空 +0.75%
+      （t=+20）不可收割；安靜桶（當日|漲跌|<3%）10 日 t=0.55 死水；事前軌跡
+      預判僅 +1.1pp 無用。活口只有一格：高調事件的 10 日續抱——跳空前1/3
+      精分版 +1.24%/日均事件（NW t=4.59，跳空十分位配對後）、漲>=3% 粗分版
+      +0.72%（t=2.17）。時機檢定：T+1 收盤進 +2.00%（t=2.95）優於開盤進
+      +1.29%；限價回檔單全敗於逆選擇（沒接到的事件後漲 +3.7~+5.7%）。
+      集中度結構：第1大買佔量% IC=−0.040（單點獨吞=隔日沖簽名）、
+      第2~5大合計% IC=+0.028~+0.050（多戶收斂=被驗證的資訊）。
+    hypotheses:
+      - id: H-LOUD-A1
+        statement: >
+          高調吸貨（家數差最低30 ∩ 當日漲>=3%）T+1 收盤進、T+10 收盤出的
+          橫斷面超額為正且前瞻 NW t>=3。
+        status: open
+      - id: H-LOUD-A2
+        statement: >
+          A1 ∩ 隔日跳空 >= 當日事件中位（市場確認）子集優於 A1 全體。
+        status: open
+      - id: H-LOUD-B
+        statement: >
+          A1 剔除單點獨吞（top1 佔量 > 事件30檔內 P75）後優於 A1 全體
+          （隔日沖過濾有效）。
+        status: open
+    methodology: >
+      凍結規格（2026-08-28，此後不得改動；改動＝重新起算）：
+      宇宙＝當日 close>=10 且 20 日均量>300,000 股、四碼普通股；資料源＝
+      FinMind 分點日報 by-stock（≈950 request/晚，quota 6000/hr）；
+      brdiff=(買超家數−賣超家數)/有淨額分點數；每日記錄買賣兩側各 30 檔
+      （賣側 record-only 不設假說）＋ top1/top2_5 佔量、當日漲跌。
+      進出場：T+1 收盤 → T+10 收盤；超額＝減同窗宇宙均值；成本 30bps。
+      判準：累積 60 個 forward 訊號日後結算；NW(lag10) t>=3 才可談採納、
+      t<1.5 即判探索結果為過擬合並 reject。中途不得調整格子；ETF/申贖型
+      （0050/0056 類）依四碼普通股規則已自然排除。
+      紀錄落 DB 表 chip_loud_accum_forward（教訓 869557f：reports/ 被
+      gitignore，前瞻證據必須進 DB）；outcome 欄由同腳本後續回填。
+    notes: >
+      誠實基線：探索期（2024-07~2026-07-16）的數字全是 post-hoc 多重觀看
+      的倖存者，前瞻衰減一半以上都不意外。已知風險：(1) F1×F6 型日集中
+      （top20 日佔 47%）可能重演；(2) tape 深度崩壞後 FinMind by-stock 是
+      唯一資料路徑，斷供＝斷紀錄；(3) 60 訊號日 ≈ 3 個月，檢定力有限，
+      t∈[1.5,3) 時延長至 120 日再裁決。盤中均張儀器（尾盤判別搶跳空）
+      為獨立工作項，須先通過富邦連線安全檢查，另行決定。
+    graduation:
+      gates:
+        G1_preregistered_hypothesis: passed  # 本 commit 定錨，先於任何 forward 資料
+        G2_oos_holdout: pending  # 前瞻累積中，60 訊號日後結算
+        G3_regime_stratification: na
+        G4_rejection_registry: pending
+        G5_frozen_spec: passed  # methodology 段即凍結規格
+        G6_adoption_report: na
+
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
     status: active
