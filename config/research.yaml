@@ -325,8 +325,8 @@ topics:
 
   chip-street-canon:
     title: 街頭籌碼派三個未測元素（集中度增幅 · 主力成本線 · 中實戶級距）
-    status: active
-    phase: is_sweep
+    status: rejected
+    phase: rejected
     registered: 2026-08-27
     layer: research
     report_dir: reports/research/chip-street-canon
@@ -342,8 +342,11 @@ topics:
       散戶持股水位（HS，真訊號但為低週轉溢酬代理）、法人買事件（稅吃 90%）、
       融資券（文獻正面證偽）。真正沒測過的只剩三個元素，本主題一次預註記測完。
 
-      資料前提（2026-08-27 實測）：stock_broker_branch_daily 為全市場 tape
-      2021-06-01~2026-08-26、每日 2,163~2,316 檔（舊 memory「44 檔視角」不成立）；
+      資料前提（2026-08-27 實測，快取 ETL 修正版）：stock_broker_branch_daily 有三個
+      覆蓋 regime——2024-06 以前近空（mean 1.4 分點/股）；2024-07-01~2026-07-16 全市場
+      全分點（mean ~180 分點/股，唯一可用主段）；2026-07-17 起檔數還在（~1,700 檔/日）
+      但每股分點深度崩到 median 4、僅 44 檔完整——top15/家數差與主段不可比，
+      分點類研究的訊號段一律以 2026-07-16 截斷（舊 memory「44 檔視角」講的是深度，是對的）；
       該表無金額欄，主力成本只能以「日淨買超張數 × 當日個股 VWAP(amount/volume)」
       近似——與街頭工具同款近似，其誤差方向不明，列為 B 線先天限制。
       集保快取 holding_shares_per_futures_universe.csv（251 檔 × 週頻 2024-06-07 起、
@@ -354,20 +357,20 @@ topics:
           籌碼集中度的「增幅」（二階量）帶有水位（一階量，已測 null）沒有的預測力：
           conc5 = 5 日 top15 淨買超合計 ÷ 5 日成交量，事件 = conc5 連續遞增 >= N 日
           且 conc20(T) > conc20(T-5)（雙尺度共振），事件後橫斷面去均值報酬為正。
-        status: open
+        status: rejected  # 2026-08-27：6/6 格全敗且方向與假說相反（去均值 −0.04~−0.17%/事件、|t|<2、q≈0.21、扣30bps全格<−0.34%；holdout 同號更負）。反向組≈0 → 非混淆、真 null。描述性對照：水位 top10% 微正不顯著(t 0.45~0.90)，增幅版反而把它翻負——「二階量帶有一階量沒有的正向資訊」不成立
         grid: "連續遞增 N∈{2,3} × 持有期 h∈{2,5,10 交易日} = 6 格，BH-FDR 後判定"
       - id: H-STREET-B
         statement: >
           主力成本線與現價的交互有預測力：cost20 = 過去 20 日 top15 淨買超分點
           合計淨張數的 VWAP 加權平均成本；在家數差集中前提（5 日均家數差 < 0）下，
           現價上穿 cost20 後為正（支撐）、下穿後為負（停損潮）。
-        status: open
+        status: rejected  # 2026-08-27：4/4 格全敗（最大|t|=1.23、q 全 0.441、扣30bps四格全負）；h=5 上穿/下穿去均值後同號=混淆；(close-cost20)/cost20 十分位呈 U 形不單調——不存在成本線支撐/壓力結構。holdout 上穿 h=10 t=2.31 是唯一亮點但同段 h=5 全無效、非獨立樣本，不足翻案
         grid: "{上穿, 下穿} × 持有期 h∈{5,10 交易日} = 4 格；另報 (close-cost20)/cost20 五分位單調性（描述性）"
       - id: H-STREET-C
         statement: >
           中實戶級距（100–400 張 = pct_100 - pct_400）連續 N 週上升可預測前瞻
           相對報酬（周依晴 2020 的顯著級距；千張大戶已 rejected、本線不重測）。
-        status: open
+        status: rejected  # 2026-08-27：4/4 格全敗（NW t 最高 0.546、q 全 0.954、扣30bps淨值全負）；N=3 比 N=2 更差＝無劑量反應，N3_h2w 與下降組同號＝混淆格，不重疊版 N3_h2w 甚至 t=−2.15 反向。周依晴 2020 的中實戶正向先驗在 251 檔期貨宇宙不成立。千張 40-70% 甜蜜區附錄亦無單調結構（[40,55) 反而最弱）
         grid: "連續週數 N∈{2,3} × 持有期 {2,4 週} = 4 格；重疊與不重疊版本並列"
     methodology: >
       共同規格（跑之前寫死）：宇宙 = close>=10 且 20 日均量 > 300,000 股；
@@ -390,14 +393,36 @@ topics:
       動量版，一階量已 null、二階量先驗不高；B 線的近似成本誤差可能淹沒訊號；
       C 線有外部文獻正向支持（周依晴 2020：顯著的是中實戶不是千張），三線中
       先驗最高。任何一格通過都須經對抗覆核（lookahead / 雙來源 / 選格）才算數。
+
+      【2026-08-27 結果】三線 14 格全滅，先驗排序也被打臉——先驗最高的 C 線
+      （中實戶）反而是 t 最低的一條（最高 0.546）。詳細數字見各假說行內註記與
+      reports/research/chip-street-canon/{A,B,C}_report.md（含覆核紀錄）。
+
+      【覆核揪出的兩個一般性資料坑（比結論更有長期價值）】
+      (1) **2026-07-10 是幽靈交易日**（颱風假）：stock_daily_bars 該日只有 128 列
+          yfinance 殭屍列（volume=0、open==close），官方來源/分點 tape/VIXTWN 全缺，
+          但任何用「該表 distinct trade_date」建交易日曆的程式都會把它當交易日——
+          A 線 07-09 的 132 個事件因此 118 個被靜默剔除、14 個以殭屍價進場。
+          修法：建曆時要求當日有官方來源（twse_mi_index/tpex_daily）列數 > 門檻。
+      (2) **價格宇宙近月持續變薄**：tpex_daily 只覆蓋 26/544 天、finmind 每日
+          2,156 檔 → 近月 ~665 檔，上櫃近月價格覆蓋退潮中（與
+          stock-daily-bars-coverage-break 同根因）。
     graduation:
       gates:
-        G1_preregistered_hypothesis: passed  # 本 commit 即預註記
-        G2_oos_holdout: pending
+        G1_preregistered_hypothesis: passed  # commit 2ee145f（13:11）早於快取建置（14:16）與任何結果
+        G2_oos_holdout: rejected  # 三線 holdout（2026-01-01+）全數 |t|<1.5 或同號更負，無一格接近判準
         G3_regime_stratification: na
-        G4_rejection_registry: pending
+        G4_rejection_registry: passed  # 三假說皆明確 reject 並記錄理由與數字
         G5_frozen_spec: na
         G6_adoption_report: na
+      action: >
+        rejected · 14 格無一接近 t>=3（全表最大主檢定 |t|=1.23）。三個對抗覆核
+        agent 各自以獨立路徑重算，誤差全部 0%，判 TRUSTWORTHY。至此「籌碼K線
+        六大指標」體系全部檢定完畢：唯一存活的仍是買賣家數差（已進 S6），
+        其餘（主力買賣超、集中度水位、集中度增幅、主力成本線、千張大戶、
+        中實戶級距）全數 null 或不可交易。街頭實戰規則「集中度看增幅不看水位」
+        實測方向相反——增幅事件後橫斷面報酬是負的。覆核順帶揪出兩個一般性
+        資料坑（見 notes 末段），已另立 memory。
 
   chen-chip-sameday:
     title: 陳式籌碼 × 專家池大戶同日（L0）對齊
