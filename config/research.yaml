@@ -577,7 +577,8 @@ topics:
       （top20 日佔 47%）可能重演；(2) tape 深度崩壞後 FinMind by-stock 是
       唯一資料路徑，斷供＝斷紀錄；(3) 60 訊號日 ≈ 3 個月，檢定力有限，
       t∈[1.5,3) 時延長至 120 日再裁決。盤中均張儀器（尾盤判別搶跳空）
-      為獨立工作項，須先通過富邦連線安全檢查，另行決定。
+      已於 2026-08-28 通過連線安全檢查並安裝（chip-lot-probe · 12:50 · 第三條
+      行情 ws · 訂閱預算 45），驗證資料與本表家數差對照後才可談交易用途。
     graduation:
       gates:
         G1_preregistered_hypothesis: passed  # 本 commit 定錨，先於任何 forward 資料

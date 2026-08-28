@@ -570,6 +570,21 @@ jobs:
       （NW t>=3 才可談採納、t<1.5 判過擬合）。開關：.env RUN_CHIP_LOUD_ACCUM_TRACK（預設 1）。
       為何 22:15：錯開 21:00 chip-daily-brief 的 TWSE 補檔與 FinMind quota（6000/hr）。
 
+  - label: chip-lot-probe
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 12:50（一次性，13:35 自動退出）"
+    description: >-
+      盤中單量結構探針（chip-loud-accum-forward 的儀器層）：12:50 Fubon REST 快照
+      掃全市場（TSE+OTC 各 1 request）挑漲>=3% 且放量 <=45 檔，開獨立第三條行情
+      websocket 訂閱 trades，記錄至 13:35（含收盤集合競價）→ 均張/大單佔比，
+      與 22:15 chip-loud-accum-track 的家數差對照，驗證「盤中判別大戶集中買」。
+      唯讀、無送單路徑；訂閱預算 45×1 遠低於 108 撞牆教訓。刻意不進
+      install-launchd.sh LABELS（比照 futopt-books-collect-stocks），安裝見
+      scripts/launchd/chip-lot-probe.command 檔頭。開關：.env RUN_CHIP_LOT_PROBE（預設 1）。
+      2026-08-28 smoke 驗證：第三條連線登入/快照/訂閱 ack 全通過。
+
   - label: second-disp-expert-pool-watch
     category: research
     order_capable: false
