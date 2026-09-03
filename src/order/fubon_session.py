@@ -60,6 +60,23 @@ class FubonSession:
         self.sdk.init_realtime()
 
 
+def safe_logout(session: "FubonSession | None") -> bool:
+    """明確登出舊 session，釋放券商端連線額度。
+
+    背景（2026-09-03）：三個 session pool 換手時只把舊物件丟給 GC，等券商端逾時
+    才釋放額度——換手瞬間帳號同時持有兩條連線，多 worker 撞在一起就打滿
+    ACCOUNT CONNECTION LIMIT（2026-09-01 曾迫使 collector 退讓 600s×18 次）。
+    任何失敗都吞掉：logout 失敗最壞就是回到「等 GC」的舊行為，絕不能影響交易主流程。
+    """
+    if session is None:
+        return False
+    try:
+        session.sdk.logout()
+        return True
+    except Exception:  # noqa: BLE001 -- never let logout break the caller
+        return False
+
+
 def connect_fubon(*, realtime: bool = False, load_env: bool = True) -> FubonSession:
     """Login via .env + config/order.yaml; optional init_realtime()."""
     check_python_version()

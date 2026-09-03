@@ -1,10 +1,9 @@
-"""Reusable Fubon session for long-lived dayflip-short poll worker.
+"""Reusable Fubon session for momentum-rotation KeepAlive poll worker.
 
-2026-08-08: dayflip-short-poll 原本是 StartInterval 60s 冷啟動，08:44-13:41 每分鐘
-一支全新 process、每次 connect_fubon() 全新登入（~297 次/日）。跟 TMF 之前的舊架構
-同一個問題（見 tmf_channel/session_pool.py 的沿革），這裡直接複用同一套「快取 session、
-按存活時間過期重登」手法。dayflip-short 不用即時報價串流（fetch_open_price/
-fetch_last_price 都是同步 REST 查詢），所以比 TMF 版本簡單——不用 ensure_realtime。
+跟 dayflip_short_session_pool.py 同一套「快取 session、按存活時間過期重登」手法
+（見該檔 docstring 沿革），這裡是同構複製，不建議跟其他 sleeve 共用同一個 pool
+模組實例——每個 sleeve 各自的 session 生命週期／重試邏輯要能獨立除錯，這是
+repo 既有的（刻意的）重複，不是疏漏。
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ def reset_session_pool() -> None:
 
 
 def get_fubon_session(*, max_age_sec: float = 3500.0, force_new: bool = False) -> FubonSession:
-    """Return a live Fubon session, refreshing on age / force / failure."""
     with _LOCK:
         sess = _STATE.get("session")
         born = float(_STATE.get("born_mono") or 0.0)

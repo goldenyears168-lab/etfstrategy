@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from order.fubon_session import FubonSession, connect_fubon
+from order.fubon_session import FubonSession, connect_fubon, safe_logout
 
 _LOCK = threading.Lock()
 _STATE: dict[str, Any] = {
@@ -63,10 +63,13 @@ def get_fubon_session(
         session.init_realtime()
         setattr(session, "_tmf_realtime_ok", True)
     with _LOCK:
+        old_sess = _STATE.get("session")
         _STATE["session"] = session
         _STATE["realtime_ok"] = bool(realtime)
         _STATE["born_mono"] = time.monotonic()
         _STATE["login_count"] = int(_STATE.get("login_count") or 0) + 1
+    if old_sess is not None and old_sess is not session:
+        safe_logout(old_sess)          # 新 session 已就位才登出舊的，失敗無害
     return session
 
 
