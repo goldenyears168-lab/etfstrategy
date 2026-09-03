@@ -234,9 +234,12 @@ def _load_prev_close(sids) -> dict[str, float]:
 
 
 def early_report(cal, label) -> tuple[str, str]:
-    """早盤三欄觀察信（09:15 / 09:35 · paper-trade 前瞻紀錄 · 不下單）。
+    """早盤四欄觀察信（09:15 / 09:35 · paper-trade 前瞻紀錄 · 不下單）。
 
-    2026-09-03 凍結規格：三欄皆跳過已鎖漲停、排除金融；出場＝隔日 09:00 開盤競價。
+    2026-09-03 凍結規格：各欄皆跳過已鎖漲停、排除金融；出場＝隔日 09:00 開盤競價。
+    2026-09-04 增 ④ 大戶−散戶(B−R)：早盤散戶是反指標（追高盤，IS t≈−1.7），故用減法不用同向；
+    回測（09:30版/126日）全期毛 +63.7、IS +88.9 → OOS 絕對 +15.4（超額 +24.6/t=3.1 但
+    載具 carry 7-9 月轉負）——與其餘欄同一凍結判準裁決，不另立標準。
     裁決判準（寫死）：累積 ≥40 交易日後，日均毛 ≥+35bps 且勝日 ≥60% 的欄位才續命。
     回測參考（09:30 版 · 126 日）：①A +29.4 ②同業相對 +39.1 ③A+今晨跳空 +33.3 bps/日；
     後半樣本 +15.6 / +14.6 / +29.7 —— 期望值請按後半看，成本約 27bps。
@@ -252,6 +255,7 @@ def early_report(cal, label) -> tuple[str, str]:
         tk = _ticksz(a["px1"])
         rows.append({"sid": sid, "name": m["name"], "cat": m.get("cat", "?"),
                      "A": (a["bb"] - a["bs"]) / a["vol"] * 100, "px": a["px1"],
+                     "retail": (a.get("rb", 0.0) - a.get("rs", 0.0)) / a["vol"] * 100,
                      "gap": (a["px0"] / pc - 1) * 1e4 if pc else None,
                      "dlim": (lu / a["px1"] - 1) * 100 if lu else None,
                      "locked": bool(lu is not None and a["px1"] >= lu - tk * 0.5)})
@@ -269,10 +273,15 @@ def early_report(cal, label) -> tuple[str, str]:
     pct = lambda arr, x: sum(1 for y in arr if y <= x) / len(arr)
     for r in rows:
         r["scoreC"] = (pct(av, r["A"]) + pct(gv, r["gap"])) if (r["gap"] is not None and gv) else None
+    rv = sorted(r["retail"] for r in rows)
+    for r in rows:
+        # ④ 早盤散戶=反指標 → 減法（大戶rank − 散戶rank），非同向 AND
+        r["scoreD"] = pct(av, r["A"]) - pct(rv, r["retail"])
     cols = [("① A 原始", "A", sorted(rows, key=lambda r: -r["A"])),
             ("② 同業相對", "indrel", sorted(rows, key=lambda r: -r["indrel"])),
             ("③ A+今晨跳空", "scoreC",
-             sorted([r for r in rows if r["scoreC"] is not None], key=lambda r: -r["scoreC"]))]
+             sorted([r for r in rows if r["scoreC"] is not None], key=lambda r: -r["scoreC"])),
+            ("④ 大戶−散戶(B−R)", "scoreD", sorted(rows, key=lambda r: -r["scoreD"]))]
     L = [f"【{label} · 早盤觀察】{_now():%Y-%m-%d %H:%M}  覆蓋 {len(rows)} 檔（已排除金融）",
          "paper-trade 前瞻紀錄 · 不下單。進場＝收信市價；出場＝隔日 09:00 開盤集合競價（市價平倉）",
          ""]
@@ -291,8 +300,9 @@ def early_report(cal, label) -> tuple[str, str]:
           "  （40 日的偵測下限：SE≈17bps，真值 +25 也有七成機率過不了 +35——「未過」≠「證明為零」）",
           "⚠ 寬價差股（跳動>35bps，如南電）live 與回測的內外盤判定可差 20 點、散戶欄可翻號",
           "  （09-03 八檔對帳：整體 Spearman 0.95，唯 8046 大幅分歧）；該類股名次僅供參考",
-          "回測參考（09:30版/126日）：① +29.4 ② +39.1 ③ +33.3 bps/日；後半 +15.6/+14.6/+29.7；成本≈27bps",
-          "⚠ 期望值按後半看；訊號僅 15~35 分鐘資料、比 13:00 版吵；三欄擇一是裁決的事，勿現在就挑"]
+          "回測參考（09:30版/126日）：① +29.4 ② +39.1 ③ +33.3 ④ +63.7 bps/日；後半 +15.6/+14.6/+29.7/+15.4；成本≈27bps",
+          "  ④ 的散戶腿對寬價差股（跳動>35bps）翻號風險加倍，該類股在 ④ 的名次特別不可信",
+          "⚠ 期望值按後半看；訊號僅 15~35 分鐘資料、比 13:00 版吵；四欄擇一是裁決的事，勿現在就挑"]
     return f"大戶早盤觀察 {label} {_now():%m/%d}", "\n".join(L)
 
 
