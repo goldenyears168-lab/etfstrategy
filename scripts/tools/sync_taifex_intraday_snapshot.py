@@ -54,6 +54,25 @@ HEADERS = {
 MONTH_CODE = "ABCDEFGHIJKL"          # A=1月 … L=12月
 PRODUCTS = ("TXF", "CCF")            # 台指期 / 聯電個股期
 SESSIONS = {"F": "day", "M": "night"}
+# 2026-09-03 擴充：biglot 隔夜訊號的 45 檔個股期貨（08:45 開盤價／13:45 收盤價是把
+# 「已驗證的隔夜訊號」推向可執行的唯一資料缺口：13:30-13:45 進場基差、08:45 出場時點）。
+# 代碼動態讀 _live_calib.json 的 fut_code；檔案缺失即退回 PRODUCTS（fail-open，不擋原功能）。
+# 只在日盤兩個時點抓、只抓 -F（個股期夜盤 17:25 才開，-M 在這兩個時點無意義）。
+UNIVERSE_LABELS = ("08:45", "13:45")
+
+
+def _universe_products() -> list[str]:
+    import json
+    try:
+        from stock_db import DATA_DIR
+        cal = json.loads((DATA_DIR / "cache" / "pit_universe_tick" / "_live_calib.json").read_text())
+        codes = sorted({r["fut_code"] for r in cal["universe"] if r.get("fut_code")})
+        # calib 內兩碼者（如 IX/CY）為省略尾碼 F 的寫法；MIS 商品碼一律三碼
+        codes = [c if len(c) >= 3 else c + "F" for c in codes]
+        return [c for c in codes if c not in PRODUCTS]
+    except Exception as exc:  # noqa: BLE001
+        print(f"universe calib 載入失敗（退回預設商品）: {exc!r}", file=sys.stderr)
+        return []
 # 08:46 日盤開（出場價）· 13:46 日盤收（分母）· 15:01 夜盤開 · 16:45 決策時點（進場價）
 CAPTURE_LABELS = ("08:45", "13:45", "15:00", "16:45")
 LABEL_TOLERANCE_MIN = 15
@@ -105,12 +124,26 @@ def _nearest_label(hm: str) -> str | None:
 
 
 def _fetch(symbol_ids: list[str]) -> list[dict]:
-    r = requests.post(MIS_URL, json={"SymbolID": symbol_ids}, timeout=20, headers=HEADERS)
-    r.raise_for_status()
-    payload = r.json()
-    if payload.get("RtCode") != "0":
-        raise RuntimeError(f"MIS RtCode={payload.get('RtCode')} {payload.get('RtMsg')}")
-    return [q for q in (payload.get("RtData") or {}).get("QuoteList") or [] if q.get("SymbolID")]
+    """分批查詢（禮貌節流；單批失敗只丟該批，不擋整輪）。"""
+    import time
+    out: list[dict] = []
+    for i in range(0, len(symbol_ids), 50):
+        batch = symbol_ids[i:i + 50]
+        try:
+            r = requests.post(MIS_URL, json={"SymbolID": batch}, timeout=20, headers=HEADERS)
+            r.raise_for_status()
+            payload = r.json()
+            if payload.get("RtCode") != "0":
+                raise RuntimeError(f"MIS RtCode={payload.get('RtCode')} {payload.get('RtMsg')}")
+            out += [q for q in (payload.get("RtData") or {}).get("QuoteList") or []
+                    if q.get("SymbolID")]
+        except Exception as exc:  # noqa: BLE001
+            if i == 0:
+                raise          # 第一批（含 TXF/CCF 核心）失敗仍視為 BLOCKER
+            print(f"WARN: MIS 批次 {i//50+1} 失敗（{len(batch)} symbols）: {exc}", file=sys.stderr)
+        if i + 50 < len(symbol_ids):
+            time.sleep(0.35)
+    return out
 
 
 def _f(v):
@@ -138,7 +171,13 @@ def main(argv: list[str] | None = None) -> int:
     session_date = (now.date() - timedelta(days=1)) if now.hour < 6 else now.date()
 
     codes = _contract_codes(now.date())
-    symbols = [f"{p}{c}-{s}" for p in args.products for c in codes for s in SESSIONS]
+    products = list(args.products)
+    symbols = [f"{p}{c}-{s}" for p in products for c in codes for s in SESSIONS]
+    if label in UNIVERSE_LABELS and args.products == list(PRODUCTS):   # 未手動指定商品時才擴充
+        ext = _universe_products()
+        products += ext
+        symbols += [f"{p}{c}-F" for p in ext for c in codes]
+        print(f"universe 擴充：+{len(ext)} 檔個股期（僅日盤）")
     try:
         quotes = _fetch(symbols)
     except Exception as exc:  # noqa: BLE001
@@ -146,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     rows: list[dict] = []
-    for product in args.products:
+    for product in products:
         for suffix, sess_name in SESSIONS.items():
             cand = [q for q in quotes
                     if q["SymbolID"].startswith(product) and q["SymbolID"].endswith(f"-{suffix}")

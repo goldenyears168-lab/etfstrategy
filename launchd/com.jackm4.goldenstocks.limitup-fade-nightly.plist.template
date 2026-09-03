@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jackm4.goldenstocks.limitup-fade-nightly</string>
+	<!-- limitup-fade 每晚選股信（實單前測）· 唯讀、無送單。研究層 job，
+	     刻意不在 scripts/install-launchd.sh 的 LABELS（比照 limitup-books-collect），
+	     安裝方式見 .command 檔頭。週末過濾在 launcher 內。 -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{LIMITUP_FADE_NIGHTLY_LAUNCHER}}</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key><integer>22</integer>
+		<key>Minute</key><integer>45</integer>
+	</dict>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/limitup-fade-nightly.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{HOME}}/Library/Logs/com.jackm4.goldenstocks/limitup-fade-nightly.launchd.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

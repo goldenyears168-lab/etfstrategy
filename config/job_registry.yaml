@@ -380,6 +380,24 @@ jobs:
     schedule: "KeepAlive 常駐（獨立於 futopt-books-collect 的第二條 websocket 連線）"
     description: "個股期貨五檔＋逐筆 · 唯讀 · 2026-08-21 建立。2026-09-01 換池：FUTOPT_STOCK_ROOTS 改為 momentum-rotation v2 宇宙 18 檔（聯電 CC 留在指數連線的 CCF 不搬），舊池（12+7）停收。同日二次換池：v2 死亡帶 7 root（CG/DI/GY/DA/QX/PL/QZ，tick 成本 33-64bp 永不可交易）換成池 v3 候選 7 root（LE 玉晶光/OW 環球晶/IX 景碩/GU 全新/NA 穩懋/ND 威剛/QD 台勝科），維持 18 roots 同一條連線。⚠️ 帳號連線上限實測：第三條個股期 ws 連線 09:51 撞 Maximum number of connections reached，勿再開新連線（futopt-books-collect-newpool 已建檔即廢，模板留在 repo 但不得 bootstrap）。凌晨 tickers() 查空時靠 futures_symbol_cache.json fallback（已播種全池 {root}FI6）。與指數核心 8 檔分開跑：合用一條連線時 27×4=108 個訂閱撞上券商上限，當天指數組日盤掉 52%。刻意不在 install-launchd.sh 的 LABELS 陣列，安裝方式見 scripts/launchd/futopt-books-collect-stocks.command 檔頭"
 
+  - label: limitup-fade-nightly
+    category: research
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 22:45"
+    description: >-
+      limitup-fade 每晚選股信（實單前測第一步 · 2026-09-03 建立 · 唯讀無送單）。
+      策略＝T 日漲停鎖死 → T+1 開盤集合競價放空吃遞延買盤（真 OOS 2020~2026-02 每筆
+      +0.79% cluster-t=5.07、日均淨 +0.663%、Sharpe 2.43、七年逐年皆正；規則 SSOT＝
+      scripts/research/screen_limitup_fade.py 檔頭，2026-09-03 的 biglot 路徑分解獨立
+      確認其機制：鎖死組隔夜超額 +112bps 後開盤轉弱）。流程：fetch_disposal_list（條件5，
+      失敗不擋）→ screen → 寄 md 名單＋隔日 08:30 人工四確認清單（試撮未鎖／可當沖／券源／
+      處置）。22:45 因 twse_mi_index 源晚間才落庫（19:08 實測仍只有前一日）且錯開 22:15/22:30
+      FinMind quota；資料未更新時主旨帶 ⚠。開關 .env RUN_LIMITUP_FADE_NIGHTLY（預設 1）。
+      standalone 安裝（不在 install-launchd.sh LABELS），見 .command 檔頭。前測裁決：
+      累積名單後對照隔日實際開盤（未鎖比率、可當沖比率、容量），驗執行面而非報酬
+      （20 天測不出報酬，見 memory limitup-fade-live-prep）。
+
   - label: limitup-books-collect
     category: collect
     order_capable: false
@@ -503,6 +521,12 @@ jobs:
       期交所 MIS 是純 HTTP、無 session，是唯一無衝突解。Symbol 後綴 -F 日盤 / -M 盤後；
       前月合約以 CTotalVolume 最大者自動推導（轉倉自動跟上）。表由腳本自建、未 bump
       SCHEMA_VERSION。取代先前的 tx-futures-snapshot（FinMind 版，因不涵蓋 CCF 而退役）。
+      2026-09-03 擴充：08:45／13:45 兩個日盤時點自動加抓 biglot 隔夜訊號宇宙的 44 檔個股期貨
+      （僅 -F 日盤；代碼動態讀 _live_calib.json 的 fut_code，兩碼者補 F；calib 缺失時退回
+      TXF/CCF 不擋原功能；MIS 請求 50 檔一批、0.35s 節流，首批失敗才算 BLOCKER）。
+      目的：補「已驗證的隔夜訊號 → 可執行」的最後資料缺口——13:30-13:45 進場基差與
+      08:45 出場時點的期現價差，累積 2~3 個月後可直接裁決期貨執行版是否成立。
+      2026-09-03 13:45 dry-run 實測 48 筆全到位（含南電 RKF、南亞科 CYF 等）。
 
   - label: us-overnight-futures-sync
     category: collect
@@ -674,8 +698,16 @@ jobs:
       已同步。訊號本身統計為真（無過濾 t=7.3），但可成交的殘餘未達採納門檻。
       2026-09-03 起加寄兩封早盤觀察信（09:15／09:35 · paper-trade 前瞻紀錄 · 不下單）：
       三欄各前 8（①A原始 ②同業相對 ③A+今晨跳空），皆排除金融、跳過已鎖漲停、附現價與
-      距漲停%。凍結裁決判準：累積 ≥40 交易日後，日均毛 ≥+35bps 且勝日 ≥60% 的欄位才續命
-      （出場基準＝隔日 09:00 開盤集合競價）。回測參考（09:30版/126日）三欄 +29.4/+39.1/
+      距漲停%。凍結裁決判準（09-03 深夜修訂為兩層，當時前瞻資料尚未開始累積）：≥40 交易日後，
+      日均毛 ≥+35bps 且勝日 ≥60% → 續命；+15~+35 且 t≥1.5 → 延長至 80 日再裁；其餘收攤
+      （40 日 SE≈17bps，單一門檻對真值 +25 檢定力不足；出場基準＝隔日 09:00 開盤集合競價）。
+      live(Fubon Lee-Ready) vs 回測(FinMind TickType) 同日八檔對帳：Spearman 0.95、
+      平均絕對差 3.7/全距 61，唯寬價差股 8046 差 20.8 點且散戶 imb 翻號 ——
+      跳動 >35bps 者名次僅供參考（信中已加註）。裁決日追加兩項零改動檢定（事前登記）：
+      (a) 13:30 信空方名單的「空腿 vs 41檔籃子」前瞻超額——回測 +40.4bps/日(t=5.61,月正6/6)
+      但僅能以籃子為基準衡量；TXF 實際對沖經真 TAIEX 驗證會把 +46 打成 -46（熱門籃子隔夜
+      溢價 ~50-90bps/日非指數可對沖），故此項純驗訊號、非可執行宣稱。(b) 空腿×RRG極端象限
+      條件化（三次耳語 t≈1.9-2.1，nowcast 版翻負，預期死）。回測參考（09:30版/126日）三欄 +29.4/+39.1/
       +33.3 bps/日、後半 +15.6/+14.6/+29.7、成本≈27bps —— 期望值按後半看。昨收由
       stock_daily_bars 唯讀載入（失敗時跳空欄缺、不擋信）。
 
