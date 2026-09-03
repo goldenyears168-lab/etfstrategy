@@ -53,7 +53,7 @@ RETAIL_LOTS = 1            # 散戶門檻：單筆張數（固定金額門檻對
 WEAK_CATS = {"金融保險"}
 OUT_DIR = DATA_DIR.parent / "cache" / "biglot_live_watch"
 MAIL_AT = ["12:00", "13:00", "13:30"]
-EARLY_MAIL_AT = ["09:15", "09:35"]   # 早盤觀察信（paper-trade 前瞻紀錄，2026-09-03 起）
+EARLY_MAIL_AT = ["09:15", "09:30"]   # 早盤觀察信（paper-trade 前瞻紀錄；09-04 起第二封由 09:35 改 09:30，與回測截點對齊）
 _PCLOSE: dict[str, float] = {}       # 昨收（算今晨跳空與漲停價）
 END_HHMM = (13, 32)
 TOPN = 10
@@ -231,6 +231,60 @@ def _load_prev_close(sids) -> dict[str, float]:
     except Exception as exc:  # noqa: BLE001
         print(f"prev close load failed: {exc!r}", flush=True)
         return {}
+
+
+def futopt_open_report(cal, for_date: str | None = None) -> tuple[str, str]:
+    """09:00 個股期貨開盤信：讀 08:45 快照（taifex-intraday-snapshot 落的 DB），
+    列 45 檔期貨開盤價與隱含跳空（期貨開盤 vs 現貨昨收）。快照缺料時寄警示不擋流程。"""
+    import sqlite3
+    day = for_date or _now().strftime("%Y-%m-%d")
+    subj = f"個股期貨開盤 {_now():%m/%d} 09:00"
+    code2meta = {}
+    for r in cal["universe"]:
+        c = r.get("fut_code") or ""
+        code2meta[c if len(c) >= 3 else c + "F"] = (r["sid"], r["name"])
+    try:
+        con = sqlite3.connect(f"file:{DEFAULT_DB_PATH}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT product, contract, open_price, last_price, ref_price, total_volume "
+            "FROM futures_intraday_snapshot "
+            "WHERE tw_session_date=? AND capture_label='08:45' AND session='day'",
+            (day,)).fetchall()
+        con.close()
+    except Exception as exc:  # noqa: BLE001
+        return subj, f"讀取 08:45 快照失敗：{exc!r}"
+    txf = next((r for r in rows if r[0] == "TXF"), None)
+    recs = []
+    for prod, ct, opn, last, ref, vol in rows:
+        if prod not in code2meta:
+            continue
+        sid, nm = code2meta[prod]
+        px = opn or last
+        pc = _PCLOSE.get(sid)
+        recs.append((sid, nm, px,
+                     (px / ref - 1) * 100 if (px and ref) else None,
+                     (px / pc - 1) * 100 if (px and pc) else None,
+                     vol or 0))
+    if not recs:
+        return subj, (f"⚠ {day} 08:45 個股期貨快照無資料（taifex-intraday-snapshot 未跑或失敗），"
+                      "本信無內容。TXF：" + (f"{txf[1]} 開 {txf[2]}" if txf else "亦缺"))
+    recs.sort(key=lambda x: (x[4] is None, -(x[4] or 0)))
+    L = [f"【09:00 · 個股期貨開盤】{_now():%Y-%m-%d %H:%M}　覆蓋 {sum(1 for r in recs if r[2])}"
+         f"/{len(code2meta)} 檔（08:45 快照）",
+         "隱含跳空＝期貨開盤 vs 現貨昨收；現貨 09:00 開盤競價即將撮合，此為前 15 分鐘的預覽", ""]
+    if txf and (txf[2] or txf[3]) and txf[4]:
+        tp = txf[2] or txf[3]
+        L.append(f"TXF {txf[1]} 開盤 {tp:g}（vs 昨結 {(tp/txf[4]-1)*100:+.2f}%）")
+        L.append("")
+    L.append(f"{'代號':<6}{'名稱':<10}{'期貨開盤':>9}{'vs昨結%':>8}{'隱含跳空%':>10}{'量':>7}")
+    for sid, nm, px, chg, gap, vol in recs:
+        L.append(f"{sid:<6}{nm:<10}{(f'{px:g}' if px else 'n/a'):>9}"
+                 f"{(f'{chg:+.2f}' if chg is not None else 'n/a'):>8}"
+                 f"{(f'{gap:+.2f}' if gap is not None else 'n/a'):>10}{vol:>7,.0f}")
+    L += ["", "· 用途：昨日 13:30 名單的出場預覽（出場基準＝現貨 09:00 開盤競價）與今晨風向",
+          "· 08:45~09:00 期貨獨走與現貨開盤的基差正在累積驗證，暫勿把此欄當精確跳空",
+          "· 關閉本信：.env RUN_FUTOPT_OPEN_MAIL=0"]
+    return subj, "\n".join(L)
 
 
 def early_report(cal, label) -> tuple[str, str]:
@@ -466,11 +520,16 @@ def main() -> int:
         hm = _now().strftime("%H:%M")
         if hm >= f"{END_HHMM[0]:02d}:{END_HHMM[1]:02d}":
             break
-        for t in EARLY_MAIL_AT + MAIL_AT:
+        for t in ["09:00"] + EARLY_MAIL_AT + MAIL_AT:
             if hm >= t and t not in sent:
                 sent.add(t)
                 try:
-                    if t in EARLY_MAIL_AT:
+                    if t == "09:00":
+                        import os as _os
+                        if _os.environ.get("RUN_FUTOPT_OPEN_MAIL", "1") != "1":
+                            continue
+                        sub, body = futopt_open_report(cal)
+                    elif t in EARLY_MAIL_AT:
                         sub, body = early_report(cal, t)
                     else:
                         sub, body = build_report(cal, t)
