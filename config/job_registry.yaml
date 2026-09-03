@@ -204,7 +204,18 @@ jobs:
   - label: dayflip-short-poll
     category: order
     order_capable: true
-    status: enabled
+    status: retired
+    retired_at: "2026-09-02"
+    retired_reason: >
+      dayflip-futures-short 研究線降級 rejected（四路平行研究，死因互不重疊：訊號層
+      無增量 permutation p=0.22~0.50、執行層 28.4% 鎖漲停回補不了吃掉 70~96%、
+      52% 報酬來自 08:45 印價、出場層 38 格 Bonferroni 後全滅）。長邊一併收，理由
+      較弱屬營運決策（從未持倉、共用同一條訊號管線、replay 損益伴隨資金池 2.84 倍
+      超額）。退役時兩邊皆空手（短邊 no_signal、長邊 positions:[]）。
+      三層都關：config/order.yaml enabled=false/dry_run=true/auto_submit=false、
+      launchctl bootout + disable、plist 移到 ${GOLDENSTOCKS_DATA_DIR}/retired-plists/。
+      程式碼與 FROZEN_SPEC_V1.json 一律未動，要研究時仍可手動跑。
+      完整判決見 config/research.yaml 同名 topic 與 memory dayflip-short-verdict。
     enabled_since: "2026-08-07"
     schedule: "KeepAlive worker（2026-08-08 起，取代 StartInterval 60s）· interval≈20s in-window · weekdays 08:44-13:41"
     description: >
@@ -229,7 +240,18 @@ jobs:
     category: monitoring
     order_capable: false  # 自己不呼叫下單API；但可透過kill switch檔案間接觸發
       # dayflip_short_order.py既有的halted/force_closed路徑
-    status: enabled
+    status: retired
+    retired_at: "2026-09-02"
+    retired_reason: >
+      dayflip-futures-short 研究線降級 rejected（四路平行研究，死因互不重疊：訊號層
+      無增量 permutation p=0.22~0.50、執行層 28.4% 鎖漲停回補不了吃掉 70~96%、
+      52% 報酬來自 08:45 印價、出場層 38 格 Bonferroni 後全滅）。長邊一併收，理由
+      較弱屬營運決策（從未持倉、共用同一條訊號管線、replay 損益伴隨資金池 2.84 倍
+      超額）。退役時兩邊皆空手（短邊 no_signal、長邊 positions:[]）。
+      三層都關：config/order.yaml enabled=false/dry_run=true/auto_submit=false、
+      launchctl bootout + disable、plist 移到 ${GOLDENSTOCKS_DATA_DIR}/retired-plists/。
+      程式碼與 FROZEN_SPEC_V1.json 一律未動，要研究時仍可手動跑。
+      完整判決見 config/research.yaml 同名 topic 與 memory dayflip-short-verdict。
     enabled_since: "2026-08-13"
     schedule: "StartInterval 120s（比照momentum-rotation-watch）· launcher自濾 weekdays 08:44-13:41，盤中約150次呼叫/天"
     description: >
@@ -257,7 +279,18 @@ jobs:
   - label: dayflip-post-dump-long-poll
     category: order
     order_capable: true
-    status: enabled
+    status: retired
+    retired_at: "2026-09-02"
+    retired_reason: >
+      dayflip-futures-short 研究線降級 rejected（四路平行研究，死因互不重疊：訊號層
+      無增量 permutation p=0.22~0.50、執行層 28.4% 鎖漲停回補不了吃掉 70~96%、
+      52% 報酬來自 08:45 印價、出場層 38 格 Bonferroni 後全滅）。長邊一併收，理由
+      較弱屬營運決策（從未持倉、共用同一條訊號管線、replay 損益伴隨資金池 2.84 倍
+      超額）。退役時兩邊皆空手（短邊 no_signal、長邊 positions:[]）。
+      三層都關：config/order.yaml enabled=false/dry_run=true/auto_submit=false、
+      launchctl bootout + disable、plist 移到 ${GOLDENSTOCKS_DATA_DIR}/retired-plists/。
+      程式碼與 FROZEN_SPEC_V1.json 一律未動，要研究時仍可手動跑。
+      完整判決見 config/research.yaml 同名 topic 與 memory dayflip-short-verdict。
     enabled_since: "2026-08-09"
     schedule: "KeepAlive worker（比照 dayflip-short-poll）· interval≈60s in-window · weekdays 08:44-13:41"
     description: >
@@ -345,7 +378,14 @@ jobs:
     order_capable: false
     status: enabled
     schedule: "KeepAlive 常駐（獨立於 futopt-books-collect 的第二條 websocket 連線）"
-    description: "個股期貨 19 檔五檔＋逐筆 · 唯讀 · 2026-08-21 建立。與指數核心 8 檔分開跑：合用一條連線時 27×4=108 個訂閱撞上券商上限，當天指數組日盤掉 52%。刻意不在 install-launchd.sh 的 LABELS 陣列，安裝方式見 scripts/launchd/futopt-books-collect-stocks.command 檔頭"
+    description: "個股期貨五檔＋逐筆 · 唯讀 · 2026-08-21 建立。2026-09-01 換池：FUTOPT_STOCK_ROOTS 改為 momentum-rotation v2 宇宙 18 檔（聯電 CC 留在指數連線的 CCF 不搬），舊池（12+7）停收。同日二次換池：v2 死亡帶 7 root（CG/DI/GY/DA/QX/PL/QZ，tick 成本 33-64bp 永不可交易）換成池 v3 候選 7 root（LE 玉晶光/OW 環球晶/IX 景碩/GU 全新/NA 穩懋/ND 威剛/QD 台勝科），維持 18 roots 同一條連線。⚠️ 帳號連線上限實測：第三條個股期 ws 連線 09:51 撞 Maximum number of connections reached，勿再開新連線（futopt-books-collect-newpool 已建檔即廢，模板留在 repo 但不得 bootstrap）。凌晨 tickers() 查空時靠 futures_symbol_cache.json fallback（已播種全池 {root}FI6）。與指數核心 8 檔分開跑：合用一條連線時 27×4=108 個訂閱撞上券商上限，當天指數組日盤掉 52%。刻意不在 install-launchd.sh 的 LABELS 陣列，安裝方式見 scripts/launchd/futopt-books-collect-stocks.command 檔頭"
+
+  - label: limitup-books-collect
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "KeepAlive 常駐 · 平日 08:55–13:35 自行判窗，窗外 sleep"
+    description: "現股漲停候選的五檔委託簿收集 · 唯讀 · 2026-09-02 建立。**走 TWSE MIS 公開 API，不佔富邦 ws 連線額度** —— mini 已有 5 條富邦 ws（tmf-channel-poll／momentum-rotation-poll／futopt-books-collect／futopt-books-collect-stocks／futopt-fill-listener），2026-09-01 09:51 第 6 條撞 Maximum number of connections reached、指數組日盤掉 52%，故本收集器刻意走另一條路。動機：漲停鎖不鎖得住取決於漲停價上「買方排隊量的補進速度」，逐筆成交只看得到隊列被吃掉多少、看不到補進多少；成交側那一半已實測判別力不足（consume AUC 0.34，IS/OOS 一致）。三層輪詢：掃描層每 300s 把 1971 檔宇宙輪一遍、漲幅 >=+6% 進候選名單（只加不減，上限 180）；候選層每 5s 取五檔；同儕層每 15s 取五檔（候選的統計同儕，上限 250，候選永遠優先佔位）。兩層的丟棄數都會 log、不靜默截斷。POLL_SEC=5 是保守值（MIS 是快照服務、公認約 5 秒更新），收集器自己統計重複快照率、每 10 分鐘印一次，第一天收完可用證據調。相同揭示時間+累積量+五檔的快照會去重不寫。請求間隔 0.35s 禮貌節流。輸出 ${GOLDENSTOCKS_DATA_DIR}/cache/limitup_books/limitup_books_YYYY-MM-DD.jsonl（含 lu_bid_qty＝漲停價買方排隊量、tier=cand/peer）。同儕表 _peer_map.json 由 build_peer_map.py 建（近 60 日日報酬相關最高 5 檔、要求相關 >0.3，2275 檔、最高相關中位 0.66），launcher 每 7 天自動重建。⚠️ 建同儕表時 close<=0 會讓 log 產生 -inf、NaN 污染整個相關矩陣（2026-09-03 踩過，已加 assert）。市場別對照表 _market_map.json 首次執行自動探測（2329 檔中 1971 檔在 MIS 上，其餘多為興櫃、本無漲跌停）。刻意不在 install-launchd.sh 的 LABELS 陣列，安裝方式見 scripts/launchd/limitup-books-collect.command 檔頭"
 
   - label: pivot-wall-daily
     category: collect
@@ -585,6 +625,44 @@ jobs:
       scripts/launchd/chip-lot-probe.command 檔頭。開關：.env RUN_CHIP_LOT_PROBE（預設 1）。
       2026-08-28 smoke 驗證：第三條連線登入/快照/訂閱 ack 全通過。
 
+  - label: biglot-live-watch
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 09:00（一次性，13:32 自動退出）"
+    description: >-
+      大戶盤中佈局監看：09:00 起訂閱 45 檔 trades 累積「大戶淨主動買」，
+      12:00 / 13:00 / 13:30 各寄一封多空前十名，收盤後再一封。
+      大戶定義＝單筆張數 >= 該股 P99（固定金額門檻對高價股失效：500萬對大立光僅 0.7 張）；
+      內外盤用 Lee-Ready；已排除 isTrial 試撮與 isClose 收盤競價。
+      訊號預測隔日開盤跳空，非當日走勢（純盤中版本實測 +1.9~+9.6 bps 全不顯著）。
+      **必須 09:00 起算**：全場 IC +0.151，只取 12:00-13:00 掉到 +0.068 且對全場零增量。
+      宇宙＝PIT tick 宇宙 ∩ 個股期貨日均量>=500 口（兩腿皆可做；期貨放空無平盤下限制），
+      定義於 ${GOLDENSTOCKS_DATA_DIR}/data/cache/pit_universe_tick/_live_calib.json。
+      唯讀、無送單路徑；訂閱預算 45×1。刻意不進 install-launchd.sh LABELS（比照
+      chip-lot-probe），安裝見 scripts/launchd/biglot-live-watch.command 檔頭。
+      開關：.env RUN_BIGLOT_LIVE_WATCH（預設 1）。
+      ⚠ 個股層級排名經 IC/命中率/期望報酬三種度量檢定皆不可持續（IS→OOS 相關 ≈0），
+      名單要整組用；成本是生死線（兩腿各 1 跳動已 45 bps，回測 OOS 毛 +91~+120 bps）。
+      2026-09-03 起信尾附「留倉風險儀表」：VIXTWN 一年分位 × 全市場跌停家數（REST 快照
+      2 request）→ 明日個股左尾對照（11 年 n=2,813 實測；118 檢定 null 後唯二存活的風控儀表，
+      見 memory index-gap-prediction-118-tests-null）。大戶門檻同日改為固定 500 萬（自適應 P99
+      經 IS-only 重估證實過擬）。
+
+  - label: vixtwn-daily-sync
+    category: collect
+    order_capable: false
+    status: enabled
+    schedule: "weekdays 20:30"
+    description: >-
+      VIXTWN/VIX 日頻同步：sync_vixtwn.py（官方 finmind TaiwanOptionVix + Yahoo ^VIX，
+      --days 7 自動補洞）＋ sync_vixtwn_computed.py（TXO 自算備援，近兩月，與官方相關 0.989）。
+      根因：sync_vixtwn.py 檔頭寫「可排程」但從未被排程，2026-08-16 後停更 20 天，
+      2026-09-03 留倉風險儀表上線時發現（陳舊值 30.22 vs 真值 26.10，分位判定會失真）。
+      下游消費者：biglot-live-watch 的留倉風險儀表、TMF VIXTWN gate、morning_gate_brief。
+      standalone 安裝（比照 chip-lot-probe），見 scripts/launchd/vixtwn-daily-sync.command。
+      開關：.env RUN_VIXTWN_DAILY_SYNC（預設 1）。
+
   - label: second-disp-expert-pool-watch
     category: research
     order_capable: false
@@ -641,7 +719,18 @@ jobs:
   - label: dayflip-seat-weekly-refresh
     category: research
     order_capable: false
-    status: enabled
+    status: retired
+    retired_at: "2026-09-02"
+    retired_reason: >
+      dayflip-futures-short 研究線降級 rejected（四路平行研究，死因互不重疊：訊號層
+      無增量 permutation p=0.22~0.50、執行層 28.4% 鎖漲停回補不了吃掉 70~96%、
+      52% 報酬來自 08:45 印價、出場層 38 格 Bonferroni 後全滅）。長邊一併收，理由
+      較弱屬營運決策（從未持倉、共用同一條訊號管線、replay 損益伴隨資金池 2.84 倍
+      超額）。退役時兩邊皆空手（短邊 no_signal、長邊 positions:[]）。
+      三層都關：config/order.yaml enabled=false/dry_run=true/auto_submit=false、
+      launchctl bootout + disable、plist 移到 ${GOLDENSTOCKS_DATA_DIR}/retired-plists/。
+      程式碼與 FROZEN_SPEC_V1.json 一律未動，要研究時仍可手動跑。
+      完整判決見 config/research.yaml 同名 topic 與 memory dayflip-short-verdict。
     schedule: "weekly, Fri 21:30"
     description: >
       隔日沖策略（dayflip-futures-short v1，見
