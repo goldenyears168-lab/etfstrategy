@@ -153,12 +153,79 @@ def _f(v):
         return None
 
 
+def _send_open_mail(rows: list[dict], *, preview: bool) -> None:
+    """45 檔個股期貨 08:45 開盤信：期貨開盤價與隱含跳空（vs 現貨昨收）。"""
+    import json
+    from datetime import timedelta
+
+    from stock_db import DATA_DIR
+
+    now = datetime.now(tz=TAIPEI)
+    cal = json.loads((DATA_DIR / "cache" / "pit_universe_tick" / "_live_calib.json").read_text())
+    code2meta = {}
+    for r in cal["universe"]:
+        c = r.get("fut_code") or ""
+        code2meta[c if len(c) >= 3 else c + "F"] = (r["sid"], r["name"])
+    day_rows = [r for r in rows if r["session"] == "day" and r["product"] in code2meta]
+    pc: dict[str, float] = {}
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{DEFAULT_DB_PATH}?mode=ro", uri=True)
+        sids = [code2meta[r["product"]][0] for r in day_rows]
+        since = (now.date() - timedelta(days=12)).isoformat()
+        q = ("SELECT stock_id, trade_date, close FROM stock_daily_bars "
+             f"WHERE trade_date >= ? AND stock_id IN ({','.join('?' * len(sids))}) "
+             "ORDER BY trade_date")
+        for sid, d, c in con.execute(q, [since] + sids):
+            if d < now.strftime("%Y-%m-%d") and c:
+                pc[sid] = float(c)
+        con.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARN: 昨收載入失敗，隱含跳空欄缺: {exc!r}", file=sys.stderr)
+    recs = []
+    for r in day_rows:
+        sid, nm = code2meta[r["product"]]
+        px = r.get("open_price") or r.get("last_price")
+        ref = r.get("ref_price")
+        recs.append((sid, nm, px,
+                     (px / ref - 1) * 100 if (px and ref) else None,
+                     (px / pc[sid] - 1) * 100 if (px and pc.get(sid)) else None,
+                     r.get("total_volume") or 0))
+    recs.sort(key=lambda x: (x[4] is None, -(x[4] or 0)))
+    txf = next((r for r in rows if r["product"] == "TXF" and r["session"] == "day"), None)
+    L = [f"【08:46 · 個股期貨開盤】{now:%Y-%m-%d %H:%M}　覆蓋 {sum(1 for x in recs if x[2])}"
+         f"/{len(code2meta)} 檔",
+         "隱含跳空＝期貨開盤 vs 現貨昨收；現貨 09:00 才開盤，此為提前 14 分鐘的預覽", ""]
+    if txf and (txf.get("open_price") or txf.get("last_price")) and txf.get("ref_price"):
+        tp = txf.get("open_price") or txf.get("last_price")
+        L.append(f"TXF {txf['contract']} 開盤 {tp:g}（vs 昨結 {(tp / txf['ref_price'] - 1) * 100:+.2f}%）")
+        L.append("")
+    L.append(f"{'代號':<6}{'名稱':<10}{'期貨開盤':>9}{'vs昨結%':>8}{'隱含跳空%':>10}{'量':>7}")
+    for sid, nm, px, chg, gap, vol in recs:
+        L.append(f"{sid:<6}{nm:<10}{(f'{px:g}' if px else 'n/a'):>9}"
+                 f"{(f'{chg:+.2f}' if chg is not None else 'n/a'):>8}"
+                 f"{(f'{gap:+.2f}' if gap is not None else 'n/a'):>10}{vol:>7,.0f}")
+    L += ["", "· 用途：昨日 13:30 名單的出場預覽（出場基準＝現貨 09:00 開盤競價）與今晨風向",
+          "· 09:00 biglot worker 會再寄一封同源版本；關閉：.env RUN_FUTOPT_OPEN_MAIL=0"]
+    body = chr(10).join(L)
+    subj = f"個股期貨開盤 {now:%m/%d} 08:46"
+    if preview:
+        print("---- 開盤信預覽 ----")
+        print(subj)
+        print(body)
+        return
+    from notify_email import send_alert
+    send_alert(subj, body)
+    print("open-mail sent", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="期交所盤中/夜盤報價快照")
     ap.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     ap.add_argument("--products", nargs="*", default=list(PRODUCTS))
     ap.add_argument("--label", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--mail-preview", action="store_true", help="只印 08:45 開盤信不寄送（測試）")
     args = ap.parse_args(argv)
 
     now = datetime.now(tz=TAIPEI)
@@ -214,6 +281,14 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         print("BLOCKER: 零筆報價", file=sys.stderr)
         return 1
+    # 08:45 開盤信（2026-09-04 起，與 biglot worker 的 09:00 版同源；本封搶先於採集完成當下寄出）
+    import os as _os
+    if args.mail_preview or (label == "08:45" and not args.dry_run
+                             and _os.environ.get("RUN_FUTOPT_OPEN_MAIL", "1") == "1"):
+        try:
+            _send_open_mail(rows, preview=args.mail_preview)
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARN: 開盤信失敗（不擋快照）: {exc!r}", file=sys.stderr)
     for r in rows:
         print(f"  {r['tw_session_date']} {r['capture_label']} {r['contract']:10s} "
               f"{r['session']:5s} last={r['last_price']} vol={r['total_volume']} "
