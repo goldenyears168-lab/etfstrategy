@@ -55,6 +55,9 @@ OUT_DIR = DATA_DIR.parent / "cache" / "biglot_live_watch"
 MAIL_AT = ["12:00", "13:00", "13:30"]
 EARLY_MAIL_AT = ["09:15", "09:30"]   # 早盤觀察信（paper-trade 前瞻紀錄；09-04 起第二封由 09:35 改 09:30，與回測截點對齊）
 _PCLOSE: dict[str, float] = {}       # 昨收（算今晨跳空與漲停價）
+_PREVCONC: dict[str, float] = {}     # 昨日同向分數（大戶名次+散戶名次，0~2；啟動時載入）
+_TODAY_CONCORD: dict[str, float] = {}
+_CONC_STATE = OUT_DIR / "concord_score.json"   # 落當日同向分數供隔日讀
 END_HHMM = (13, 32)
 TOPN = 10
 _STOP = False
@@ -390,6 +393,26 @@ def _weak(r) -> str:
     return "!" if r.get("cat") in WEAK_CATS else ""
 
 
+def _load_prev_concord() -> None:
+    """載入前一交易日的同向分數（供 concord_block 加『昨日分』欄）。檔案缺失或非昨日則留空。"""
+    import json as _j
+    try:
+        d = _j.loads(_CONC_STATE.read_text())
+        _PREVCONC.update({k: float(v) for k, v in d.get("scores", {}).items()})
+        print(f"prev concord loaded {len(_PREVCONC)} (asof {d.get('date')})", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"prev concord none: {exc!r}", flush=True)
+
+
+def _save_concord(scores: dict) -> None:
+    import json as _j
+    try:
+        _CONC_STATE.write_text(_j.dumps({"date": _now().strftime("%Y-%m-%d"), "scores": scores},
+                                        ensure_ascii=False))
+    except Exception as exc:  # noqa: BLE001
+        print(f"save concord failed: {exc!r}", flush=True)
+
+
 def concord_block(rows) -> list[str]:
     """大戶 ∩ 散戶 同向格（2026-09-03 新增 · 觀察用，不取代上方 A 名單）。
 
@@ -418,19 +441,27 @@ def concord_block(rows) -> list[str]:
                  key=lambda r: r["s_"])
     L = ["", "【大戶 ∩ 散戶 同向】（觀察組 · 不取代上方名單 · 判準見程式註解）",
          f"{'#':<3}{'代號':<6}{'名稱':<10}{'大戶imb':>9}{'散戶imb':>9}"
-         f"{'大戶淨':>9}{'散戶淨':>9}{'開盤起%':>8}{'跳動bps':>8}"]
+         f"{'大戶淨':>9}{'散戶淨':>9}{'昨日分':>7}{'開盤起%':>8}{'跳動bps':>8}"]
     for tag, arr in (("多方（大戶買≥P50 ∩ 散戶買≥P67）", lng),
                      ("空方（大戶賣≤P50 ∩ 散戶賣≤P33）", sht)):
         L.append(f"── {tag}：{len(arr)} 檔通過 ──")
         if not arr:
             L.append("   （今日無標的通過閘門）")
         for i, r in enumerate(arr[:5], 1):
+            yp = _PREVCONC.get(r['sid'])
+            ytag = ("連" if yp is not None and yp >= 1.33 else
+                    "逆" if yp is not None and yp <= 0.67 else "")
+            ycol = f"{yp:.2f}{ytag}" if yp is not None else "n/a"
             L.append(f"{i:<3}{r['sid']:<6}{r['name'] + _weak(r):<12}{r['big_imb']:>+9.3f}{r['ret_imb']:>+9.3f}"
-                     f"{r['net']:>9,.0f}{r['ret_net']:>9,.0f}{r['chg']:>+7.2f}%{r['tick_bps']:>8.1f}")
+                     f"{r['net']:>9,.0f}{r['ret_net']:>9,.0f}{ycol:>7}{r['chg']:>+7.2f}%{r['tick_bps']:>8.1f}")
     L.append("· 同向＝大戶與散戶同時偏買（或同時偏賣）；「大戶買、散戶賣」實測無訊號（t=0.73）")
     L.append("· ⚠ 09-03 補驗：同向格入選者 55.7% 收盤鎖漲停（買不到）；跳過鎖死後僅 +13.6bps")
     L.append("  (t=1.01、月正3/6) —— 散戶同向其實大半是「漲停偵測器」。此區塊同屬觀察性，非可執行")
+    L.append("· 昨日分＝前一交易日 大戶名次+散戶名次（>1.33 昨同向買『連』/<0.67 昨同向賣『逆』）；")
+    L.append("  連續同向買隔日 +92bps vs 突發 +46（回測）；今日名單的昨日分供判斷是延續還是突變")
     L.append("· 樣本 126 日、每日僅 3~5 檔，單股事件風險大；請與上方 A 名單並行觀察後再判斷")
+    global _TODAY_CONCORD
+    _TODAY_CONCORD = {r["sid"]: round(r["s_"], 3) for r in ok}
     return L
 
 
@@ -530,6 +561,7 @@ def main() -> int:
     vix_hist = _load_vixtwn()
     _PCLOSE.update(_load_prev_close(list(THR)))
     _AVGVOL.update(_load_avg_volume(list(THR)))
+    _load_prev_concord()
     print(f"prev close loaded {len(_PCLOSE)}/{len(THR)} · avg vol {len(_AVGVOL)}/{len(THR)}", flush=True)
     print(f"VIXTWN 史 {len(vix_hist[0])} 日（至 {vix_hist[0][-1] if vix_hist[0] else '無'}）", flush=True)
     ws = session.sdk.marketdata.websocket_client.stock
@@ -578,6 +610,8 @@ def main() -> int:
         sub, body = build_report(cal, "收盤")
         body += "\n\n" + "\n".join(risk_gauge(session, vix_hist))
         send_alert(sub + " (收盤)", body)
+        if _TODAY_CONCORD:
+            _save_concord(_TODAY_CONCORD)
     except Exception as exc:  # noqa: BLE001
         print(f"final mail failed: {exc!r}", flush=True)
     _RAW.close()
