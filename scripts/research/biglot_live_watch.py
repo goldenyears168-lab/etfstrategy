@@ -233,6 +233,31 @@ def _load_prev_close(sids) -> dict[str, float]:
         return {}
 
 
+_AVGVOL: dict[str, float] = {}   # 20 日均量（張，去重雙來源）
+
+
+def _load_avg_volume(sids) -> dict[str, float]:
+    """20 日均量（張）。stock_daily_bars 為雙來源（PK 含 source），先 MAX 去重再平均。"""
+    import sqlite3
+    from datetime import timedelta
+    try:
+        con = sqlite3.connect(f"file:{DEFAULT_DB_PATH}?mode=ro", uri=True)
+        since = (_now().date() - timedelta(days=40)).isoformat()
+        today = _now().strftime("%Y-%m-%d")
+        q = ("SELECT stock_id, trade_date, MAX(volume) FROM stock_daily_bars "
+             f"WHERE trade_date >= ? AND trade_date < ? AND stock_id IN ({','.join('?' * len(sids))}) "
+             "GROUP BY stock_id, trade_date ORDER BY trade_date")
+        hist: dict[str, list] = {}
+        for sid, d, v in con.execute(q, [since, today] + list(sids)):
+            if v:
+                hist.setdefault(sid, []).append(float(v))
+        con.close()
+        return {sid: sum(vs[-20:]) / len(vs[-20:]) / 1000 for sid, vs in hist.items() if vs}
+    except Exception as exc:  # noqa: BLE001
+        print(f"avg volume load failed: {exc!r}", flush=True)
+        return {}
+
+
 def futopt_open_report(cal, for_date: str | None = None) -> tuple[str, str]:
     """09:00 個股期貨開盤信：讀 08:45 快照（taifex-intraday-snapshot 落的 DB），
     列 45 檔期貨開盤價與隱含跳空（期貨開盤 vs 現貨昨收）。快照缺料時寄警示不擋流程。"""
@@ -417,7 +442,9 @@ def build_report(cal, label) -> tuple[str, str]:
             continue
         bl = a["bb"] + a["bs"]
         rl = a.get("rb", 0.0) + a.get("rs", 0.0)
+        g20 = _AVGVOL.get(sid)
         rows.append({**meta[sid], "net": a["bb"] - a["bs"],
+                     "pctavg": (a["bb"] - a["bs"]) / g20 * 100 if g20 else None,
                      "norm": (a["bb"] - a["bs"]) / a["vol"] * 100,
                      "vol": a["vol"], "n": a["n"],
                      "big_imb": (a["bb"] - a["bs"]) / bl if bl else None,
@@ -439,15 +466,17 @@ def build_report(cal, label) -> tuple[str, str]:
          f"用途：{ROLE.get(label, '—')}",
          f"橫斷面離散度 {disp:.2f} → {band}（歷史 P30={p['30']} 中位={p['50']} P70={p['70']}）",
          "",
-         f"{'#':<3}{'代號':<6}{'名稱':<10}{'訊號%':>8}{'大戶淨(張)':>11}{'今日%':>8}{'期貨量':>8}{'跳動bps':>8}"]
+         f"{'#':<3}{'代號':<6}{'名稱':<10}{'訊號%':>8}{'大戶淨(張)':>11}{'佔均量%':>8}{'今日%':>8}{'期貨量':>8}{'跳動bps':>8}"]
     L.append("── 做多前 10 ──")
     for i, r in enumerate(rows[:TOPN], 1):
+        pa = f"{r['pctavg']:+7.1f}%" if r.get("pctavg") is not None else "    n/a"
         L.append(f"{i:<3}{r['sid']:<6}{r['name'] + _weak(r):<12}{r['norm']:>+8.1f}{r['net']:>11,.0f}"
-                 f"{r['chg']:>+7.2f}%{r['fut_vol']:>8,}{r['tick_bps']:>8.1f}")
+                 f"{pa:>8}{r['chg']:>+7.2f}%{r['fut_vol']:>8,}{r['tick_bps']:>8.1f}")
     L.append("── 做空前 10 ──")
     for i, r in enumerate(rows[-TOPN:][::-1], 1):
+        pa = f"{r['pctavg']:+7.1f}%" if r.get("pctavg") is not None else "    n/a"
         L.append(f"{i:<3}{r['sid']:<6}{r['name'] + _weak(r):<12}{r['norm']:>+8.1f}{r['net']:>11,.0f}"
-                 f"{r['chg']:>+7.2f}%{r['fut_vol']:>8,}{r['tick_bps']:>8.1f}")
+                 f"{pa:>8}{r['chg']:>+7.2f}%{r['fut_vol']:>8,}{r['tick_bps']:>8.1f}")
     if excluded:
         ex = sorted(excluded, key=lambda r: -abs(r["norm"]))[:6]
         L.append(f"· 已排除 {'／'.join(sorted(WEAK_CATS))} {len(excluded)} 檔（不參與上方排名）："
@@ -459,6 +488,8 @@ def build_report(cal, label) -> tuple[str, str]:
           "· 訊號預測的是隔日開盤跳空，不是今天收盤前的走勢",
           "· 個股層級排名經三種度量檢定皆不可持續（IC/命中率/期望報酬 IS→OOS 相關 ≈0）",
           "  → 這份名單要整組用（前10檔一起），不要只挑其中一兩檔",
+          "· 佔均量%＝大戶淨張 ÷ 該股20日均量：訊號%量的是「佔今天的量」，佔均量%量的是",
+          "  「對這檔股票平常而言算不算大」；佔均量 >20% 屬重砲級（09-03 南亞科 -40%）",
           "· 逐檔訊號強弱有 90.6% 是量測噪音（真變異 τ=0.032 vs 噪音 σ=0.098），",
           "  「這檔特別準」的說法沒有統計基礎；歷史 t 值篩選在樣本外反而更差",
           "",
@@ -498,7 +529,8 @@ def main() -> int:
     print(f"session ready · 宇宙 {len(THR)} 檔 · 唯讀", flush=True)
     vix_hist = _load_vixtwn()
     _PCLOSE.update(_load_prev_close(list(THR)))
-    print(f"prev close loaded {len(_PCLOSE)}/{len(THR)}", flush=True)
+    _AVGVOL.update(_load_avg_volume(list(THR)))
+    print(f"prev close loaded {len(_PCLOSE)}/{len(THR)} · avg vol {len(_AVGVOL)}/{len(THR)}", flush=True)
     print(f"VIXTWN 史 {len(vix_hist[0])} 日（至 {vix_hist[0][-1] if vix_hist[0] else '無'}）", flush=True)
     ws = session.sdk.marketdata.websocket_client.stock
     ws.on("connect", lambda: _raw("connect", None))
